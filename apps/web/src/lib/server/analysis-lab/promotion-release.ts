@@ -12,6 +12,7 @@ import { LAB_DETERMINISTIC_AUDIT_POLICY_VERSION } from "./deterministic-audit-re
 import { analysisLabDir } from "./run-store";
 
 export const PROMOTION_RELEASE_SCHEMA = "analysis-lab-promotion-release-v1" as const;
+export const PROMOTION_AGGREGATE_SCHEMA = "analysis-lab-promotion-aggregate-v2" as const;
 export const PROMOTION_DRY_RUN_SCHEMA = "analysis-lab-promotion-dry-run-v1" as const;
 export const PROMOTION_APPROVAL_SCHEMA = "analysis-lab-promotion-approval-v1" as const;
 export const VERIFIED_LOCAL_LAB_SOURCE_SCHEMA = "verified-local-lab-source-v1" as const;
@@ -296,119 +297,25 @@ export function isPromotableDeepAnalysisReadiness(value: unknown): boolean {
     || isConditionalPromotableDeepAnalysisReadiness(value);
 }
 
-export type PromotionAggregateGateId =
-  | "strict_precision"
-  | "wrong_rate"
-  | "missed_per_notice"
-  | "coverage_ratio"
-  | "cost_per_notice_usd"
-  | "structured_ratio";
-
-export interface PromotionAggregateVerdictCounts {
-  correct: number;
-  needsEdit: number;
-  wrong: number;
-  unsure: number;
-}
-
-export interface PromotionAggregateEffectiveCounts extends PromotionAggregateVerdictCounts {
-  missed: number;
-}
-
-/**
- * 조건부 local-lab plan에서 이미 매칭 계산에서 억제한 ranking-only 오류를 정확성·누락
- * 게이트의 실패로 다시 세지 않는다. 원래 totals는 manifest에 그대로 보존하고, 이 함수의
- * effective 값만 게이트 계산에 사용한다.
- */
-export function promotionAggregateEffectiveCounts(
-  plans: readonly Pick<PromotionReleasePlanItem, "promotionPlan">[],
-  counts: PromotionAggregateEffectiveCounts,
-): PromotionAggregateEffectiveCounts {
-  const deferred = plans.reduce((total, item) => {
-    const risk = item.promotionPlan.reviewRisk;
-    if (!risk || risk.disposition !== "conditional") return total;
-    return {
-      needsEdit: total.needsEdit + risk.suppressedVerdicts.needsEdit,
-      wrong: total.wrong + risk.suppressedVerdicts.wrong,
-      unsure: total.unsure + risk.suppressedVerdicts.unsure,
-      missed: total.missed + risk.deferredMissedConditions,
-    };
-  }, { needsEdit: 0, wrong: 0, unsure: 0, missed: 0 });
-  return {
-    correct: counts.correct,
-    needsEdit: Math.max(0, counts.needsEdit - deferred.needsEdit),
-    wrong: Math.max(0, counts.wrong - deferred.wrong),
-    unsure: Math.max(0, counts.unsure - deferred.unsure),
-    missed: Math.max(0, counts.missed - deferred.missed),
-  };
-}
-
-/**
- * 일반 사람 검수 release의 unsure는 기존처럼 미확정 판정으로 정밀도 분모에 남긴다.
- * production deep-analysis release에서는 자동 검수 결정이 봉인한 unsure가 모두
- * 사용자 확인 질문으로 이관된 deferral이므로 확정 판정의 정밀도/오류율 분모에서 뺀다.
- */
-export function promotionAggregateDecidedCount(
-  plans: readonly Pick<
-    PromotionReleasePlanItem,
-    "deepAnalysisReadiness" | "promotionPlan"
-  >[],
-  verdicts: PromotionAggregateVerdictCounts,
-): number {
-  const effective = promotionAggregateEffectiveCounts(plans, {
-    ...verdicts,
-    missed: 0,
-  });
-  const deferredUnsure = isPromotableAnalysisRelease(plans)
-    ? effective.unsure
-    : 0;
-  return (
-    effective.correct
-    + effective.needsEdit
-    + effective.wrong
-    + effective.unsure
-    - deferredUnsure
-  );
-}
-
-/**
- * 사람 검수 실험 release의 6개 게이트는 그대로 유지한다. 다만 독립 감사와 matcher
- * readiness까지 봉인된 production deep-analysis release와 독립 감사된 단일 local
- * conditional canary에서는 정확성·누락과 source drift를 발행 차단 조건으로 유지한다.
- * 상대 coverage와 structured 비율은 도입 성과 지표라 개별 공고의 문서 특성만으로
- * 안전한 conditional 발행을 막지 않는다. API 실행의 비용은 계속 차단하지만,
- * claude-cli costUsd는 구독 사용량을 API 단가로 환산한 명목값이므로 release 종류와
- * 관계없이 실제 추가 지출 게이트로 사용하지 않고 관찰 지표로만 남긴다.
- */
-export function isPromotionAggregateGateBlocking(
-  plans: readonly Pick<
-    PromotionReleasePlanItem,
-    "deepAnalysisReadiness" | "promotionPlan" | "transport"
-  >[],
-  gateId: PromotionAggregateGateId,
-): boolean {
-  if (
-    gateId === "cost_per_notice_usd"
-    && plans.length > 0
-    && plans.every((item) => item.transport === "claude-cli")
-  ) return false;
-  if (!isPromotableAnalysisRelease(plans)) return true;
-  if (gateId === "coverage_ratio" || gateId === "structured_ratio") return false;
-  return true;
-}
-
-function isPromotableAnalysisRelease(
+export function isPromotableAnalysisRelease(
   plans: readonly Pick<PromotionReleasePlanItem, "deepAnalysisReadiness" | "promotionPlan">[],
 ): boolean {
   return plans.length > 0
-    && plans.every((item) => (
-      isPromotableDeepAnalysisReadiness(item.deepAnalysisReadiness)
-      || isAuditedLocalAcceptedPlan(item.promotionPlan)
-      || isDeepRepairReceiptAcceptedPlan(item.promotionPlan)
-    ));
+    && plans.every((item) => {
+      if (
+        item.promotionPlan.origin === "deep_repair"
+        || item.promotionPlan.auditState === "deep_repair_receipt"
+      ) {
+        return isDeepRepairReceiptAcceptedPlan(item.promotionPlan);
+      }
+      if (item.deepAnalysisReadiness !== undefined) {
+        return isPromotableDeepAnalysisReadiness(item.deepAnalysisReadiness);
+      }
+      return isAuditedLocalAcceptedPlan(item.promotionPlan);
+    });
 }
 
-function isDeepRepairReceiptAcceptedPlan(plan: GrantPromotionPlan): boolean {
+export function isDeepRepairReceiptAcceptedPlan(plan: GrantPromotionPlan): boolean {
   return plan.origin === "deep_repair"
     && plan.auditState === "deep_repair_receipt"
     && plan.resolutions.length > 0

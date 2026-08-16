@@ -29,7 +29,7 @@ import {
   promotionGrantSnapshotHashes,
   promotionGrantSnapshotStateSha256,
 } from "../analysis-lab/promotion-snapshot";
-import { verifyPromotionSourceArtifact } from "../analysis-lab/promotion-candidates";
+import { verifyPromotionReleaseSources } from "../analysis-lab/promotion-candidates";
 import { readPromotionBuildProvenance } from "../analysis-lab/promotion-build-provenance";
 import { createR2ObjectStorageFromEnv } from "../storage/r2ObjectStorage";
 import { prepareDeepAnalysisInput } from "./prepareInput";
@@ -463,10 +463,10 @@ async function prepare(): Promise<number> {
       auditArtifactKey: audit.artifactKey,
       auditVerdict: audit.verdict,
     };
-    const sourceVerification = await verifyPromotionSourceArtifact(sourceArtifact);
-    if (!sourceVerification.ok) {
+    const sourceDrift = await verifyPromotionReleaseSources([sourceArtifact]);
+    if (sourceDrift.length > 0) {
       throw new Error(
-        `deep source artifact 검증 실패 ${run.id}: ${sourceVerification.changed.join(", ")}`,
+        `deep source artifact 검증 실패 ${run.id}: ${sourceDrift.join(", ")}`,
       );
     }
     sourceArtifacts.push(sourceArtifact);

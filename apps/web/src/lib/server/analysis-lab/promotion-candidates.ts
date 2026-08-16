@@ -57,6 +57,69 @@ export interface PromotionSourceVerificationDeps {
   readRunImpl?: (grantId: string, runId: string) => Promise<LabRun | null>;
 }
 
+export class PromotionSourceUnavailableError extends Error {
+  readonly code = "promotion_source_unavailable" as const;
+
+  constructor(
+    readonly grantId: string,
+    readonly detail: string,
+  ) {
+    super(`승격 source를 현재 검증할 수 없습니다: ${grantId} (${detail})`);
+    this.name = "PromotionSourceUnavailableError";
+  }
+}
+
+export interface PromotionReleaseSourceVerificationDeps {
+  verifyOne?: (
+    artifact: PromotionSourceArtifact,
+  ) => Promise<{ ok: boolean; changed: string[] }>;
+}
+
+function sourceVerificationUnavailableCode(code: string): boolean {
+  return code === "r2_config_missing"
+    || code === "input_unavailable"
+    || code.endsWith("_unavailable");
+}
+
+/**
+ * immutable aggregate/shadow/dry-run이 공유하는 source 검증 seam.
+ *
+ * 실제 hash/revision 차이는 drift 목록으로 반환한다. 파일·DB·스토리지 재구성 실패는
+ * 예외로 구분해 호출자가 불변 gate artifact를 쓰기 전에 중단할 수 있게 한다.
+ */
+export async function verifyPromotionReleaseSources(
+  artifacts: readonly PromotionSourceArtifact[],
+  deps: PromotionReleaseSourceVerificationDeps = {},
+): Promise<string[]> {
+  const drift: string[] = [];
+  for (const artifact of artifacts) {
+    let result: { ok: boolean; changed: string[] };
+    try {
+      if (deps.verifyOne) {
+        result = await deps.verifyOne(artifact);
+      } else if (artifact.localLabEvidence?.reviewMethod === "deep_repair_receipt") {
+        const { verifyDeepRepairPromotionSourceArtifactDetailed } = await import(
+          "./deep-repair-promotion"
+        );
+        result = await verifyDeepRepairPromotionSourceArtifactDetailed(artifact);
+      } else {
+        result = await verifyPromotionSourceArtifact(artifact);
+      }
+    } catch (error) {
+      throw new PromotionSourceUnavailableError(
+        artifact.grantId,
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+    const unavailable = result.changed.find(sourceVerificationUnavailableCode);
+    if (unavailable) {
+      throw new PromotionSourceUnavailableError(artifact.grantId, unavailable);
+    }
+    for (const changed of result.changed) drift.push(`${artifact.grantId}:${changed}`);
+  }
+  return drift;
+}
+
 /**
  * 주간 사람검수 release와 별개로 여는 유일한 우회 경로다. 정확히 한 공고를 지정하고,
  * 구독 transport의 AI 검수+감사가 모두 봉인된 경우에만 후보 1건을 반환한다.

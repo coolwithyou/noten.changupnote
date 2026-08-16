@@ -1,13 +1,15 @@
 import assert from "node:assert/strict";
 import type { GrantPromotionPlan } from "./promote";
 import {
+  evaluatePromotionAggregateEvidence,
+  type PromotionAggregateApiCostGate,
+  type PromotionAggregateGateId,
+} from "./promotion-gate-evidence";
+import {
   assertManifestConfirmation,
   canonicalJson,
   createPromotionReleaseManifest,
-  isPromotionAggregateGateBlocking,
   isUnexplainedPromotionShadowTransition,
-  promotionAggregateDecidedCount,
-  promotionAggregateEffectiveCounts,
   promotionPlanHasUnsafeUnresolvedCriteria,
   releasePlanItemHasUnsafePendingCriteria,
   mergePromotionApprovalGateEvidence,
@@ -18,6 +20,30 @@ import {
   VERIFIED_LOCAL_LAB_SOURCE_SCHEMA,
   type PromotionReleasePlanItem,
 } from "./promotion-release";
+
+const aggregateThresholds = {
+  strictPrecisionMin: 0.9,
+  wrongRateMax: 0.1,
+  missedPerNoticeMax: 1,
+  coverageRatioMin: 1,
+  costPerNoticeMaxUsd: 1,
+  structuredRatioMin: 0.5,
+};
+
+function aggregateEvidence(
+  plans: PromotionReleasePlanItem[],
+  apiCostGate: PromotionAggregateApiCostGate | null = null,
+) {
+  return evaluatePromotionAggregateEvidence({ plans, thresholds: aggregateThresholds, apiCostGate });
+}
+
+function aggregateGate(
+  plans: PromotionReleasePlanItem[],
+  id: PromotionAggregateGateId,
+  apiCostGate: PromotionAggregateApiCostGate | null = null,
+) {
+  return aggregateEvidence(plans, apiCostGate).gates.find((gate) => gate.id === id)!;
+}
 
 const plan: GrantPromotionPlan = {
   grantId: "00000000-0000-4000-8000-000000000001",
@@ -359,32 +385,36 @@ assert.equal(
     "감사 근거가 봉인되지 않은 local plan은 계속 fail-closed한다",
   );
   assert.equal(
-    isPromotionAggregateGateBlocking([pendingItem], "coverage_ratio"),
+    aggregateGate([pendingItem], "coverage_ratio").blocking,
     true,
     "일반 사람 검수 release의 상대 coverage 게이트는 계속 발행을 차단해야 한다",
   );
   assert.equal(
-    isPromotionAggregateGateBlocking([autoPromotableItem], "coverage_ratio"),
+    aggregateGate([autoPromotableItem], "coverage_ratio").blocking,
     false,
     "봉인된 deep auto-promotable release에서 상대 coverage는 관찰 지표여야 한다",
   );
   assert.equal(
-    isPromotionAggregateGateBlocking([autoPromotableItem], "structured_ratio"),
+    aggregateGate([autoPromotableItem], "structured_ratio").blocking,
     false,
     "봉인된 deep auto-promotable release에서 structured 비율은 관찰 지표여야 한다",
   );
   assert.equal(
-    isPromotionAggregateGateBlocking([conditionalPromotableItem], "coverage_ratio"),
+    aggregateGate([conditionalPromotableItem], "coverage_ratio").blocking,
     false,
     "조건부 deep release에서도 상대 coverage는 관찰 지표여야 한다",
   );
   assert.equal(
-    isPromotionAggregateGateBlocking([autoPromotableItem], "wrong_rate"),
-    true,
-    "봉인된 deep release도 오류율은 계속 발행을 차단해야 한다",
+    aggregateGate([autoPromotableItem], "wrong_rate").blocking,
+    false,
+    "sealed deep release는 존재하지 않는 review verdict 오류율을 가장하지 않아야 한다",
   );
   assert.equal(
-    isPromotionAggregateGateBlocking([autoPromotableItem], "cost_per_notice_usd"),
+    aggregateGate(
+      [autoPromotableItem],
+      "cost_per_notice_usd",
+      { actualUsd: 0.25, maxUsd: 1, pass: true },
+    ).blocking,
     true,
     "운영 API 딥분석 release의 실제 비용은 계속 차단한다",
   );
@@ -394,37 +424,36 @@ assert.equal(
     costUsd: 99,
   };
   assert.equal(
-    isPromotionAggregateGateBlocking([subscriptionHumanItem], "cost_per_notice_usd"),
+    aggregateGate([subscriptionHumanItem], "cost_per_notice_usd").blocking,
     false,
     "일반 사람 검수 release도 claude-cli 명목 비용으로 승격을 차단하지 않는다",
   );
   assert.equal(
-    isPromotionAggregateGateBlocking([
+    aggregateGate([
       subscriptionHumanItem,
       { ...pendingItem, transport: "api", costUsd: 0.25 },
-    ], "cost_per_notice_usd"),
+    ], "cost_per_notice_usd", { actualUsd: 0.25, maxUsd: 1, pass: true }).blocking,
     true,
     "API가 섞인 release는 API subset 비용 게이트를 계속 차단 조건으로 사용한다",
   );
   assert.equal(
-    promotionAggregateDecidedCount([pendingItem], {
-      correct: 3,
-      needsEdit: 0,
-      wrong: 0,
-      unsure: 21,
-    }),
+    aggregateEvidence([{
+      ...pendingItem,
+      promotionPlan: {
+        ...pendingItem.promotionPlan,
+        conversion: {
+          ...pendingItem.promotionPlan.conversion,
+          verdicts: { correct: 3, needs_edit: 0, wrong: 0, unsure: 21 },
+        },
+      },
+    }]).decidedReviewCount,
     24,
     "일반 사람 검수 release의 unsure는 기존 정밀도 분모에 남아야 한다",
   );
   assert.equal(
-    promotionAggregateDecidedCount([conditionalPromotableItem], {
-      correct: 3,
-      needsEdit: 0,
-      wrong: 0,
-      unsure: 21,
-    }),
-    3,
-    "조건부 deep release의 사용자 확인 deferral은 확정 정밀도 분모에서 빠져야 한다",
+    aggregateEvidence([conditionalPromotableItem]).decidedReviewCount,
+    0,
+    "sealed deep release는 review verdict 분모 자체를 만들지 않아야 한다",
   );
 
   const rankingConditionalPlan: GrantPromotionPlan = {
@@ -449,10 +478,17 @@ assert.equal(
     },
   };
   assert.deepEqual(
-    promotionAggregateEffectiveCounts(
-      [{ ...planItem, promotionPlan: rankingConditionalPlan }],
-      { correct: 9, needsEdit: 1, wrong: 0, unsure: 0, missed: 1 },
-    ),
+    aggregateEvidence([{
+      ...planItem,
+      promotionPlan: {
+        ...rankingConditionalPlan,
+        conversion: {
+          ...rankingConditionalPlan.conversion,
+          verdicts: { correct: 9, needs_edit: 1, wrong: 0, unsure: 0 },
+          missedConditions: 1,
+        },
+      },
+    }]).effectiveReviewTotals,
     { correct: 9, needsEdit: 0, wrong: 0, unsure: 0, missed: 0 },
     "실제로 억제한 ranking-only 오류만 gate 계산에서 제외하고 원본 totals는 보존한다",
   );
@@ -465,17 +501,17 @@ assert.equal(
     },
   };
   assert.equal(
-    isPromotionAggregateGateBlocking([auditedLocalItem], "structured_ratio"),
+    aggregateGate([auditedLocalItem], "structured_ratio").blocking,
     false,
     "독립 감사된 local conditional 카나리의 구조화 비율은 관찰 지표다",
   );
   assert.equal(
-    isPromotionAggregateGateBlocking([auditedLocalItem], "wrong_rate"),
+    aggregateGate([auditedLocalItem], "wrong_rate").blocking,
     true,
     "local conditional 카나리도 실제 오류율은 계속 차단한다",
   );
   assert.equal(
-    isPromotionAggregateGateBlocking([{
+    aggregateGate([{
       ...auditedLocalItem,
       promotionPlan: {
         ...auditedLocalItem.promotionPlan,
@@ -484,7 +520,7 @@ assert.equal(
           disposition: "blocked" as const,
         },
       },
-    }], "structured_ratio"),
+    }], "structured_ratio").blocking,
     true,
     "자격 blocker가 있는 local plan은 관찰 지표 예외를 받지 않는다",
   );
@@ -562,19 +598,19 @@ assert.equal(
     "verified local 카나리의 강등 criterion은 matcher unknown으로 보존 발행한다",
   );
   assert.equal(
-    isPromotionAggregateGateBlocking([{
+    aggregateGate([{
       ...planItem,
       promotionPlan: auditedVerifiedPlan,
-    }], "structured_ratio"),
+    }], "structured_ratio").blocking,
     false,
     "verified local 카나리의 구조화 비율도 관찰 지표다",
   );
   assert.equal(
-    isPromotionAggregateGateBlocking([{
+    aggregateGate([{
       ...planItem,
       promotionPlan: auditedVerifiedPlan,
       transport: "claude-cli",
-    }], "cost_per_notice_usd"),
+    }], "cost_per_notice_usd").blocking,
     false,
     "claude-cli local 카나리의 명목 API 환산 비용은 실제 지출 차단 지표가 아니다",
   );
@@ -584,15 +620,19 @@ assert.equal(
     transport: "api",
   };
   assert.equal(
-    isPromotionAggregateGateBlocking([auditedApiItem], "cost_per_notice_usd"),
+    aggregateGate(
+      [auditedApiItem],
+      "cost_per_notice_usd",
+      { actualUsd: 0.25, maxUsd: 1, pass: true },
+    ).blocking,
     true,
     "audited plan이어도 API 실제 비용은 차단 게이트를 유지한다",
   );
   assert.equal(
-    isPromotionAggregateGateBlocking([
+    aggregateGate([
       auditedApiItem,
       { ...auditedApiItem, grantId: "mixed-subscription", transport: "claude-cli" },
-    ], "cost_per_notice_usd"),
+    ], "cost_per_notice_usd", { actualUsd: 0.25, maxUsd: 1, pass: true }).blocking,
     true,
     "audited API/구독 혼합 release도 API subset 비용을 차단 조건으로 유지한다",
   );

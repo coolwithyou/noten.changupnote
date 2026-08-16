@@ -30,7 +30,7 @@ import { resolveSystemProductCompanyProfile } from "../productProfile/resolvePro
 import { createDrizzleRepositories } from "../repositories/drizzle";
 import { selectReviewedRuns } from "./reviewed-runs";
 import { analysisLabDir } from "./run-store";
-import { verifyPromotionSourceArtifact } from "./promotion-candidates";
+import { verifyPromotionReleaseSources } from "./promotion-candidates";
 import {
   isUnexplainedPromotionShadowTransition,
   promotionReleaseArtifactPath,
@@ -264,11 +264,8 @@ async function mainReleaseShadow(options: ShadowOptions, releaseId: string): Pro
     .from(schema.dedupLinks)
     .where(eq(schema.dedupLinks.confirmed, true));
 
-  const sourceDrift: string[] = [];
-  for (const source of manifest.sourceArtifacts) {
-    const verified = await verifyPromotionSourceArtifact(source);
-    for (const changed of verified.changed) sourceDrift.push(`${source.grantId}:${changed}`);
-  }
+  // verifier unavailable은 immutable shadow를 쓰기 전에 중단하고, 실제 drift만 보고한다.
+  const sourceDrift = await verifyPromotionReleaseSources(manifest.sourceArtifacts);
   const baselineDrift: string[] = [];
   const guardIssues: string[] = [];
   const records: GrantShadowRecord[] = [];

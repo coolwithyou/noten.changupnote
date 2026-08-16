@@ -56,7 +56,7 @@ import { criterionInsertValues } from "../ingestion/normalizedGrantPublisher";
 import { loadMonorepoEnv } from "../loadMonorepoEnv";
 import { isPublishableLabRun } from "./run-outcome";
 import { createR2ObjectStorageFromEnv } from "../storage/r2ObjectStorage";
-import { verifyPromotionSourceArtifact } from "./promotion-candidates";
+import { verifyPromotionReleaseSources } from "./promotion-candidates";
 import {
   buildPromotionApplicationPrecomputeReceipt,
   readBundledPromotionApplicationPrecompute,
@@ -455,12 +455,7 @@ function releaseDryRunGuard(
 }
 
 async function verifyManifestSources(manifest: PromotionReleaseManifest): Promise<string[]> {
-  const changed: string[] = [];
-  for (const artifact of manifest.sourceArtifacts) {
-    const result = await verifyPromotionSourceArtifact(artifact);
-    for (const name of result.changed) changed.push(`${artifact.grantId}:${name}`);
-  }
-  return changed;
+  return verifyPromotionReleaseSources(manifest.sourceArtifacts);
 }
 
 async function loadReleaseLedger(releaseId: string) {

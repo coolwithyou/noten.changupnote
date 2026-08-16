@@ -277,6 +277,21 @@ export async function verifyDeepRepairPromotionSourceArtifact(
   artifact: PromotionSourceArtifact,
   dependencies: DeepRepairPromotionDependencies = {},
 ): Promise<{ ok: boolean; changed: string[] }> {
+  try {
+    return await verifyDeepRepairPromotionSourceArtifactDetailed(artifact, dependencies);
+  } catch {
+    return { ok: false, changed: ["deep_repair_artifact_unavailable"] };
+  }
+}
+
+/**
+ * immutable gate용 verifier. 실제 drift는 결과로 반환하고, 파일/DB 재구성 실패는
+ * 호출자에게 throw해 일시적 장애가 drift artifact로 봉인되지 않게 한다.
+ */
+export async function verifyDeepRepairPromotionSourceArtifactDetailed(
+  artifact: PromotionSourceArtifact,
+  dependencies: DeepRepairPromotionDependencies = {},
+): Promise<{ ok: boolean; changed: string[] }> {
   const deepRepair = artifact.localLabEvidence?.deepRepair;
   if (
     artifact.localLabEvidence?.reviewMethod !== "deep_repair_receipt"
@@ -285,66 +300,62 @@ export async function verifyDeepRepairPromotionSourceArtifact(
     return { ok: false, changed: ["deep_repair_evidence_missing"] };
   }
   const changed: string[] = [];
-  try {
-    const root = findMonorepoRoot();
-    const experimentsDir = join(analysisLabDir(), "experiments");
-    const marker = await readSeriesMarker(experimentsDir, deepRepair.seriesId);
-    const { plan, proposalSha256 } = await readSealedPlan(root, experimentsDir, marker);
-    const receiptPath = join(experimentsDir, "receipts", `${deepRepair.receiptSha256}.json`);
-    const receipt = validateDeepRepairLiveReceipt(JSON.parse(await readFile(receiptPath, "utf8")));
-    const loaded = await loadAndVerifyTarget({ root, experimentsDir, plan, receipt });
-    const loadCurrent = dependencies.loadCurrentGrantEvidence
-      ?? ((run: LabRun) => loadCurrentGrantEvidence(run, dependencies.now ?? new Date()));
-    const current = await loadCurrent(loaded.run);
-    const releaseCurrent = {
-      ...current,
-      // release prepare가 만든 item 자체만 중복으로 오인하지 않는다. 별도 deep run이나
-      // confirmed dedup member는 prepare 이후 생겼더라도 drift로 차단해야 한다.
-      hasPromotionItem: false,
-    };
-    let readiness = classifyDeepRepairPromotionReadiness(
-      loaded.run,
-      releaseCurrent,
-      receipt.receiptSha256,
-    );
-    if (readiness.disposition === "ready" || readiness.disposition === "conditional") {
-      readiness = guardDeepRepairPromotionPlan(readiness, planGrantPromotion({
-        run: loaded.run,
-        origin: "deep_repair",
-        deepRepairReceiptSha256: receipt.receiptSha256,
-        sidecar: null,
-      }));
-    }
-    if (readiness.disposition === "admin_review" || readiness.disposition === "held") {
-      changed.push(`run_${readiness.disposition}`);
-    }
-    const expected: Array<[string, unknown, unknown]> = [
-      ["grant_id", artifact.grantId, loaded.run.grantId],
-      ["run_id", artifact.runId, loaded.run.runId],
-      ["run", artifact.runSha256, loaded.runArtifactSha256],
-      ["input", artifact.localLabEvidence.inputSha256, current.inputSha256],
-      ["attachment", deepRepair.attachmentManifestSha256, current.attachmentManifestSha256],
-      ["source_revision", deepRepair.sourceRevisionSha256, current.sourceRevisionSha256],
-      ["artifact_source_revision", artifact.sourceRevisionSha256, current.sourceRevisionSha256],
-      ["proposal", deepRepair.proposalSha256, proposalSha256],
-      ["plan", deepRepair.planSha256, plan.planSha256],
-      ["plan_artifact", deepRepair.planArtifactSha256, marker.planArtifactSha256],
-      ["manifest", deepRepair.manifestSha256, plan.manifestSha256],
-      ["receipt", deepRepair.receiptSha256, receipt.receiptSha256],
-      ["observations", deepRepair.observationsSha256, loaded.observationsSha256],
-      ["evaluator", deepRepair.evaluatorReceiptSha256, loaded.evaluatorReceiptSha256],
-      ["sequence", deepRepair.sequence, loaded.sequence],
-      ["execution_git", deepRepair.executionGitSha, plan.manifest.provenance.gitSha],
-      ["package_runtime", deepRepair.packageRuntimeSha256, plan.manifest.provenance.packageRuntimeSha256],
-      ["validator", deepRepair.validatorVersion, plan.manifest.provenance.validatorVersion],
-      ["model", artifact.localLabEvidence.model, loaded.run.model],
-      ["prompt_version", artifact.localLabEvidence.promptVersion, loaded.run.promptVersion],
-    ];
-    for (const [name, expectedValue, actualValue] of expected) {
-      if (expectedValue !== actualValue) changed.push(name);
-    }
-  } catch {
-    changed.push("deep_repair_artifact");
+  const root = findMonorepoRoot();
+  const experimentsDir = join(analysisLabDir(), "experiments");
+  const marker = await readSeriesMarker(experimentsDir, deepRepair.seriesId);
+  const { plan, proposalSha256 } = await readSealedPlan(root, experimentsDir, marker);
+  const receiptPath = join(experimentsDir, "receipts", `${deepRepair.receiptSha256}.json`);
+  const receipt = validateDeepRepairLiveReceipt(JSON.parse(await readFile(receiptPath, "utf8")));
+  const loaded = await loadAndVerifyTarget({ root, experimentsDir, plan, receipt });
+  const loadCurrent = dependencies.loadCurrentGrantEvidence
+    ?? ((run: LabRun) => loadCurrentGrantEvidence(run, dependencies.now ?? new Date()));
+  const current = await loadCurrent(loaded.run);
+  const releaseCurrent = {
+    ...current,
+    // release prepare가 만든 item 자체만 중복으로 오인하지 않는다. 별도 deep run이나
+    // confirmed dedup member는 prepare 이후 생겼더라도 drift로 차단해야 한다.
+    hasPromotionItem: false,
+  };
+  let readiness = classifyDeepRepairPromotionReadiness(
+    loaded.run,
+    releaseCurrent,
+    receipt.receiptSha256,
+  );
+  if (readiness.disposition === "ready" || readiness.disposition === "conditional") {
+    readiness = guardDeepRepairPromotionPlan(readiness, planGrantPromotion({
+      run: loaded.run,
+      origin: "deep_repair",
+      deepRepairReceiptSha256: receipt.receiptSha256,
+      sidecar: null,
+    }));
+  }
+  if (readiness.disposition === "admin_review" || readiness.disposition === "held") {
+    changed.push(`run_${readiness.disposition}`);
+  }
+  const expected: Array<[string, unknown, unknown]> = [
+    ["grant_id", artifact.grantId, loaded.run.grantId],
+    ["run_id", artifact.runId, loaded.run.runId],
+    ["run", artifact.runSha256, loaded.runArtifactSha256],
+    ["input", artifact.localLabEvidence.inputSha256, current.inputSha256],
+    ["attachment", deepRepair.attachmentManifestSha256, current.attachmentManifestSha256],
+    ["source_revision", deepRepair.sourceRevisionSha256, current.sourceRevisionSha256],
+    ["artifact_source_revision", artifact.sourceRevisionSha256, current.sourceRevisionSha256],
+    ["proposal", deepRepair.proposalSha256, proposalSha256],
+    ["plan", deepRepair.planSha256, plan.planSha256],
+    ["plan_artifact", deepRepair.planArtifactSha256, marker.planArtifactSha256],
+    ["manifest", deepRepair.manifestSha256, plan.manifestSha256],
+    ["receipt", deepRepair.receiptSha256, receipt.receiptSha256],
+    ["observations", deepRepair.observationsSha256, loaded.observationsSha256],
+    ["evaluator", deepRepair.evaluatorReceiptSha256, loaded.evaluatorReceiptSha256],
+    ["sequence", deepRepair.sequence, loaded.sequence],
+    ["execution_git", deepRepair.executionGitSha, plan.manifest.provenance.gitSha],
+    ["package_runtime", deepRepair.packageRuntimeSha256, plan.manifest.provenance.packageRuntimeSha256],
+    ["validator", deepRepair.validatorVersion, plan.manifest.provenance.validatorVersion],
+    ["model", artifact.localLabEvidence.model, loaded.run.model],
+    ["prompt_version", artifact.localLabEvidence.promptVersion, loaded.run.promptVersion],
+  ];
+  for (const [name, expectedValue, actualValue] of expected) {
+    if (expectedValue !== actualValue) changed.push(name);
   }
   return { ok: changed.length === 0, changed: [...new Set(changed)] };
 }

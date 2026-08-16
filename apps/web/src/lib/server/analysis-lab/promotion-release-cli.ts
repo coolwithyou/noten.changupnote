@@ -18,6 +18,7 @@ import {
   hashFile,
   mergePromotionApprovalGateEvidence,
   planSha256,
+  PROMOTION_AGGREGATE_SCHEMA,
   promotionPlanHasUnsafeUnresolvedCriteria,
   promotionReleaseArtifactPath,
   readPromotionReleaseManifest,
@@ -414,7 +415,7 @@ async function approve(): Promise<number> {
   const aggregate = await readGate(
     releaseId,
     "aggregate.json",
-    "analysis-lab-promotion-aggregate-v1",
+    PROMOTION_AGGREGATE_SCHEMA,
     "GO",
     manifest.releasePlanSha256,
     manifest.manifestSha256,

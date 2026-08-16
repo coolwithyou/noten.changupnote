@@ -16,6 +16,9 @@
   `INVALID`여도 앞선 공고가 자동 보류되지 않고, 개별 공고의 실제 blocking issue만
   관리자 확인으로 보냅니다.
 - `manifest.json`이 aggregate, shadow, dry-run, promote의 단일 입력입니다.
+- aggregate는 출처별 내부 필드를 직접 해석하지 않습니다. 사람/AI 검수는 review verdict
+  증거로, production/deep-repair는 sealed readiness/receipt 증거로 공통 gate interface에
+  투영합니다.
 - 준비자, 승인자, 실행자는 식별 가능한 서로 다른 담당자로 기록합니다.
 - 실발행은 manifest hash 앞 12자 이상을 직접 확인한 경우에만 허용합니다.
 - 사업자등록번호와 회사 원문 식별자는 릴리스 JSON·로그에 남기지 않습니다.
@@ -99,6 +102,18 @@ pnpm lab:release -- \
 이 경로는 deep receipt를 criterion resolution provenance로 기록합니다. legacy AI 검수,
 블라인드 감사, confirmations, Kordoc 완료로 표기하지 않습니다.
 
+aggregate v2는 두 증거를 한 숫자로 섞지 않습니다.
+
+- `reviewed`: 실제 review verdict가 있는 표본만 strict precision, wrong rate,
+  missed-per-notice를 판정합니다.
+- `sealed`: 존재하지 않는 review verdict를 `correct`로 간주하지 않습니다. 세 review 지표는
+  `not_applicable`로 기록하고, 모든 plan의 readiness/receipt 계약이 완전한지를
+  `sealed_evidence_acceptance` blocking gate로 판정합니다.
+- coverage와 structured ratio는 `correct`가 아니라 실제 발행될 criteria를 분모·분자로
+  사용합니다. promotion-ready release에서는 관찰 지표로 유지합니다.
+- source hash/revision이 실제로 달라지면 drift로 artifact에 기록합니다. 파일·DB·스토리지
+  읽기 실패처럼 현재 검증할 수 없는 상태는 immutable artifact를 쓰기 전에 중단합니다.
+
 과거 audited local canary 형식은 기존 manifest를 읽고 진단하기 위한 호환 입력으로만
 남깁니다. 신규 승인·실발행에는 사용하지 않습니다.
 
@@ -118,7 +133,9 @@ API transport, 단순 `runId`만 있는 승격 행은 랜딩 서빙 대상이 �
 확인할 값:
 
 - 세 산출물의 `releaseId`, `manifestSha256`, `releasePlanSha256`이 동일합니다.
-- aggregate는 `GO`, shadow와 dry-run은 `PASS`입니다.
+- aggregate v2는 `GO`, shadow와 dry-run은 `PASS`입니다.
+- sealed release는 `sealed_evidence_acceptance=1`이고 review 전용 gate가
+  `not_applicable`인지 확인합니다. review 수치를 0점으로 해석하지 않습니다.
 - 변환 오류, 드롭, 질문 앵커 상실, baseline drift가 0입니다.
 - shadow JSON의 회사 키는 `company-...` 형태이며 원문 사업자등록번호가 없습니다.
 
@@ -134,7 +151,7 @@ pnpm lab:release -- \
   --confirm=<manifest-sha256-앞-12자-이상>
 ```
 
-명령은 aggregate, shadow, dry-run의 파일 hash와 schema까지 다시 검증해
+명령은 aggregate v2, shadow, dry-run의 파일 hash와 schema까지 다시 검증해
 `approval.json`과 DB 원장에 기록합니다.
 
 ## 8. 카나리와 전체 승격

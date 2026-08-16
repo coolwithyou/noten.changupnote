@@ -25,15 +25,13 @@ import {
   type AuditedReviewProvenance,
 } from "./audited-reviews";
 import type { CohortFileV2 } from "./cohort-file";
-import { verifyPromotionSourceArtifact } from "./promotion-candidates";
+import { verifyPromotionReleaseSources } from "./promotion-candidates";
+import { evaluatePromotionAggregateEvidence } from "./promotion-gate-evidence";
 import {
-  isPromotionAggregateGateBlocking,
-  promotionAggregateDecidedCount,
-  promotionAggregateEffectiveCounts,
+  PROMOTION_AGGREGATE_SCHEMA,
   promotionReleaseArtifactPath,
   readPromotionReleaseManifest,
   resolvePromotionReleaseTransport,
-  type PromotionAggregateGateId,
   writeImmutablePromotionArtifact,
 } from "./promotion-release";
 import { type ReviewedRun, selectReviewedRuns } from "./reviewed-runs";
@@ -90,116 +88,42 @@ async function aggregateRelease(releaseId: string): Promise<void> {
     ...plan,
     transport: resolvePromotionReleaseTransport(plan, sourceByGrantId.get(plan.grantId)),
   }));
-  const correct = plans.reduce((sum, item) => sum + item.promotionPlan.conversion.verdicts.correct, 0);
-  const needsEdit = plans.reduce(
-    (sum, item) => sum + item.promotionPlan.conversion.verdicts.needs_edit,
-    0,
-  );
-  const wrong = plans.reduce((sum, item) => sum + item.promotionPlan.conversion.verdicts.wrong, 0);
-  const unsure = plans.reduce((sum, item) => sum + item.promotionPlan.conversion.verdicts.unsure, 0);
-  const missed = plans.reduce(
-    (sum, item) => sum + item.promotionPlan.conversion.missedConditions,
-    0,
-  );
-  const currentTotal = plans.reduce((sum, item) => sum + item.criteriaCountBefore, 0);
-  const structured = plans.reduce(
-    (sum, item) => sum + item.promotionPlan.criteria
-      .filter((criterion) => criterion.operator !== "text_only").length,
-    0,
-  );
   const costSummary = summarizeReviewedRunCosts(
     plansWithEffectiveTransport,
     GATES.costPerNoticeMaxUsd,
   );
-  const effectiveTotals = promotionAggregateEffectiveCounts(plans, {
-    correct,
-    needsEdit,
-    wrong,
-    unsure,
-    missed,
+  const evidence = evaluatePromotionAggregateEvidence({
+    plans: plansWithEffectiveTransport,
+    thresholds: GATES,
+    apiCostGate: costSummary.apiCostGate,
   });
-  const decided = promotionAggregateDecidedCount(plans, {
-    correct,
-    needsEdit,
-    wrong,
-    unsure,
-  });
-  const strictPrecision = decided > 0 ? effectiveTotals.correct / decided : 0;
-  const wrongRate = decided > 0 ? effectiveTotals.wrong / decided : 0;
-  const missedPerNotice = effectiveTotals.missed / plans.length;
-  const coverageRatio = currentTotal > 0 ? correct / currentTotal : Number.POSITIVE_INFINITY;
-  const costPerNotice = costSummary.apiCostGate?.actualUsd ?? 0;
-  const structuredRatio = correct > 0 ? structured / correct : 0;
-  const gates: Array<{
-    id: PromotionAggregateGateId;
-    threshold: { operator: "gte" | "lte"; value: number };
-    actual: number | null;
-    pass: boolean;
-    blocking: boolean;
-  }> = [
-    {
-      id: "strict_precision",
-      threshold: { operator: "gte", value: GATES.strictPrecisionMin },
-      actual: strictPrecision,
-      pass: strictPrecision >= GATES.strictPrecisionMin,
-      blocking: isPromotionAggregateGateBlocking(plansWithEffectiveTransport, "strict_precision"),
-    },
-    {
-      id: "wrong_rate",
-      threshold: { operator: "lte", value: GATES.wrongRateMax },
-      actual: wrongRate,
-      pass: wrongRate <= GATES.wrongRateMax,
-      blocking: isPromotionAggregateGateBlocking(plansWithEffectiveTransport, "wrong_rate"),
-    },
-    {
-      id: "missed_per_notice",
-      threshold: { operator: "lte", value: GATES.missedPerNoticeMax },
-      actual: missedPerNotice,
-      pass: missedPerNotice <= GATES.missedPerNoticeMax,
-      blocking: isPromotionAggregateGateBlocking(plansWithEffectiveTransport, "missed_per_notice"),
-    },
-    {
-      id: "coverage_ratio",
-      threshold: { operator: "gte", value: GATES.coverageRatioMin },
-      actual: Number.isFinite(coverageRatio) ? coverageRatio : null,
-      pass: coverageRatio >= GATES.coverageRatioMin,
-      blocking: isPromotionAggregateGateBlocking(plansWithEffectiveTransport, "coverage_ratio"),
-    },
-    {
-      id: "cost_per_notice_usd",
-      threshold: { operator: "lte", value: GATES.costPerNoticeMaxUsd },
-      actual: costPerNotice,
-      pass: costSummary.apiCostGate?.pass ?? true,
-      blocking: isPromotionAggregateGateBlocking(
-        plansWithEffectiveTransport,
-        "cost_per_notice_usd",
-      ),
-    },
-    {
-      id: "structured_ratio",
-      threshold: { operator: "gte", value: GATES.structuredRatioMin },
-      actual: structuredRatio,
-      pass: structuredRatio >= GATES.structuredRatioMin,
-      blocking: isPromotionAggregateGateBlocking(plansWithEffectiveTransport, "structured_ratio"),
-    },
-  ];
-  const sourceDrift: string[] = [];
-  for (const source of manifest.sourceArtifacts) {
-    const verified = await verifyPromotionSourceArtifact(source);
-    for (const changed of verified.changed) sourceDrift.push(`${source.grantId}:${changed}`);
-  }
+  // verifier unavailable은 아래 immutable write 전에 throw한다. 실제 drift만 artifact에 봉인한다.
+  const sourceDrift = await verifyPromotionReleaseSources(manifest.sourceArtifacts);
+  const gates = evidence.gates;
   const blockingGates = gates.filter((gate) => gate.blocking);
   const go = blockingGates.every((gate) => gate.pass) && sourceDrift.length === 0;
   const artifact = {
-    schema: "analysis-lab-promotion-aggregate-v1",
+    schema: PROMOTION_AGGREGATE_SCHEMA,
     releaseId,
     releasePlanSha256: manifest.releasePlanSha256,
     manifestSha256: manifest.manifestSha256,
     createdAt: new Date().toISOString(),
     noticeCount: plans.length,
-    totals: { correct, needsEdit, wrong, unsure, missed, currentTotal, structured },
-    /** 원본 totals는 감사 증적으로 보존하고 gate 계산에는 발행 억제 이후 수치를 쓴다. */
-    effectiveTotals,
+    evidenceMode: evidence.mode,
+    totals: {
+      ...evidence.reviewTotals,
+      currentTotal: evidence.currentCriteriaCount,
+      published: evidence.publishedCriteriaCount,
+      structured: evidence.structuredCriteriaCount,
+    },
+    /** verdict 검수와 sealed readiness를 한 숫자로 가장하지 않고 각각 보존한다. */
+    qualityEvidence: {
+      reviewedNoticeCount: evidence.reviewedNoticeCount,
+      sealedNoticeCount: evidence.sealedNoticeCount,
+      sealedAcceptedNoticeCount: evidence.sealedAcceptedNoticeCount,
+      decidedReviewCount: evidence.decidedReviewCount,
+    },
+    effectiveReviewTotals: evidence.effectiveReviewTotals,
     /** API 비용만 gate로 판정하고 구독 명목 USD는 transport별 telemetry로 보존한다. */
     costTelemetry: costSummary,
     gates,

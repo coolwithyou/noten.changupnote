@@ -6,7 +6,8 @@
 - plan SHA: `44d2e15b56905ebb716ddb0ccc9f52b7fc5ac00fa8ac2ecc7a4e9b9ba4a5e56f`
 - execution manifest SHA: `3a16970b5d5de5b58dd1e18dcb7d184a1e19feac0094318b2e2979e4f86f0c83`
 - 제안 cohort 이름: `deep-v21-closed-beta-seq-0-8`
-- 상태: 읽기 전용 검증 완료, promotion release 미생성, 모든 실쓰기 별도 승인 대기
+- 상태: revision 1 준비 후 legacy aggregate 불일치로 승인 전 중단. revision 2 생성과 모든
+  실쓰기는 별도 승인 대기
 
 ## 1. 가장 빠른 exact cohort
 
@@ -45,12 +46,22 @@ sequence 9의 `b8e1d002-dae1-402d-bc04-b14e9e9ef4f1`은 현재 source/input/atta
 후보에서 제외된다. `deep-quality-loop-gbio-20260809-r2-20260809T100130Z-057065bf`의 1건만
 `verified_local_lab` provenance로 서빙 가능하다. 위 exact 9건과 grantId가 겹치지 않는다.
 
-## 4. release 생성 전 승인 경계
+## 4. revision 1 중단 증거와 다음 승인 경계
 
-아직 promotion release ID, manifest SHA, release plan SHA는 존재하지 않는다. 사용자가 위 9건의
-release 준비를 별도로 승인하면 exact grantId CSV로만 release를 생성한다. 그 뒤 생성된
-release ID와 manifest/release-plan SHA를 다시 제시하고, 승인자 분리와 dry-run을 거쳐
-`lab:promote --write`에 대한 별도 승인을 기다린다.
+준비된 revision 1은
+`deep-deep-v21-closed-beta-seq-0-8-r1-20260816T154307Z-042f05a7`이다. manifest SHA는
+`0357fe9e5053b69f25419dfd64155ba666f53e5964c5c3ae0583f08c6274e128`, release plan SHA는
+`6ef86e32ce13dcb3aca3e031e96adcbd8fcb0832a16fca4ef1aa8334bfc042cf`이다.
+
+revision 1의 aggregate v1은 receipt 기반 105개 발행 criterion에 존재하지 않는 legacy review
+verdict를 요구해 `correct=0`, `ITERATE`로 봉인됐다. 같은 실행에서 sequence 6 verifier의
+일시적 실패도 실제 drift와 구분되지 않은 채 기록됐지만 직후 exact source 재검증은 9/9
+일치했다. 불변 aggregate를 덮어쓰지 않으며 revision 1은 `prepared`, 미승인 상태로 남긴다.
+
+공통 aggregate v2 계약과 typed source verification을 검증·커밋한 뒤에도 revision 2 release는
+자동 생성하지 않는다. 새 commit/build digest와 동일 exact 9건의 current revision 결속을 다시
+제시하고 별도 승인을 받은 경우에만 revision 2를 준비한다. 이후 aggregate v2, shadow,
+dry-run, 분리 승인을 거치고 `lab:promote --write`는 다시 별도 승인을 기다린다.
 
 모델 호출, Kordoc, 검수·감사·confirmations, sequence 10 재개, DB write, 배포,
 Cloudflare 변경, 운영 `observe_only` 해제는 이 cohort 문서의 권한 범위가 아니다.
