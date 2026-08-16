@@ -394,6 +394,8 @@ async function executePreparedLabAnalysisInternal(
           deterministicPrimaryRepairCount: validated.deterministicPrimaryRepairCount,
           modelPrimaryRepairCount: validated.modelPrimaryRepairCount,
           newIssueAfterRepairCount: validated.newIssueAfterRepairCount,
+          blockingNewIssueAfterRepairCount: validated.blockingNewIssueAfterRepairCount,
+          sourceIncompleteIssueAfterRepairCount: validated.sourceIncompleteIssueAfterRepairCount,
         },
         outcome: validated.outcome,
         matchingReadiness: validated.matchingReadiness,
@@ -408,6 +410,8 @@ async function executePreparedLabAnalysisInternal(
             deterministicPrimaryRepairCount: caught.deterministicPrimaryRepairCount,
             modelPrimaryRepairCount: caught.modelPrimaryRepairCount,
             newIssueAfterRepairCount: caught.newIssueAfterRepairCount,
+            blockingNewIssueAfterRepairCount: caught.blockingNewIssueAfterRepairCount,
+            sourceIncompleteIssueAfterRepairCount: caught.sourceIncompleteIssueAfterRepairCount,
           },
           passes: caught.passes,
           error: caught.message.slice(0, 2_000),
@@ -420,6 +424,8 @@ async function executePreparedLabAnalysisInternal(
           deterministicPrimaryRepairCount: 0,
           modelPrimaryRepairCount: 0,
           newIssueAfterRepairCount: 0,
+          blockingNewIssueAfterRepairCount: 0,
+          sourceIncompleteIssueAfterRepairCount: 0,
         },
         error: caught instanceof Error
           ? caught.message.slice(0, 2_000)

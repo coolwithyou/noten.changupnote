@@ -24,6 +24,7 @@ assert.deepEqual(contractRepairProvenance, {
 
 const inputText = [
   "공고",
+  "예비창업자만 신청할 수 있다.",
   "서울 소재 중소기업만 신청할 수 있다.",
   "서울 사업장에 입주한 지 3년 이상인 기업을 우대한다.",
 ].join("\n");
@@ -97,6 +98,8 @@ assert.equal(repaired.repairCount, 1);
 assert.equal(repaired.deterministicPrimaryRepairCount, 0);
 assert.equal(repaired.modelPrimaryRepairCount, 1);
 assert.equal(repaired.newIssueAfterRepairCount, 0);
+assert.equal(repaired.blockingNewIssueAfterRepairCount, 0);
+assert.equal(repaired.sourceIncompleteIssueAfterRepairCount, 0);
 assert.equal(repaired.extraction.criteria.length, 1);
 assert.equal(repaired.extraction.usage?.inputTokens, 20, "교정 호출 usage 합산");
 assert.equal(repaired.extraction.costUsd, 0.2, "교정 호출 명목 비용 합산");
@@ -271,6 +274,31 @@ assert.equal(repairedWithNewIssue.repairCount, 2);
 assert.equal(repairedWithNewIssue.deterministicPrimaryRepairCount, 0);
 assert.equal(repairedWithNewIssue.modelPrimaryRepairCount, 2);
 assert.equal(repairedWithNewIssue.newIssueAfterRepairCount, 1);
+assert.equal(repairedWithNewIssue.blockingNewIssueAfterRepairCount, 1);
+assert.equal(repairedWithNewIssue.sourceIncompleteIssueAfterRepairCount, 0);
+
+// 잘못 구조화한 criterion을 제거하고 같은 축을 input_missing으로 낮춘 전환은
+// 원시 신규 issue로는 보존하되 blocking regression으로 보지 않는다.
+let sourceDowngradeCalls = 0;
+const repairedToSourceIncomplete = await runValidatedLabPrimary({
+  grantId: "grant-lab-source-incomplete-transition",
+  inputText,
+  inputSha256: "5".repeat(64),
+  apiKey: "subscription",
+  model: "claude-opus-5",
+  runModel: async () => {
+    sourceDowngradeCalls += 1;
+    return sourceDowngradeCalls === 1
+      ? invalidTargetTypeResult()
+      : targetTypeInputMissingResult();
+  },
+});
+assert.equal(sourceDowngradeCalls, 2);
+assert.equal(repairedToSourceIncomplete.outcome, "publishable");
+assert.equal(repairedToSourceIncomplete.matchingReadiness, "conditional");
+assert.equal(repairedToSourceIncomplete.newIssueAfterRepairCount, 1);
+assert.equal(repairedToSourceIncomplete.blockingNewIssueAfterRepairCount, 0);
+assert.equal(repairedToSourceIncomplete.sourceIncompleteIssueAfterRepairCount, 1);
 
 let mixedCalls = 0;
 const repairedMixed = await runValidatedLabPrimary({
@@ -466,4 +494,49 @@ function mixedUnresolvedResult(): DeepAnalysisModelResult {
     source_span: sourceSpan,
   });
   return mixed;
+}
+
+function invalidTargetTypeResult(): DeepAnalysisModelResult {
+  const targetSpan = "예비창업자만 신청할 수 있다.";
+  const invalidCriterion: DeepAnalysisCriterion = {
+    dimension: "target_type",
+    kind: "required",
+    operator: "text_only",
+    value: { note: targetSpan },
+    confidence: 0.9,
+    sourceSpan: targetSpan,
+    spanVerified: true,
+    note: null,
+  };
+  const assessments = axes(false).map((axis) => axis.dimension === "target_type"
+    ? { ...axis, status: "condition_found" as const }
+    : axis);
+  return {
+    ...result(true),
+    criteria: [invalidCriterion],
+    axisAssessments: assessments,
+    rawToolInput: {
+      criteria: [rawCriterion(invalidCriterion)],
+      axis_assessments: assessments.map((axis) => ({ ...axis })),
+    },
+  };
+}
+
+function targetTypeInputMissingResult(): DeepAnalysisModelResult {
+  const assessments = axes(false).map((axis) => axis.dimension === "target_type"
+    ? {
+        ...axis,
+        status: "input_missing" as const,
+        comment: "상세 신청대상 첨부가 입력에 없음",
+      }
+    : axis);
+  return {
+    ...result(true),
+    criteria: [],
+    axisAssessments: assessments,
+    rawToolInput: {
+      criteria: [],
+      axis_assessments: assessments.map((axis) => ({ ...axis })),
+    },
+  };
 }

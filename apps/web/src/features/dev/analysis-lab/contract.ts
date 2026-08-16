@@ -223,7 +223,12 @@ export interface LabPrimaryPassDiagnostic {
 export interface LabPrimaryRepairProvenance {
   deterministicPrimaryRepairCount: number;
   modelPrimaryRepairCount: number;
+  /** repair 전에는 없던 validator issue의 원시 총계. 감사 호환을 위해 의미를 바꾸지 않는다. */
   newIssueAfterRepairCount: number;
+  /** 같은 축을 input_missing으로 안전하게 낮춘 경우를 제외한 실제 신규 회귀. */
+  blockingNewIssueAfterRepairCount?: number;
+  /** 잘못 구조화한 criterion을 제거하고 같은 축을 input_missing으로 낮춘 전환. */
+  sourceIncompleteIssueAfterRepairCount?: number;
 }
 
 export interface LabRun {

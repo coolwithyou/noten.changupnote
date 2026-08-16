@@ -83,6 +83,7 @@ const subscriptionState = resolveDeepAnalysisState({
     model: "claude-opus-5",
     promptVersion: ANALYSIS_LAB_PROMPT_VERSION,
     transport: "claude-cli",
+    axisAssessments: [],
   },
   servingEvidence: null,
   latestDbRun: null,
@@ -93,6 +94,7 @@ assert.deepEqual(subscriptionState, {
   transport: "subscription",
   model: "claude-opus-5",
   serving: false,
+  sourceIncompleteAxisCount: 0,
 });
 
 const heldSubscriptionState = resolveDeepAnalysisState({
@@ -102,6 +104,12 @@ const heldSubscriptionState = resolveDeepAnalysisState({
     model: "claude-opus-5",
     promptVersion: ANALYSIS_LAB_PROMPT_VERSION,
     transport: "claude-cli",
+    axisAssessments: [{
+      dimension: "industry",
+      status: "input_missing",
+      confidence: 0.5,
+      comment: "상세 업종 첨부가 입력에 없음",
+    }],
   },
   servingEvidence: null,
   latestDbRun: null,
@@ -112,6 +120,7 @@ assert.deepEqual(heldSubscriptionState, {
   transport: "subscription",
   model: "claude-opus-5",
   serving: false,
+  sourceIncompleteAxisCount: 1,
 });
 
 const productionState = resolveDeepAnalysisState({
@@ -125,6 +134,7 @@ assert.deepEqual(productionState, {
   transport: "api",
   model: "claude-sonnet",
   serving: true,
+  sourceIncompleteAxisCount: null,
 });
 
 const pageSource = await readFile(
@@ -135,6 +145,7 @@ const globalCssSource = await readFile(
   new URL("../../app/globals.css", import.meta.url),
   "utf8",
 );
+assert.match(pageSource, /원문 미확보/);
 const badgeSource = await readFile(
   new URL("../../components/ui/badge.tsx", import.meta.url),
   "utf8",

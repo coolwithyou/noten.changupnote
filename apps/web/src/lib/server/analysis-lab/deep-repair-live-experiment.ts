@@ -1474,7 +1474,10 @@ function buildFormalObservation(input: {
   if (runOutcome !== "publishable" && runOutcome !== "held") {
     throw rejection("run_artifact_invalid", "formal observation은 publishable 또는 held run만 허용합니다.", false);
   }
-  const provenance = requireRunRepairProvenance(input.run);
+  const provenance = requireRunRepairProvenance(
+    input.run,
+    input.plan.manifest.policy.gatePolicyVersion,
+  );
   const graph = evaluateAnalysisQuality({ run: input.run, review: null, roundtrip: null });
   const inputSealed = graph.nodes.find((node) => node.id === "input_sealed")?.status;
   const deepContract = graph.nodes.find((node) => node.id === "deep_contract")?.status;
@@ -1498,6 +1501,12 @@ function buildFormalObservation(input: {
     modelPrimaryRepairCount: provenance.modelPrimaryRepairCount,
     reviewRepairCount: input.run.reviewRepair ? 1 : 0,
     newIssueAfterRepairCount: provenance.newIssueAfterRepairCount,
+    ...(provenance.blockingNewIssueAfterRepairCount === undefined
+      ? {}
+      : { blockingNewIssueAfterRepairCount: provenance.blockingNewIssueAfterRepairCount }),
+    ...(provenance.sourceIncompleteIssueAfterRepairCount === undefined
+      ? {}
+      : { sourceIncompleteIssueAfterRepairCount: provenance.sourceIncompleteIssueAfterRepairCount }),
     qualityProjection: {
       policyVersion: graph.policyVersion,
       grantId: graph.grantId,
@@ -1527,7 +1536,10 @@ function parseRunArtifact(bytes: Uint8Array, path: string): LabRun & {
   }
 }
 
-function requireRunRepairProvenance(run: LabRun): NonNullable<LabRun["primaryRepairProvenance"]> {
+function requireRunRepairProvenance(
+  run: LabRun,
+  gatePolicyVersion: DeepRepairExperimentPlan["manifest"]["policy"]["gatePolicyVersion"],
+): NonNullable<LabRun["primaryRepairProvenance"]> {
   const provenance = run.primaryRepairProvenance;
   if (
     !provenance
@@ -1537,6 +1549,14 @@ function requireRunRepairProvenance(run: LabRun): NonNullable<LabRun["primaryRep
     || provenance.modelPrimaryRepairCount < 0
     || !Number.isSafeInteger(provenance.newIssueAfterRepairCount)
     || provenance.newIssueAfterRepairCount < 0
+    || (gatePolicyVersion === "repair-sprt-v2" && (
+      !Number.isSafeInteger(provenance.blockingNewIssueAfterRepairCount)
+      || provenance.blockingNewIssueAfterRepairCount! < 0
+      || !Number.isSafeInteger(provenance.sourceIncompleteIssueAfterRepairCount)
+      || provenance.sourceIncompleteIssueAfterRepairCount! < 0
+      || provenance.blockingNewIssueAfterRepairCount!
+        + provenance.sourceIncompleteIssueAfterRepairCount! !== provenance.newIssueAfterRepairCount
+    ))
     || provenance.deterministicPrimaryRepairCount + provenance.modelPrimaryRepairCount !== run.primaryRepairCount
   ) {
     throw rejection("run_artifact_invalid", "run artifact의 repair provenance가 없거나 총 repair 횟수와 다릅니다.", false);

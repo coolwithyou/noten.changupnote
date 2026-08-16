@@ -13,6 +13,7 @@ type ProvenanceStatus = "complete" | "legacy_partial";
 type LifecycleStatus = "finished" | "unknown";
 type GateVerdict = "CONTINUE" | "GO" | "NO_GO" | "INCONCLUSIVE";
 type ReceiptVerdict = GateVerdict | "INVALID";
+type GatePolicyVersion = "repair-sprt-v1" | "repair-sprt-v2";
 
 interface ExperimentRunBinding {
   readonly runId: string;
@@ -59,7 +60,7 @@ interface ExperimentManifest {
     readonly model: string;
     readonly transport: "claude-cli";
     readonly qualityPolicyVersion: string;
-    readonly gatePolicyVersion: "repair-sprt-v1";
+    readonly gatePolicyVersion: GatePolicyVersion;
   };
   readonly waves: readonly ExperimentWave[];
 }
@@ -103,6 +104,8 @@ export interface DeepRepairExperimentReceipt {
     readonly modelPrimary: number;
     readonly review: number;
     readonly newIssuesAfterRepair: number;
+    readonly blockingNewIssuesAfterRepair?: number;
+    readonly sourceIncompleteIssuesAfterRepair?: number;
   } | null;
   readonly executionProvenance: {
     readonly gitSha: string;
@@ -136,6 +139,8 @@ interface NormalizedObservation {
   readonly modelPrimaryRepairCount: number | null;
   readonly reviewRepairCount: number | null;
   readonly newIssueAfterRepairCount: number | null;
+  readonly blockingNewIssueAfterRepairCount: number | null;
+  readonly sourceIncompleteIssueAfterRepairCount: number | null;
   readonly qualityProjection: {
     readonly policyVersion: string;
     readonly grantId: string;
@@ -334,7 +339,7 @@ function normalizeManifest(input: unknown): ExperimentManifest {
     gatePolicyVersion: readLiteral(
       policySource,
       "gatePolicyVersion",
-      ["repair-sprt-v1"] as const,
+      ["repair-sprt-v1", "repair-sprt-v2"] as const,
       "manifest.policy",
     ),
   };
@@ -563,6 +568,16 @@ function normalizeObservation(value: unknown, index: number): NormalizedObservat
       "newIssueAfterRepairCount",
       label,
     ),
+    blockingNewIssueAfterRepairCount: readOptionalNonNegativeInteger(
+      source,
+      "blockingNewIssueAfterRepairCount",
+      label,
+    ),
+    sourceIncompleteIssueAfterRepairCount: readOptionalNonNegativeInteger(
+      source,
+      "sourceIncompleteIssueAfterRepairCount",
+      label,
+    ),
     qualityProjection: {
       policyVersion: readString(projectionSource, "policyVersion", `${label}.qualityProjection`),
       grantId: readString(projectionSource, "grantId", `${label}.qualityProjection`),
@@ -705,6 +720,8 @@ export function replayDeepRepairExperiment(
   let modelPrimaryRepairCount = 0;
   let reviewRepairCount = 0;
   let newIssueAfterRepairCount = 0;
+  let blockingNewIssueAfterRepairCount = 0;
+  let sourceIncompleteIssueAfterRepairCount = 0;
   let repairBreakdownComplete = true;
   let publishable = 0;
   let held = 0;
@@ -804,8 +821,40 @@ export function replayDeepRepairExperiment(
       }
     } else {
       newIssueAfterRepairCount += observation.newIssueAfterRepairCount;
-      if (plan.manifest.mode === "formal" && observation.newIssueAfterRepairCount > 0) {
+      if (
+        plan.manifest.mode === "formal"
+        && plan.manifest.policy.gatePolicyVersion === "repair-sprt-v1"
+        && observation.newIssueAfterRepairCount > 0
+      ) {
         invalidReasons.push("new_issue_after_repair_present");
+      }
+    }
+    if (plan.manifest.policy.gatePolicyVersion === "repair-sprt-v2") {
+      if (
+        observation.blockingNewIssueAfterRepairCount === null
+        || observation.sourceIncompleteIssueAfterRepairCount === null
+      ) {
+        repairBreakdownComplete = false;
+        if (plan.manifest.mode === "formal") {
+          invalidReasons.push("repair_transition_provenance_missing");
+        }
+      } else {
+        blockingNewIssueAfterRepairCount += observation.blockingNewIssueAfterRepairCount;
+        sourceIncompleteIssueAfterRepairCount += observation.sourceIncompleteIssueAfterRepairCount;
+        if (
+          observation.newIssueAfterRepairCount !== null
+          && observation.blockingNewIssueAfterRepairCount
+            + observation.sourceIncompleteIssueAfterRepairCount
+            !== observation.newIssueAfterRepairCount
+        ) {
+          invalidReasons.push("repair_transition_provenance_mismatch");
+        }
+        if (
+          plan.manifest.mode === "formal"
+          && observation.blockingNewIssueAfterRepairCount > 0
+        ) {
+          invalidReasons.push("blocking_new_issue_after_repair_present");
+        }
       }
     }
     repairAttemptCount += observation.primaryRepairCount;
@@ -872,6 +921,12 @@ export function replayDeepRepairExperiment(
           modelPrimary: modelPrimaryRepairCount,
           review: reviewRepairCount,
           newIssuesAfterRepair: newIssueAfterRepairCount,
+          ...(plan.manifest.policy.gatePolicyVersion === "repair-sprt-v2"
+            ? {
+                blockingNewIssuesAfterRepair: blockingNewIssueAfterRepairCount,
+                sourceIncompleteIssuesAfterRepair: sourceIncompleteIssueAfterRepairCount,
+              }
+            : {}),
         }
       : null,
     outcomes: { publishable, held },

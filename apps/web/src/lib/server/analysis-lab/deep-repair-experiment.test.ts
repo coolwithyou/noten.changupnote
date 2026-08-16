@@ -151,7 +151,11 @@ const REQUIRED_DEEP_REPAIR_STRATA = [
   "kstartup/thin",
 ] as const;
 
-function syntheticManifest(mode: "formal" | "legacy_shadow" = "formal", targetCount = 30) {
+function syntheticManifest(
+  mode: "formal" | "legacy_shadow" = "formal",
+  targetCount = 30,
+  gatePolicyVersion: "repair-sprt-v1" | "repair-sprt-v2" = "repair-sprt-v1",
+) {
   return {
     schema: "deep-repair-series-manifest-v1",
     seriesId: `synthetic-${mode}-${targetCount}`,
@@ -174,7 +178,7 @@ function syntheticManifest(mode: "formal" | "legacy_shadow" = "formal", targetCo
       model: "claude-opus-5",
       transport: "claude-cli",
       qualityPolicyVersion: "analysis-quality-v1",
-      gatePolicyVersion: "repair-sprt-v1",
+      gatePolicyVersion,
     },
     waves: [
       {
@@ -246,6 +250,12 @@ function syntheticReplayInput(
               modelPrimaryRepairCount: 0,
               reviewRepairCount: 0,
               newIssueAfterRepairCount: 0,
+              ...(plan.manifest.policy.gatePolicyVersion === "repair-sprt-v2"
+                ? {
+                    blockingNewIssueAfterRepairCount: 0,
+                    sourceIncompleteIssueAfterRepairCount: 0,
+                  }
+                : {}),
             }
           : {}),
         qualityProjection: {
@@ -404,6 +414,33 @@ const regressedAfterRepairReceipt = replayDeepRepairExperiment(formalPlan, regre
 assert.equal(regressedAfterRepairReceipt.statisticalVerdict, "GO");
 assert.equal(regressedAfterRepairReceipt.verdict, "INVALID");
 assert.ok(regressedAfterRepairReceipt.invalidReasons.includes("new_issue_after_repair_present"));
+
+const v2Plan = createDeepRepairExperimentPlan(syntheticManifest("formal", 30, "repair-sprt-v2"));
+const sourceIncompleteAfterRepair = syntheticReplayInput(v2Plan, Array<boolean>(15).fill(false));
+sourceIncompleteAfterRepair.notices[0]!.newIssueAfterRepairCount = 1;
+sourceIncompleteAfterRepair.notices[0]!.sourceIncompleteIssueAfterRepairCount = 1;
+const sourceIncompleteReceipt = replayDeepRepairExperiment(v2Plan, sourceIncompleteAfterRepair);
+assert.equal(sourceIncompleteReceipt.statisticalVerdict, "GO");
+assert.equal(sourceIncompleteReceipt.verdict, "GO");
+assert.deepEqual(sourceIncompleteReceipt.invalidReasons, []);
+assert.equal(sourceIncompleteReceipt.repairBreakdown?.newIssuesAfterRepair, 1);
+assert.equal(sourceIncompleteReceipt.repairBreakdown?.blockingNewIssuesAfterRepair, 0);
+assert.equal(sourceIncompleteReceipt.repairBreakdown?.sourceIncompleteIssuesAfterRepair, 1);
+
+const blockingAfterRepair = syntheticReplayInput(v2Plan, Array<boolean>(15).fill(false));
+blockingAfterRepair.notices[0]!.newIssueAfterRepairCount = 1;
+blockingAfterRepair.notices[0]!.blockingNewIssueAfterRepairCount = 1;
+const blockingReceipt = replayDeepRepairExperiment(v2Plan, blockingAfterRepair);
+assert.equal(blockingReceipt.verdict, "INVALID");
+assert.ok(blockingReceipt.invalidReasons.includes("blocking_new_issue_after_repair_present"));
+
+const mismatchedV2Transition = syntheticReplayInput(v2Plan, Array<boolean>(15).fill(false));
+mismatchedV2Transition.notices[0]!.newIssueAfterRepairCount = 1;
+const mismatchedV2TransitionReceipt = replayDeepRepairExperiment(v2Plan, mismatchedV2Transition);
+assert.equal(mismatchedV2TransitionReceipt.verdict, "INVALID");
+assert.ok(
+  mismatchedV2TransitionReceipt.invalidReasons.includes("repair_transition_provenance_mismatch"),
+);
 
 for (const duplicateField of ["runId", "runArtifactPath", "runArtifactSha256"] as const) {
   const duplicatedRun = syntheticReplayInput(formalPlan, Array<boolean>(15).fill(false));

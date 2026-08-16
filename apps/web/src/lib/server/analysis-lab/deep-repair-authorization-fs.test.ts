@@ -18,7 +18,7 @@ try {
   const cohortPath = "spike-out/analysis-lab/experiments/cohorts/exact.json";
   const fixtures = [
     [join(rootDir, "approvals", `${approvalSha}.json`), Buffer.from("approval\n")],
-    [join(rootDir, "series", "deep-v20.json"), Buffer.from("series\n")],
+    [join(rootDir, "series", "deep-v21.json"), Buffer.from("series\n")],
     [join(rootDir, "proposals", `${proposalSha}.json`), Buffer.from("proposal\n")],
     [join(rootDir, "plans", `${planSha}.json`), Buffer.from("plan\n")],
     [join(rootDir, "cohorts", "exact.json"), Buffer.from("cohort\n")],
@@ -32,8 +32,8 @@ try {
 
   assert.equal(Buffer.from((await repository.readApproval(approvalSha))!.bytes).toString(), "approval\n");
   assert.equal(
-    (await repository.readSeriesMarker("deep-v20"))?.path,
-    "spike-out/analysis-lab/experiments/series/deep-v20.json",
+    (await repository.readSeriesMarker("deep-v21"))?.path,
+    "spike-out/analysis-lab/experiments/series/deep-v21.json",
   );
   assert.equal(
     (await repository.readProposal(proposalSha))?.path,

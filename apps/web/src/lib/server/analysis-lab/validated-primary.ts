@@ -26,6 +26,8 @@ export interface ValidatedLabPrimaryResult extends LabPrimaryRepairProvenance {
   deterministicPrimaryRepairCount: number;
   modelPrimaryRepairCount: number;
   newIssueAfterRepairCount: number;
+  blockingNewIssueAfterRepairCount: number;
+  sourceIncompleteIssueAfterRepairCount: number;
   outcome: "publishable" | "held";
   matchingReadiness: "ready" | "conditional" | "deferred";
   /**
@@ -43,6 +45,8 @@ export class ValidatedLabPrimaryError extends Error implements LabPrimaryRepairP
     public readonly deterministicPrimaryRepairCount: number,
     public readonly modelPrimaryRepairCount: number,
     public readonly newIssueAfterRepairCount: number,
+    public readonly blockingNewIssueAfterRepairCount: number,
+    public readonly sourceIncompleteIssueAfterRepairCount: number,
     public readonly passes: LabPrimaryPassDiagnostic[],
   ) {
     super(message);
@@ -115,24 +119,73 @@ function snapshotPassIssue(
   };
 }
 
-function countNewValidationIssues(
-  before: readonly DeepAnalysisValidationIssue[],
-  after: readonly DeepAnalysisValidationIssue[],
-): number {
+interface ValidationIssueTransitionCounts {
+  readonly total: number;
+  readonly blocking: number;
+  readonly sourceIncomplete: number;
+}
+
+function validationIssueDimension(
+  issue: DeepAnalysisValidationIssue,
+  result: DeepAnalysisModelResult,
+): string | null {
+  const direct = /^\$\.axis_assessments\.([a-z_]+)(?:\.|$)/.exec(issue.path)?.[1]
+    ?? /^\$\.criteria\.([a-z_]+)(?:\.|$)/.exec(issue.path)?.[1];
+  if (direct) return direct;
+  const axisIndex = /^\$\.axis_assessments\[(\d+)\]/.exec(issue.path)?.[1];
+  if (axisIndex !== undefined) {
+    return result.axisAssessments[Number.parseInt(axisIndex, 10)]?.dimension ?? null;
+  }
+  const criterionIndex = /^\$\.criteria\[(\d+)\]/.exec(issue.path)?.[1];
+  if (criterionIndex !== undefined) {
+    return result.criteria[Number.parseInt(criterionIndex, 10)]?.dimension ?? null;
+  }
+  return null;
+}
+
+function countValidationIssueTransitions(input: {
+  beforeIssues: readonly DeepAnalysisValidationIssue[];
+  beforeResult: DeepAnalysisModelResult;
+  afterIssues: readonly DeepAnalysisValidationIssue[];
+  afterResult: DeepAnalysisModelResult;
+}): ValidationIssueTransitionCounts {
   // 메시지 문구 drift는 같은 issue로 보되, 같은 code+path의 중복 수가 늘면 새 유입으로 센다.
-  const remainingBefore = new Map<string, number>();
-  for (const issue of before) {
+  const remainingBefore = new Map<string, DeepAnalysisValidationIssue[]>();
+  for (const issue of input.beforeIssues) {
     const identity = `${issue.code}\u0000${issue.path}`;
-    remainingBefore.set(identity, (remainingBefore.get(identity) ?? 0) + 1);
+    const matches = remainingBefore.get(identity) ?? [];
+    matches.push(issue);
+    remainingBefore.set(identity, matches);
   }
-  let newIssueCount = 0;
-  for (const issue of after) {
+  const newAfter: DeepAnalysisValidationIssue[] = [];
+  for (const issue of input.afterIssues) {
     const identity = `${issue.code}\u0000${issue.path}`;
-    const remaining = remainingBefore.get(identity) ?? 0;
-    if (remaining === 0) newIssueCount += 1;
-    else remainingBefore.set(identity, remaining - 1);
+    const matches = remainingBefore.get(identity);
+    if (!matches || matches.length === 0) newAfter.push(issue);
+    else matches.pop();
   }
-  return newIssueCount;
+  const removedBefore = [...remainingBefore.values()].flat();
+  const removedDimensions = new Map<string, number>();
+  for (const issue of removedBefore) {
+    const dimension = validationIssueDimension(issue, input.beforeResult);
+    if (dimension) removedDimensions.set(dimension, (removedDimensions.get(dimension) ?? 0) + 1);
+  }
+
+  let sourceIncomplete = 0;
+  for (const issue of newAfter) {
+    if (issue.code !== "unresolved_axis") continue;
+    const dimension = validationIssueDimension(issue, input.afterResult);
+    if (!dimension || (removedDimensions.get(dimension) ?? 0) === 0) continue;
+    const axis = input.afterResult.axisAssessments.find((candidate) => candidate.dimension === dimension);
+    if (axis?.status !== "input_missing") continue;
+    sourceIncomplete += 1;
+    removedDimensions.set(dimension, (removedDimensions.get(dimension) ?? 0) - 1);
+  }
+  return {
+    total: newAfter.length,
+    blocking: newAfter.length - sourceIncomplete,
+    sourceIncomplete,
+  };
 }
 
 /**
@@ -198,12 +251,15 @@ export async function runValidatedLabPrimary(input: {
   let deterministicPrimaryRepairCount = 0;
   let modelPrimaryRepairCount = 0;
   let newIssueAfterRepairCount = 0;
+  let blockingNewIssueAfterRepairCount = 0;
+  let sourceIncompleteIssueAfterRepairCount = 0;
   while (route.route === "repair" && repairCount < MAX_LAB_PRIMARY_REPAIRS) {
     input.signal?.throwIfAborted();
     // 결정적 교정만으로 끝나면 수 ms — 그 자체가 "모델 repair 없이 해결" 신호라 그대로 기록한다.
     const repairStartedAt = Date.now();
     const modelPassCountBeforeRepair = execution.passes.length;
     const validationIssuesBeforeRepair = validation.issues;
+    const resultBeforeRepair = execution.result;
     execution = await repairDeepAnalysisExecution({
       seal,
       apiKey: input.apiKey,
@@ -221,10 +277,15 @@ export async function runValidatedLabPrimary(input: {
     if (execution.passes.length > modelPassCountBeforeRepair) modelPrimaryRepairCount += 1;
     else deterministicPrimaryRepairCount += 1;
     validation = validateDeepAnalysisResult({ seal, result: execution.result });
-    newIssueAfterRepairCount += countNewValidationIssues(
-      validationIssuesBeforeRepair,
-      validation.issues,
-    );
+    const transition = countValidationIssueTransitions({
+      beforeIssues: validationIssuesBeforeRepair,
+      beforeResult: resultBeforeRepair,
+      afterIssues: validation.issues,
+      afterResult: execution.result,
+    });
+    newIssueAfterRepairCount += transition.total;
+    blockingNewIssueAfterRepairCount += transition.blocking;
+    sourceIncompleteIssueAfterRepairCount += transition.sourceIncomplete;
     passes.push(collectPassDiagnostic({
       kind: "repair",
       durationMs: repairDurationMs,
@@ -245,6 +306,8 @@ export async function runValidatedLabPrimary(input: {
       deterministicPrimaryRepairCount,
       modelPrimaryRepairCount,
       newIssueAfterRepairCount,
+      blockingNewIssueAfterRepairCount,
+      sourceIncompleteIssueAfterRepairCount,
       passes,
     );
   }
@@ -255,6 +318,8 @@ export async function runValidatedLabPrimary(input: {
     deterministicPrimaryRepairCount,
     modelPrimaryRepairCount,
     newIssueAfterRepairCount,
+    blockingNewIssueAfterRepairCount,
+    sourceIncompleteIssueAfterRepairCount,
     outcome: matchingReadiness === "deferred" ? "held" : "publishable",
     matchingReadiness,
     passes,

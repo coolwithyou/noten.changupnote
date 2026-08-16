@@ -89,6 +89,8 @@ export interface AdminGrantDeepAnalysisState {
   transport: "subscription" | "api" | null;
   model: string | null;
   serving: boolean;
+  /** 분석 결과가 원문 미확보로 명시한 축 수. null은 해당 provenance를 알 수 없는 운영/구런이다. */
+  sourceIncompleteAxisCount: number | null;
 }
 
 export interface AdminGrantKordocState {
@@ -455,7 +457,13 @@ export async function listAdminGrantSimulationGrants(
         fieldsReadySurfaceCount: surfaces?.fieldsReady ?? 0,
         fieldCount: fieldCountByGrant.get(row.id) ?? 0,
         deepAnalysis: deepByGrant.get(row.id)
-          ?? { status: "not_run", transport: null, model: null, serving: false },
+          ?? {
+            status: "not_run",
+            transport: null,
+            model: null,
+            serving: false,
+            sourceIncompleteAxisCount: null,
+          },
         kordoc: kordocByGrant.get(row.id)
           ?? { status: null, transport: null, model: null },
         attachments: mergeGrantAttachments(
@@ -605,7 +613,8 @@ function deepStateFilter(
       ? state.status === "complete"
       : filter === "serving"
         ? state.serving
-        : state.status === "outdated"
+        : (state.sourceIncompleteAxisCount ?? 0) > 0
+          || state.status === "outdated"
           || state.status === "running"
           || state.status === "failed"
           || state.status === "blocked")
@@ -675,17 +684,24 @@ interface DeepAnalysisDbRun {
 }
 
 export function resolveDeepAnalysisState(input: {
-  localRun: Pick<LabRun, "primaryValidationOutcome" | "error" | "model" | "promptVersion" | "transport"> | null;
+  localRun: Pick<
+    LabRun,
+    "primaryValidationOutcome" | "error" | "model" | "promptVersion" | "transport" | "axisAssessments"
+  > | null;
   servingEvidence: PromotionServingEvidence | null;
   latestDbRun: DeepAnalysisDbRun | null;
   deepRunById: ReadonlyMap<string, DeepAnalysisDbRun>;
 }): AdminGrantDeepAnalysisState {
+  const sourceIncompleteAxisCount = input.localRun
+    ? input.localRun.axisAssessments.filter((axis) => axis.status === "input_missing").length
+    : null;
   if (input.servingEvidence?.kind === "verified_local_lab") {
     return {
       status: "complete",
       transport: "subscription",
       model: input.servingEvidence.evidence.model,
       serving: true,
+      sourceIncompleteAxisCount,
     };
   }
   if (input.servingEvidence?.kind === "production_deep_run") {
@@ -694,6 +710,7 @@ export function resolveDeepAnalysisState(input: {
       transport: "api",
       model: input.deepRunById.get(input.servingEvidence.deepAnalysisRunId)?.model ?? null,
       serving: true,
+      sourceIncompleteAxisCount: null,
     };
   }
   if (input.localRun) {
@@ -709,15 +726,25 @@ export function resolveDeepAnalysisState(input: {
       transport: input.localRun.transport === "claude-cli" ? "subscription" : "api",
       model: input.localRun.model,
       serving: false,
+      sourceIncompleteAxisCount,
     };
   }
   const dbRun = input.latestDbRun;
-  if (!dbRun) return { status: "not_run", transport: null, model: null, serving: false };
+  if (!dbRun) {
+    return {
+      status: "not_run",
+      transport: null,
+      model: null,
+      serving: false,
+      sourceIncompleteAxisCount: null,
+    };
+  }
   return {
     status: deepAnalysisDbStatus(dbRun.status),
     transport: "api",
     model: dbRun.model,
     serving: false,
+    sourceIncompleteAxisCount: null,
   };
 }
 

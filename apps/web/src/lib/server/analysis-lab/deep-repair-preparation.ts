@@ -23,7 +23,7 @@ export const DEEP_REPAIR_PREPARATION_POLICY = Object.freeze({
   waveSize: DEEP_REPAIR_FORMAL_MIN_SAMPLE_SIZE,
   model: "claude-opus-5" as const,
   transport: "claude-cli" as const,
-  gatePolicyVersion: "repair-sprt-v1" as const,
+  gatePolicyVersion: "repair-sprt-v2" as const,
 });
 
 const SHA256 = /^[a-f0-9]{64}$/;

@@ -378,6 +378,11 @@ function GrantListCard({ item }: { item: AdminGrantSimulationItem }) {
                   {analysisTransportLabel(item.deepAnalysis.transport)}
                 </Badge>
               ) : null}
+              {(item.deepAnalysis.sourceIncompleteAxisCount ?? 0) > 0 ? (
+                <Badge size="admin" variant="admin-warning">
+                  원문 미확보 {item.deepAnalysis.sourceIncompleteAxisCount}축
+                </Badge>
+              ) : null}
             </div>
           </StatusGroup>
           <StatusGroup label="Kordoc" description={item.kordoc.model ?? "모델 기록 없음"}>

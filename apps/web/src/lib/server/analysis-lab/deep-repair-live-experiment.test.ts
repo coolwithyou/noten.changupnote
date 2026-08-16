@@ -92,7 +92,7 @@ function formalPlan() {
       model: "claude-opus-5",
       transport: "claude-cli",
       qualityPolicyVersion: ANALYSIS_QUALITY_POLICY_VERSION,
-      gatePolicyVersion: "repair-sprt-v1",
+      gatePolicyVersion: "repair-sprt-v2",
     },
     waves: [0, 1].map((wave) => ({
       waveId: `wave-${wave + 1}`,
@@ -326,6 +326,8 @@ function publishableRun(input: {
       deterministicPrimaryRepairCount: repair === "deterministic" ? 1 : 0,
       modelPrimaryRepairCount: repair === "model" ? 1 : 0,
       newIssueAfterRepairCount: 0,
+      blockingNewIssueAfterRepairCount: 0,
+      sourceIncompleteIssueAfterRepairCount: 0,
     },
     primaryValidationOutcome: "publishable",
     error: null,
