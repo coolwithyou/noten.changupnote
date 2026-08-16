@@ -205,8 +205,8 @@ export function BatchOpsTab({
       <AnalysisLabPageHeader
         icon={Gauge}
         eyebrow="BATCH ANALYSIS"
-        title="대기 공고 분석 실행"
-        description="새로 들어온 공고의 22축 딥분석과 지원서 빠른 작성 분석을 한 번에 실행하고 진행 상태를 확인합니다."
+        title="배치 상태 관찰"
+        description="과거 배치 진행 상태와 현재 대기·완료 분포를 읽기 전용으로 확인합니다."
         badges={summary ? (
           <Badge variant="secondary">{summary.transportStatus.resolved === "claude-cli" ? "구독 모델" : "API"}</Badge>
         ) : null}
@@ -256,15 +256,15 @@ export function BatchOpsTab({
           ) : (
             <Card>
               <CardHeader>
-                <CardTitle>현재 실행</CardTitle>
-                <CardDescription>배치를 시작하면 공고별 딥분석·Kordoc 진행 상태가 이곳에 표시됩니다.</CardDescription>
+                <CardTitle>최근 배치</CardTitle>
+                <CardDescription>저장된 공고별 딥분석·Kordoc 진행 상태가 이곳에 표시됩니다.</CardDescription>
               </CardHeader>
               <CardContent>
                 <Empty className="border py-10">
                   <EmptyHeader>
                     <EmptyTitle>실행 중인 배치가 없습니다</EmptyTitle>
                     <EmptyDescription>
-                      오른쪽의 새 배치 시작에서 대기 공고 수를 확인하고 실행하세요.
+                      현재 실행 중인 배치가 없습니다. 대기 수와 과거 결과만 확인할 수 있습니다.
                     </EmptyDescription>
                   </EmptyHeader>
                 </Empty>
@@ -367,27 +367,25 @@ function ModeCard({ summary, loading }: { summary: LabOpsSummary | null; loading
   );
 }
 
-/** 다음 단계 — v1 은 검수/감사/집계 실행 트리거 없음. 터미널 명령 안내 + 복사(UsageGuide 관행). */
+/** 과거 배치 결과의 read-only 진단 안내. live 모델·감사 명령을 현행 절차로 노출하지 않는다. */
 function NextStepsCard() {
   return (
     <Card size="sm">
       <CardHeader>
-        <CardTitle className="flex items-center gap-2"><ListChecks /> 완료 후 검수</CardTitle>
+        <CardTitle className="flex items-center gap-2"><ListChecks /> 저장 결과 진단</CardTitle>
         <CardDescription>
-          배치가 끝나면 AI 검수와 게이트 집계를 순서대로 실행합니다.
+          이 화면은 과거 배치와 저장 결과를 관찰하는 용도입니다.
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
-        <CommandLine
-          label="AI 검수 (전수 · 채택 모델)"
-          command="pnpm lab:ai-review -- --model=claude-fable-5 --limit=N"
-          hint="N 은 검수할 공고 수"
-        />
-        <CommandLine
-          label="AI 블라인드 감사 (구독)"
-          command="ANALYSIS_LAB_TRANSPORT=claude-cli pnpm lab:ai-audit"
-        />
-        <CommandLine label="게이트 집계" command="pnpm lab:aggregate" />
+        <Alert>
+          <AlertTitle>legacy 모델·검수 경로 폐기</AlertTitle>
+          <AlertDescription>
+            AI 검수·블라인드 감사·자동 대상 선정은 현재 release 준비 절차가 아닙니다.
+            신규 승격은 봉인된 receipt의 exact cohort만 사용합니다.
+          </AlertDescription>
+        </Alert>
+        <CommandLine label="과거 review 표본 진단" command="pnpm lab:review:aggregate" />
       </CardContent>
     </Card>
   );

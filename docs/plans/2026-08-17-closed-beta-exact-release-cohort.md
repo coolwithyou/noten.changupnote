@@ -13,7 +13,8 @@
 
 sequence 0~8의 9건을 하나의 최초 클로즈드 베타 cohort로 제안한다. 9건 모두 현재 공개·접수
 가능 상태이고, 준비 당시 input/attachment와 현재 값이 일치하며, 기존 deep-analysis run,
-promotion item, confirmed dedup member 중복이 없다. 실제 matcher 변환도 9건 모두
+승인·적용 수명주기의 promotion, confirmed dedup member 중복이 없다. 실패한 revision 1의
+`prepared` item은 실제 승격 중복이 아니라 같은 cohort의 이전 예약으로 분리한다. 실제 matcher 변환도 9건 모두
 `conversion.error=null`, `dropped=0`이다.
 
 | seq | grantId | runId | run SHA | readiness | 현재 source revision | receipt SHA | matcher 조건 |
@@ -57,6 +58,14 @@ revision 1의 aggregate v1은 receipt 기반 105개 발행 criterion에 존재�
 verdict를 요구해 `correct=0`, `ITERATE`로 봉인됐다. 같은 실행에서 sequence 6 verifier의
 일시적 실패도 실제 drift와 구분되지 않은 채 기록됐지만 직후 exact source 재검증은 9/9
 일치했다. 불변 aggregate를 덮어쓰지 않으며 revision 1은 `prepared`, 미승인 상태로 남긴다.
+
+2026-08-17 재점검에서는 prepared item을 무조건 `promotion_duplicate`로 보던 잔여 계약도
+확인했다. 이제 읽기 전용 readiness는 승인 이후 release만 실제 중복으로 보고, 다음 release
+준비 단계가 동일 cohort·동일 exact grantId 집합·이전 immutable gate 실패·더 높은 revision을
+함께 검증한다. 그 결과 seq 0~8은 다시 후보 9건, seq 9는 관리자 확인 1건,
+held 0건으로 재현됐다. 진행 중/통과한 prepared release나 다른 cohort의 부분 중복은 계속
+fail-closed한다. 같은 규칙은 이후 shadow/dry-run 실패도 새 revision 사유로 인정하고, 현재
+admission으로 승인 불가능한 legacy prepared 예약과 완전 rollback은 충돌에서 제외한다.
 
 공통 aggregate v2 계약과 typed source verification을 검증·커밋한 뒤에도 revision 2 release는
 자동 생성하지 않는다. 새 commit/build digest와 동일 exact 9건의 current revision 결속을 다시

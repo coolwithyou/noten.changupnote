@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { readdir, readFile } from "node:fs/promises";
 import { basename, join, relative, resolve } from "node:path";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import type { LabRun } from "@/features/dev/analysis-lab/contract";
 import { getCunoteDb } from "../db/client";
 import * as schema from "../db/schema";
@@ -623,9 +623,27 @@ async function loadCurrentGrantEvidence(run: LabRun, now: Date): Promise<Current
       db.select({ id: schema.grantDeepAnalysisRuns.id })
         .from(schema.grantDeepAnalysisRuns)
         .where(eq(schema.grantDeepAnalysisRuns.grantId, run.grantId)).limit(1),
+      // prepared item은 아직 승격 결과가 아니라 immutable gate를 평가 중인 revision이다.
+      // 승인 이후 상태만 신규 후보와 충돌하며, 실패한 prepared revision의 재시도를 영구
+      // 차단하지 않는다. 같은 cohort의 prepared revision 충돌은 release CLI가 별도로 판정한다.
       db.select({ id: schema.analysisLabPromotionItems.id })
         .from(schema.analysisLabPromotionItems)
-        .where(eq(schema.analysisLabPromotionItems.grantId, run.grantId)).limit(1),
+        .innerJoin(
+          schema.analysisLabPromotionReleases,
+          eq(schema.analysisLabPromotionItems.releaseDbId, schema.analysisLabPromotionReleases.id),
+        )
+        .where(and(
+          eq(schema.analysisLabPromotionItems.grantId, run.grantId),
+          inArray(schema.analysisLabPromotionReleases.status, [
+            "approved",
+            "canary_running",
+            "canary_passed",
+            "applying",
+            "active",
+            "partial_failed",
+            "rolling_back",
+          ]),
+        )).limit(1),
       db.select({ memberGrantId: schema.dedupLinks.memberGrantId })
         .from(schema.dedupLinks)
         .where(and(

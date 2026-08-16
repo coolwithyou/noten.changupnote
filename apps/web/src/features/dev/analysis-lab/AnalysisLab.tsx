@@ -445,9 +445,8 @@ function UsageGuide({
       <CollapsibleContent className="flex flex-col gap-3 border-t border-border px-4 py-4">
         <div className="flex flex-col gap-2 text-sm">
           <GuideStep step={1}>
-            공고 카드에서 <span className="font-medium">&ldquo;저장된 런&rdquo;</span>을 선택하거나{" "}
-            <span className="font-medium">&ldquo;Opus 딥분석 실행&rdquo;</span>으로 새 런을 만듭니다
-            (동기 분석 — 1~5분 소요).
+            공고 카드의 <span className="font-medium">&ldquo;저장된 런&rdquo;</span>에서 기존 결과를
+            선택합니다. 이 화면은 관찰·과거 결과 진단용이며 신규 live 실행 권한을 만들지 않습니다.
           </GuideStep>
           <GuideStep step={2}>
             페이지 하단에 열리는 상세 패널의 <span className="font-medium">분석 문서</span>·
@@ -463,8 +462,9 @@ function UsageGuide({
           <GuideStep step={4}>
             분석 대상 {noticeCount > 0 ? `${noticeCount}건이` : "전 공고가"} 모두{" "}
             <span className="font-medium">검수됨</span>이 되면 터미널에서{" "}
-            <code className="rounded bg-muted px-1 py-0.5 font-mono text-[11px]">pnpm lab:aggregate</code>
-            를 실행합니다 — 통과 기준 {GATE_COUNT}종을 자동 판정합니다.
+            <code className="rounded bg-muted px-1 py-0.5 font-mono text-[11px]">pnpm lab:review:aggregate</code>
+            를 실행하면 과거 review 표본의 통과 기준 {GATE_COUNT}종을 진단할 수 있습니다.
+            실제 release 게이트는 exact release ID에 묶인 <code className="rounded bg-muted px-1 py-0.5 font-mono text-[11px]">pnpm lab:aggregate -- --release=&lt;id&gt;</code>만 사용합니다.
           </GuideStep>
         </div>
         <p className="text-xs text-muted-foreground">
@@ -576,7 +576,7 @@ function ReviewProgressBoard({
           <AlertDescription>
             터미널에서{" "}
             <code className="rounded bg-muted px-1 py-0.5 font-mono text-[11px]">
-              pnpm lab:aggregate
+              pnpm lab:review:aggregate
             </code>
             를 실행하면 정밀도·재현율·커버리지·비용·구조화 비율을 집계하고 통과 기준{" "}
             {GATE_COUNT}종을 자동 판정합니다.
@@ -586,7 +586,7 @@ function ReviewProgressBoard({
         <p className="text-xs text-muted-foreground">
           공고마다 런 1개 이상을 검수하면 완료로 표시됩니다. 미검수 공고를 클릭하면 해당
           카드로 이동합니다 — {notices.length}건 모두 검수 후{" "}
-          <code className="rounded bg-muted px-1 py-0.5 font-mono text-[11px]">pnpm lab:aggregate</code>
+          <code className="rounded bg-muted px-1 py-0.5 font-mono text-[11px]">pnpm lab:review:aggregate</code>
           로 판정합니다.
         </p>
       )}

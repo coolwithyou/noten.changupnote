@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle, ChevronDown, Laptop, LockKeyhole, RefreshCw, UnlockKeyhole } from "lucide-react";
+import { AlertTriangle, ChevronDown, Laptop, LockKeyhole, RefreshCw } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -15,12 +15,12 @@ export function LocalAnalysisRuntimeCard({ runtime }: { runtime: LocalAnalysisRu
   const anotherOwner = runtime.status?.effectiveMode === "local_subscription"
     && runtime.status.localOwnerId !== runtime.ownerId;
   const statusLabel = runtime.allowed
-    ? "사용 가능"
+    ? "남은 lease 해제 필요"
     : productionOn
       ? "운영 자동화 ON"
       : anotherOwner
         ? "다른 세션 사용 중"
-        : "권한 필요";
+        : "관찰 전용";
 
   return (
     <Card size="sm">
@@ -35,25 +35,33 @@ export function LocalAnalysisRuntimeCard({ runtime }: { runtime: LocalAnalysisRu
           </Badge>
         </CardTitle>
         <CardDescription>
-          구독 사용량으로만 분석하며 API 종량제 비용은 발생하지 않습니다.
+          Gate R 동안 이 화면은 관찰 전용입니다. 신규 실행은 승인된 exact Adapter만 소유합니다.
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
         {runtime.allowed ? (
           <Button variant="outline" size="sm" onClick={() => void runtime.release()} disabled={runtime.busy}>
             <LockKeyhole data-icon="inline-start" />
-            권한 해제
+            남은 local lease 해제
           </Button>
         ) : (
           <Button
             size="sm"
-            onClick={() => void runtime.acquire()}
-            disabled={runtime.busy || productionOn || anotherOwner || !runtime.ownerId}
+            disabled
           >
-            <UnlockKeyhole data-icon="inline-start" />
-            구독 분석 모드 켜기
+            <LockKeyhole data-icon="inline-start" />
+            Gate R 실행 차단
           </Button>
         )}
+
+        {!runtime.allowed ? (
+          <Alert>
+            <AlertTitle>live start 비활성</AlertTitle>
+            <AlertDescription>
+              UI 단건·배치·자동 선정과 legacy 검수 모델 호출은 권한을 얻을 수 없습니다.
+            </AlertDescription>
+          </Alert>
+        ) : null}
 
         {productionOn ? (
           <Alert variant="destructive">

@@ -9,7 +9,8 @@
 //     외부 fetch 없음(resolveProductCompanyProfile 의 refreshOwnedSource 는 owned_refresh 전용).
 //   - 후 지표는 하한 추정: missed_condition(누락 조건)·needs_edit(수정 필요)는 구조화 값이
 //     없어 섀도에 미반영, 건수만 caveat 병기(계획 §7).
-// 실행: pnpm lab:shadow -- [--all] [--companyId=CSV] [--bizNo=CSV] [--asOf=ISO] [--verbose]
+// exact release: pnpm lab:shadow -- --release=<id> [--companyId=CSV] [--bizNo=CSV]
+// 과거 review 진단: pnpm lab:review:shadow -- [--all] [--companyId=CSV] [--bizNo=CSV]
 //   --all 은 cohort.json 밖 검수(파일럿 3건 등)까지 포함한다(스모크 용도).
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -408,6 +409,9 @@ async function main(): Promise<number> {
   }
   const releaseId = readArg("release")?.trim();
   if (releaseId) return mainReleaseShadow(options, releaseId);
+  if (!hasFlag("review-diagnostic")) {
+    throw new Error("--release가 필요합니다. 과거 review 기반 섀도는 lab:review:shadow로 분리됐습니다.");
+  }
 
   // 1) 검수 런 수집 — reviewed-runs 공유 모듈. 게이트 집계(aggregate)와 달리 파일럿 층을
   //    제외하지 않는다: 섀도 측정은 "30건 검수 확정분"(확대 계획 §4)이고 확대 코호트 30건에

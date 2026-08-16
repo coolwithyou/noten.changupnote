@@ -1,15 +1,15 @@
 # 딥 공고 분석 운영 승격 Runbook
 
 > 적용일: 2026-08-17
-> 상태: legacy 검수 릴리스와 receipt 기반 exact 릴리스를 분리. 모든 실쓰기 별도 승인 대기
+> 상태: 신규 릴리스는 receipt 기반 exact cohort만 허용. 모든 실쓰기 별도 승인 대기
 > 상세 설계: `docs/plans/2026-07-24-deep-analysis-production-rollout.md`
 
 ## 1. 원칙
 
 - 랜딩 요청 중 LLM을 실행하지 않습니다. 검수된 결과만 `grant_criteria`와
   `grant_confirmation_questions`에 미리 발행합니다.
-- 주간 사람 검수 릴리스는 `pending=0`, `conflict=0`, `collect/reconcile=100%` 전에는
-  준비하지 않습니다.
+- 과거 사람/AI 검수·감사 산출물은 진단과 기존 manifest 읽기 호환에만 사용하고 신규
+  release 입력으로 사용하지 않습니다.
 - 봉인된 deep-repair 결과는 사람 검수·감사를 가장하지 않습니다. exact terminal receipt와
   실행 plan, 현재 source revision/input/attachment를 다시 결속한 별도 경로만 사용합니다.
 - 실험의 누적 통계 verdict와 개별 공고의 출시 readiness는 분리합니다. 통계상
@@ -36,29 +36,24 @@ release 준비와 승인은 추적 파일 변경이 없는 정확한 build tree�
 코드·패키지·빌드 입력 아래의 미추적 파일도 거부하지만, 별도 미추적 문서 때문에 build가
 달라지지는 않습니다. 운영 DB에는 최신 migration이 적용되어 있어야 합니다.
 
-## 3. 입력 경로 선택
+## 3. 입력 경로
 
-새 릴리스는 아래 둘 중 하나의 provenance만 사용합니다.
+신규 release는 봉인된 `deep_repair` series의 exact grantId 집합만 사용합니다. collect/
+reconcile, Kordoc, legacy review·audit·confirmations 파일을 요구하지 않고 terminal receipt를
+직접 검증합니다. 자동 후보 선정은 없으며 `--series`와 `--grantIds`를 모두 명시합니다.
 
-- `human`/`audited`: 기존 주간 검수 수거 경로. 아래 collect/reconcile 게이트를 그대로
-  적용하는 호환·진단 경로이며, 현재 승인·실쓰기 admission은 열지 않습니다.
-- `deep_repair`: 봉인된 series의 exact grantId 집합. collect/reconcile, Kordoc, legacy
-  review 파일을 요구하지 않고 terminal receipt를 직접 검증합니다.
+## 4. 과거 주간 검수 진단(승격 입력 아님)
 
-두 경로의 플래그를 한 명령에서 섞을 수 없습니다. 자동 후보 선정은 legacy 진단 경로에만
-남고, 현재 승인·실쓰기는 exact `deep_repair` release만 허용합니다. `deep_repair`는
-`--series`와 `--grantIds`를 모두 명시해야 합니다.
-
-## 4. 주간 검수 수거(legacy 호환)
-
-검수팀 판정이 모두 끝난 뒤 운영 관리자가 실행합니다.
+과거 검수 표본을 재현할 때만 운영 관리자가 실행합니다.
 
 ```bash
 pnpm lab:collect -- --week=2026-W30
 pnpm lab:reconcile -- --week=2026-W30
 ```
 
-`pending`, `conflict`, 미수거 item, receipt 불일치가 하나라도 있으면 여기서 중단합니다.
+`pending`, `conflict`, 미수거 item, receipt 불일치를 조사하는 read/diagnostic 흐름입니다.
+이 결과로 신규 release를 준비할 수 없습니다. 과거 표본 집계는
+`pnpm lab:review:aggregate`, 섀도는 `pnpm lab:review:shadow`로 명시적으로 분리돼 있습니다.
 
 ## 5. receipt 기반 exact cohort 읽기 전용 점검
 
@@ -76,15 +71,15 @@ pnpm lab:release -- \
 `candidates`, `adminReview`, `held`를 구분해 확인합니다. `adminReview`나 `held` 대상이 exact
 CSV에 포함된 채로 release 준비를 시도하면 명령이 거부됩니다.
 
-## 6. 릴리스 준비와 게이트
+`prepared` item은 아직 승격된 데이터가 아니므로 읽기 전용 readiness에서는
+`promotion_duplicate`로 세지 않습니다. 다만 release 준비 시 같은 exact cohort의 이전
+`prepared` revision을 다시 확인합니다. 이전 immutable aggregate/shadow/dry-run 중 하나가
+실패했고 새 revision 번호가 더 큰 경우에만 다음 revision을 허용합니다. gate 미종결, 세 gate
+모두 통과, 다른 exact cohort와의 부분 겹침, 승인·적용 중 상태는 모두 거부합니다. 현재
+receipt admission으로 승인할 수 없는 legacy prepared 예약과 완전히 `rolled_back`된 release는
+신규 exact release를 막지 않습니다.
 
-```bash
-pnpm lab:release -- --prepare --cohort=2026-W30 --actor=<준비자>
-pnpm lab:aggregate -- --release=<release-id>
-ANALYSIS_LAB_ARTIFACT_HMAC_KEY=<32자-이상-secret> \
-  pnpm lab:shadow -- --release=<release-id>
-pnpm lab:promote -- --release=<release-id> --dry-run
-```
+## 6. 릴리스 준비와 게이트
 
 receipt 기반 exact cohort는 사용자에게 grantId/run/revision/receipt 결속을 먼저 제시하고
 release 생성 승인을 받은 뒤에만 다음 형식으로 준비합니다.
@@ -102,6 +97,15 @@ pnpm lab:release -- \
 이 경로는 deep receipt를 criterion resolution provenance로 기록합니다. legacy AI 검수,
 블라인드 감사, confirmations, Kordoc 완료로 표기하지 않습니다.
 
+준비된 exact release의 세 게이트는 다음처럼 실행합니다.
+
+```bash
+pnpm lab:aggregate -- --release=<release-id>
+ANALYSIS_LAB_ARTIFACT_HMAC_KEY=<32자-이상-secret> \
+  pnpm lab:shadow -- --release=<release-id>
+pnpm lab:promote -- --release=<release-id> --dry-run
+```
+
 aggregate v2는 두 증거를 한 숫자로 섞지 않습니다.
 
 - `reviewed`: 실제 review verdict가 있는 표본만 strict precision, wrong rate,
@@ -114,21 +118,9 @@ aggregate v2는 두 증거를 한 숫자로 섞지 않습니다.
 - source hash/revision이 실제로 달라지면 drift로 artifact에 기록합니다. 파일·DB·스토리지
   읽기 실패처럼 현재 검증할 수 없는 상태는 immutable artifact를 쓰기 전에 중단합니다.
 
-과거 audited local canary 형식은 기존 manifest를 읽고 진단하기 위한 호환 입력으로만
-남깁니다. 신규 승인·실발행에는 사용하지 않습니다.
-
-```bash
-pnpm lab:release -- \
-  --prepare \
-  --cohort=local-canary-YYYY-MM-DD \
-  --grantId=<검증할-grant-id> \
-  --audited-local-canary \
-  --actor=<준비자>
-```
-
-manifest의 `servingProvenance`가 `verified_local_lab`인지 확인한 뒤 아래 aggregate,
-shadow, dry-run, 분리 승인, canary 승격 순서를 그대로 따릅니다. 기존 local release,
-API transport, 단순 `runId`만 있는 승격 행은 랜딩 서빙 대상이 아닙니다.
+과거 audited local canary manifest는 serving provenance를 읽기 위한 호환 대상으로만
+남습니다. `--grantId`/`--audited-local-canary`를 이용한 신규 release 준비는 거부됩니다.
+기존 local release, API transport, 단순 `runId`만 있는 승격 행은 랜딩 서빙 대상이 아닙니다.
 
 확인할 값:
 

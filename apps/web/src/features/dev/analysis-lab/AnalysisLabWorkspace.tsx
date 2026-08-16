@@ -14,8 +14,8 @@ import { useLocalAnalysisRuntime } from "./useLocalAnalysisRuntime";
 const WORKSPACES = [
   {
     value: "batch-ops",
-    title: "분석 실행",
-    description: "대기 공고를 확인하고 일괄 분석",
+    title: "배치 관찰",
+    description: "과거 배치와 대기 상태 확인",
     icon: Gauge,
   },
   {
@@ -45,6 +45,8 @@ function isWorkspaceValue(value: string): value is WorkspaceValue {
 
 export function AnalysisLabWorkspace() {
   const runtime = useLocalAnalysisRuntime();
+  // Gate R: 이 UI는 관찰 전용이다. stale runtime lease가 있어도 live action prop을 열지 않는다.
+  const liveExecutionAllowed = false;
   const [activeWorkspace, setActiveWorkspace] = useState<WorkspaceValue>("batch-ops");
 
   useEffect(() => {
@@ -66,21 +68,21 @@ export function AnalysisLabWorkspace() {
             <div className="flex flex-wrap items-center gap-2">
               <Badge variant="outline">LOCAL DEV</Badge>
               <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-                <Sparkles /> Claude 구독 모델 전용
+                <Sparkles /> Gate R 관찰 전용
               </span>
             </div>
             <div>
               <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">로컬 AI 분석 센터</h1>
               <p className="mt-1 break-all text-sm leading-6 text-muted-foreground sm:break-words sm:text-base">
-                공고의 22축 자격조건과 HWP/HWPX 빠른 작성 필드를 함께 분석하고, 결과를 검수·관리합니다.
+                저장된 22축 자격조건과 HWP/HWPX 결과, 배치 상태를 읽기 전용으로 확인합니다.
               </p>
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-            <Badge variant={runtime.allowed ? "default" : "secondary"}>
-              {runtime.allowed ? "구독 분석 준비됨" : "구독 분석 모드 꺼짐"}
+            <Badge variant="secondary">
+              live start 비활성
             </Badge>
-            <span>운영 자동화와 동시 실행되지 않습니다.</span>
+            <span>신규 실행은 exact Adapter 승인 범위만 사용합니다.</span>
           </div>
         </div>
       </header>
@@ -114,13 +116,13 @@ export function AnalysisLabWorkspace() {
 
         <div className="min-w-0">
           <TabsContent value="batch-ops">
-            <BatchOpsTab analysisAllowed={runtime.allowed} analysisOwnerId={runtime.ownerId} />
+            <BatchOpsTab analysisAllowed={liveExecutionAllowed} analysisOwnerId={runtime.ownerId} />
           </TabsContent>
           <TabsContent value="criteria">
-            <AnalysisLab analysisAllowed={runtime.allowed} analysisOwnerId={runtime.ownerId} />
+            <AnalysisLab analysisAllowed={liveExecutionAllowed} analysisOwnerId={runtime.ownerId} />
           </TabsContent>
           <TabsContent value="application-roundtrip">
-            <ApplicationRoundtripLab analysisAllowed={runtime.allowed} analysisOwnerId={runtime.ownerId} />
+            <ApplicationRoundtripLab analysisAllowed={liveExecutionAllowed} analysisOwnerId={runtime.ownerId} />
           </TabsContent>
           <TabsContent value="quality">
             <QualityGraphTab />

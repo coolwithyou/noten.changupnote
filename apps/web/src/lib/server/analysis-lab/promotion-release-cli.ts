@@ -1,17 +1,8 @@
 import { readFile } from "node:fs/promises";
 import { and, eq, inArray } from "drizzle-orm";
-import { bundlePromotionApplicationPrecompute } from "./application-precompute-release";
 import { applyPublishGuards } from "./promote";
 import { assertReceiptBackedPromotionMutationAdmitted } from "./promotion-mutation-admission";
-import {
-  loadConfirmedPromotionCandidates,
-  selectPromotionCandidatesForRelease,
-  type PromotionCandidate,
-} from "./promotion-candidates";
-import {
-  loadDeepRepairPromotionCohort,
-  type DeepRepairPromotionCohort,
-} from "./deep-repair-promotion";
+import { loadDeepRepairPromotionCohort } from "./deep-repair-promotion";
 import {
   assertManifestConfirmation,
   createPromotionReleaseManifest,
@@ -22,10 +13,10 @@ import {
   promotionPlanHasUnsafeUnresolvedCriteria,
   promotionReleaseArtifactPath,
   readPromotionReleaseManifest,
+  validatePromotionReleaseManifest,
   writeImmutablePromotionArtifact,
   type PromotionApprovalArtifact,
   type PromotionReleasePlanItem,
-  type PromotionSourceArtifact,
 } from "./promotion-release";
 import {
   loadPromotionGrantSnapshot,
@@ -53,42 +44,6 @@ function releaseIdFor(cohort: string, revision: number, now: Date, commit: strin
   return `deep-${cohort.replace(/[^A-Za-z0-9._-]/g, "-")}-r${revision}-${stamp}-${commit.slice(0, 8)}`;
 }
 
-async function assertDispatchCollected(week: string): Promise<void> {
-  const db = getCunoteDb();
-  const [batch] = await db
-    .select({ id: schema.auditDispatchBatches.id })
-    .from(schema.auditDispatchBatches)
-    .where(eq(schema.auditDispatchBatches.week, week))
-    .limit(1);
-  if (!batch) throw new Error(`${week} 검수 배치를 찾지 못했습니다.`);
-  const notices = await db
-    .select({ id: schema.auditDispatchNotices.id })
-    .from(schema.auditDispatchNotices)
-    .where(eq(schema.auditDispatchNotices.batchId, batch.id));
-  if (notices.length === 0) throw new Error(`${week} 검수 공고가 0건입니다.`);
-  const items = await db
-    .select({
-      id: schema.auditDispatchItems.id,
-      status: schema.auditDispatchItems.status,
-      collectedAt: schema.auditDispatchItems.collectedAt,
-      receipt: schema.auditDispatchItems.collectReceipt,
-    })
-    .from(schema.auditDispatchItems)
-    .where(inArray(schema.auditDispatchItems.noticeId, notices.map((notice) => notice.id)));
-  if (items.length === 0) throw new Error(`${week} 검수 항목이 0건입니다.`);
-  const incomplete = items.filter((item) =>
-    item.status !== "collected" || item.collectedAt === null || item.receipt === null);
-  if (incomplete.length > 0) {
-    const counts = new Map<string, number>();
-    for (const item of incomplete) counts.set(item.status, (counts.get(item.status) ?? 0) + 1);
-    throw new Error(
-      `${week} 검수 수거가 완료되지 않았습니다: ${[...counts.entries()]
-        .map(([status, count]) => `${status} ${count}`)
-        .join(", ")} (미완 ${incomplete.length}/${items.length})`,
-    );
-  }
-}
-
 function selectCanaries(
   planItems: PromotionReleasePlanItem[],
   requested: string | undefined,
@@ -107,60 +62,169 @@ function selectCanaries(
   return selected.map((item) => item.grantId).sort();
 }
 
+type PreparedGateArtifact = {
+  schema?: unknown;
+  releaseId?: unknown;
+  releasePlanSha256?: unknown;
+  manifestSha256?: unknown;
+  verdict?: unknown;
+};
+
+async function readPreparedGateArtifact(
+  releaseId: string,
+  name: "aggregate.json" | "shadow.json" | "dry-run.json",
+): Promise<PreparedGateArtifact | null> {
+  try {
+    return JSON.parse(await readFile(
+      promotionReleaseArtifactPath(releaseId, name),
+      "utf8",
+    )) as PreparedGateArtifact;
+  } catch {
+    return null;
+  }
+}
+
+function assertPreparedGateBinding(
+  releaseId: string,
+  manifest: ReturnType<typeof validatePromotionReleaseManifest>,
+  name: string,
+  artifact: PreparedGateArtifact,
+): void {
+  if (
+    artifact.releaseId !== releaseId
+    || artifact.releasePlanSha256 !== manifest.releasePlanSha256
+    || artifact.manifestSha256 !== manifest.manifestSha256
+  ) {
+    throw new Error(`기존 prepared release ${name} 결속이 올바르지 않습니다: ${releaseId}`);
+  }
+}
+
+/**
+ * prepared item은 실제 승격 중복이 아니라 release revision 예약이다. 동일 exact cohort의
+ * 이전 revision이 immutable gate에서 실패한 경우에만 더 높은 revision으로 재시도한다.
+ * 현재 admission으로 승인할 수 없는 legacy 예약과 완전 rollback은 충돌에서 제외한다.
+ * 진행 중이거나 승인 가능한 exact release, 다른 exact cohort의 부분 겹침은 fail-closed한다.
+ */
+async function assertPreparedRevisionCanAdvance(input: {
+  cohort: string;
+  revision: number;
+  grantIds: readonly string[];
+}): Promise<void> {
+  const db = getCunoteDb();
+  const rows = await db
+    .select({
+      id: schema.analysisLabPromotionReleases.id,
+      releaseId: schema.analysisLabPromotionReleases.releaseId,
+      revision: schema.analysisLabPromotionReleases.revision,
+      status: schema.analysisLabPromotionReleases.status,
+      manifest: schema.analysisLabPromotionReleases.manifest,
+    })
+    .from(schema.analysisLabPromotionReleases)
+    .innerJoin(
+      schema.analysisLabPromotionItems,
+      eq(schema.analysisLabPromotionItems.releaseDbId, schema.analysisLabPromotionReleases.id),
+    )
+    .where(inArray(schema.analysisLabPromotionItems.grantId, [...input.grantIds]));
+  const releases = [...new Map(rows.map((row) => [row.id, row])).values()];
+  const requested = [...input.grantIds].sort();
+  for (const release of releases) {
+    if (release.status === "rolled_back") continue;
+    if (release.status !== "prepared") {
+      throw new Error(
+        `이미 승인·적용 수명주기에 진입한 release와 겹칩니다: ${release.releaseId} (${release.status})`,
+      );
+    }
+    const manifest = validatePromotionReleaseManifest(release.manifest);
+    try {
+      assertReceiptBackedPromotionMutationAdmitted(manifest);
+    } catch {
+      // 현재 승인 경로도 같은 admission을 호출한다. 따라서 이 legacy prepared 행은 실제
+      // 적용으로 전진할 수 없는 역사적 예약이며 신규 exact receipt release를 막지 않는다.
+      continue;
+    }
+    const existing = manifest.plans.map((item) => item.grantId).sort();
+    const sameExactCohort = manifest.cohortLabel === input.cohort
+      && existing.length === requested.length
+      && existing.every((grantId, index) => grantId === requested[index]);
+    if (!sameExactCohort) {
+      throw new Error(`다른 prepared release와 대상이 겹칩니다: ${release.releaseId}`);
+    }
+    if (input.revision <= release.revision) {
+      throw new Error(
+        `새 revision은 기존 ${release.releaseId}의 r${release.revision}보다 커야 합니다.`,
+      );
+    }
+    const aggregate = await readPreparedGateArtifact(release.releaseId, "aggregate.json");
+    if (!aggregate) {
+      throw new Error(`기존 prepared release의 aggregate가 종결되지 않았습니다: ${release.releaseId}`);
+    }
+    assertPreparedGateBinding(release.releaseId, manifest, "aggregate", aggregate);
+    if (aggregate.verdict === "ITERATE" || aggregate.verdict === "STOP") continue;
+    if (aggregate.verdict !== "GO") {
+      throw new Error(`기존 prepared release aggregate 판정을 해석할 수 없습니다: ${release.releaseId}`);
+    }
+
+    const shadow = await readPreparedGateArtifact(release.releaseId, "shadow.json");
+    if (!shadow) {
+      throw new Error(`기존 prepared release가 shadow 진행 중입니다: ${release.releaseId}`);
+    }
+    assertPreparedGateBinding(release.releaseId, manifest, "shadow", shadow);
+    if (shadow.verdict === "FAIL") continue;
+    if (shadow.verdict !== "PASS") {
+      throw new Error(`기존 prepared release shadow 판정을 해석할 수 없습니다: ${release.releaseId}`);
+    }
+
+    const dryRun = await readPreparedGateArtifact(release.releaseId, "dry-run.json");
+    if (!dryRun) {
+      throw new Error(`기존 prepared release가 dry-run 진행 중입니다: ${release.releaseId}`);
+    }
+    assertPreparedGateBinding(release.releaseId, manifest, "dry-run", dryRun);
+    if (dryRun.verdict === "FAIL") continue;
+    if (dryRun.verdict !== "PASS") {
+      throw new Error(`기존 prepared release dry-run 판정을 해석할 수 없습니다: ${release.releaseId}`);
+    }
+    throw new Error(`기존 prepared release가 모든 gate를 통과해 대체할 수 없습니다: ${release.releaseId}`);
+  }
+}
+
 async function prepare(): Promise<number> {
   const series = readArg("series")?.trim();
   const cohort = readArg("cohort")?.trim() || series;
   const actor = readArg("actor")?.trim();
-  const grantId = readArg("grantId")?.trim();
   const exactGrantIds = (readArg("grantIds") ?? "")
     .split(",")
     .map((value) => value.trim())
     .filter(Boolean);
-  const auditedLocalCanary = hasFlag("audited-local-canary");
   const revision = Number(readArg("revision") ?? "1");
-  if (!cohort) throw new Error("--cohort가 필요합니다. 예: --cohort=2026-W30");
-  if (!actor) throw new Error("--actor에 준비 담당자 식별자가 필요합니다.");
-  if (!Number.isInteger(revision) || revision < 1) throw new Error("--revision은 1 이상의 정수여야 합니다.");
-  if (auditedLocalCanary && !grantId) {
-    throw new Error("--audited-local-canary는 --grantId와 함께 사용해야 합니다.");
-  }
-  if (series && (grantId || auditedLocalCanary)) {
-    throw new Error("--series 경로는 legacy --grantId/--audited-local-canary와 함께 사용할 수 없습니다.");
-  }
-  if (series && exactGrantIds.length === 0) {
-    throw new Error("--series 경로는 자동 대상 선정을 하지 않습니다. --grantIds exact CSV가 필요합니다.");
-  }
-  if (!series && exactGrantIds.length > 0) {
-    throw new Error("--grantIds는 --series와 함께 사용해야 합니다.");
-  }
-  const build = readPromotionBuildProvenance();
-  if (!series && !auditedLocalCanary) await assertDispatchCollected(cohort);
-
-  let deepRepairCohort: DeepRepairPromotionCohort | null = null;
-  let candidates: PromotionCandidate[];
-  if (series) {
-    deepRepairCohort = await loadDeepRepairPromotionCohort({
-      seriesId: series,
-      grantIds: exactGrantIds,
-    });
-    const excluded = [...deepRepairCohort.adminReview, ...deepRepairCohort.held];
-    if (excluded.length > 0) {
-      throw new Error(
-        `exact cohort에 자동 release 불가 대상이 있습니다: ${excluded
-          .map((item) => `${item.grantId}:${item.readiness.disposition}(${item.readiness.reasons.join("+")})`)
-          .join(", ")}`,
-      );
-    }
-    candidates = deepRepairCohort.candidates;
-  } else {
-    candidates = selectPromotionCandidatesForRelease(
-      await loadConfirmedPromotionCandidates({ scanAll: Boolean(grantId) }),
-      {
-        ...(grantId ? { grantId } : {}),
-        auditedLocalCanary,
-      },
+  if (!series) {
+    throw new Error(
+      "신규 release 준비는 receipt 기반 exact cohort만 허용합니다. --series와 --grantIds exact CSV가 필요합니다.",
     );
   }
+  if (!cohort) throw new Error("--cohort가 필요합니다.");
+  if (!actor) throw new Error("--actor에 준비 담당자 식별자가 필요합니다.");
+  if (!Number.isInteger(revision) || revision < 1) throw new Error("--revision은 1 이상의 정수여야 합니다.");
+  if (readArg("grantId") || hasFlag("audited-local-canary")) {
+    throw new Error("legacy --grantId/--audited-local-canary release 준비 경로는 폐기됐습니다.");
+  }
+  if (exactGrantIds.length === 0) {
+    throw new Error("자동 대상 선정을 하지 않습니다. --grantIds exact CSV가 필요합니다.");
+  }
+  const build = readPromotionBuildProvenance();
+  await assertPreparedRevisionCanAdvance({ cohort, revision, grantIds: exactGrantIds });
+  const deepRepairCohort = await loadDeepRepairPromotionCohort({
+    seriesId: series,
+    grantIds: exactGrantIds,
+  });
+  const excluded = [...deepRepairCohort.adminReview, ...deepRepairCohort.held];
+  if (excluded.length > 0) {
+    throw new Error(
+      `exact cohort에 자동 release 불가 대상이 있습니다: ${excluded
+        .map((item) => `${item.grantId}:${item.readiness.disposition}(${item.readiness.reasons.join("+")})`)
+        .join(", ")}`,
+    );
+  }
+  const candidates = deepRepairCohort.candidates;
   if (candidates.length === 0) throw new Error("확정된 promotion candidate가 0건입니다.");
   const guarded = applyPublishGuards(candidates.map((candidate) => candidate.plan));
   if (guarded.refused.length > 0) {
@@ -184,7 +248,7 @@ async function prepare(): Promise<number> {
     (plan.origin === "deep_repair"
       ? plan.conversion.dropped !== (plan.scopeRejectedCriterionIndexes?.length ?? -1)
       : plan.conversion.dropped > 0 || plan.droppedQuestionCandidates > 0)
-    || promotionPlanHasUnsafeUnresolvedCriteria(plan, { auditedLocalCanary }));
+    || promotionPlanHasUnsafeUnresolvedCriteria(plan));
   if (unsafePlans.length > 0) {
     throw new Error(
       `미확정·변환 드롭·질문 앵커 상실이 남아 release를 준비할 수 없습니다: ${unsafePlans
@@ -214,7 +278,7 @@ async function prepare(): Promise<number> {
     candidates.map((candidate) => [candidate.plan.grantId, candidate]),
   );
   const deepRepairReadinessByGrantId = new Map(
-    (deepRepairCohort?.candidates ?? []).map((candidate) => [
+    deepRepairCohort.candidates.map((candidate) => [
       candidate.plan.grantId,
       candidate.readiness,
     ]),
@@ -248,40 +312,6 @@ async function prepare(): Promise<number> {
   const now = new Date();
   const releaseId = readArg("releaseId")?.trim()
     || releaseIdFor(cohort, revision, now, build.gitCommit);
-  const eligibleApplicationSurfaces = await db
-    .select({ grantId: schema.grantApplicationSurfaces.grantId })
-    .from(schema.grantApplicationSurfaces)
-    .where(and(
-      inArray(schema.grantApplicationSurfaces.grantId, grantIds),
-      eq(schema.grantApplicationSurfaces.type, "file_template"),
-      inArray(schema.grantApplicationSurfaces.format, ["hwp", "hwpx"]),
-    ));
-  const eligibleApplicationGrantIds = new Set(
-    eligibleApplicationSurfaces.map((surface) => surface.grantId),
-  );
-  const sourceArtifacts: PromotionSourceArtifact[] = [];
-  for (const candidate of candidates) {
-    const requiresLegacyApplicationEvidence = Boolean(
-      candidate.sourceArtifact.localLabEvidence
-      && candidate.sourceArtifact.localLabEvidence.reviewMethod !== "deep_repair_receipt",
-    );
-    const applicationPrecompute = requiresLegacyApplicationEvidence
-      ? await bundlePromotionApplicationPrecompute({ releaseId, labRun: candidate.source.run })
-      : null;
-    if (
-      requiresLegacyApplicationEvidence
-      && eligibleApplicationGrantIds.has(candidate.plan.grantId)
-      && applicationPrecompute === null
-    ) {
-      throw new Error(
-        `지원 양식이 있는 공고의 Kordoc 고품질 모델 증거가 없습니다: ${candidate.plan.grantId}`,
-      );
-    }
-    sourceArtifacts.push({
-      ...candidate.sourceArtifact,
-      ...(applicationPrecompute ? { applicationPrecompute } : {}),
-    });
-  }
   const manifest = createPromotionReleaseManifest({
     releaseId,
     revision,
@@ -290,9 +320,11 @@ async function prepare(): Promise<number> {
     buildDigest: build.buildDigest,
     cohortLabel: cohort,
     canaryGrantIds: selectCanaries(planItems, readArg("canary")),
-    sourceArtifacts,
+    sourceArtifacts: candidates.map((candidate) => candidate.sourceArtifact),
     plans: planItems,
   });
+  // 파일 또는 DB를 쓰기 전에 현재 mutation admission과 동일한 receipt 결속을 증명한다.
+  assertReceiptBackedPromotionMutationAdmitted(manifest);
   await writeImmutablePromotionArtifact(
     promotionReleaseArtifactPath(releaseId, "manifest.json"),
     manifest,

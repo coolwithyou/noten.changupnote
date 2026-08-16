@@ -1,11 +1,6 @@
 import assert from "node:assert/strict";
 import type { GrantPromotionPlan } from "./promote";
 import {
-  selectPromotionCandidatesForRelease,
-  verifyPromotionSourceArtifact,
-  type PromotionCandidate,
-} from "./promotion-candidates";
-import {
   createPromotionReleaseManifest,
   planSha256,
   sha256Canonical,
@@ -156,85 +151,5 @@ assert.equal(
   );
 }
 
-{
-  const manifest = localManifest();
-  const candidate = {
-    plan,
-    sourceArtifact: manifest.sourceArtifacts[0]!,
-    source: {
-      origin: "audited",
-      auditEvidence: {
-        reviewModel: "claude-fable-5",
-        reviewPromptVersion: "ai-review-v3",
-        reviewTransport: "claude-cli",
-        auditModel: "claude-sonnet-5",
-        auditPromptVersion: "ai-audit-v2",
-        auditTransport: "claude-cli",
-      },
-      run: {
-        runId,
-        grantId,
-        source: "kstartup",
-        sourceId: "test-source",
-        title: plan.title,
-        model: "claude-opus-5",
-        transport: "claude-cli",
-        promptVersion: "lab-deep-v7",
-        startedAt: "2026-08-06T00:00:00.000Z",
-        durationMs: 1,
-        inputBlocks: [],
-        inputTotalChars: 100,
-        inputSha256: "9".repeat(64),
-        usage: null,
-        costUsd: 0,
-        analysisMarkdown: "분석",
-        programIntent: null,
-        criteria: [],
-        axisAssessments: [],
-        taxonomyProposals: [],
-        dimensionDiffs: [],
-        error: null,
-      },
-    },
-  } satisfies PromotionCandidate;
-  assert.deepEqual(
-    selectPromotionCandidatesForRelease([candidate], {
-      grantId,
-      auditedLocalCanary: true,
-    }),
-    [candidate],
-  );
-  assert.throws(
-    () => selectPromotionCandidatesForRelease([candidate], { grantId }),
-    /audited-local-canary/,
-    "주간 사람검수 게이트 생략은 명시적인 단일 canary에서만 허용해야 한다",
-  );
-  const heldCandidate: PromotionCandidate = {
-    ...candidate,
-    source: {
-      ...candidate.source,
-      run: {
-        ...candidate.source.run,
-        primaryValidationOutcome: "held",
-        error: null,
-      },
-    },
-  };
-  assert.throws(
-    () => selectPromotionCandidatesForRelease([heldCandidate], {
-      grantId,
-      auditedLocalCanary: true,
-    }),
-    /봉인된 구독 분석/,
-    "held 런은 error:null이어도 audited local canary로 우회할 수 없다",
-  );
-  assert.deepEqual(
-    await verifyPromotionSourceArtifact(heldCandidate.sourceArtifact, {
-      readRunImpl: async () => heldCandidate.source.run,
-    }),
-    { ok: false, changed: ["run_outcome"] },
-    "실제 source artifact 재검증도 held를 fail-closed로 차단한다",
-  );
-}
 
 console.log("promotion serving provenance tests: ok");

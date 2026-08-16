@@ -129,8 +129,8 @@ export function BatchOpsConsole({
 
         {!analysisAllowed ? (
           <Alert>
-            <AlertTitle>먼저 구독 분석 모드를 켜세요</AlertTitle>
-            <AlertDescription>왼쪽 분석 모드에서 버튼을 누르면 이 PC에서만 실행 권한이 열립니다.</AlertDescription>
+            <AlertTitle>Gate R에서 배치 실행 차단</AlertTitle>
+            <AlertDescription>이 화면은 진행 상태와 과거 결과 관찰만 지원합니다. 신규 실행은 exact Adapter 승인 범위에서만 가능합니다.</AlertDescription>
           </Alert>
         ) : null}
 
