@@ -574,6 +574,14 @@ async function mainRelease(releaseId: string): Promise<number> {
               db,
               storage: applicationStorage,
               roundtripArtifacts,
+              ...(evidence.canaryAdmission
+                ? {
+                    receiptBoundRoundtrip: {
+                      parentLabRunId: evidence.parentLabRunId,
+                      roundtripRunId: evidence.roundtripRunId,
+                    },
+                  }
+                : {}),
             });
             if (!prepared) {
               throw new Error(`release Kordoc 증거와 LabRun 참조가 일치하지 않습니다: ${grantId}`);

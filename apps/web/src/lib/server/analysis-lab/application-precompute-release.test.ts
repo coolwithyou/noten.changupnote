@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
@@ -22,6 +24,11 @@ const releaseId = "deep-kordoc-portable-test-r1";
 const sourceGroup = "test__kordoc-portable";
 const roundtripDir = join(analysisLabDir(), "application-roundtrip", sourceGroup, roundtripRunId);
 const releaseDir = join(analysisLabDir(), "releases", releaseId);
+const proposalRoot = join(analysisLabDir(), "application-roundtrip", "proposals");
+const receiptRoot = join(analysisLabDir(), "application-roundtrip", "canary-receipts");
+const deepReceiptSha256 = "d".repeat(64);
+let proposalFixturePath = join(proposalRoot, "missing.json");
+let receiptFixturePath = join(receiptRoot, "missing.json");
 
 await Promise.all([
   rm(roundtripDir, { recursive: true, force: true }),
@@ -30,6 +37,7 @@ await Promise.all([
 
 try {
   const run = roundtripRun();
+  const analysisBody = Buffer.from(`${JSON.stringify(run, null, 2)}\n`);
   const manifest = {
     version: 1 as const,
     runId: roundtripRunId,
@@ -45,48 +53,111 @@ try {
     }],
   };
   await mkdir(roundtripDir, { recursive: true });
+  const proposalBody = {
+    schema: "application-roundtrip-candidate-proposal-v1" as const,
+    preparedAt: "2026-08-09T00:00:00.000Z",
+    provenance: {
+      gitSha: execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim(),
+      packageRuntimeSha256: "b".repeat(64),
+      validatorVersion: "analysis-lab-validator-v1",
+    },
+    deepExperiment: {
+      planSha256: "c".repeat(64),
+      terminalReceiptSha256: deepReceiptSha256,
+      observationsSha256: "e".repeat(64),
+      observedCount: 1,
+    },
+    policy: {
+      transport: "claude-cli" as const,
+      model: APPLICATION_ROUNDTRIP_ADOPTED_MODEL,
+      candidateSelection: "publishable-ready-or-conditional-v1" as const,
+      fieldTriage: "ambiguous-only-v1" as const,
+      maxCandidates: 10 as const,
+    },
+    candidates: [],
+    executionTargets: [{
+      sequence: 0,
+      grantId,
+      deepReceiptSha256,
+      sourceSha256s: ["a".repeat(64)],
+      fieldCandidateCount: 1,
+      llmCandidateCount: 1,
+      deterministicDecisionCount: 0,
+    }],
+    liveExecutionAuthorized: false as const,
+  };
+  const proposal = { ...proposalBody, proposalSha256: canonicalSha256(proposalBody) };
+  const receiptBody = {
+    schema: "application-roundtrip-canary-receipt-v3" as const,
+    proposalSha256: proposal.proposalSha256,
+    sequence: 0,
+    grantId,
+    sourceSha256s: ["a".repeat(64)],
+    model: APPLICATION_ROUNDTRIP_ADOPTED_MODEL,
+    transport: "claude-cli" as const,
+    status: "complete" as const,
+    targetDisposition: "ready" as const,
+    cohortVerdict: "CONTINUE" as const,
+    reasonCodes: ["ready"] as const,
+    failureCode: null,
+    runId: roundtripRunId,
+    runArtifactPath: `spike-out/analysis-lab/application-roundtrip/${sourceGroup}/${roundtripRunId}/analysis.json`,
+    runArtifactSha256: createHash("sha256").update(analysisBody).digest("hex"),
+    completedAt: "2026-08-09T00:00:02.000Z",
+  };
+  const canaryReceipt = { ...receiptBody, receiptSha256: canonicalSha256(receiptBody) };
+  proposalFixturePath = join(proposalRoot, `${proposal.proposalSha256}.json`);
+  receiptFixturePath = join(receiptRoot, `${canaryReceipt.receiptSha256}.json`);
+  await Promise.all([mkdir(proposalRoot, { recursive: true }), mkdir(receiptRoot, { recursive: true })]);
   await Promise.all([
-    writeFile(join(roundtripDir, "analysis.json"), `${JSON.stringify(run, null, 2)}\n`),
+    writeFile(join(roundtripDir, "analysis.json"), analysisBody),
     writeFile(join(roundtripDir, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`),
+    writeFile(proposalFixturePath, `${JSON.stringify(proposal, null, 2)}\n`, { flag: "wx" }),
+    writeFile(receiptFixturePath, `${JSON.stringify(canaryReceipt, null, 2)}\n`, { flag: "wx" }),
   ]);
 
   await assert.rejects(
     () => bundlePromotionApplicationPrecompute({
       releaseId,
       labRun: { ...labRun(), primaryValidationOutcome: "held", error: null },
+      deepReceiptSha256,
     }),
-    /provenance가 release 기준을 충족하지 않습니다/,
+    /publishable이 아닌 LabRun/,
     "held 런의 Kordoc 결과는 별도로 완료됐어도 release 번들로 승격할 수 없다",
   );
 
   const evidence = await bundlePromotionApplicationPrecompute({
     releaseId,
     labRun: labRun(),
+    deepReceiptSha256,
   });
   assert.ok(evidence);
   assert.equal(evidence.status, "ready");
   assert.equal(evidence.materializableDocumentCount, 1);
   assert.equal(evidence.transport, "claude-cli");
   assert.equal(evidence.model, APPLICATION_ROUNDTRIP_ADOPTED_MODEL);
+  assert.equal(evidence.schema, "promotion-application-precompute-v2");
+  assert.equal(evidence.canaryAdmission?.admissionReceiptSha256, canaryReceipt.receiptSha256);
+  assert.equal(evidence.canaryAdmission?.deepReceiptSha256, deepReceiptSha256);
 
   const bundled = await readBundledPromotionApplicationPrecompute(evidence);
   assert.equal(bundled.run.runId, roundtripRunId);
   assert.equal(bundled.manifest.attachments[0]?.sourceSha256, "a".repeat(64));
 
-  const receipt = buildPromotionApplicationPrecomputeReceipt({
+  const precomputeReceipt = buildPromotionApplicationPrecomputeReceipt({
     evidence,
     applied: { materialized: 1, reused: 0, protected: 0, terminalOnly: 0, fields: 1 },
     completedAt: new Date("2026-08-09T00:00:02.000Z"),
   });
   assert.deepEqual(verifyPromotionApplicationPrecomputeReceipt({
-    receipt,
+    receipt: precomputeReceipt,
     evidence,
     observedFieldCount: 1,
     observedFieldsReadySurfaceCount: 1,
     observedArtifactCount: 1,
   }), []);
   assert.deepEqual(verifyPromotionApplicationPrecomputeReceipt({
-    receipt,
+    receipt: precomputeReceipt,
     evidence,
     observedFieldCount: 0,
     observedFieldsReadySurfaceCount: 0,
@@ -113,6 +184,8 @@ try {
   await Promise.all([
     rm(roundtripDir, { recursive: true, force: true }),
     rm(releaseDir, { recursive: true, force: true }),
+    rm(proposalFixturePath, { force: true }),
+    rm(receiptFixturePath, { force: true }),
   ]);
 }
 
@@ -141,16 +214,6 @@ function labRun(): LabRun {
     axisAssessments: [],
     taxonomyProposals: [],
     dimensionDiffs: [],
-    applicationRoundtrip: {
-      status: "complete",
-      runId: roundtripRunId,
-      transport: "claude-cli",
-      model: APPLICATION_ROUNDTRIP_ADOPTED_MODEL,
-      documentCount: 1,
-      sourceCount: 1,
-      errorCode: null,
-      error: null,
-    },
     error: null,
   };
 }
@@ -165,7 +228,7 @@ function roundtripRun(): ApplicationRoundtripRun {
     title: "Kordoc release 테스트",
     engine: "kordoc",
     engineVersion: "test",
-    parentLabRunId,
+    parentLabRunId: null,
     transport: "claude-cli",
     requestedModel: APPLICATION_ROUNDTRIP_ADOPTED_MODEL,
     timeoutMs: 900_000,
@@ -253,4 +316,19 @@ function roundtripRun(): ApplicationRoundtripRun {
     recommendationReason: "신청서",
     error: null,
   };
+}
+
+function canonicalSha256(value: unknown): string {
+  return createHash("sha256").update(canonicalJson(value)).digest("hex");
+}
+
+function canonicalJson(value: unknown): string {
+  if (value === null || typeof value !== "object") return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  const object = value as Record<string, unknown>;
+  return `{${Object.keys(object)
+    .filter((key) => object[key] !== undefined)
+    .sort()
+    .map((key) => `${JSON.stringify(key)}:${canonicalJson(object[key])}`)
+    .join(",")}}`;
 }

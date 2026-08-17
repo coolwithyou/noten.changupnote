@@ -75,16 +75,25 @@ export function buildApplicationPrecomputeMaterializationPlan(input: {
   roundtripRun: ApplicationRoundtripRun;
   manifest: RoundtripRunManifest;
   surfaces: MaterializationSurface[];
+  /** release admission이 deep receipt와 독립 Kordoc run을 결속한 경우의 검증된 부모 링크. */
+  receiptBoundRoundtrip?: {
+    parentLabRunId: string;
+    roundtripRunId: string;
+  };
 }): ApplicationPrecomputeSurfacePlan[] {
   const { labRun, roundtripRun: run, manifest } = input;
   const reference = labRun.applicationRoundtrip;
-  if (!reference?.runId || reference.runId !== run.runId) {
+  const embeddedReference = reference?.runId === run.runId
+    && run.parentLabRunId === labRun.runId;
+  const receiptBoundReference = input.receiptBoundRoundtrip?.parentLabRunId === labRun.runId
+    && input.receiptBoundRoundtrip.roundtripRunId === run.runId
+    && (run.parentLabRunId === null || run.parentLabRunId === labRun.runId);
+  if (!embeddedReference && !receiptBoundReference) {
     throw new Error("LabRun의 Kordoc 참조와 roundtrip runId가 일치하지 않습니다.");
   }
   if (
     run.version !== APPLICATION_ROUNDTRIP_VERSION
     || run.grantId !== labRun.grantId
-    || run.parentLabRunId !== labRun.runId
     || manifest.runId !== run.runId
     || manifest.grantId !== run.grantId
     || manifest.source !== run.source
@@ -169,12 +178,20 @@ export async function prepareGrantApplicationPrecompute(input: {
     run: ApplicationRoundtripRun;
     manifest: RoundtripRunManifest;
   };
+  receiptBoundRoundtrip?: {
+    parentLabRunId: string;
+    roundtripRunId: string;
+  };
 }): Promise<PreparedGrantApplicationPrecompute | null> {
   const labRun = await readLabRun(input.grantId, input.parentLabRunId);
-  if (!labRun?.applicationRoundtrip?.runId) return null;
+  if (!labRun) return null;
+  if (!labRun.applicationRoundtrip?.runId && !input.receiptBoundRoundtrip) return null;
+  const roundtripRunId = input.receiptBoundRoundtrip?.roundtripRunId
+    ?? labRun.applicationRoundtrip?.runId;
+  if (!roundtripRunId) return null;
   const artifacts = input.roundtripArtifacts
     ? { ...input.roundtripArtifacts, dir: "(release-bundle)" }
-    : await readRoundtripRunArtifacts(input.grantId, labRun.applicationRoundtrip.runId);
+    : await readRoundtripRunArtifacts(input.grantId, roundtripRunId);
   if (!artifacts) throw new Error(`Kordoc 선분석 artifact를 찾지 못했습니다: ${input.grantId}`);
 
   const surfaceRows = await input.db
@@ -204,6 +221,9 @@ export async function prepareGrantApplicationPrecompute(input: {
     labRun,
     roundtripRun: artifacts.run,
     manifest: artifacts.manifest,
+    ...(input.receiptBoundRoundtrip
+      ? { receiptBoundRoundtrip: input.receiptBoundRoundtrip }
+      : {}),
     surfaces: surfaceRows.map((surface) => ({
       ...surface,
       sourceSha256: surface.sourceAttachment ? shaByStorageKey.get(surface.sourceAttachment) ?? null : null,

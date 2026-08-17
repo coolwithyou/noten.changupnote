@@ -67,6 +67,36 @@ const manifest: RoundtripRunManifest = {
   assert.equal(planned.analysisVersion, applicationPrecomputeAnalysisVersion(run));
 }
 
+// deep receipt가 독립 Kordoc canary를 결속한 release는 LabRun 내부 참조 없이도 같은 seam을 쓴다.
+{
+  const { applicationRoundtrip: _embeddedRoundtrip, ...independentLabRun } = labRun;
+  const independentRun = { ...run, parentLabRunId: null };
+  const [planned] = buildApplicationPrecomputeMaterializationPlan({
+    labRun: independentLabRun,
+    roundtripRun: independentRun,
+    manifest,
+    surfaces: [surface(STORAGE_KEY, SOURCE_SHA)],
+    receiptBoundRoundtrip: {
+      parentLabRunId: LAB_RUN_ID,
+      roundtripRunId: ROUNDTRIP_RUN_ID,
+    },
+  });
+  assert.equal(planned?.status, "complete");
+  assert.throws(
+    () => buildApplicationPrecomputeMaterializationPlan({
+      labRun: independentLabRun,
+      roundtripRun: independentRun,
+      manifest,
+      surfaces: [surface(STORAGE_KEY, SOURCE_SHA)],
+      receiptBoundRoundtrip: {
+        parentLabRunId: "run-2026-08-04T000001.000Z-badbad",
+        roundtripRunId: ROUNDTRIP_RUN_ID,
+      },
+    }),
+    /LabRun의 Kordoc 참조와 roundtrip runId가 일치하지 않습니다/,
+  );
+}
+
 // surface가 가리키는 원본이 바뀌면 과거 분석 결과를 절대 materialize하지 않는다.
 assert.throws(
   () => buildApplicationPrecomputeMaterializationPlan({

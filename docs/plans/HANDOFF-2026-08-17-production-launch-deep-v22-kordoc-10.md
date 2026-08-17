@@ -170,3 +170,19 @@ proposal/plan을 재생성하거나 자동으로 다른 표본을 고르지 않�
 
 이 10건의 deep+Kordoc 결과가 정식 출시 대량 변환으로 넘어갈 수 있는지 판단하는 최초 bounded
 cohort다. 실제 대량 범위, release, 승격, 배포는 결과를 보고 별도 결정한다.
+
+## 9. 후속 release dry-run 범위 (2026-08-17 승인)
+
+deep/Kordoc 실행 결과를 반영한 후속 범위는 seq 4를 제외한 9건이다.
+
+- Kordoc `ready`: seq 0, 2, 3, 5, 6, 7, 8
+- Kordoc `conditional`: seq 1, 9
+- Kordoc `held`: seq 4 — release plan에 포함하지 않는다.
+- release prepare에서는 `--require-kordoc`으로 9건 모두의 receipt admission을 강제한다.
+- v3 canary는 직접 소비하고, seq 0·1의 legacy v2 canary는 immutable policy receipt를 parent로
+  검증해 소비한다.
+- deep seq 2의 재로그인 전 실패 receipt는 삭제하지 않는다. seq 3이 parent로 채택한 publishable
+  seq 2 receipt를 포함해 seq 0→9로 이어지는 유일한 최장 terminal chain만 release source로 쓴다.
+- 허용 상한은 `release prepare → aggregate → shadow → promote dry-run`이다. release 원장과 로컬
+  immutable gate artifact는 생성할 수 있지만 `release approve`, `lab:promote --write`, 배포,
+  Cloudflare 변경, 운영 worker mode 변경은 수행하지 않는다.

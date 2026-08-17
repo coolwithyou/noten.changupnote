@@ -28,6 +28,10 @@ import { getCunoteDb } from "../db/client";
 import * as schema from "../db/schema";
 import { loadMonorepoEnv } from "../loadMonorepoEnv";
 import { readPromotionBuildProvenance } from "./promotion-build-provenance";
+import {
+  preparePromotionApplicationPrecomputeBundle,
+  writePreparedPromotionApplicationPrecomputeBundle,
+} from "./application-precompute-release";
 
 loadMonorepoEnv();
 
@@ -220,6 +224,7 @@ async function prepare(): Promise<number> {
     .map((value) => value.trim())
     .filter(Boolean);
   const revision = Number(readArg("revision") ?? "1");
+  const requireKordoc = hasFlag("require-kordoc");
   if (!series) {
     throw new Error(
       "신규 release 준비는 receipt 기반 exact cohort만 허용합니다. --series와 --grantIds exact CSV가 필요합니다.",
@@ -332,7 +337,26 @@ async function prepare(): Promise<number> {
     });
   }
 
-  const sourceArtifacts = candidates.map((candidate) => candidate.sourceArtifact);
+  const now = new Date();
+  const releaseId = readArg("releaseId")?.trim()
+    || releaseIdFor(cohort, revision, now, build.gitCommit);
+  const applicationBundles = await Promise.all(candidates.map((candidate) =>
+    preparePromotionApplicationPrecomputeBundle({
+      releaseId,
+      labRun: candidate.source.run,
+      deepReceiptSha256: candidate.readiness.receiptSha256,
+    })));
+  const missingKordocGrantIds = candidates.flatMap((candidate, index) =>
+    applicationBundles[index] ? [] : [candidate.plan.grantId]);
+  if (requireKordoc && missingKordocGrantIds.length > 0) {
+    throw new Error(`Kordoc release receipt가 없는 exact 대상: ${missingKordocGrantIds.join(", ")}`);
+  }
+  const sourceArtifacts = candidates.map((candidate, index) => ({
+    ...candidate.sourceArtifact,
+    ...(applicationBundles[index]
+      ? { applicationPrecompute: applicationBundles[index]!.evidence }
+      : {}),
+  }));
   const continuation = await assertPreparedRevisionCanAdvance({
     cohort,
     revision,
@@ -349,9 +373,6 @@ async function prepare(): Promise<number> {
     );
   }
 
-  const now = new Date();
-  const releaseId = readArg("releaseId")?.trim()
-    || releaseIdFor(cohort, revision, now, build.gitCommit);
   const manifest = createPromotionReleaseManifest({
     releaseId,
     revision,
@@ -365,6 +386,8 @@ async function prepare(): Promise<number> {
   });
   // 파일 또는 DB를 쓰기 전에 현재 mutation admission과 동일한 receipt 결속을 증명한다.
   assertReceiptBackedPromotionMutationAdmitted(manifest);
+  await Promise.all(applicationBundles.flatMap((bundle) =>
+    bundle ? [writePreparedPromotionApplicationPrecomputeBundle(bundle)] : []));
   await writeImmutablePromotionArtifact(
     promotionReleaseArtifactPath(releaseId, "manifest.json"),
     manifest,
@@ -405,6 +428,12 @@ async function prepare(): Promise<number> {
       (item) => item.promotionPlan.reviewRisk?.disposition === "conditional"
         || item.deepRepairReadiness?.disposition === "conditional",
     ).length}건 · canary ${manifest.canaryGrantIds.join(", ")}`,
+  );
+  console.log(
+    `[release] Kordoc receipt admission ${applicationBundles.filter(Boolean).length}/${manifest.plans.length}`
+      + ` · conditional ${applicationBundles.filter(
+        (bundle) => bundle?.evidence.status === "conditional",
+      ).length}`,
   );
   return 0;
 }

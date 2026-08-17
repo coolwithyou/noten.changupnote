@@ -124,6 +124,16 @@
   drift, receipt·artifact 불일치, Max 인증 실패, lease 상실, timeout·HTTP·invalid response처럼
   공유 실행 경로의 신뢰를 잃은 경우에만 `cohortVerdict=STOP`으로 전체 순서를 중단한다. 기존
   immutable receipt는 수정·삭제하지 않으며 새 정책 적용을 위해 같은 모델 분석을 재실행하지 않는다.
+- **Kordoc release admission(2026-08-17)**: release의 application precompute는 LabRun 내부 참조를
+  추정하지 않고 `deep terminal receipt → Kordoc proposal execution target → v3 canary receipt`를
+  exact 검증한다. legacy v2 canary는 current ancestry에서 검증되는
+  `application-roundtrip-canary-policy-receipt-v1`이 있을 때만 같은 경로로 정규화한다. proposal의
+  grant/sequence/deep receipt/source SHA와 canary의 run/artifact SHA가 모두 같고
+  `ready|conditional/CONTINUE`인 target만 release evidence에 봉인한다. `held`는 제외하고
+  `blocked/STOP`, hash·provenance 불일치, 동일 deep receipt의 admission 중복은 fail-closed한다.
+  Kordoc 결속이 필수인 exact release prepare는 `--require-kordoc`을 사용한다. 재시도 때문에 같은
+  deep sequence의 역사 terminal receipt가 여러 개면 후속 sequence가 parent로 채택한 유일한 최장
+  chain만 사용하며, 같은 최종 sequence까지 둘 이상의 branch가 이어지면 임의 선택하지 않는다.
 - **원칙(사용자 확정)**: 고단가 모델(fable-5 등)을 API로 돌리지 않는다 — 로컬 대량 작업은 구독이 기본. 단, 구독 실행은 **로컬 dev·실험실 한정**(약관 경계) — 운영 worker·Cloud Run·사용자 대면 경로는 API 유지.
 - `/dev/analysis-lab`의 기존 실행 UI와 CLI는 진행 관측·dry-run 용도로만 남고 live start는 Gate R admission에서 거부된다.
 - 운용 안내 정본: `docs/explainers/구독모델로-딥분석-돌리는-법.md`; 현재 구조·재개 판정 정본: `docs/research/2026-08-14-구독-딥분석-반복실패-구조진단-및-개선-설계.md`; 최근 실패 증거: `docs/research/2026-08-13-딥분석-처리속도-트랙-리뷰-정리.md`. `HANDOFF-2026-08-03.md`는 역사 기록이다.

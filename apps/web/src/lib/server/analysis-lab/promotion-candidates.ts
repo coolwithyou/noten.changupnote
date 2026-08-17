@@ -222,7 +222,7 @@ export async function verifyPromotionSourceArtifact(
         }
       }
     }
-    if (run.applicationRoundtrip?.runId) {
+    if (run.applicationRoundtrip?.runId || artifact.applicationPrecompute) {
       if (!artifact.applicationPrecompute) {
         changed.push("application_precompute_missing");
       } else {
@@ -230,11 +230,18 @@ export async function verifyPromotionSourceArtifact(
           const bundled = await readBundledPromotionApplicationPrecompute(
             artifact.applicationPrecompute,
           );
-          if (
-            bundled.run.runId !== run.applicationRoundtrip.runId
-            || bundled.run.transport !== run.applicationRoundtrip.transport
-            || bundled.run.requestedModel !== run.applicationRoundtrip.model
-          ) {
+          const embedded = run.applicationRoundtrip;
+          const evidence = artifact.applicationPrecompute;
+          if (embedded ? (
+            bundled.run.runId !== embedded.runId
+            || bundled.run.transport !== embedded.transport
+            || bundled.run.requestedModel !== embedded.model
+          ) : (
+            evidence.schema !== "promotion-application-precompute-v2"
+            || evidence.parentLabRunId !== run.runId
+            || evidence.canaryAdmission?.deepReceiptSha256
+              !== artifact.localLabEvidence.deepRepair?.receiptSha256
+          )) {
             changed.push("application_precompute_provenance");
           }
         } catch {

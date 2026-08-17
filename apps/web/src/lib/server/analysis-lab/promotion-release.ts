@@ -324,6 +324,14 @@ function continuationSourceProjection(item: PromotionSourceArtifact): PromotionS
   return {
     ...item,
     sourceRevisionSha256: "current-source-revision",
+    ...(item.applicationPrecompute
+      ? {
+          applicationPrecompute: {
+            ...item.applicationPrecompute,
+            releaseId: "current-release-revision",
+          },
+        }
+      : {}),
     localLabEvidence: {
       ...item.localLabEvidence!,
       deepRepair: {

@@ -142,7 +142,9 @@ export async function loadDeepRepairPromotionCohort(input: {
   const missing = requestedGrantIds.filter((grantId) => !targetByGrantId.has(grantId));
   if (missing.length > 0) throw new Error(`series plan에 없는 grantId: ${missing.join(", ")}`);
 
-  const receipts = await readPlanReceipts(experimentsDir, plan.planSha256);
+  const receipts = selectDeepRepairReceiptChain(
+    await readPlanReceipts(experimentsDir, plan.planSha256),
+  );
   const receiptBySequence = new Map<number, ValidatedDeepRepairLiveReceipt>();
   for (const receipt of receipts) {
     if (receiptBySequence.has(receipt.target.sequence)) {
@@ -270,6 +272,55 @@ export function assertDeepRepairReceiptChain(
     }
     parentReceiptSha256 = receipt.receiptSha256;
   });
+}
+
+/**
+ * 재시도 receipt를 삭제하지 않고, 후속 sequence가 실제 parent로 채택한 유일한 최장 chain만 고른다.
+ * 같은 최종 sequence까지 둘 이상의 branch가 이어졌다면 임의 선택하지 않고 fail-closed한다.
+ */
+export function selectDeepRepairReceiptChain<
+  T extends Pick<
+    ValidatedDeepRepairLiveReceipt,
+    "target" | "parentReceiptSha256" | "receiptSha256"
+  >,
+>(receipts: readonly T[]): T[] {
+  if (receipts.length === 0) return [];
+  const bySha = new Map<string, T>();
+  for (const receipt of receipts) {
+    if (bySha.has(receipt.receiptSha256)) {
+      throw new Error(`terminal receipt SHA 중복: ${receipt.receiptSha256}`);
+    }
+    bySha.set(receipt.receiptSha256, receipt);
+  }
+  const referencedParents = new Set(receipts.flatMap((receipt) =>
+    receipt.parentReceiptSha256 ? [receipt.parentReceiptSha256] : []));
+  const leaves = receipts.filter((receipt) => !referencedParents.has(receipt.receiptSha256));
+  const chains = leaves.map((leaf) => {
+    const reversed: T[] = [];
+    const visited = new Set<string>();
+    let current: T | undefined = leaf;
+    while (current) {
+      if (visited.has(current.receiptSha256)) {
+        throw new Error(`terminal receipt parent cycle: ${current.receiptSha256}`);
+      }
+      visited.add(current.receiptSha256);
+      reversed.push(current);
+      if (current.parentReceiptSha256 === null) break;
+      current = bySha.get(current.parentReceiptSha256);
+      if (!current) {
+        throw new Error(`terminal receipt parent artifact 누락: ${leaf.receiptSha256}`);
+      }
+    }
+    const chain = reversed.reverse();
+    assertDeepRepairReceiptChain(chain);
+    return chain;
+  });
+  const maxSequence = Math.max(...chains.map((chain) => chain.at(-1)!.target.sequence));
+  const longest = chains.filter((chain) => chain.at(-1)!.target.sequence === maxSequence);
+  if (longest.length !== 1) {
+    throw new Error(`최종 sequence ${maxSequence}의 terminal receipt chain이 중복입니다.`);
+  }
+  return longest[0]!;
 }
 
 /** release prepare 이후 apply/verify가 같은 source를 다시 검증하는 단일 verifier. */

@@ -5,6 +5,7 @@ import {
   classifyDeepRepairPromotionReadiness,
   DEEP_REPAIR_PROMOTION_READINESS_SCHEMA,
   guardDeepRepairPromotionPlan,
+  selectDeepRepairReceiptChain,
 } from "./deep-repair-promotion";
 import type { GrantPromotionPlan } from "./promote";
 import {
@@ -46,6 +47,37 @@ assert.throws(() => assertDeepRepairReceiptChain([
     receiptSha256: sha("2"),
   },
 ]), /연속적이지 않습니다/);
+
+const forkedReceipts = [{
+  target: { sequence: 0, waveId: "wave-1", grantId },
+  parentReceiptSha256: null,
+  receiptSha256: sha("1"),
+}, {
+  target: { sequence: 1, waveId: "wave-1", grantId: `${grantId}-retry` },
+  parentReceiptSha256: sha("1"),
+  receiptSha256: sha("2"),
+}, {
+  target: { sequence: 1, waveId: "wave-1", grantId: `${grantId}-accepted` },
+  parentReceiptSha256: sha("1"),
+  receiptSha256: sha("3"),
+}, {
+  target: { sequence: 2, waveId: "wave-1", grantId: `${grantId}-next` },
+  parentReceiptSha256: sha("3"),
+  receiptSha256: sha("4"),
+}];
+assert.deepEqual(
+  selectDeepRepairReceiptChain(forkedReceipts).map((receipt) => receipt.receiptSha256),
+  [sha("1"), sha("3"), sha("4")],
+  "후속 sequence가 parent로 채택한 branch만 release source chain으로 사용한다",
+);
+assert.throws(
+  () => selectDeepRepairReceiptChain([...forkedReceipts, {
+    target: { sequence: 2, waveId: "wave-1", grantId: `${grantId}-ambiguous` },
+    parentReceiptSha256: sha("2"),
+    receiptSha256: sha("5"),
+  }]),
+  /최종 sequence 2의 terminal receipt chain이 중복/,
+);
 
 function run(overrides: Partial<LabRun> = {}): LabRun {
   return {
