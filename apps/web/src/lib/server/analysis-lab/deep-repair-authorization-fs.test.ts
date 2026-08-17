@@ -24,6 +24,8 @@ try {
     [join(rootDir, "cohorts", "exact.json"), Buffer.from("cohort\n")],
     [join(rootDir, "receipts", `${receiptSha}.json`), Buffer.from("receipt\n")],
     [join(rootDir, "attempts", planSha, "00", "claim.json"), Buffer.from("start\n")],
+    [join(rootDir, "attempts", planSha, "00", "resolution.json"), Buffer.from("terminal\n")],
+    [join(rootDir, "attempts", planSha, "00", "resumes", receiptSha, "claim.json"), Buffer.from("resume\n")],
   ] as const;
   for (const [path, bytes] of fixtures) {
     await mkdir(dirname(path), { recursive: true });
@@ -48,6 +50,8 @@ try {
   );
   assert.ok(await repository.readLiveReceipt(receiptSha));
   assert.ok(await repository.readAttemptStart(planSha, 0));
+  assert.ok(await repository.readAttemptTerminal(planSha, 0));
+  assert.ok(await repository.readResumeAttemptStart(planSha, 0, receiptSha));
 
   const evidenceBytes = Buffer.from("{\"evidence\":true}\n");
   const evidenceSha = rawSha256(evidenceBytes);

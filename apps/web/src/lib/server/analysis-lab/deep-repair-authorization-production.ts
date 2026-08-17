@@ -1,4 +1,6 @@
+import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { promisify } from "node:util";
 import { getCunoteDb } from "@/lib/server/db/client";
 import { readDeepAnalysisRuntimeAdmissionSnapshot } from "@/lib/server/deep-analysis/runtimeControl";
 import { prepareLabAnalysis } from "./analyze";
@@ -6,6 +8,19 @@ import { createDeepRepairAuthorityIssuer } from "./deep-repair-authorization";
 import { createDeepRepairAuthorizationFilesystemRepository } from "./deep-repair-authorization-fs";
 import { captureCurrentDeepRepairOperationalEvidence } from "./deep-repair-operational-guard";
 import { readCurrentDeepRepairExecutionProvenance } from "./deep-repair-runtime-provenance";
+
+const execFileAsync = promisify(execFile);
+const ADMISSION_ONLY_CONTINUATION_FILES = new Set([
+  "apps/web/src/lib/server/analysis-lab/deep-repair-authorization.ts",
+  "apps/web/src/lib/server/analysis-lab/deep-repair-authorization-fs.ts",
+  "apps/web/src/lib/server/analysis-lab/deep-repair-authorization-production.ts",
+  "apps/web/src/lib/server/analysis-lab/deep-repair-live-experiment.ts",
+  "apps/web/src/lib/server/analysis-lab/deep-repair-live-fs.ts",
+  "apps/web/src/lib/server/analysis-lab/deep-repair-authorization.test.ts",
+  "apps/web/src/lib/server/analysis-lab/deep-repair-authorization-fs.test.ts",
+  "apps/web/src/lib/server/analysis-lab/deep-repair-live-experiment.test.ts",
+  "apps/web/src/lib/server/analysis-lab/deep-repair-live-fs.test.ts",
+]);
 
 const issuer = createDeepRepairAuthorityIssuer({
   repository: createDeepRepairAuthorizationFilesystemRepository(),
@@ -22,6 +37,32 @@ const issuer = createDeepRepairAuthorityIssuer({
     };
   },
   readExecutionProvenance: readCurrentDeepRepairExecutionProvenance,
+  async verifyAdmissionOnlyContinuation({ sealed, current }) {
+    if (
+      sealed.packageRuntimeSha256 !== current.packageRuntimeSha256
+      || sealed.validatorVersion !== current.validatorVersion
+      || sealed.gitSha === current.gitSha
+    ) {
+      throw new Error("sealed analysis runtime과 continuation provenance의 필수 결속이 다릅니다.");
+    }
+    const root = process.cwd();
+    await execFileAsync("git", ["merge-base", "--is-ancestor", sealed.gitSha, current.gitSha], {
+      cwd: root,
+      encoding: "utf8",
+    });
+    const { stdout } = await execFileAsync(
+      "git",
+      ["diff", "--name-only", `${sealed.gitSha}..${current.gitSha}`],
+      { cwd: root, encoding: "utf8" },
+    );
+    const changed = stdout.split("\n").map((path) => path.trim()).filter(Boolean);
+    if (
+      changed.length === 0
+      || changed.some((path) => !ADMISSION_ONLY_CONTINUATION_FILES.has(path))
+    ) {
+      throw new Error(`허용되지 않은 변경 파일이 있습니다: ${changed.join(", ")}`);
+    }
+  },
   captureOperationalEvidence: captureCurrentDeepRepairOperationalEvidence,
   async readRuntimeControl() {
     const control = await readDeepAnalysisRuntimeAdmissionSnapshot(getCunoteDb());

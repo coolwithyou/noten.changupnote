@@ -142,14 +142,17 @@ class MemoryRepository implements DeepRepairLiveArtifactRepository {
   async readEvaluatorReceipt(sha256: string) { return this.evaluatorReceipts.get(sha256) ?? null; }
   async readRecoveryApproval(sha256: string) { return this.recoveryApprovals.get(sha256) ?? null; }
   async readRecoveryReceipt(sha256: string) { return this.recoveryReceipts.get(sha256) ?? null; }
-  async readAttempt(key: { planSha256: string; sequence: number }) {
-    const slot = `${key.planSha256}:${key.sequence}`;
+  async readAttempt(key: { planSha256: string; sequence: number; resumeOfReceiptSha256?: string }) {
+    const slot = attemptSlot(key);
     const start = this.starts.get(slot);
     if (!start) return null;
     return { start, terminal: this.terminals.get(slot) ?? null };
   }
-  async claimStart(key: { planSha256: string; sequence: number }, start: unknown) {
-    const slot = `${key.planSha256}:${key.sequence}`;
+  async claimStart(
+    key: { planSha256: string; sequence: number; resumeOfReceiptSha256?: string },
+    start: unknown,
+  ) {
+    const slot = attemptSlot(key);
     if (this.starts.has(slot)) return false;
     this.starts.set(slot, stored(start, `/attempts/${key.planSha256}/${key.sequence}/start.json`));
     return true;
@@ -162,17 +165,25 @@ class MemoryRepository implements DeepRepairLiveArtifactRepository {
     this.evaluatorReceipts.set(sha256, stored(value, `/evaluator-receipts/${sha256}.json`));
   }
   async commitTerminal(
-    key: { planSha256: string; sequence: number },
+    key: { planSha256: string; sequence: number; resumeOfReceiptSha256?: string },
     receiptSha256: string,
     value: unknown,
   ) {
-    const slot = `${key.planSha256}:${key.sequence}`;
+    const slot = attemptSlot(key);
     assert.ok(this.starts.has(slot));
     assert.equal(this.terminals.has(slot), false);
     const artifact = stored(value, `/attempts/${key.planSha256}/${key.sequence}/terminal.json`);
     this.terminals.set(slot, artifact);
     this.receipts.set(receiptSha256, artifact);
   }
+}
+
+function attemptSlot(key: {
+  planSha256: string;
+  sequence: number;
+  resumeOfReceiptSha256?: string;
+}): string {
+  return `${key.planSha256}:${key.sequence}${key.resumeOfReceiptSha256 ? `:resume:${key.resumeOfReceiptSha256}` : ""}`;
 }
 
 function operationalEvidence() {
@@ -1756,6 +1767,168 @@ for (const [label, drift] of [
   );
   assert.deepEqual(setup.counts(), { prepared: 1, executed: 0, runtime: 1 });
   assert.equal(setup.repo.starts.size, 0);
+}
+
+{
+  const setup = fixture();
+  const admissionGitSha = "2".repeat(40);
+  const failureCode =
+    "Claude CLI Max 구독 인증을 증명하지 못했습니다. 모델을 시작하지 않습니다. `claude auth status --json`에서 claude.ai/firstParty/max 로그인을 확인하세요.";
+  const failedRun = {
+    ...publishableRun({ plan: setup.plan, sequence: 0 }),
+    durationMs: 200,
+    usage: null,
+    costUsd: null,
+    analysisMarkdown: "",
+    programIntent: null,
+    criteria: [],
+    axisAssessments: [],
+    taxonomyProposals: [],
+    primaryRepairCount: 0,
+    primaryRepairProvenance: undefined,
+    primaryValidationOutcome: undefined,
+    error: failureCode,
+  };
+  const failedRunPath = "/tmp/max-auth-failed.json";
+  const failedRunArtifact = stored(failedRun, failedRunPath);
+  setup.repo.runArtifacts.set(failedRunPath, failedRunArtifact);
+  const failedReceiptBody = {
+    schema: "deep-repair-live-receipt-v1" as const,
+    planSha256: setup.plan.planSha256,
+    manifestSha256: setup.plan.manifestSha256,
+    parentReceiptSha256: null,
+    authoritySha256: SHA(10_100),
+    attemptId: "deep-v18-00-auth-failed",
+    target: { sequence: 0, waveId: "wave-1", grantId: "grant-00" },
+    startedAt: "2026-08-14T02:56:00.000Z",
+    finishedAt: "2026-08-14T02:56:00.200Z",
+    lifecycle: "finished" as const,
+    noticeOutcome: "failed" as const,
+    promotionEligibility: "not_evaluated" as const,
+    runArtifactPath: failedRunPath,
+    runArtifactSha256: storedSha256(failedRunArtifact),
+    observationsSha256: null,
+    evaluatorReceiptSha256: null,
+    observedCount: 0,
+    gateVerdict: "INVALID" as const,
+    nextAction: "stopped" as const,
+    failureCode,
+  };
+  const failedReceipt = {
+    ...failedReceiptBody,
+    receiptSha256: canonicalSha256(failedReceiptBody),
+  };
+  const baseSlot = `${setup.plan.planSha256}:0`;
+  setup.repo.starts.set(baseSlot, stored({
+    schema: "deep-repair-live-start-v1",
+    planSha256: setup.plan.planSha256,
+    parentReceiptSha256: null,
+    authoritySha256: failedReceipt.authoritySha256,
+    attemptId: failedReceipt.attemptId,
+    target: failedReceipt.target,
+    startedAt: failedReceipt.startedAt,
+  }, "/attempts/failed/claim.json"));
+  const failedReceiptArtifact = stored(failedReceipt, "/attempts/failed/resolution.json");
+  setup.repo.terminals.set(baseSlot, failedReceiptArtifact);
+  setup.repo.receipts.set(failedReceipt.receiptSha256, failedReceiptArtifact);
+
+  const continuation = {
+    reason: "admission-only-max-auth-resume" as const,
+    resumeOfReceiptSha256: failedReceipt.receiptSha256,
+    admissionProvenance: {
+      gitSha: admissionGitSha,
+      packageRuntimeSha256: PACKAGE_SHA,
+      validatorVersion: DEEP_ANALYSIS_VALIDATOR_VERSION,
+    },
+  };
+  const resumeApproval = {
+    ...userApproval({
+      plan: setup.plan,
+      planArtifactSha256: setup.authority.planArtifactSha256,
+    }),
+    schema: "deep-repair-user-continuation-approval-v1" as const,
+    continuation,
+  };
+  const resumeApprovalArtifact = stored(resumeApproval, "/approvals/resume-00.json");
+  const resumeApprovalSha = storedSha256(resumeApprovalArtifact);
+  setup.repo.approvals.set(resumeApprovalSha, resumeApprovalArtifact);
+  const resumeAuthority = {
+    ...authority({
+      plan: setup.plan,
+      planArtifactSha256: setup.authority.planArtifactSha256,
+      operationalEvidenceSha256: setup.authority.operationalEvidenceSha256,
+      approvalSha256: resumeApprovalSha,
+    }),
+    schema: "deep-repair-execution-authority-v2" as const,
+    attemptId: "deep-v18-00-continue",
+    continuation,
+  };
+  const resumeAuthoritySha = installIssuedAuthority(
+    setup.repo,
+    resumeAuthority,
+    "/authorities/resume-00.json",
+  ).sha256;
+  const continuationExperiment = createDeepRepairLiveExperiment({
+    ...setup.deps,
+    currentExecutionProvenance: async () => continuation.admissionProvenance,
+  });
+  const resumed = await continuationExperiment.runApprovedCanary({
+    authorityId: resumeAuthoritySha,
+    signal: new AbortController().signal,
+  });
+  assert.equal(resumed.kind, "recorded");
+  if (resumed.kind !== "recorded") throw new Error("expected resumed receipt");
+  assert.equal(resumed.receipt.noticeOutcome, "publishable");
+  assert.equal(resumed.receipt.gateVerdict, "CONTINUE");
+  assert.equal(
+    setup.repo.terminals.get(baseSlot),
+    failedReceiptArtifact,
+    "기존 INVALID terminal은 덮어쓰지 않는다",
+  );
+  const resumeSlot = `${baseSlot}:resume:${failedReceipt.receiptSha256}`;
+  assert.ok(setup.repo.terminals.get(resumeSlot));
+
+  const nextContinuation = { ...continuation, resumeOfReceiptSha256: null };
+  const nextApproval = {
+    ...userApproval({
+      plan: setup.plan,
+      planArtifactSha256: setup.authority.planArtifactSha256,
+      sequence: 1,
+      parentReceiptSha256: resumed.receipt.receiptSha256,
+      approvedAt: NOW.toISOString(),
+    }),
+    schema: "deep-repair-user-continuation-approval-v1" as const,
+    continuation: nextContinuation,
+  };
+  const nextApprovalArtifact = stored(nextApproval, "/approvals/continue-01.json");
+  const nextApprovalSha = storedSha256(nextApprovalArtifact);
+  setup.repo.approvals.set(nextApprovalSha, nextApprovalArtifact);
+  const nextAuthority = {
+    ...authority({
+      plan: setup.plan,
+      planArtifactSha256: setup.authority.planArtifactSha256,
+      operationalEvidenceSha256: setup.authority.operationalEvidenceSha256,
+      approvalSha256: nextApprovalSha,
+      sequence: 1,
+      parentReceiptSha256: resumed.receipt.receiptSha256,
+    }),
+    schema: "deep-repair-execution-authority-v2" as const,
+    attemptId: "deep-v18-01-continue",
+    continuation: nextContinuation,
+  };
+  const nextAuthoritySha = installIssuedAuthority(
+    setup.repo,
+    nextAuthority,
+    "/authorities/continue-01.json",
+  ).sha256;
+  const continued = await continuationExperiment.runApprovedCanary({
+    authorityId: nextAuthoritySha,
+    signal: new AbortController().signal,
+  });
+  assert.equal(continued.kind, "recorded");
+  if (continued.kind !== "recorded") throw new Error("expected continued receipt");
+  assert.equal(continued.receipt.observedCount, 2);
+  assert.equal(continued.receipt.gateVerdict, "CONTINUE");
 }
 
 console.log("deep-repair-live-experiment tests passed");

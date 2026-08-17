@@ -87,6 +87,31 @@ try {
   );
   assert.ok((await repository.readAttempt(attemptKey))?.start.bytes.byteLength);
 
+  const resumeOfReceiptSha256 = SHA(99);
+  const resumeAttemptKey = {
+    planSha256: planSha,
+    sequence: 0,
+    resumeOfReceiptSha256,
+  };
+  assert.equal(await repository.claimStart(resumeAttemptKey, {
+    ...start,
+    authoritySha256: SHA(98),
+    attemptId: "attempt-1-resume",
+  }), true, "기존 plan slot을 덮어쓰지 않고 receipt-keyed resume slot을 claim");
+  assert.ok((await repository.readAttempt(resumeAttemptKey))?.start.bytes.byteLength);
+  assert.equal(
+    JSON.parse((await readFile(join(
+      rootDir,
+      "attempts",
+      planSha,
+      "00",
+      "resumes",
+      resumeOfReceiptSha256,
+      "claim.json",
+    ))).toString("utf8")).attemptId,
+    "attempt-1-resume",
+  );
+
   const observationsSha = SHA(4);
   const evaluatorSha = SHA(5);
   const receiptSha = SHA(6);

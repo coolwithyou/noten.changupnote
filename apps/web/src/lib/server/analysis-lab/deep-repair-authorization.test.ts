@@ -258,6 +258,12 @@ function fixture() {
     async readAttemptStart(planSha256: string, sequence: number) {
       return this.attempts.get(`${planSha256}:${sequence}`) ?? null;
     }
+    async readAttemptTerminal(planSha256: string, sequence: number) {
+      return this.attempts.get(`${planSha256}:${sequence}:terminal`) ?? null;
+    }
+    async readResumeAttemptStart(planSha256: string, sequence: number, receiptSha256: string) {
+      return this.attempts.get(`${planSha256}:${sequence}:resume:${receiptSha256}`) ?? null;
+    }
     async readOperationalEvidence(sha256: string) { return this.evidences.get(sha256) ?? null; }
     async readAuthority(sha256: string) { return this.authorities.get(sha256) ?? null; }
     async readIssuance(approvalId: string) { return this.issuances.get(approvalId) ?? null; }
@@ -297,6 +303,9 @@ function fixture() {
         packageRuntimeSha256: PACKAGE_SHA,
         validatorVersion: DEEP_ANALYSIS_VALIDATOR_VERSION,
       };
+    },
+    async verifyAdmissionOnlyContinuation() {
+      calls.push("continuation-provenance");
     },
     async captureOperationalEvidence() {
       calls.push("gcloud");
@@ -1307,6 +1316,79 @@ for (const [label, activeDeepLeases, activeApplicationLeases] of [
       && error.code === "issuance_conflict",
   );
   assert.deepEqual(setup.calls, []);
+}
+
+{
+  const setup = fixture();
+  const failureCode =
+    "Claude CLI Max 구독 인증을 증명하지 못했습니다. 모델을 시작하지 않습니다. `claude auth status --json`에서 claude.ai/firstParty/max 로그인을 확인하세요.";
+  const failedBody = {
+    schema: "deep-repair-live-receipt-v1",
+    planSha256: setup.plan.planSha256,
+    manifestSha256: setup.plan.manifestSha256,
+    parentReceiptSha256: null,
+    authoritySha256: SHA(8_100),
+    attemptId: "deep-v22-00-failed",
+    target: { sequence: 0, waveId: "wave-1", grantId: "grant-00" },
+    startedAt: "2026-08-14T02:54:00.000Z",
+    finishedAt: "2026-08-14T02:55:00.000Z",
+    lifecycle: "finished",
+    noticeOutcome: "failed",
+    promotionEligibility: "not_evaluated",
+    runArtifactPath: "spike-out/analysis-lab/bizinfo__grant-00/run-failed.json",
+    runArtifactSha256: SHA(8_101),
+    observationsSha256: null,
+    evaluatorReceiptSha256: null,
+    observedCount: 0,
+    gateVerdict: "INVALID",
+    nextAction: "stopped",
+    failureCode,
+  };
+  const failedReceipt = {
+    ...failedBody,
+    receiptSha256: canonicalSha256(failedBody),
+  };
+  const failedArtifact = stored(failedReceipt, "/attempts/failed/resolution.json");
+  setup.repository.attempts.set(
+    `${setup.plan.planSha256}:0`,
+    stored({ started: true }, "/attempts/failed/claim.json"),
+  );
+  setup.repository.attempts.set(
+    `${setup.plan.planSha256}:0:terminal`,
+    failedArtifact,
+  );
+  setup.repository.receipts.set(failedReceipt.receiptSha256, failedArtifact);
+  const continuation = {
+    reason: "admission-only-max-auth-resume",
+    resumeOfReceiptSha256: failedReceipt.receiptSha256,
+    admissionProvenance: {
+      gitSha: GIT_SHA,
+      packageRuntimeSha256: PACKAGE_SHA,
+      validatorVersion: DEEP_ANALYSIS_VALIDATOR_VERSION,
+    },
+  };
+  const approvalId = installApproval(setup, {
+    ...setup.approval,
+    schema: "deep-repair-user-continuation-approval-v1",
+    continuation,
+  }, "max-auth-resume");
+  const result = await setup.issuer.issueApprovedDeepRepairAuthority({
+    approvalId,
+    signal: new AbortController().signal,
+  });
+  const authority = JSON.parse(Buffer.from(
+    setup.repository.authorities.get(result.authorityId)!.bytes,
+  ).toString("utf8")) as Record<string, unknown>;
+  assert.equal(authority.schema, "deep-repair-execution-authority-v2");
+  assert.deepEqual(authority.continuation, continuation);
+  assert.equal(setup.calls.includes("continuation-provenance"), true);
+  assert.equal(
+    setup.repository.attempts.has(
+      `${setup.plan.planSha256}:0:resume:${failedReceipt.receiptSha256}`,
+    ),
+    false,
+    "authority 발급은 resume start를 미리 쓰지 않는다",
+  );
 }
 
 console.log("deep-repair-authorization tests: ok");

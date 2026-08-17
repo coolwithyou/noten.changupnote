@@ -55,6 +55,15 @@ export interface DeepRepairAuthorizationRepository {
     planSha256: Sha256,
     sequence: number,
   ): Promise<DeepRepairAuthorizationStoredArtifact | null>;
+  readAttemptTerminal(
+    planSha256: Sha256,
+    sequence: number,
+  ): Promise<DeepRepairAuthorizationStoredArtifact | null>;
+  readResumeAttemptStart(
+    planSha256: Sha256,
+    sequence: number,
+    resumeOfReceiptSha256: Sha256,
+  ): Promise<DeepRepairAuthorizationStoredArtifact | null>;
   readOperationalEvidence(sha256: Sha256): Promise<DeepRepairAuthorizationStoredArtifact | null>;
   readAuthority(sha256: Sha256): Promise<DeepRepairAuthorizationStoredArtifact | null>;
   readIssuance(approvalSha256: Sha256): Promise<DeepRepairAuthorizationStoredArtifact | null>;
@@ -80,6 +89,18 @@ export interface DeepRepairAuthorizationDependencies {
     readonly packageRuntimeSha256: Sha256;
     readonly validatorVersion: string;
   }>;
+  readonly verifyAdmissionOnlyContinuation: (input: {
+    readonly sealed: {
+      readonly gitSha: string;
+      readonly packageRuntimeSha256: Sha256;
+      readonly validatorVersion: string;
+    };
+    readonly current: {
+      readonly gitSha: string;
+      readonly packageRuntimeSha256: Sha256;
+      readonly validatorVersion: string;
+    };
+  }) => Promise<void>;
   readonly captureOperationalEvidence: (
     signal: AbortSignal,
   ) => Promise<DeepRepairOperationalEvidence>;
@@ -106,7 +127,7 @@ export interface DeepRepairAuthorityIssuer {
   }): Promise<DeepRepairAuthorityIssuanceResult>;
 }
 
-interface UserApproval {
+interface UserApprovalV1 {
   readonly schema: "deep-repair-user-approval-v1";
   readonly proposalSha256: Sha256;
   readonly planSha256: Sha256;
@@ -123,8 +144,35 @@ interface UserApproval {
   readonly stopAfter: "one-target";
 }
 
-interface ExecutionAuthority {
-  readonly schema: "deep-repair-execution-authority-v1";
+interface UserContinuationApproval {
+  readonly schema: "deep-repair-user-continuation-approval-v1";
+  readonly proposalSha256: Sha256;
+  readonly planSha256: Sha256;
+  readonly planArtifactSha256: Sha256;
+  readonly parentReceiptSha256: Sha256 | null;
+  readonly sequence: number;
+  readonly waveId: string;
+  readonly grantId: string;
+  readonly model: string;
+  readonly promptVersion: string;
+  readonly approvedBy: string;
+  readonly approvedAt: string;
+  readonly expiresAt: string;
+  readonly stopAfter: "one-target";
+  readonly continuation: {
+    readonly reason: "admission-only-max-auth-resume";
+    readonly resumeOfReceiptSha256: Sha256 | null;
+    readonly admissionProvenance: {
+      readonly gitSha: string;
+      readonly packageRuntimeSha256: Sha256;
+      readonly validatorVersion: string;
+    };
+  };
+}
+
+type UserApproval = UserApprovalV1 | UserContinuationApproval;
+
+interface ExecutionAuthorityBase {
   readonly attemptId: string;
   readonly planSha256: Sha256;
   readonly planArtifactSha256: Sha256;
@@ -153,6 +201,17 @@ interface ExecutionAuthority {
   readonly approvalSha256: Sha256;
 }
 
+interface ExecutionAuthorityV1 extends ExecutionAuthorityBase {
+  readonly schema: "deep-repair-execution-authority-v1";
+}
+
+interface ExecutionContinuationAuthority extends ExecutionAuthorityBase {
+  readonly schema: "deep-repair-execution-authority-v2";
+  readonly continuation: UserContinuationApproval["continuation"];
+}
+
+type ExecutionAuthority = ExecutionAuthorityV1 | ExecutionContinuationAuthority;
+
 interface IssuanceMarker {
   readonly schema: "deep-repair-authority-issuance-v1";
   readonly approvalSha256: Sha256;
@@ -178,6 +237,8 @@ const PREPARATION_SEED = 20260817;
 const PREPARATION_SUPPLEMENTAL_SEED = 20260818;
 const PREPARATION_TARGET_COUNT = 30;
 const PREPARATION_WAVE_SIZE = 15;
+const MAX_AUTH_PREFLIGHT_FAILURE =
+  "Claude CLI Max 구독 인증을 증명하지 못했습니다. 모델을 시작하지 않습니다. `claude auth status --json`에서 claude.ai/firstParty/max 로그인을 확인하세요.";
 
 /** 승인 SHA 하나만 받아 exact-next 단건 authority를 발급한다. */
 export function createDeepRepairAuthorityIssuer(
@@ -270,7 +331,22 @@ export function createDeepRepairAuthorityIssuer(
       let marker!: IssuanceMarker;
       try {
         const existingStart = await dependencies.repository.readAttemptStart(plan.planSha256, nextSequence);
-        if (existingStart !== null) {
+        if (isContinuationApproval(approval) && approval.continuation.resumeOfReceiptSha256 !== null) {
+          await assertResumableMaxAuthFailure({
+            repository: dependencies.repository,
+            approval,
+            plan,
+            target,
+          });
+          const existingResumeStart = await dependencies.repository.readResumeAttemptStart(
+            plan.planSha256,
+            nextSequence,
+            approval.continuation.resumeOfReceiptSha256,
+          );
+          if (existingResumeStart !== null) {
+            throw failure("issuance_conflict", "exact resume slot에 이미 start artifact가 있습니다.");
+          }
+        } else if (existingStart !== null) {
           throw failure("issuance_conflict", "exact plan slot에 이미 start artifact가 있습니다.");
         }
 
@@ -288,7 +364,22 @@ export function createDeepRepairAuthorityIssuer(
         throwIfAborted(input.signal);
 
         const provenance = await dependencies.readExecutionProvenance();
-        if (canonicalJson(provenance) !== canonicalJson(sealedProvenance)) {
+        if (isContinuationApproval(approval)) {
+          if (canonicalJson(provenance) !== canonicalJson(approval.continuation.admissionProvenance)) {
+            throw failure("provenance_drift", "현재 admission provenance가 continuation 승인과 다릅니다.");
+          }
+          try {
+            await dependencies.verifyAdmissionOnlyContinuation({
+              sealed: sealedProvenance,
+              current: provenance,
+            });
+          } catch (error) {
+            throw failure(
+              "provenance_drift",
+              `현재 변경이 admission-only continuation 범위를 벗어났습니다: ${message(error)}`,
+            );
+          }
+        } else if (canonicalJson(provenance) !== canonicalJson(sealedProvenance)) {
           throw failure("provenance_drift", "현재 실행 provenance가 formal plan과 다릅니다.");
         }
         throwIfAborted(input.signal);
@@ -333,8 +424,10 @@ export function createDeepRepairAuthorityIssuer(
         const evidenceBytes = encodeJson(evidence);
         const evidenceSha256 = rawSha256(evidenceBytes);
         const authority: ExecutionAuthority = {
-          schema: "deep-repair-execution-authority-v1",
-          attemptId: `${ACTIVE_DEEP_REPAIR_SERIES_ID}-${String(nextSequence).padStart(2, "0")}-${approvalSha256.slice(0, 12)}`,
+          schema: isContinuationApproval(approval)
+            ? "deep-repair-execution-authority-v2"
+            : "deep-repair-execution-authority-v1",
+          attemptId: `${ACTIVE_DEEP_REPAIR_SERIES_ID}-${String(nextSequence).padStart(2, "0")}-${isContinuationApproval(approval) ? "continue-" : ""}${approvalSha256.slice(0, 12)}`,
           planSha256: plan.planSha256,
           planArtifactSha256: approval.planArtifactSha256,
           manifestSha256: plan.manifestSha256,
@@ -360,6 +453,9 @@ export function createDeepRepairAuthorityIssuer(
           },
           operationalEvidenceSha256: evidenceSha256,
           approvalSha256,
+          ...(isContinuationApproval(approval)
+            ? { continuation: approval.continuation }
+            : {}),
         };
         const authorityBytes = encodeJson(authority);
         authoritySha256 = rawSha256(authorityBytes);
@@ -471,7 +567,7 @@ async function inspectIssuance(
   const evidence = normalizeOperationalEvidence(parseJson(evidenceArtifact, "operational evidence"));
   const wave = plan.manifest.waves.find((candidate) => candidate.waveId === target.waveId);
   const expectedAttemptId =
-    `${ACTIVE_DEEP_REPAIR_SERIES_ID}-${String(target.sequence).padStart(2, "0")}-${approvalSha256.slice(0, 12)}`;
+    `${ACTIVE_DEEP_REPAIR_SERIES_ID}-${String(target.sequence).padStart(2, "0")}-${isContinuationApproval(approval) ? "continue-" : ""}${approvalSha256.slice(0, 12)}`;
   if (
     !wave
     || authority.attemptId !== expectedAttemptId
@@ -491,6 +587,10 @@ async function inspectIssuance(
     || authority.promptVersion !== approval.promptVersion
     || authority.validatorVersion !== plan.manifest.provenance.validatorVersion
     || authority.qualityPolicyVersion !== plan.manifest.policy.qualityPolicyVersion
+    || (isContinuationApproval(approval)
+      ? authority.schema !== "deep-repair-execution-authority-v2"
+        || canonicalJson(authority.continuation) !== canonicalJson(approval.continuation)
+      : authority.schema !== "deep-repair-execution-authority-v1")
     || authority.runtime.expectedGeneration < 1
     || Date.parse(evidence.observedAt) < Date.parse(approval.approvedAt)
     || Date.parse(evidence.observedAt) >= Date.parse(approval.expiresAt)
@@ -514,8 +614,7 @@ async function assertRawReadBack(
 function normalizeApproval(value: unknown): UserApproval {
   try {
     const source = record(value, "approval");
-    const approval: UserApproval = {
-      schema: literal(source.schema, "deep-repair-user-approval-v1", "approval.schema"),
+    const common = {
       proposalSha256: sha(source.proposalSha256, "approval.proposalSha256"),
       planSha256: sha(source.planSha256, "approval.planSha256"),
       planArtifactSha256: sha(source.planArtifactSha256, "approval.planArtifactSha256"),
@@ -530,6 +629,16 @@ function normalizeApproval(value: unknown): UserApproval {
       expiresAt: iso(source.expiresAt, "approval.expiresAt"),
       stopAfter: literal(source.stopAfter, "one-target", "approval.stopAfter"),
     };
+    const approval: UserApproval = source.schema === "deep-repair-user-continuation-approval-v1"
+      ? {
+          schema: "deep-repair-user-continuation-approval-v1",
+          ...common,
+          continuation: normalizeContinuation(source.continuation, "approval.continuation"),
+        }
+      : {
+          schema: literal(source.schema, "deep-repair-user-approval-v1", "approval.schema"),
+          ...common,
+        };
     const ttl = Date.parse(approval.expiresAt) - Date.parse(approval.approvedAt);
     if (ttl <= 0 || ttl > MAX_APPROVAL_TTL_MS) throw new Error("approval TTL must be 1..15 minutes");
     if (canonicalJson(value) !== canonicalJson(approval)) throw new Error("approval must be canonical");
@@ -537,6 +646,47 @@ function normalizeApproval(value: unknown): UserApproval {
   } catch (error) {
     throw failure("approval_invalid", `승인 artifact 형식이 올바르지 않습니다: ${message(error)}`);
   }
+}
+
+function normalizeContinuation(
+  value: unknown,
+  label: string,
+): UserContinuationApproval["continuation"] {
+  const source = record(value, label);
+  const provenance = record(source.admissionProvenance, `${label}.admissionProvenance`);
+  const normalized: UserContinuationApproval["continuation"] = {
+    reason: literal(
+      source.reason,
+      "admission-only-max-auth-resume",
+      `${label}.reason`,
+    ),
+    resumeOfReceiptSha256: nullableSha(
+      source.resumeOfReceiptSha256,
+      `${label}.resumeOfReceiptSha256`,
+    ),
+    admissionProvenance: {
+      gitSha: text(provenance.gitSha, `${label}.admissionProvenance.gitSha`),
+      packageRuntimeSha256: sha(
+        provenance.packageRuntimeSha256,
+        `${label}.admissionProvenance.packageRuntimeSha256`,
+      ),
+      validatorVersion: text(
+        provenance.validatorVersion,
+        `${label}.admissionProvenance.validatorVersion`,
+      ),
+    },
+  };
+  if (!/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u.test(normalized.admissionProvenance.gitSha)) {
+    throw new Error(`${label}.admissionProvenance.gitSha must be full`);
+  }
+  if (canonicalJson(value) !== canonicalJson(normalized)) {
+    throw new Error(`${label} must be canonical`);
+  }
+  return normalized;
+}
+
+function isContinuationApproval(approval: UserApproval): approval is UserContinuationApproval {
+  return approval.schema === "deep-repair-user-continuation-approval-v1";
 }
 
 function normalizePlan(value: unknown, expectedSha256: string): DeepRepairExperimentPlan {
@@ -839,6 +989,51 @@ async function resolveNextSequence(
   return approval.sequence;
 }
 
+async function assertResumableMaxAuthFailure(input: {
+  repository: DeepRepairAuthorizationRepository;
+  approval: UserContinuationApproval;
+  plan: DeepRepairExperimentPlan;
+  target: DeepRepairExperimentPlan["sequence"][number];
+}): Promise<void> {
+  const resumeSha = input.approval.continuation.resumeOfReceiptSha256;
+  if (resumeSha === null) {
+    throw failure("approval_invalid", "resume continuation에 failed receipt SHA가 없습니다.");
+  }
+  const [terminalArtifact, receiptArtifact] = await Promise.all([
+    input.repository.readAttemptTerminal(input.plan.planSha256, input.approval.sequence),
+    input.repository.readLiveReceipt(resumeSha),
+  ]);
+  if (terminalArtifact === null || receiptArtifact === null) {
+    throw failure("parent_invalid", "resume 대상의 immutable terminal/content receipt를 찾지 못했습니다.");
+  }
+  const terminal = normalizeParentReceipt(parseJson(terminalArtifact, "resume terminal"));
+  const receipt = normalizeParentReceipt(parseJson(receiptArtifact, "resume receipt"));
+  if (
+    terminal.receiptSha256 !== resumeSha
+    || receipt.receiptSha256 !== resumeSha
+    || canonicalJson(terminal) !== canonicalJson(receipt)
+    || receipt.planSha256 !== input.plan.planSha256
+    || receipt.manifestSha256 !== input.plan.manifestSha256
+    || receipt.parentReceiptSha256 !== input.approval.parentReceiptSha256
+    || receipt.target.sequence !== input.approval.sequence
+    || receipt.target.waveId !== input.target.waveId
+    || receipt.target.grantId !== input.target.grantId
+    || receipt.noticeOutcome !== "failed"
+    || receipt.gateVerdict !== "INVALID"
+    || receipt.nextAction !== "stopped"
+    || receipt.observedCount !== input.approval.sequence
+    || receipt.runArtifactPath === null
+    || receipt.runArtifactSha256 === null
+    || receipt.failureCode !== MAX_AUTH_PREFLIGHT_FAILURE
+    || Date.parse(input.approval.approvedAt) < Date.parse(receipt.finishedAt)
+  ) {
+    throw failure(
+      "parent_invalid",
+      "resume 대상이 exact pre-model Max 인증 실패 terminal과 결속되지 않았습니다.",
+    );
+  }
+}
+
 function normalizeParentReceipt(value: unknown): {
   receiptSha256: string;
   planSha256: string;
@@ -848,6 +1043,9 @@ function normalizeParentReceipt(value: unknown): {
   noticeOutcome: string;
   gateVerdict: string;
   nextAction: string;
+  runArtifactPath: string | null;
+  runArtifactSha256: string | null;
+  failureCode: string | null;
   observedCount: number;
   target: { sequence: number; waveId: string; grantId: string };
 } {
@@ -966,8 +1164,7 @@ function normalizeAuthority(value: unknown): ExecutionAuthority {
   try {
     const source = record(value, "authority");
     const runtime = record(source.runtime, "authority.runtime");
-    const normalized: ExecutionAuthority = {
-      schema: literal(source.schema, "deep-repair-execution-authority-v1", "authority.schema"),
+    const common: Omit<ExecutionAuthorityBase, "schema"> = {
       attemptId: text(source.attemptId, "authority.attemptId"),
       planSha256: sha(source.planSha256, "authority.planSha256"),
       planArtifactSha256: sha(source.planArtifactSha256, "authority.planArtifactSha256"),
@@ -998,6 +1195,16 @@ function normalizeAuthority(value: unknown): ExecutionAuthority {
       operationalEvidenceSha256: sha(source.operationalEvidenceSha256, "authority.operationalEvidenceSha256"),
       approvalSha256: sha(source.approvalSha256, "authority.approvalSha256"),
     };
+    const normalized: ExecutionAuthority = source.schema === "deep-repair-execution-authority-v2"
+      ? {
+          schema: "deep-repair-execution-authority-v2",
+          ...common,
+          continuation: normalizeContinuation(source.continuation, "authority.continuation"),
+        }
+      : {
+          schema: literal(source.schema, "deep-repair-execution-authority-v1", "authority.schema"),
+          ...common,
+        };
     if (!UUID_V4.test(normalized.runtime.ownerId)) throw new Error("authority ownerId must be UUID v4");
     if (
       normalized.runtime.activeDeepLeases !== 0

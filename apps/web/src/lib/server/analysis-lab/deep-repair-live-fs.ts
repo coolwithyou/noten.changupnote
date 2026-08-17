@@ -131,12 +131,24 @@ function safeSha(value: string): string {
 
 function attemptDirectory(
   rootDir: string,
-  key: { readonly planSha256: string; readonly sequence: number },
+  key: {
+    readonly planSha256: string;
+    readonly sequence: number;
+    readonly resumeOfReceiptSha256?: string;
+  },
 ): string {
   if (!Number.isSafeInteger(key.sequence) || key.sequence < 0 || key.sequence > 29) {
     throw new Error(`invalid experiment sequence: ${key.sequence}`);
   }
-  return join(rootDir, "attempts", safeSha(key.planSha256), String(key.sequence).padStart(2, "0"));
+  const base = join(
+    rootDir,
+    "attempts",
+    safeSha(key.planSha256),
+    String(key.sequence).padStart(2, "0"),
+  );
+  return key.resumeOfReceiptSha256 === undefined
+    ? base
+    : join(base, "resumes", safeSha(key.resumeOfReceiptSha256));
 }
 
 function isWithin(root: string, candidate: string): boolean {
