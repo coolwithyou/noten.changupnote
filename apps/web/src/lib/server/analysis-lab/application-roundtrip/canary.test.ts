@@ -1,10 +1,15 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import {
+  classifyApplicationRoundtripCanaryExecution,
   createApplicationRoundtripCanaryRunner,
   currentApplicationRoundtripCanaryExecutionBinding,
+  type ApplicationRoundtripCanaryExecutionResult,
 } from "./canary";
-import { parseApplicationRoundtripCanaryArgs } from "./canary-cli";
+import {
+  applicationRoundtripCanaryExitCode,
+  parseApplicationRoundtripCanaryArgs,
+} from "./canary-cli";
 
 const proposalSha256 = "a".repeat(64);
 const sourceSha256 = "b".repeat(64);
@@ -106,9 +111,87 @@ const result = await runner.run({
   signal: new AbortController().signal,
 });
 assert.equal(result.status, "complete");
+assert.equal(result.targetDisposition, "ready");
+assert.equal(result.cohortVerdict, "CONTINUE");
 assert.equal(executeCount, 1);
 assert.ok(storedReceipt);
+const parsedReceipt = JSON.parse(Buffer.from(storedReceipt).toString("utf8")) as Record<string, unknown>;
+assert.equal(parsedReceipt.schema, "application-roundtrip-canary-receipt-v3");
+assert.equal(parsedReceipt.targetDisposition, "ready");
+assert.equal(parsedReceipt.cohortVerdict, "CONTINUE");
+assert.deepEqual(parsedReceipt.reasonCodes, ["ready"]);
 assert.equal(currentApplicationRoundtripCanaryExecutionBinding(), null);
+
+const completeExecution: ApplicationRoundtripCanaryExecutionResult = {
+  runId: "roundtrip-2026-08-15T010000.000Z-abcdef",
+  artifactPath: "spike-out/analysis-lab/application-roundtrip/bizinfo__x/roundtrip/analysis.json",
+  artifactBytes: Buffer.from("exact-run-artifact"),
+  transport: "claude-cli",
+  requestedModel: "claude-opus-5",
+  failureCode: null,
+  error: null,
+  sourceCount: 1,
+  skippedDocumentCount: 0,
+  documents: [{
+    sourceSha256,
+    error: null,
+    fieldPlanningStatus: "llm",
+    fieldPlanningFailureCode: null,
+    adjudicationStatus: "resolved",
+    remainingUnresolvedCandidateCount: 0,
+    fieldCoverageStatus: "complete",
+  }],
+};
+assert.deepEqual(classifyApplicationRoundtripCanaryExecution(completeExecution), {
+  status: "complete",
+  targetDisposition: "ready",
+  cohortVerdict: "CONTINUE",
+  reasonCodes: ["ready"],
+});
+assert.deepEqual(classifyApplicationRoundtripCanaryExecution({
+  ...completeExecution,
+  documents: [{ ...completeExecution.documents[0]!, fieldCoverageStatus: "partial" }],
+}), {
+  status: "partial",
+  targetDisposition: "conditional",
+  cohortVerdict: "CONTINUE",
+  reasonCodes: ["structural_warnings_suppressed"],
+}, "안전하게 제외된 구조 경고는 target 조건부 결과일 뿐 cohort를 중단하지 않는다");
+assert.deepEqual(classifyApplicationRoundtripCanaryExecution({
+  ...completeExecution,
+  documents: [{
+    ...completeExecution.documents[0]!,
+    remainingUnresolvedCandidateCount: 1,
+    fieldCoverageStatus: "review_required",
+  }],
+}), {
+  status: "partial",
+  targetDisposition: "held",
+  cohortVerdict: "CONTINUE",
+  reasonCodes: ["unresolved_candidates"],
+}, "target 검수가 필요한 결과도 안전하게 보류하고 다음 exact target으로 진행한다");
+assert.deepEqual(classifyApplicationRoundtripCanaryExecution({
+  ...completeExecution,
+  failureCode: "all_documents_failed",
+  error: "모든 문서 분석 실패",
+  documents: [{ ...completeExecution.documents[0]!, error: "문서 파싱 실패" }],
+}), {
+  status: "failed",
+  targetDisposition: "held",
+  cohortVerdict: "CONTINUE",
+  reasonCodes: ["document_failure"],
+}, "봉인된 target-local 문서 실패는 해당 target만 보류한다");
+assert.deepEqual(classifyApplicationRoundtripCanaryExecution({
+  ...completeExecution,
+  failureCode: "request_timeout",
+}), {
+  status: "failed",
+  targetDisposition: "blocked",
+  cohortVerdict: "STOP",
+  reasonCodes: ["execution_failure"],
+}, "transport/runtime 계열 실패는 공유 실행 경로 문제이므로 cohort를 중단한다");
+assert.equal(applicationRoundtripCanaryExitCode("CONTINUE"), 0);
+assert.equal(applicationRoundtripCanaryExitCode("STOP"), 2);
 
 await assert.rejects(
   runner.run({

@@ -447,7 +447,7 @@ export function createDeepRepairLiveExperiment(
 
       const expectedProvenance = isContinuationAuthority(authority)
         ? authority.continuation.admissionProvenance
-        : plan.manifest.provenance;
+        : exactPlanExecutionProvenance(plan);
       await assertExecutionProvenance(dependencies.currentExecutionProvenance, expectedProvenance);
       const prepared = await dependencies.targetExecutor.prepare({
         grantId: target.grantId,
@@ -1624,7 +1624,7 @@ function assertOperationalEvidenceFresh(evidence: DeepRepairOperationalEvidence,
 
 async function assertExecutionProvenance(
   readCurrent: () => Promise<ExecutionProvenance>,
-  expected: DeepRepairExperimentPlan["manifest"]["provenance"],
+  expected: ExecutionProvenance,
 ): Promise<ExecutionProvenance> {
   const current = await readCurrent();
   if (
@@ -1635,6 +1635,14 @@ async function assertExecutionProvenance(
     throw rejection("execution_provenance_drift", "현재 git/package runtime/validator가 plan provenance와 다릅니다.", true);
   }
   return current;
+}
+
+function exactPlanExecutionProvenance(plan: DeepRepairExperimentPlan): ExecutionProvenance {
+  const { gitSha, packageRuntimeSha256, validatorVersion } = plan.manifest.provenance;
+  if (gitSha === null || packageRuntimeSha256 === null || validatorVersion === null) {
+    throw rejection("execution_provenance_drift", "formal plan provenance가 exact 값으로 봉인되지 않았습니다.", true);
+  }
+  return { gitSha, packageRuntimeSha256, validatorVersion };
 }
 
 function buildWaveLifecycles(

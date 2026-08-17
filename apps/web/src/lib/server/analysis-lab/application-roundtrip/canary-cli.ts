@@ -5,6 +5,7 @@ import {
   applicationRoundtripCanaryReceiptPath,
   runApprovedApplicationRoundtripCanary,
 } from "./canary-production";
+import type { ApplicationRoundtripCanaryCohortVerdict } from "./canary";
 
 const SHA256 = /^[a-f0-9]{64}$/u;
 const USAGE = "pnpm lab:roundtrip:canary -- --proposal=<sha256> --sequence=<n> --sources=<sha256,sha256,...>";
@@ -36,6 +37,12 @@ export function parseApplicationRoundtripCanaryArgs(argv: readonly string[]): {
   return { proposalSha256, sequence, sourceSha256s };
 }
 
+export function applicationRoundtripCanaryExitCode(
+  cohortVerdict: ApplicationRoundtripCanaryCohortVerdict,
+): 0 | 2 {
+  return cohortVerdict === "CONTINUE" ? 0 : 2;
+}
+
 async function main(argv: readonly string[]): Promise<0 | 2> {
   const parsed = parseApplicationRoundtripCanaryArgs(argv);
   loadAnalysisLabEnv();
@@ -49,6 +56,9 @@ async function main(argv: readonly string[]): Promise<0 | 2> {
     console.log(JSON.stringify({
       kind: "application-roundtrip-canary",
       status: result.status,
+      targetDisposition: result.targetDisposition,
+      cohortVerdict: result.cohortVerdict,
+      reasonCodes: result.receipt.reasonCodes,
       receiptSha256: result.receipt.receiptSha256,
       receiptPath: applicationRoundtripCanaryReceiptPath(result.receipt.receiptSha256),
       proposalSha256: result.receipt.proposalSha256,
@@ -59,7 +69,7 @@ async function main(argv: readonly string[]): Promise<0 | 2> {
       runArtifactPath: result.receipt.runArtifactPath,
       failureCode: result.receipt.failureCode,
     }, null, 2));
-    return result.status === "complete" ? 0 : 2;
+    return applicationRoundtripCanaryExitCode(result.cohortVerdict);
   } finally {
     process.removeListener("SIGINT", onSigint);
     process.removeListener("SIGTERM", onSigterm);

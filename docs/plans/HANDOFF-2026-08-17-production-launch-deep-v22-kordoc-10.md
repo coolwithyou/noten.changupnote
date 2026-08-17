@@ -152,7 +152,10 @@ proposal/plan을 재생성하거나 자동으로 다른 표본을 고르지 않�
 8. 각 deep 결과가 `publishable`이고 receipt가 종결된 공고만 같은 grantId/revision의 Kordoc 대상이
    된다. 10건 deep 종료 뒤 exact 누적 Kordoc preflight를 한 번 수행하고, `ready`인 공고만 위 source
    SHA에 결속해 Kordoc canary를 한 번씩 실행한다. `held`, `deferred`, `source_unavailable`, drift는
-   Kordoc을 실행하지 않는다.
+   Kordoc을 실행하지 않는다. Kordoc 실행 뒤에는 target 품질과 코호트 진행을 분리한다. 안전하게
+   제외된 구조 경고는 `conditional/CONTINUE`, 미해결·문서별 실패는 `held/CONTINUE`로 해당
+   target만 격리한다. source·proposal·model·transport drift, receipt/artifact 불일치, Max 인증·lease
+   상실, timeout·HTTP·invalid response처럼 공유 실행 신뢰가 깨진 경우에만 `STOP`한다.
 9. 종료 시 receipt chain, deep 결과, Kordoc artifact, unresolved 상태와 비용/transport 증거를 exact
    target별로 보고한다. 보호 파일 SHA를 다시 확인한다.
 

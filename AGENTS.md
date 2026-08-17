@@ -116,6 +116,14 @@
 - **매칭 후보 원칙(사용자 확정)**: 22축 전체의 완벽한 확정을 요구하지 않는다. 순수 `ambiguous`/`input_missing`만 남고 확인된 축이 2개 이상이면 `primaryValidationOutcome=publishable`, `matchingReadiness=conditional`로 기록해 확인된 조건으로 랜딩 매칭 후보에 포함한다. 확인된 축이 1개 이하이거나 unresolved 축에 criterion mismatch가 남으면 `held/deferred`로 보류한다. 확정 탈락은 공고 전체를 제외하는 값이 아니라 등록 사업자와 criterion을 비교하는 matcher가 판정한다.
 - `publishable`은 deep primary 결과가 매칭·후속 검수에 사용 가능하다는 뜻이지 Kordoc 완료를 뜻하지 않는다. Kordoc은 명시적 application-roundtrip 실행과 별도 artifact가 있을 때만 완료로 본다.
 - **Kordoc 반복 보류 원칙(2026-08-15)**: 동일 후보를 독립 판정 2회 모두 `is_user_input=true`, confidence 0.65 이상으로 판단하지만 확정 임계 0.75에 못 미치면 값을 추정하지 않는 optional 사용자 확인 입력으로 보존한다(`37b7afc`). 전역 입력·거절 임계값은 0.75로 유지하고, 저신뢰 `is_user_input=false`는 자동 제외하지 않고 기존 review 상태를 유지한다.
+- **Kordoc 코호트 진행 판정(2026-08-17)**: 신청서 한 건의 품질 상태와 코호트 진행 verdict를
+  분리한다. 정확한 위치를 확정할 수 없어 입력 대상에서 안전하게 제외한 구조 경고는
+  `status=partial`, `targetDisposition=conditional`, `cohortVerdict=CONTINUE`로 기록한다. 미해결
+  후보·불완전 재판정·문서별 분석 실패는 해당 target을 `held`로 격리하고 다음 exact target을
+  계속한다. 이 target들은 release/promotion 대상이 아니다. source/proposal/model/transport binding
+  drift, receipt·artifact 불일치, Max 인증 실패, lease 상실, timeout·HTTP·invalid response처럼
+  공유 실행 경로의 신뢰를 잃은 경우에만 `cohortVerdict=STOP`으로 전체 순서를 중단한다. 기존
+  immutable receipt는 수정·삭제하지 않으며 새 정책 적용을 위해 같은 모델 분석을 재실행하지 않는다.
 - **원칙(사용자 확정)**: 고단가 모델(fable-5 등)을 API로 돌리지 않는다 — 로컬 대량 작업은 구독이 기본. 단, 구독 실행은 **로컬 dev·실험실 한정**(약관 경계) — 운영 worker·Cloud Run·사용자 대면 경로는 API 유지.
 - `/dev/analysis-lab`의 기존 실행 UI와 CLI는 진행 관측·dry-run 용도로만 남고 live start는 Gate R admission에서 거부된다.
 - 운용 안내 정본: `docs/explainers/구독모델로-딥분석-돌리는-법.md`; 현재 구조·재개 판정 정본: `docs/research/2026-08-14-구독-딥분석-반복실패-구조진단-및-개선-설계.md`; 최근 실패 증거: `docs/research/2026-08-13-딥분석-처리속도-트랙-리뷰-정리.md`. `HANDOFF-2026-08-03.md`는 역사 기록이다.

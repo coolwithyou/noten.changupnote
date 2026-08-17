@@ -423,11 +423,9 @@ export function createDeepRepairAuthorityIssuer(
         const wave = plan.manifest.waves.find((candidate) => candidate.waveId === target.waveId)!;
         const evidenceBytes = encodeJson(evidence);
         const evidenceSha256 = rawSha256(evidenceBytes);
-        const authority: ExecutionAuthority = {
-          schema: isContinuationApproval(approval)
-            ? "deep-repair-execution-authority-v2"
-            : "deep-repair-execution-authority-v1",
-          attemptId: `${ACTIVE_DEEP_REPAIR_SERIES_ID}-${String(nextSequence).padStart(2, "0")}-${isContinuationApproval(approval) ? "continue-" : ""}${approvalSha256.slice(0, 12)}`,
+        const continuationApproval = isContinuationApproval(approval) ? approval : null;
+        const authorityBase: ExecutionAuthorityBase = {
+          attemptId: `${ACTIVE_DEEP_REPAIR_SERIES_ID}-${String(nextSequence).padStart(2, "0")}-${continuationApproval ? "continue-" : ""}${approvalSha256.slice(0, 12)}`,
           planSha256: plan.planSha256,
           planArtifactSha256: approval.planArtifactSha256,
           manifestSha256: plan.manifestSha256,
@@ -453,10 +451,17 @@ export function createDeepRepairAuthorityIssuer(
           },
           operationalEvidenceSha256: evidenceSha256,
           approvalSha256,
-          ...(isContinuationApproval(approval)
-            ? { continuation: approval.continuation }
-            : {}),
         };
+        const authority: ExecutionAuthority = continuationApproval
+          ? {
+            ...authorityBase,
+            schema: "deep-repair-execution-authority-v2",
+            continuation: continuationApproval.continuation,
+          }
+          : {
+            ...authorityBase,
+            schema: "deep-repair-execution-authority-v1",
+          };
         const authorityBytes = encodeJson(authority);
         authoritySha256 = rawSha256(authorityBytes);
         marker = {

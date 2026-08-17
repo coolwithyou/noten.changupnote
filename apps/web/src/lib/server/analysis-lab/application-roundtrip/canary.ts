@@ -31,6 +31,23 @@ interface ApplicationRoundtripCanaryDocumentResult {
   readonly fieldCoverageStatus: "complete" | "partial" | "review_required";
 }
 
+export type ApplicationRoundtripCanaryTargetDisposition =
+  | "ready"
+  | "conditional"
+  | "held"
+  | "blocked";
+
+export type ApplicationRoundtripCanaryCohortVerdict = "CONTINUE" | "STOP";
+
+export type ApplicationRoundtripCanaryReasonCode =
+  | "ready"
+  | "structural_warnings_suppressed"
+  | "field_planning_degraded"
+  | "adjudication_incomplete"
+  | "unresolved_candidates"
+  | "document_failure"
+  | "execution_failure";
+
 export interface ApplicationRoundtripCanaryExecutionResult {
   readonly runId: string;
   readonly artifactPath: string;
@@ -45,7 +62,7 @@ export interface ApplicationRoundtripCanaryExecutionResult {
 }
 
 export interface ApplicationRoundtripCanaryReceipt {
-  readonly schema: "application-roundtrip-canary-receipt-v2";
+  readonly schema: "application-roundtrip-canary-receipt-v3";
   readonly receiptSha256: string;
   readonly proposalSha256: string;
   readonly sequence: number;
@@ -54,6 +71,9 @@ export interface ApplicationRoundtripCanaryReceipt {
   readonly model: "claude-opus-5";
   readonly transport: "claude-cli";
   readonly status: "complete" | "partial" | "failed";
+  readonly targetDisposition: ApplicationRoundtripCanaryTargetDisposition;
+  readonly cohortVerdict: ApplicationRoundtripCanaryCohortVerdict;
+  readonly reasonCodes: readonly ApplicationRoundtripCanaryReasonCode[];
   readonly failureCode: string | null;
   readonly runId: string;
   readonly runArtifactPath: string;
@@ -81,6 +101,8 @@ export interface ApplicationRoundtripCanaryRunner {
     readonly signal: AbortSignal;
   }): Promise<{
     readonly status: ApplicationRoundtripCanaryReceipt["status"];
+    readonly targetDisposition: ApplicationRoundtripCanaryTargetDisposition;
+    readonly cohortVerdict: ApplicationRoundtripCanaryCohortVerdict;
     readonly receipt: ApplicationRoundtripCanaryReceipt;
   }>;
 }
@@ -124,20 +146,20 @@ export function createApplicationRoundtripCanaryRunner(
       input.signal.throwIfAborted();
       assertExecutionBinding(executed, target.grantId, expectedSourceSha256s, proposal.policy.model);
 
-      const status = classifyExecution(executed);
-      const failureCode = status === "complete"
-        ? null
-        : executed.failureCode ?? executed.error ?? status;
+      const decision = classifyApplicationRoundtripCanaryExecution(executed);
       const body = {
-        schema: "application-roundtrip-canary-receipt-v2" as const,
+        schema: "application-roundtrip-canary-receipt-v3" as const,
         proposalSha256: input.proposalSha256,
         sequence: input.sequence,
         grantId: target.grantId,
         sourceSha256s: expectedSourceSha256s,
         model: proposal.policy.model,
         transport: proposal.policy.transport,
-        status,
-        failureCode,
+        status: decision.status,
+        targetDisposition: decision.targetDisposition,
+        cohortVerdict: decision.cohortVerdict,
+        reasonCodes: decision.reasonCodes,
+        failureCode: executed.failureCode ?? executed.error,
         runId: executed.runId,
         runArtifactPath: executed.artifactPath,
         runArtifactSha256: rawSha256(executed.artifactBytes),
@@ -151,7 +173,12 @@ export function createApplicationRoundtripCanaryRunner(
         sha256: receipt.receiptSha256,
         bytes: Buffer.from(`${JSON.stringify(receipt, null, 2)}\n`),
       });
-      return { status, receipt };
+      return {
+        status: decision.status,
+        targetDisposition: decision.targetDisposition,
+        cohortVerdict: decision.cohortVerdict,
+        receipt,
+      };
     },
   };
 }
@@ -217,21 +244,80 @@ function sameSet(left: readonly string[], right: readonly string[]): boolean {
     && sameOrderedValues([...left].sort(), [...right].sort());
 }
 
-function classifyExecution(
+const SYSTEMIC_FAILURE_CODES = new Set<RoundtripFailureCode>([
+  "api_key_missing",
+  "transport_not_configured",
+  "request_timeout",
+  "window_exhausted",
+  "http_error",
+  "invalid_response",
+  "request_failed",
+]);
+
+/** target 품질과 cohort 진행 결정을 분리해 국소 보류가 다음 exact target을 막지 않게 한다. */
+export function classifyApplicationRoundtripCanaryExecution(
   executed: ApplicationRoundtripCanaryExecutionResult,
-): ApplicationRoundtripCanaryReceipt["status"] {
-  if (executed.error !== null || executed.failureCode !== null || executed.documents.some((document) => document.error !== null)) {
-    return "failed";
+): {
+  readonly status: ApplicationRoundtripCanaryReceipt["status"];
+  readonly targetDisposition: ApplicationRoundtripCanaryTargetDisposition;
+  readonly cohortVerdict: ApplicationRoundtripCanaryCohortVerdict;
+  readonly reasonCodes: readonly ApplicationRoundtripCanaryReasonCode[];
+} {
+  const systemicFailure = (executed.failureCode !== null && SYSTEMIC_FAILURE_CODES.has(executed.failureCode))
+    || executed.documents.some((document) =>
+      document.fieldPlanningFailureCode !== null
+      && SYSTEMIC_FAILURE_CODES.has(document.fieldPlanningFailureCode));
+  if (systemicFailure) {
+    return decision("failed", "blocked", "STOP", ["execution_failure"]);
   }
-  const partial = executed.documents.some((document) =>
-    document.fieldPlanningStatus !== "llm"
-    || document.fieldPlanningFailureCode !== null
-    || document.adjudicationStatus === "partial"
-    || document.adjudicationStatus === "failed"
-    || document.adjudicationStatus === "skipped"
-    || document.remainingUnresolvedCandidateCount > 0
-    || document.fieldCoverageStatus !== "complete");
-  return partial ? "partial" : "complete";
+  if (
+    executed.error !== null
+    || executed.failureCode !== null
+    || executed.documents.some((document) => document.error !== null)
+  ) {
+    return decision("failed", "held", "CONTINUE", ["document_failure"]);
+  }
+
+  const reasonCodes = new Set<ApplicationRoundtripCanaryReasonCode>();
+  for (const document of executed.documents) {
+    if (document.fieldPlanningStatus !== "llm" || document.fieldPlanningFailureCode !== null) {
+      reasonCodes.add("field_planning_degraded");
+    }
+    if (
+      document.adjudicationStatus === "partial"
+      || document.adjudicationStatus === "failed"
+      || document.adjudicationStatus === "skipped"
+    ) {
+      reasonCodes.add("adjudication_incomplete");
+    }
+    if (document.remainingUnresolvedCandidateCount > 0 || document.fieldCoverageStatus === "review_required") {
+      reasonCodes.add("unresolved_candidates");
+    }
+    if (document.fieldCoverageStatus === "partial") {
+      reasonCodes.add("structural_warnings_suppressed");
+    }
+  }
+  if (reasonCodes.size === 0) {
+    return decision("complete", "ready", "CONTINUE", ["ready"]);
+  }
+  if (reasonCodes.size === 1 && reasonCodes.has("structural_warnings_suppressed")) {
+    return decision("partial", "conditional", "CONTINUE", [...reasonCodes]);
+  }
+  return decision("partial", "held", "CONTINUE", [...reasonCodes]);
+}
+
+function decision(
+  status: ApplicationRoundtripCanaryReceipt["status"],
+  targetDisposition: ApplicationRoundtripCanaryTargetDisposition,
+  cohortVerdict: ApplicationRoundtripCanaryCohortVerdict,
+  reasonCodes: readonly ApplicationRoundtripCanaryReasonCode[],
+) {
+  return Object.freeze({
+    status,
+    targetDisposition,
+    cohortVerdict,
+    reasonCodes: Object.freeze([...reasonCodes]),
+  });
 }
 
 function rawSha256(bytes: Uint8Array): string {
