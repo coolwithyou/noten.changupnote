@@ -53,6 +53,7 @@ import {
   DEEP_REPAIR_FORMAL_MAX_SAMPLE_SIZE,
   DEEP_REPAIR_FORMAL_MIN_SAMPLE_SIZE,
   DEEP_REPAIR_FORMAL_REQUIRED_STRATA,
+  DEEP_REPAIR_PLANNING_PRIMARY_SEED,
 } from "./deep-repair-formal-policy";
 import {
   LAB_SOURCES,
@@ -137,6 +138,8 @@ export interface DeepRepairPlanningTarget {
   readonly source: string;
   readonly title: string;
   readonly stratum: string;
+  readonly isUnified: boolean;
+  readonly isRichCriteria: boolean;
 }
 
 export interface DeepRepairPlanningSelection {
@@ -146,7 +149,6 @@ export interface DeepRepairPlanningSelection {
 }
 
 const DEEP_REPAIR_PLANNING_SIZE = DEEP_REPAIR_FORMAL_MAX_SAMPLE_SIZE;
-const DEEP_REPAIR_PLANNING_SEED = 20260814;
 
 /**
  * 현행 cohort.json 을 건드리지 않고 새 층화 표본을 불변 파일로 동결한다. 기존 정본과
@@ -636,6 +638,7 @@ async function loadStratumCandidates(
  */
 export async function selectDeepRepairPlanningTargets(options: {
   readonly excludeGrantIds: readonly string[];
+  readonly seed?: number;
 }): Promise<DeepRepairPlanningSelection> {
   const excluded = [...new Set(options.excludeGrantIds.map((id) => {
     if (!UUID_PATTERN.test(id)) {
@@ -647,7 +650,7 @@ export async function selectDeepRepairPlanningTargets(options: {
   const selection = selectStratifiedCohort(
     candidates,
     DEEP_REPAIR_PLANNING_SIZE,
-    DEEP_REPAIR_PLANNING_SEED,
+    options.seed ?? DEEP_REPAIR_PLANNING_PRIMARY_SEED,
   );
   if (selection.selected.length !== DEEP_REPAIR_PLANNING_SIZE) {
     throw new Error(
@@ -663,11 +666,13 @@ export async function selectDeepRepairPlanningTargets(options: {
   }
   const ordered = orderDeepRepairPlanningTargets(selection.selected);
   return {
-    targets: ordered.map(({ grantId, source, title, stratum }) => ({
+    targets: ordered.map(({ grantId, source, title, stratum, isUnified, isRichCriteria }) => ({
       grantId,
       source,
       title,
       stratum,
+      isUnified,
+      isRichCriteria,
     })),
     quotas: selection.quotas,
     warnings: selection.warnings,

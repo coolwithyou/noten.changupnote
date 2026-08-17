@@ -25,6 +25,10 @@ import {
   DEEP_REPAIR_FORMAL_MIN_SAMPLE_SIZE,
   DEEP_REPAIR_FORMAL_REQUIRED_STRATA,
 } from "./deep-repair-formal-policy";
+import {
+  DEEP_REPAIR_INITIAL_KORDOC_LLM_CANDIDATE_LIMIT,
+  prioritizeDeepRepairTargetsForInitialKordocCohort,
+} from "./deep-repair-kordoc-priority";
 
 const REQUIRED_STRATA = [
   "bizinfo/thick",
@@ -36,7 +40,7 @@ const REQUIRED_STRATA = [
 
 assert.equal(
   DEEP_REPAIR_PREPARATION_POLICY.seriesId,
-  "deep-v21",
+  "deep-v22",
   "현재 실행 코드는 새 불변 series에만 봉인해야 한다",
 );
 
@@ -102,7 +106,7 @@ function setup(overrides: Partial<DeepRepairPreparationDependencies> = {}) {
 
 {
   const { deps, writes, prepareCalls } = setup();
-  const result = await createDeepRepairProposalPreparer(deps).prepare({ seriesId: "deep-v21" });
+  const result = await createDeepRepairProposalPreparer(deps).prepare({ seriesId: "deep-v22" });
   assert.equal(result.plan.sequence.length, 30);
   assert.deepEqual(
     [...new Set(result.plan.sequence.slice(0, 15).map((target) => target.stratum))].sort(),
@@ -115,7 +119,7 @@ function setup(overrides: Partial<DeepRepairPreparationDependencies> = {}) {
   assert.equal(writes.filter((artifact) => artifact.path.includes("/cohorts/")).length, 2);
   assert.ok(writes.some((artifact) => artifact.path.endsWith(`/plans/${result.plan.planSha256}.json`)));
   assert.ok(writes.some((artifact) => artifact.path.endsWith(`/proposals/${result.proposalSha256}.json`)));
-  assert.equal(result.seriesMarkerPath, "spike-out/analysis-lab/experiments/series/deep-v21.json");
+  assert.equal(result.seriesMarkerPath, "spike-out/analysis-lab/experiments/series/deep-v22.json");
   assert.equal(writes.at(-1)?.path, result.seriesMarkerPath, "고정 series marker가 마지막 CAS여야 한다");
   assert.match(result.planArtifactSha256, /^[a-f0-9]{64}$/);
   assert.notEqual(
@@ -144,8 +148,8 @@ function setup(overrides: Partial<DeepRepairPreparationDependencies> = {}) {
     title: "공고 1",
     waveId: "wave-1",
   });
-  assert.equal(proposal.policy.seriesId, "deep-v21");
-  assert.equal(proposal.policy.seed, 20260814);
+  assert.equal(proposal.policy.seriesId, "deep-v22");
+  assert.equal(proposal.policy.seed, 20260817);
   assert.equal(proposal.policy.model, "claude-opus-5");
   assert.equal(proposal.policy.transport, "claude-cli");
   assert.deepEqual(proposal.selection.strataCounts, {
@@ -168,14 +172,15 @@ function setup(overrides: Partial<DeepRepairPreparationDependencies> = {}) {
     createHash("sha256").update("[]").digest("hex"),
   );
   assert.equal(proposal.safety.authorityScope, "one-authority-one-target");
-  assert.equal(proposal.safety.nextTarget, "new-user-approval-required");
-  assert.deepEqual(proposal.safety.excludedLanes, ["kordoc", "review", "promotion"]);
+  assert.equal(proposal.safety.nextTarget, "approved-exact-cohort-authority-required");
+  assert.equal(proposal.safety.linkedLane, "kordoc-after-publishable-receipt");
+  assert.deepEqual(proposal.safety.excludedLanes, ["review", "promotion"]);
   assert.deepEqual(proposal.safety.stopVerdicts, ["GO", "NO_GO", "INCONCLUSIVE", "INVALID"]);
   assert.equal(proposal.safety.liveExecutionAuthorized, false);
   assert.deepEqual(proposal.unresolvedGateConditions, [
     "current-production-observe-only-evidence",
     "runtime-generation-and-lease",
-    "per-target-user-approval-and-authority",
+    "exact-cohort-approval-and-target-authority",
   ]);
 }
 
@@ -321,8 +326,9 @@ function setup(overrides: Partial<DeepRepairPreparationDependencies> = {}) {
 }
 
 assert.deepEqual(DEEP_REPAIR_PREPARATION_POLICY, {
-  seriesId: "deep-v21",
-  seed: 20260814,
+  seriesId: "deep-v22",
+  seed: 20260817,
+  supplementalSeed: 20260818,
   targetCount: 30,
   waveSize: 15,
   model: "claude-opus-5",
@@ -331,10 +337,42 @@ assert.deepEqual(DEEP_REPAIR_PREPARATION_POLICY, {
 });
 
 {
+  const selected = targets();
+  const readiness = selected.slice(0, 12).map((target, index) => ({
+    grantId: target.grantId,
+    selectedDocumentCount: 1,
+    fieldCandidateCount: 20,
+    llmCandidateCount: index === 2
+      ? DEEP_REPAIR_INITIAL_KORDOC_LLM_CANDIDATE_LIMIT + 1
+      : 10,
+    sourceSha256s: [exactSha(4_000 + index)],
+    releaseWindowReady: index !== 1,
+  }));
+  const ordered = prioritizeDeepRepairTargetsForInitialKordocCohort(selected, readiness);
+  assert.deepEqual(
+    ordered.slice(0, 10).map((target) => target.grantId),
+    selected.slice(0, 12).filter((_, index) => index !== 1 && index !== 2).map((target) => target.grantId),
+    "초기 10건은 Kordoc-ready이면서 복잡도 상한 안인 후보만 유지해야 한다",
+  );
+  assert.deepEqual(
+    [...new Set(ordered.slice(0, 15).map((target) => target.stratum))].sort(),
+    [...REQUIRED_STRATA].sort(),
+    "Kordoc 우선 정렬 뒤에도 첫 formal wave의 필수 층을 보존해야 한다",
+  );
+  assert.throws(
+    () => prioritizeDeepRepairTargetsForInitialKordocCohort(
+      selected,
+      readiness.filter((item) => item.releaseWindowReady && item.llmCandidateCount <= 240).slice(0, 9),
+    ),
+    /inventory insufficient.*10.*9/i,
+  );
+}
+
+{
   const first = setup();
   const second = setup();
-  const firstResult = await createDeepRepairProposalPreparer(first.deps).prepare({ seriesId: "deep-v21" });
-  const secondResult = await createDeepRepairProposalPreparer(second.deps).prepare({ seriesId: "deep-v21" });
+  const firstResult = await createDeepRepairProposalPreparer(first.deps).prepare({ seriesId: "deep-v22" });
+  const secondResult = await createDeepRepairProposalPreparer(second.deps).prepare({ seriesId: "deep-v22" });
   assert.equal(secondResult.plan.planSha256, firstResult.plan.planSha256);
   assert.equal(secondResult.planArtifactSha256, firstResult.planArtifactSha256);
   assert.equal(secondResult.proposalSha256, firstResult.proposalSha256);
@@ -359,7 +397,7 @@ assert.deepEqual(DEEP_REPAIR_PREPARATION_POLICY, {
     }),
   });
   await assert.rejects(
-    createDeepRepairProposalPreparer(deps).prepare({ seriesId: "deep-v21" }),
+    createDeepRepairProposalPreparer(deps).prepare({ seriesId: "deep-v22" }),
     /excluded.*000000000001|000000000001.*excluded/i,
   );
   assert.equal(prepareCalls.length, 0);
@@ -377,7 +415,7 @@ assert.deepEqual(DEEP_REPAIR_PREPARATION_POLICY, {
     },
   });
   await assert.rejects(
-    createDeepRepairProposalPreparer(deps).prepare({ seriesId: "deep-v21" }),
+    createDeepRepairProposalPreparer(deps).prepare({ seriesId: "deep-v22" }),
     /R2 unavailable/,
   );
   assert.equal(writes.length, 0, "30번째 입력 준비 실패도 산출물을 남기면 안 된다");
@@ -397,7 +435,7 @@ assert.deepEqual(DEEP_REPAIR_PREPARATION_POLICY, {
     }),
   });
   await assert.rejects(
-    createDeepRepairProposalPreparer(deps).prepare({ seriesId: "deep-v21" }),
+    createDeepRepairProposalPreparer(deps).prepare({ seriesId: "deep-v22" }),
     /grantId.*UUID|UUID.*grantId/i,
   );
   assert.equal(writes.length, 0);
@@ -420,7 +458,7 @@ assert.deepEqual(DEEP_REPAIR_PREPARATION_POLICY, {
     }),
   });
   await assert.rejects(
-    createDeepRepairProposalPreparer(deps).prepare({ seriesId: "deep-v21" }),
+    createDeepRepairProposalPreparer(deps).prepare({ seriesId: "deep-v22" }),
     /provenance.*drift/i,
   );
   assert.equal(writes.length, 0, "provenance drift는 산출물을 남기면 안 된다");
@@ -434,7 +472,7 @@ assert.deepEqual(DEEP_REPAIR_PREPARATION_POLICY, {
     ),
   });
   await assert.rejects(
-    createDeepRepairProposalPreparer(deps).prepare({ seriesId: "deep-v21" }),
+    createDeepRepairProposalPreparer(deps).prepare({ seriesId: "deep-v22" }),
     /historical exclusion set drift/i,
   );
   assert.equal(writes.length, 0, "과거 표본 집합 drift도 산출물을 남기면 안 된다");
@@ -459,7 +497,7 @@ assert.deepEqual(DEEP_REPAIR_PREPARATION_POLICY, {
     },
   });
   await assert.rejects(
-    createDeepRepairProposalPreparer(deps).prepare({ seriesId: "deep-v21" }),
+    createDeepRepairProposalPreparer(deps).prepare({ seriesId: "deep-v22" }),
     /selection.*drift|stratum.*drift/i,
   );
   assert.equal(writes.length, 0, "후보/stratum snapshot drift는 산출물을 남기면 안 된다");
@@ -479,7 +517,7 @@ assert.deepEqual(DEEP_REPAIR_PREPARATION_POLICY, {
     }),
   });
   await assert.rejects(
-    createDeepRepairProposalPreparer(deps).prepare({ seriesId: "deep-v21" }),
+    createDeepRepairProposalPreparer(deps).prepare({ seriesId: "deep-v22" }),
     /first 15.*strata/i,
   );
   assert.equal(writes.length, 0);
@@ -487,7 +525,7 @@ assert.deepEqual(DEEP_REPAIR_PREPARATION_POLICY, {
 
 await assert.rejects(
   createDeepRepairProposalPreparer(setup().deps).prepare({ seriesId: "deep-v18" }),
-  /deep-v21/,
+  /deep-v22/,
 );
 
 await assert.rejects(
@@ -496,29 +534,29 @@ await assert.rejects(
   "selector도 invalid exclusion을 DB 조회 전에 거부해야 한다",
 );
 
-assert.deepEqual(parseDeepRepairPreparationCliArgs(["--series=deep-v21"]), {
+assert.deepEqual(parseDeepRepairPreparationCliArgs(["--series=deep-v22"]), {
   kind: "prepare",
-  seriesId: "deep-v21",
+  seriesId: "deep-v22",
 });
-assert.deepEqual(parseDeepRepairPreparationCliArgs(["--", "--series=deep-v21"]), {
+assert.deepEqual(parseDeepRepairPreparationCliArgs(["--", "--series=deep-v22"]), {
   kind: "prepare",
-  seriesId: "deep-v21",
+  seriesId: "deep-v22",
 });
 assert.deepEqual(parseDeepRepairPreparationCliArgs(["--help"]), { kind: "help" });
 for (const argv of [
   [],
   ["--"],
-  ["--series", "deep-v21"],
+  ["--series", "deep-v22"],
   ["--series=deep-v18"],
-  ["--series=deep-v21", "--help"],
+  ["--series=deep-v22", "--help"],
   ["--model=claude-opus-5"],
-  ["--seed=20260814"],
+  ["--seed=20260817"],
   ["--count=30"],
   ["--authority=abc"],
   ["--execute"],
-  ["deep-v21"],
+  ["deep-v22"],
 ]) {
-  assert.throws(() => parseDeepRepairPreparationCliArgs(argv), /--series=deep-v21|--help/);
+  assert.throws(() => parseDeepRepairPreparationCliArgs(argv), /--series=deep-v22|--help/);
 }
 assert.equal(deepRepairPreparationCliErrorExitCode(new Error("prepare failed")), 1);
 {
@@ -569,7 +607,7 @@ assert.equal(deepRepairPreparationCliErrorExitCode(new Error("prepare failed")),
 
     const planSetup = setup();
     const planResult = await createDeepRepairProposalPreparer(planSetup.deps).prepare({
-      seriesId: "deep-v21",
+      seriesId: "deep-v22",
     });
     const planArtifact = planSetup.writes.find((item) => item.path.includes("/plans/"))!;
     await write(planArtifact);
@@ -587,7 +625,7 @@ assert.equal(deepRepairPreparationCliErrorExitCode(new Error("prepare failed")),
     );
 
     const marker = planSetup.writes.at(-1)!;
-    assert.equal(marker.path, "spike-out/analysis-lab/experiments/series/deep-v21.json");
+    assert.equal(marker.path, "spike-out/analysis-lab/experiments/series/deep-v22.json");
     await write(marker);
     await write(marker);
     await assert.rejects(

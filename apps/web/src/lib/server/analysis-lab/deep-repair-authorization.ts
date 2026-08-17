@@ -174,7 +174,8 @@ const SHA256 = /^[a-f0-9]{64}$/u;
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 const MAX_APPROVAL_TTL_MS = 15 * 60_000;
 const MAX_OPERATIONAL_EVIDENCE_TTL_MS = 15 * 60_000;
-const PREPARATION_SEED = 20260814;
+const PREPARATION_SEED = 20260817;
+const PREPARATION_SUPPLEMENTAL_SEED = 20260818;
 const PREPARATION_TARGET_COUNT = 30;
 const PREPARATION_WAVE_SIZE = 15;
 
@@ -640,14 +641,23 @@ function normalizeProposal(value: unknown): Record<string, unknown> {
     literal(safety.artifactKind, "proposal-only", "proposal.safety.artifactKind");
     if (safety.liveExecutionAuthorized !== false) throw new Error("proposal must not authorize live execution");
     literal(safety.authorityScope, "one-authority-one-target", "proposal.safety.authorityScope");
-    literal(safety.nextTarget, "new-user-approval-required", "proposal.safety.nextTarget");
+    literal(
+      safety.nextTarget,
+      "approved-exact-cohort-authority-required",
+      "proposal.safety.nextTarget",
+    );
     literal(
       safety.continueVerdictAction,
-      "new-user-approval-required",
+      "approved-exact-cohort-authority-required",
       "proposal.safety.continueVerdictAction",
     );
+    literal(
+      safety.linkedLane,
+      "kordoc-after-publishable-receipt",
+      "proposal.safety.linkedLane",
+    );
     const excluded = safety.excludedLanes;
-    if (canonicalJson(excluded) !== canonicalJson(["kordoc", "review", "promotion"])) {
+    if (canonicalJson(excluded) !== canonicalJson(["review", "promotion"])) {
       throw new Error("proposal excluded lanes mismatch");
     }
     if (
@@ -656,7 +666,7 @@ function normalizeProposal(value: unknown): Record<string, unknown> {
       || canonicalJson(proposal.unresolvedGateConditions) !== canonicalJson([
         "current-production-observe-only-evidence",
         "runtime-generation-and-lease",
-        "per-target-user-approval-and-authority",
+        "exact-cohort-approval-and-target-authority",
       ])
     ) throw new Error("proposal stop/gate safety mismatch");
     return proposal;
@@ -693,6 +703,8 @@ function assertProposalBinding(
       || proposalPlan.manifestSha256 !== plan.manifestSha256
       || policy.seriesId !== ACTIVE_DEEP_REPAIR_SERIES_ID
       || integer(policy.seed, "proposal.policy.seed") !== PREPARATION_SEED
+      || integer(policy.supplementalSeed, "proposal.policy.supplementalSeed")
+        !== PREPARATION_SUPPLEMENTAL_SEED
       || integer(policy.targetCount, "proposal.policy.targetCount") !== plan.sequence.length
       || integer(policy.waveSize, "proposal.policy.waveSize") !== PREPARATION_WAVE_SIZE
       || policy.objective !== plan.manifest.objective

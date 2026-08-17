@@ -63,6 +63,32 @@ assert.equal(
   "파일명이 신청서를 명시하면 관리지침 표현만으로 양식을 제외하면 안 된다",
 );
 
+const resultReport = classifyRoundtripDocument({
+  filename: "(붙임 3) 결과보고서.hwp",
+  markdown: "신청기업 대표자 담당자 연락처 사업자등록번호".repeat(20),
+  fields: Array.from({ length: 53 }, (_, index) =>
+    field({ id: `result-${index}`, label: `결과 항목 ${index}`, occurrence: index })),
+  formConfidence: 0.7,
+});
+assert.equal(
+  resultReport.role,
+  "announcement",
+  "선정 이후 결과보고서를 최초 신청 양식으로 오인하면 안 된다",
+);
+
+const consentOnly = classifyRoundtripDocument({
+  filename: "⑥ 개인정보 동의서.hwp",
+  markdown: "신청기업 대표자 담당자 연락처 개인정보 수집 동의".repeat(15),
+  fields: Array.from({ length: 12 }, (_, index) =>
+    field({ id: `consent-${index}`, label: `동의 항목 ${index}`, occurrence: index })),
+  formConfidence: 0.6,
+});
+assert.equal(
+  consentOnly.role,
+  "evidence",
+  "독립 개인정보 동의서를 신청서로 오인하면 안 된다",
+);
+
 const plan = classifyRoundtripDocument({
   filename: "붙임2 사업계획서 양식.hwpx",
   markdown: "사업개요\n문제인식\n실현가능성\n성장전략\n시장현황\n추진계획",

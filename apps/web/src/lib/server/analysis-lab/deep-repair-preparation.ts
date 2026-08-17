@@ -12,13 +12,16 @@ import {
   DEEP_REPAIR_FORMAL_MAX_SAMPLE_SIZE,
   DEEP_REPAIR_FORMAL_MIN_SAMPLE_SIZE,
   DEEP_REPAIR_FORMAL_REQUIRED_STRATA,
+  DEEP_REPAIR_PLANNING_PRIMARY_SEED,
+  DEEP_REPAIR_PLANNING_SUPPLEMENTAL_SEED,
 } from "./deep-repair-formal-policy";
 import { writeImmutableBytesAtomic } from "./immutable-artifact-fs";
 import { analysisLabDir } from "./run-store";
 
 export const DEEP_REPAIR_PREPARATION_POLICY = Object.freeze({
   seriesId: ACTIVE_DEEP_REPAIR_SERIES_ID,
-  seed: 20260814,
+  seed: DEEP_REPAIR_PLANNING_PRIMARY_SEED,
+  supplementalSeed: DEEP_REPAIR_PLANNING_SUPPLEMENTAL_SEED,
   targetCount: DEEP_REPAIR_FORMAL_MAX_SAMPLE_SIZE,
   waveSize: DEEP_REPAIR_FORMAL_MIN_SAMPLE_SIZE,
   model: "claude-opus-5" as const,
@@ -426,6 +429,7 @@ function buildProposal(input: {
     policy: {
       seriesId: DEEP_REPAIR_PREPARATION_POLICY.seriesId,
       seed: DEEP_REPAIR_PREPARATION_POLICY.seed,
+      supplementalSeed: DEEP_REPAIR_PREPARATION_POLICY.supplementalSeed,
       targetCount: DEEP_REPAIR_PREPARATION_POLICY.targetCount,
       waveSize: DEEP_REPAIR_PREPARATION_POLICY.waveSize,
       objective: input.plan.manifest.objective,
@@ -473,15 +477,16 @@ function buildProposal(input: {
       artifactKind: "proposal-only" as const,
       liveExecutionAuthorized: false,
       authorityScope: "one-authority-one-target" as const,
-      nextTarget: "new-user-approval-required" as const,
-      continueVerdictAction: "new-user-approval-required" as const,
-      excludedLanes: ["kordoc", "review", "promotion"] as const,
+      nextTarget: "approved-exact-cohort-authority-required" as const,
+      continueVerdictAction: "approved-exact-cohort-authority-required" as const,
+      linkedLane: "kordoc-after-publishable-receipt" as const,
+      excludedLanes: ["review", "promotion"] as const,
       stopVerdicts: ["GO", "NO_GO", "INCONCLUSIVE", "INVALID"] as const,
     },
     unresolvedGateConditions: [
       "current-production-observe-only-evidence",
       "runtime-generation-and-lease",
-      "per-target-user-approval-and-authority",
+      "exact-cohort-approval-and-target-authority",
     ] as const,
   };
 }

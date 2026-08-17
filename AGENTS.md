@@ -90,9 +90,26 @@
 
 ## 딥분석 모델 실행 경로 — 구독(claude CLI) vs API (2026-08-04 확정)
 
-- **현재 순차 재개 경계(2026-08-15 Gate R)**: API 인증 상속을 제거하고 Max preflight를 봉인한 `deep-v20` proposal `1730eb0a...`, plan `58bb96e8...`의 sequence 0 canary를 exact 승인으로 실행했다. receipt `10bad473...`는 `publishable/CONTINUE`, repair 1회·repair 후 신규 issue 0건이며, Anthropic Console은 실행 종료 뒤 새 API 요청 0건을 확인했다. 종료 뒤 runtime은 `paused` generation 123, active deep/application lease 0이다. 따라서 exact-next Adapter를 통한 **순차 대량 재개 기반**은 검증됐지만, 다음 sequence의 자동 권한은 생기지 않는다. `lab:smoke`, `lab:batch` non-dry, `lab:agent --execute`, 자동 대상 선정, 단건/repair, 검수·감사·confirmations의 legacy live 호출은 계속 정적 admission이 차단한다. 다음 실행은 별도 exact 범위 승인 아래 직전 terminal receipt를 parent로 한 target씩만 진행한다.
+- **현재 순차 실행 경계**: API 인증 상속을 제거하고 Max preflight를 봉인한 exact-next Adapter는
+  target 하나와 직전 terminal receipt를 기술적으로 결속한다. 이 단건 authority는 실행 fencing이지
+  매 sequence마다 사용자에게 같은 승인을 다시 묻는 절차가 아니다. 사용자가 승인한 exact cohort와
+  최대 실행 단계 안에서는 직전 receipt를 parent로 다음 target authority를 발급해 연속 진행하고,
+  대상·lane·쓰기 상한이 달라질 때만 사용자 범위를 다시 확인한다. `lab:smoke`, `lab:batch` non-dry,
+  `lab:agent --execute`, 자동 대상 선정, 단건/repair, 검수·감사·confirmations의 legacy live 호출은
+  계속 정적 admission이 차단한다.
 - **로컬 실험실(analysis-lab)의 4레인 전부 구독 스위치를 따른다**: 추출(opus-5)·AI 검수(fable-5)·블라인드 감사(sonnet-5)·confirmations. `ANALYSIS_LAB_TRANSPORT=claude-cli` env가 스위치이고, 미설정이면 기존 API 경로(운영 무영향). 공용 transport는 매 실행 scope의 첫 모델 요청 전 `claude auth status --json`이 `claude.ai/firstParty/max`임을 증명하지 못하면 모델 착수 0회로 종료한다. 검수 레인 전환 근거는 `docs/research/2026-08-04-검수레인-구독전환-일치율-검증.md`(원문 대조 41:26 GO).
-- 현재 일반 허용 명령은 `lab:batch -- --dry-run`, `lab:agent` plan-only, `lab:experiment:test`, `lab:experiment:prepare -- --series=deep-v20`, `lab:roundtrip:preflight`, `lab:experiment:recover -- --inspect=<authority-sha256>` 같은 모델 무호출 경로뿐이다. `lab:experiment:issue`와 `lab:roundtrip:canary`는 사용자가 exact 대상·source를 승인한 경우에만 현행 운영 증거와 paused runtime을 검증해 한 건을 실행한다. recovery mutation도 비정상 종료를 확인한 별도 사용자 approval이 있을 때만 exact expired lease를 해제한다. 과거 `--max-cost-usd`는 구독에서 1회 경고 후 무시되며 active 실행 정책이나 스냅샷에는 저장하지 않는다. 승인된 live 실행은 legacy batch가 아니라 exact plan/receipt-bound Adapter가 한 target씩 소유한다.
+- 현재 일반 허용 명령은 `lab:batch -- --dry-run`, `lab:agent` plan-only, `lab:experiment:test`,
+  `lab:experiment:prepare -- --series=deep-v22`, `lab:roundtrip:preflight`,
+  `lab:experiment:recover -- --inspect=<authority-sha256>` 같은 모델 무호출 경로다.
+  `lab:experiment:issue`와 `lab:roundtrip:canary`는 승인된 exact cohort 안에서 현행 운영 증거와
+  paused runtime을 검증해 한 target씩 실행한다. recovery mutation은 비정상 종료를 확인한 별도
+  사용자 approval이 있을 때만 exact expired lease를 해제한다. 과거 `--max-cost-usd`는 구독에서
+  1회 경고 후 무시되며 active 실행 정책이나 스냅샷에는 저장하지 않는다.
+- **정식 출시 전환 코호트(2026-08-17)**: `deep-v22` 준비는 과거 formal 표본뿐 아니라 기존 로컬
+  딥분석·Kordoc 이력 전체를 제외한다. 층화된 30건 계획은 evaluator 호환을 위해 유지하되 첫 10건은
+  보관 원문 SHA가 일치하고 실제 Kordoc 신청 양식 probe가 통과하며 초기 복잡도 상한 안인 후보로
+  정렬한다. 실제 live 범위는 사용자가 승인한 exact 첫 10건까지만이며 나머지 20건은 자동 권한이 아니다.
+  각 publishable deep receipt 뒤에만 같은 공고의 Kordoc preflight/canary를 결속한다.
 - `deep-v20`은 `deep-repair-strata-v2`를 사용한다. 2026-08-15 실측에서 현재 유효·비중복 후보 551건은 충분했지만 `kstartup/thick`은 과거 표본이 현행 재고 7건을 모두 소진했다. v2는 나머지 5층을 첫 15건의 필수 커버리지로 두고, `kstartup/thick`은 새 재고가 있을 때 포함 가능한 선택 층으로 유지한다. 과거 v1 계획의 6층 의미는 변경하지 않는다.
 - 2026-08-14 실제 사용된 `deep-v18` proposal은 `0da79215...`, plan은 `e150c42a...`였고 sequence 0~11이 exact receipt chain으로 종결됐다. 이 artifact는 과거 실행 증거이며 변경된 코드의 신규 live 권한으로 재사용하지 않는다.
 - 2026-08-15 `deep-v19` proposal `6d8eb80a...`, plan `63ee3bb8...`의 sequence 0~9를 순차 종결했다. 10건 모두 기록상 `claude-cli`였지만, 당시 자식 프로세스가 루트 `.env`의 `ANTHROPIC_API_KEY`를 상속한 결함이 있었으므로 이 필드만으로 Max 구독 과금을 증명할 수 없다. Anthropic Console 로그와 실행 시각이 일치한 Kordoc sequence 1은 API 과금 경로로 취급하고, 같은 pre-fix Adapter로 실행한 deep-v19·Kordoc 전체도 Billing 대조 전까지 API 과금 위험 범위로 본다. 이후 공용 transport에서 API credential·provider override를 자식 환경에서 제거했고, 첫 모델 요청 전 `claude.ai/firstParty/max` 인증을 증명하는 preflight를 회귀 테스트로 고정했다. publishable 9건의 Kordoc preflight는 ready 5·not_applicable 1·source_unavailable 3으로 분류했다. sequence 7은 receipt `2503e071...`, sequence 1은 receipt `dd5db646...`로 complete, sequence 3은 receipt `f1ddb830...`, sequence 6은 receipt `06ce82ce...`, sequence 0은 receipt `d47cb185...`로 partial 종결했다. sequence 1은 exact HWPX 2개·구조 필드 408개에서 추천 입력 180개, 미해결·구조 경고 0을 확보해 보정된 수렴 규칙의 실제 적용을 확인했다.
