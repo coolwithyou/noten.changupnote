@@ -343,8 +343,11 @@ function GrantListCard({ item }: { item: AdminGrantSimulationItem }) {
             {item.title}
           </Link>
         </CardTitle>
-        <CardDescription className="line-clamp-1">
-          {item.agency ?? "기관 확인 필요"} · {sourceLabel(item.source)} · {item.sourceId}
+        <CardDescription className="flex min-w-0 flex-col items-start gap-2">
+          <span className="w-full truncate">
+            {item.agency ?? "기관 확인 필요"} · {sourceLabel(item.source)} · {item.sourceId}
+          </span>
+          <SimulationReadinessBadges item={item} />
         </CardDescription>
         <CardAction>
           <Link
@@ -401,13 +404,7 @@ function GrantListCard({ item }: { item: AdminGrantSimulationItem }) {
             label="빠른 작성"
             description={`${item.fieldCount.toLocaleString("ko-KR")}필드 · 양식 ${item.fieldsReadySurfaceCount.toLocaleString("ko-KR")}/${item.templateSurfaceCount.toLocaleString("ko-KR")}`}
           >
-            {item.fieldCount > 0 && item.fieldsReadySurfaceCount > 0 ? (
-              <Badge size="admin" variant="admin-success">준비 완료</Badge>
-            ) : item.templateSurfaceCount > 0 ? (
-              <Badge size="admin" variant="admin-warning">필드 준비 대기</Badge>
-            ) : (
-              <Badge size="admin" variant="admin-neutral">작성 양식 없음</Badge>
-            )}
+            <QuickWritingStatusBadge item={item} />
           </StatusGroup>
         </dl>
       </CardContent>
@@ -416,6 +413,40 @@ function GrantListCard({ item }: { item: AdminGrantSimulationItem }) {
         <AttachmentMenu item={item} />
       </CardFooter>
     </Card>
+  );
+}
+
+function SimulationReadinessBadges({ item }: { item: AdminGrantSimulationItem }) {
+  return (
+    <div className="flex flex-wrap gap-1" aria-label="딥분석, Kordoc 분석, 빠른 작성 상태">
+      <Badge size="admin" variant={deepAnalysisVariant(item.deepAnalysis.status)}>
+        {deepAnalysisStatusLabel(item.deepAnalysis.status, true)}
+      </Badge>
+      <Badge size="admin" variant={kordocStatusVariant(item.kordoc.status)}>
+        {kordocStatusLabel(item.kordoc.status, true)}
+      </Badge>
+      <QuickWritingStatusBadge item={item} includeCategory />
+    </div>
+  );
+}
+
+function QuickWritingStatusBadge({
+  item,
+  includeCategory = false,
+}: {
+  item: AdminGrantSimulationItem;
+  includeCategory?: boolean;
+}) {
+  const ready = item.fieldCount > 0 && item.fieldsReadySurfaceCount > 0;
+  const pending = !ready && item.templateSurfaceCount > 0;
+  const label = ready ? "준비 완료" : pending ? "필드 준비 대기" : "작성 양식 없음";
+  let variant: AdminStatusBadgeVariant = "admin-neutral";
+  if (ready) variant = "admin-success";
+  else if (pending) variant = "admin-warning";
+  return (
+    <Badge size="admin" variant={variant}>
+      {includeCategory ? `빠른 작성 ${label}` : label}
+    </Badge>
   );
 }
 
@@ -558,13 +589,17 @@ function grantStatusVariant(status: AdminGrantSimulationItem["status"]): AdminSt
   return "admin-neutral";
 }
 
-function deepAnalysisStatusLabel(status: AdminGrantSimulationItem["deepAnalysis"]["status"]): string {
-  if (status === "complete") return "딥분석 완료";
-  if (status === "outdated") return "구버전 분석";
-  if (status === "running") return "분석 중";
-  if (status === "failed") return "분석 실패";
-  if (status === "blocked") return "분석 차단";
-  return "미분석";
+function deepAnalysisStatusLabel(
+  status: AdminGrantSimulationItem["deepAnalysis"]["status"],
+  includeCategory = false,
+): string {
+  let label = "미분석";
+  if (status === "complete") label = "완료";
+  else if (status === "outdated") label = "구버전 분석";
+  else if (status === "running") label = "분석 중";
+  else if (status === "failed") label = "분석 실패";
+  else if (status === "blocked") label = "분석 차단";
+  return includeCategory ? `딥분석 ${label}` : label;
 }
 
 function deepAnalysisVariant(
@@ -585,16 +620,17 @@ function analysisTransportVariant(transport: "subscription" | "api"): AdminStatu
   return transport === "subscription" ? "admin-violet" : "admin-info";
 }
 
-function kordocStatusLabel(status: string | null): string {
-  if (!status) return "미분석";
-  if (status === "complete") return "완료";
-  if (status === "partial") return "부분 완료";
-  if (status === "review_required") return "검토 필요";
-  if (status === "not_applicable") return "대상 아님";
-  if (status === "pending") return "분석 대기";
-  if (status === "running") return "분석 중";
-  if (status === "blocked") return "차단";
-  return "실패";
+function kordocStatusLabel(status: string | null, includeCategory = false): string {
+  let label = "미분석";
+  if (status === "complete") label = "완료";
+  else if (status === "partial") label = "부분 완료";
+  else if (status === "review_required") label = "검토 필요";
+  else if (status === "not_applicable") label = "대상 아님";
+  else if (status === "pending") label = "분석 대기";
+  else if (status === "running") label = "분석 중";
+  else if (status === "blocked") label = "차단";
+  else if (status) label = "실패";
+  return includeCategory ? `Kordoc ${label}` : label;
 }
 
 function kordocStatusVariant(status: string | null): AdminStatusBadgeVariant {
