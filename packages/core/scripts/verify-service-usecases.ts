@@ -313,6 +313,7 @@ const expandedGrant = normalizedGrant("expanded-profile", "확장 프로필 조�
     kind: "required",
     value: { max_krw: 120_000_000 },
     confidence: 0.9,
+    source_span: "최근 연 매출 1억 2천만원 이하 기업",
   },
   {
     dimension: "employees",
@@ -320,6 +321,7 @@ const expandedGrant = normalizedGrant("expanded-profile", "확장 프로필 조�
     kind: "required",
     value: { min: 5, max: 50 },
     confidence: 0.9,
+    source_span: "상시근로자 5명 이상 50명 이하 기업",
   },
   {
     dimension: "ip",
@@ -327,6 +329,7 @@ const expandedGrant = normalizedGrant("expanded-profile", "확장 프로필 조�
     kind: "required",
     value: { types: ["특허"] },
     confidence: 0.9,
+    source_span: "특허를 보유한 기업",
   },
   {
     dimension: "target_type",
@@ -334,6 +337,7 @@ const expandedGrant = normalizedGrant("expanded-profile", "확장 프로필 조�
     kind: "required",
     value: { targets: ["법인"] },
     confidence: 0.9,
+    source_span: "법인사업자",
   },
 ]);
 const expandedMatch = matchGrantCriteria(expandedGrant.criteria, expandedProfile);
@@ -435,12 +439,20 @@ assert.equal(trustGateTeaser.recommendableMatches?.[0]?.sourceId, simpleRecommen
 assert.equal(trustGateTeaser.recommendableMatches?.[0]?.quality?.verificationCompleteness, 100);
 assert.equal(trustGateTeaser.recommendableMatches?.[0]?.quality?.evidenceCoverage, 100);
 assert.equal(trustGateTeaser.recommendableMatches?.[0]?.quality?.extractionReadiness, "structured_unreviewed");
-assert.equal(trustGateTeaser.reviewNeededMatches?.[0]?.sourceId, industryQuestionGrant.grant.source_id);
-assert.equal(trustGateTeaser.reviewNeededMatches?.[0]?.scoreDisplay, "hidden");
+assert.equal(
+  trustGateTeaser.reviewNeededMatches?.some((match) => match.sourceId === industryQuestionGrant.grant.source_id),
+  false,
+  "업종 미확인처럼 OPS 핵심 검수가 필요한 공고는 사용자 검토 카드에 노출하면 안 된다",
+);
+assert.equal(
+  trustGateTeaser.matches.some((match) => match.sourceId === industryQuestionGrant.grant.source_id),
+  false,
+);
 assert.equal(trustGateTeaser.matches[0]?.sourceId, simpleRecommendableGrant.grant.source_id);
 assert.equal(trustGateTeaser.counts.recommendable, 1);
-assert.equal(trustGateTeaser.counts.reviewNeeded, 1);
+assert.equal(trustGateTeaser.counts.reviewNeeded, 0);
 assert.equal(trustGateTeaser.counts.notRecommended, 1);
+assert.equal(trustGateTeaser.searchContext?.evaluatedGrantCount, 3);
 assert.equal(trustGateTeaser.reviewNeededMatches?.some((match) => match.sourceId === notRecommendedTrustGateGrant.grant.source_id), false);
 assert.equal(trustGateTeaser.matches.some((match) => match.sourceId === notRecommendedTrustGateGrant.grant.source_id), false);
 
@@ -461,17 +473,23 @@ const unverifiedCoreTeaser = buildTeaser({
   asOf,
   limit: 10,
 });
-assert.equal(unverifiedCoreTeaser.counts.eligible, 1);
+assert.equal(unverifiedCoreTeaser.counts.eligible, 0);
 assert.equal(unverifiedCoreTeaser.counts.recommendable, 0);
-assert.equal(unverifiedCoreTeaser.counts.reviewNeeded, 1);
+assert.equal(unverifiedCoreTeaser.counts.reviewNeeded, 0);
 assert.equal(unverifiedCoreTeaser.counts.notRecommended, 0);
 assert.equal(unverifiedCoreTeaser.recommendableMatches?.length, 0);
-assert.equal(unverifiedCoreTeaser.reviewNeededMatches?.[0]?.sourceId, unverifiedCoreGrant.grant.source_id);
-assert.equal(unverifiedCoreTeaser.reviewNeededMatches?.[0]?.scoreDisplay, "hidden");
-assert.equal(unverifiedCoreTeaser.conditionalUpside, 10_000_000);
+assert.equal(unverifiedCoreTeaser.reviewNeededMatches?.length, 0);
+assert.equal(unverifiedCoreTeaser.conditionalUpside, 0);
+assert.equal(unverifiedCoreTeaser.searchContext?.evaluatedGrantCount, 1);
 
-const hiddenHighScore = { ...trustGateTeaser.reviewNeededMatches![0]!, fitScore: 99, scoreDisplay: "hidden" as const };
 const numericLowScore = { ...trustGateTeaser.recommendableMatches![0]!, fitScore: 10, scoreDisplay: "numeric" as const };
+const hiddenHighScore = {
+  ...numericLowScore,
+  grantId: "hidden-high-score",
+  sourceId: "hidden-high-score",
+  fitScore: 99,
+  scoreDisplay: "hidden" as const,
+};
 const fitSortedTrustGate = selectMatchCards([hiddenHighScore, numericLowScore], { sort: "fit", limit: 2 });
 assert.equal(fitSortedTrustGate.matches[0]?.sourceId, simpleRecommendableGrant.grant.source_id);
 
@@ -482,13 +500,10 @@ const industryQuestionDashboard = buildDashboard({
   limit: 10,
 });
 assert.equal(industryQuestionDashboard.counts.needsProfileInput, 0);
-assert.equal(industryQuestionDashboard.counts.needsCoreReview, 1);
-assert.equal(industryQuestionDashboard.nextQuestion?.dimension, "industry");
-assert.equal(industryQuestionDashboard.nextQuestion?.inputType, "select");
-assert.equal(industryQuestionDashboard.nextQuestion?.options?.includes("바이오"), true);
-const enrichAction = industryQuestionDashboard.actionQueue.find((action) => action.kind === "enrich");
-assert.ok(enrichAction, "enrich action should be generated for enrichable unknown fields");
-assert.equal(enrichAction.target, "#company-settings");
+assert.equal(industryQuestionDashboard.counts.needsCoreReview, 0);
+assert.equal(industryQuestionDashboard.matches.length, 0);
+assert.equal(industryQuestionDashboard.nextQuestion, undefined);
+assert.equal(industryQuestionDashboard.actionQueue.length, 0);
 
 const balancedReviewTeaser = buildTeaser({
   company: { ...company, industries: [] },
@@ -513,9 +528,10 @@ const balancedReviewTeaser = buildTeaser({
 assert.equal(balancedReviewTeaser.matches.length, 3);
 assert.equal(
   balancedReviewTeaser.matches.some((match) => match.recommendationTier === "needs_core_review"),
-  true,
-  "제한된 검토 카드에서도 원문 확인 필요 대표 공고를 보존해야 함",
+  false,
+  "OPS 핵심 검수 대기 공고는 제한된 사용자 검토 카드에도 포함하면 안 된다",
 );
+assert.equal(balancedReviewTeaser.searchContext?.evaluatedGrantCount, 4);
 
 const deadlineGrant = normalizedGrant("deadline-soon", "마감임박 지원사업", [
   {
@@ -524,12 +540,23 @@ const deadlineGrant = normalizedGrant("deadline-soon", "마감임박 지원사�
     kind: "required",
     value: { regions: ["41"], labels: ["경기"], nationwide: false },
     confidence: 0.95,
+    source_span: "경기도 소재 기업",
   },
 ]);
 deadlineGrant.grant.apply_end = "2026-06-03";
+const notificationInputGrant = normalizedGrant("notification-input", "매출 확인 지원사업", [
+  {
+    dimension: "revenue",
+    operator: "lte",
+    kind: "required",
+    value: { max_krw: 1_000_000_000 },
+    confidence: 0.9,
+    source_span: "최근 연 매출 10억원 이하",
+  },
+]);
 const notificationDashboard = buildDashboard({
   company: { ...company, industries: [] },
-  grants: [deadlineGrant, soonGrant, industryQuestionGrant],
+  grants: [deadlineGrant, soonGrant, notificationInputGrant],
   asOf,
   limit: 10,
 });
@@ -540,7 +567,7 @@ const notificationFeed = buildNotificationFeed({
 assert.equal(notificationFeed.generatedAt, asOf.toISOString());
 assert.equal(notificationFeed.notifications.some((item) => item.kind === "deadline" && item.priority === "high"), true);
 assert.equal(notificationFeed.notifications.some((item) => item.kind === "soon_eligible" && item.etaDate === "2026-08-01"), true);
-assert.equal(notificationFeed.notifications.some((item) => item.kind === "needs_input" && item.target === "profile:industry"), true);
+assert.equal(notificationFeed.notifications.some((item) => item.kind === "needs_input" && item.target === "profile:revenue"), true);
 
 const priorAwardQuestionGrant = normalizedGrant("prior-award-question", "중복수혜 자가신고 지원사업", [
   {
@@ -616,8 +643,8 @@ console.log(JSON.stringify({
     "trust_gate_excludes_not_recommended_from_review_needed",
     "trust_gate_needs_review_blocks_recommendable",
     "trust_gate_fit_sort_hidden_downrank",
-    "next_question_select_options",
-    "action_queue_enrich",
+    "core_review_hidden_from_user_cards_questions_actions",
+    "search_context_preserves_evaluated_grant_count",
     "notification_feed_deadline",
     "notification_feed_soon_eligible",
     "notification_feed_needs_input",
