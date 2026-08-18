@@ -31,7 +31,6 @@ import {
 } from "./deep-repair-kordoc-priority";
 
 const REQUIRED_STRATA = [
-  "bizinfo/thick",
   "bizinfo/medium",
   "bizinfo/thin",
   "kstartup/medium",
@@ -49,12 +48,15 @@ function exactSha(value: number): string {
 }
 
 function targets(): DeepRepairProposalTarget[] {
-  return Array.from({ length: 30 }, (_, index) => ({
-    grantId: `00000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
-    source: index % 2 === 0 ? "bizinfo" : "kstartup",
-    title: `공고 ${index + 1}`,
-    stratum: REQUIRED_STRATA[index % REQUIRED_STRATA.length]!,
-  }));
+  return Array.from({ length: 30 }, (_, index) => {
+    const stratum = REQUIRED_STRATA[index % REQUIRED_STRATA.length]!;
+    return {
+      grantId: `00000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
+      source: stratum.split("/")[0]!,
+      title: `공고 ${index + 1}`,
+      stratum,
+    };
+  });
 }
 
 const stableProvenance = {
@@ -111,9 +113,9 @@ function setup(overrides: Partial<DeepRepairPreparationDependencies> = {}) {
   assert.deepEqual(
     [...new Set(result.plan.sequence.slice(0, 15).map((target) => target.stratum))].sort(),
     [...REQUIRED_STRATA].sort(),
-    "첫 15건이 현행 비중복 모집단의 다섯 필수 층을 모두 포함해야 한다",
+    "첫 15건이 deep-v23 비중복 모집단의 네 필수 층을 모두 포함해야 한다",
   );
-  assert.equal(result.plan.manifest.strataVersion, "deep-repair-strata-v2");
+  assert.equal(result.plan.manifest.strataVersion, "deep-repair-strata-v3");
   assert.deepEqual(prepareCalls, targets().map((target) => target.grantId));
   assert.equal(writes.length, 5, "wave cohort 둘, plan, proposal, series marker만 쓴다");
   assert.equal(writes.filter((artifact) => artifact.path.includes("/cohorts/")).length, 2);
@@ -144,7 +146,7 @@ function setup(overrides: Partial<DeepRepairPreparationDependencies> = {}) {
     inputTotalChars: 10_000,
     sequence: 0,
     source: "bizinfo",
-    stratum: "bizinfo/thick",
+    stratum: "bizinfo/medium",
     title: "공고 1",
     waveId: "wave-1",
   });
@@ -153,11 +155,10 @@ function setup(overrides: Partial<DeepRepairPreparationDependencies> = {}) {
   assert.equal(proposal.policy.model, "claude-opus-5");
   assert.equal(proposal.policy.transport, "claude-cli");
   assert.deepEqual(proposal.selection.strataCounts, {
-    "bizinfo/medium": 6,
-    "bizinfo/thick": 6,
-    "bizinfo/thin": 6,
-    "kstartup/medium": 6,
-    "kstartup/thin": 6,
+    "bizinfo/medium": 8,
+    "bizinfo/thin": 8,
+    "kstartup/medium": 7,
+    "kstartup/thin": 7,
   });
   assert.deepEqual(proposal.selection.softQuotas, {
     richCriteria: { achieved: 6, target: 6 },
@@ -484,7 +485,7 @@ assert.deepEqual(DEEP_REPAIR_PREPARATION_POLICY, {
     selectTargets: async () => {
       const selected = targets();
       if (selectionReads++ > 0) {
-        selected[0] = { ...selected[0]!, stratum: "bizinfo/medium" };
+        selected[0] = { ...selected[0]!, stratum: "bizinfo/thin" };
       }
       return {
         targets: selected,
@@ -507,7 +508,7 @@ assert.deepEqual(DEEP_REPAIR_PREPARATION_POLICY, {
   const { deps, writes } = setup({
     selectTargets: async () => ({
       targets: targets().map((target, index) => (
-        index < 15 ? { ...target, stratum: "bizinfo/thick" } : target
+        index < 15 ? { ...target, stratum: "bizinfo/medium" } : target
       )),
       quotas: {
         unified: { target: 4, achieved: 4 },

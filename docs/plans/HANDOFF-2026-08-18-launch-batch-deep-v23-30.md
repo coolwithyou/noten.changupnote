@@ -27,6 +27,18 @@
 이 release는 그대로 보존한다. 신규 30건 분석을 시작하기 위해 release approve나 서비스
 materialization을 선행하지 않는다. 두 권한은 별도다.
 
+### deep-v23 신규 모집단 층화 결정
+
+2026-08-18 준비 시 모집 중 후보 566건을 전체 과거 이력 221개와 대조했고, 현재 겹치는 156개를
+제외하면 410건이 남지만,
+`bizinfo/thick` 26건과 `kstartup/thick` 7건은 모두 과거 이력에 포함되어 비중복 재고가 0건이었다.
+과거 target을 다시 편입하지 않는다는 원칙을 유지하기 위해 사용자 승인 아래
+`deep-repair-strata-v3`를 도입했다.
+
+- 첫 15건 필수 층: `bizinfo/medium`, `bizinfo/thin`, `kstartup/medium`, `kstartup/thin`
+- optional 층: 새 비중복 재고가 생긴 경우의 `bizinfo/thick`, `kstartup/thick`
+- 역사 보존: v1의 6층, v2의 5층 필수 커버리지 의미는 변경하지 않는다.
+
 ## 2. 반복 지연을 제거한 현재 계약
 
 신규 런칭 실행은 다음 네 단계다.

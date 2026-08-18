@@ -1,6 +1,6 @@
 /** formal deep-primary repair experiment에만 쓰는 고정 통계/층화 계약. */
 export const ACTIVE_DEEP_REPAIR_SERIES_ID = "deep-v23" as const;
-export const ACTIVE_DEEP_REPAIR_STRATA_VERSION = "deep-repair-strata-v2" as const;
+export const ACTIVE_DEEP_REPAIR_STRATA_VERSION = "deep-repair-strata-v3" as const;
 export const DEEP_REPAIR_PLANNING_PRIMARY_SEED = 20260817;
 export const DEEP_REPAIR_PLANNING_SUPPLEMENTAL_SEED = 20260818;
 export const DEEP_REPAIR_FORMAL_MIN_SAMPLE_SIZE = 15;
@@ -14,13 +14,21 @@ export const DEEP_REPAIR_FORMAL_SUPPORTED_STRATA = Object.freeze([
   "kstartup/thin",
 ] as const);
 
+/** v2는 kstartup/thick 재고 소진 뒤 나머지 5층을 필수로 유지한 역사 계약이다. */
+export const DEEP_REPAIR_FORMAL_REQUIRED_STRATA_V2 = Object.freeze([
+  "bizinfo/thick",
+  "bizinfo/medium",
+  "bizinfo/thin",
+  "kstartup/medium",
+  "kstartup/thin",
+] as const);
+
 /**
- * v2는 이미 실행한 비중복 표본에서 kstartup/thick 현행 재고가 소진된 상태를
- * 반영한다. 새 재고가 생기면 계획에 포함할 수 있지만 신규 실행의 필수 층으로는
- * 강제하지 않는다. v1 계획의 6층 의미는 아래 함수에서 그대로 보존한다.
+ * v3는 전체 과거 이력을 제외한 deep-v23 모집단에서 bizinfo/thick과 kstartup/thick이
+ * 모두 소진된 상태를 반영한다. 두 층은 새 비중복 재고가 생기면 선택할 수 있지만
+ * 첫 15건의 필수 커버리지에는 포함하지 않는다. v1/v2의 역사 의미는 아래 함수에서 보존한다.
  */
 export const DEEP_REPAIR_FORMAL_REQUIRED_STRATA = Object.freeze([
-  "bizinfo/thick",
   "bizinfo/medium",
   "bizinfo/thin",
   "kstartup/medium",
@@ -29,12 +37,13 @@ export const DEEP_REPAIR_FORMAL_REQUIRED_STRATA = Object.freeze([
 
 export type DeepRepairStrataVersion =
   | "deep-repair-strata-v1"
+  | "deep-repair-strata-v2"
   | typeof ACTIVE_DEEP_REPAIR_STRATA_VERSION;
 
 export function deepRepairRequiredStrataForVersion(
   version: DeepRepairStrataVersion,
 ): readonly string[] {
-  return version === "deep-repair-strata-v1"
-    ? DEEP_REPAIR_FORMAL_SUPPORTED_STRATA
-    : DEEP_REPAIR_FORMAL_REQUIRED_STRATA;
+  if (version === "deep-repair-strata-v1") return DEEP_REPAIR_FORMAL_SUPPORTED_STRATA;
+  if (version === "deep-repair-strata-v2") return DEEP_REPAIR_FORMAL_REQUIRED_STRATA_V2;
+  return DEEP_REPAIR_FORMAL_REQUIRED_STRATA;
 }

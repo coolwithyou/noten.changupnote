@@ -19,7 +19,7 @@ export interface DeepRepairKordocReadiness {
 
 /**
  * 층화로 뽑은 30건은 그대로 보존하되, 첫 출시 변환 10건에는 실제 Kordoc 신청 양식이
- * 있고 경계 후보 수가 초기 배치 상한 안인 공고만 배치한다. 첫 wave의 5층 보장은 이어서
+ * 있고 경계 후보 수가 초기 배치 상한 안인 공고만 배치한다. 첫 wave의 현행 필수 층 보장은 이어서
  * 채우므로 기존 formal evaluator 계약도 바꾸지 않는다.
  */
 export function prioritizeDeepRepairTargetsForInitialKordocCohort<

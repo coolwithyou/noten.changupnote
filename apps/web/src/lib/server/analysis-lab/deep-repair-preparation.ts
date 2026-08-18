@@ -12,6 +12,7 @@ import {
   DEEP_REPAIR_FORMAL_MAX_SAMPLE_SIZE,
   DEEP_REPAIR_FORMAL_MIN_SAMPLE_SIZE,
   DEEP_REPAIR_FORMAL_REQUIRED_STRATA,
+  DEEP_REPAIR_FORMAL_SUPPORTED_STRATA,
   DEEP_REPAIR_PLANNING_PRIMARY_SEED,
   DEEP_REPAIR_PLANNING_SUPPLEMENTAL_SEED,
 } from "./deep-repair-formal-policy";
@@ -307,7 +308,7 @@ function normalizeSelectedTargets(
     if (!UUID.test(target.grantId)) {
       throw new Error(`selected target ${index}.grantId must be a lowercase UUID`);
     }
-    if (!DEEP_REPAIR_FORMAL_REQUIRED_STRATA.some((stratum) => stratum === target.stratum)) {
+    if (!DEEP_REPAIR_FORMAL_SUPPORTED_STRATA.some((stratum) => stratum === target.stratum)) {
       throw new Error(`unsupported selected target stratum: ${target.stratum}`);
     }
     seen.add(target.grantId);

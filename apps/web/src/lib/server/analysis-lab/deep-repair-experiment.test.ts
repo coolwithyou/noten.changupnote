@@ -315,6 +315,16 @@ for (const wave of exhaustedKstartupThickV2.waves) {
 }
 const exhaustedKstartupThickV2Plan = createDeepRepairExperimentPlan(exhaustedKstartupThickV2);
 
+const exhaustedThickStrataV3 = syntheticManifest();
+exhaustedThickStrataV3.strataVersion = "deep-repair-strata-v3";
+for (const wave of exhaustedThickStrataV3.waves) {
+  for (const target of wave.targets) {
+    if (target.stratum === "bizinfo/thick") target.stratum = "bizinfo/medium";
+    if (target.stratum === "kstartup/thick") target.stratum = "kstartup/medium";
+  }
+}
+const exhaustedThickStrataV3Plan = createDeepRepairExperimentPlan(exhaustedThickStrataV3);
+
 const missingRequiredStratum = syntheticManifest();
 for (const target of missingRequiredStratum.waves[0]!.targets) target.stratum = "bizinfo/medium";
 assert.throws(() => createDeepRepairExperimentPlan(missingRequiredStratum), /required strata/);
@@ -350,6 +360,11 @@ const v2ZeroOfFifteen = replayDeepRepairExperiment(
   syntheticReplayInput(exhaustedKstartupThickV2Plan, Array<boolean>(15).fill(false)),
 );
 assert.equal(v2ZeroOfFifteen.verdict, "GO", "v2 필수 5층만 관측해도 통계 GO를 왜곡하지 않음");
+const v3ZeroOfFifteen = replayDeepRepairExperiment(
+  exhaustedThickStrataV3Plan,
+  syntheticReplayInput(exhaustedThickStrataV3Plan, Array<boolean>(15).fill(false)),
+);
+assert.equal(v3ZeroOfFifteen.verdict, "GO", "v3 필수 4층만 관측해도 통계 GO를 왜곡하지 않음");
 assert.deepEqual(formalZeroOfFifteen.executionProvenance, {
   gitSha: "a".repeat(40),
   packageRuntimeSha256: exactSha(8001),
