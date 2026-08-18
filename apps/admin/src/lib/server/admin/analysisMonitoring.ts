@@ -88,18 +88,15 @@ interface LaunchCandidate {
 export async function getAnalysisMonitoringSnapshot(): Promise<AnalysisMonitoringSnapshot> {
   const sql = getAdminSql()
   const launchPromise = readLatestLaunchMonitoring()
-  const runtimePromise = getDeepAnalysisRuntimeControlStatus(sql)
-  const operationsPromise = readOperationalMonitoring()
-  const releasesPromise = readPromotionReleases()
-
+  // postgres.js는 처음 만난 DB 타입을 해석할 때 같은 풀에서 보조 질의를 수행한다.
+  // 인증 조회 직후 모든 모니터링 질의를 동시에 시작하면 작은 admin 풀의 연결이
+  // 모두 점유되어 타입 조회와 대기 중인 질의가 서로 진행하지 못할 수 있다.
+  // 각 묶음 내부의 제한된 병렬성은 유지하되 묶음 사이에는 연결을 반환한다.
+  const runtime = await getDeepAnalysisRuntimeControlStatus(sql)
+  const operations = await readOperationalMonitoring()
+  const releases = await readPromotionReleases()
   const launch = await launchPromise
-  const grantMetadataPromise = readGrantMetadata(launch.targets.map((target) => target.grantId))
-  const [runtime, operations, releases, grantMetadata] = await Promise.all([
-    runtimePromise,
-    operationsPromise,
-    releasesPromise,
-    grantMetadataPromise,
-  ])
+  const grantMetadata = await readGrantMetadata(launch.targets.map((target) => target.grantId))
   const launchWithTitles = {
     ...launch,
     targets: launch.targets.map((target) => ({
