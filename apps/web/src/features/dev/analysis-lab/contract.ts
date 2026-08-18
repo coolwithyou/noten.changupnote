@@ -737,7 +737,7 @@ export type LabBatchEvent =
       title?: string | null;
       durationMs?: number;
     }
-  | { type: "guard-stop"; reason: "cost-cap" | "window-exhausted"; cumulativeCostUsd: number }
+  | { type: "guard-stop"; reason: "cost-cap" | "window-exhausted" | "systemic-failure"; cumulativeCostUsd: number }
   | { type: "finished"; summary: LabBatchSummary };
 
 export interface LabBatchSummary {
@@ -755,7 +755,7 @@ export interface LabBatchSummary {
   periodSkipped: number;
   totalCostUsd: number;
   durationMs: number;
-  stopReason: "completed" | "cost-cap" | "window-exhausted" | "aborted";
+  stopReason: "completed" | "cost-cap" | "window-exhausted" | "systemic-failure" | "aborted";
 }
 
 /** POST ops/batch 본문 — transport/model 미지정 시 서버 env(resolveLabTransport/resolveLabModel)를 따른다. */
@@ -809,7 +809,7 @@ export interface LabBatchJobSnapshot {
     error: number;
     cumulativeCostUsd: number;
   } | null;
-  guardStop: { reason: "cost-cap" | "window-exhausted"; cumulativeCostUsd: number } | null;
+  guardStop: { reason: "cost-cap" | "window-exhausted" | "systemic-failure"; cumulativeCostUsd: number } | null;
   summary: LabBatchSummary | null;
   /** 최근 이벤트 링 버퍼(최대 200건) — 폴링 UI 가 그대로 렌더한다. */
   events: LabBatchEvent[];

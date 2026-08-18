@@ -487,11 +487,13 @@ async function runBatchViaRunner(
               console.log(
                 `[batch] API 완료비용 상한 도달($${event.cumulativeCostUsd.toFixed(4)}) — 신규 착수를 중단합니다(진행분은 완료).`,
               );
-            } else {
+            } else if (event.reason === "window-exhausted") {
               windowExhaustedSeen = true;
               console.log(
                 "[batch] Max 사용량 윈도 소진 감지 — 신규 착수를 중단합니다(진행분은 완료). 자동 재실행하지 말고 별도 새 experiment로 검토하세요.",
               );
+            } else {
+              console.error("[batch] 공통 실행 무결성 실패 — 잔여 대상 신규 착수를 중단합니다.");
             }
             break;
           case "finished":

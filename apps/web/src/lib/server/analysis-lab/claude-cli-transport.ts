@@ -38,6 +38,8 @@ const WINDOW_EXHAUSTED_SIGNAL =
   /usage limit(?: reached)?|session limit|quota(?: limit)?(?: reached|exhausted)|hit your (?:session|usage|weekly).* limit|resets?\s+(?:at\s+)?\d/i;
 /** batch 가 신규 착수 중단 분기(§5 #6)에서 감지하는 마커 — 문자열 계약. */
 export const CLAUDE_CLI_WINDOW_EXHAUSTED_MARKER = "[CLAUDE_CLI_WINDOW_EXHAUSTED]";
+/** 공통 Max 인증이 실행 중 사라졌을 때 batch 신규 착수를 중단하는 문자열 계약. */
+export const CLAUDE_CLI_MAX_AUTH_FAILED_MARKER = "[CLAUDE_CLI_MAX_AUTH_FAILED]";
 
 /** 하위 CLI 루프가 재시도를 즉시 중단할 수 있는 문자열 계약. */
 export function isClaudeCliWindowExhaustedError(value: unknown): boolean {
@@ -233,6 +235,25 @@ export function buildClaudeCliFetch(config?: ClaudeCliFetchConfig): typeof fetch
   return buildClaudeCliFetchInternal(config);
 }
 
+/**
+ * launch cohort 전체가 모델을 한 건이라도 시작하기 전에 수행하는 공통 인증 preflight다.
+ * target별 fetch도 같은 검사를 보존하지만, 시작 시점의 공통 실패를 target 오류 수십 건으로
+ * 증폭시키지 않기 위해 coordinator가 이 함수를 한 번 먼저 호출한다.
+ */
+export async function verifyClaudeMaxSubscriptionAuthForLaunch(
+  config: Pick<ClaudeCliFetchConfig, "claudeBinary" | "scratchCwd" | "execFileImpl" | "externalSignal"> = {},
+): Promise<void> {
+  assertAnalysisLabReceiptBoundTransportAdmitted();
+  const scratchCwd = config.scratchCwd ?? join(tmpdir(), "cunote-claude-cli-transport");
+  mkdirSync(scratchCwd, { recursive: true });
+  await verifyClaudeMaxSubscriptionAuth({
+    execFileImpl: config.execFileImpl ?? execFile,
+    binary: config.claudeBinary ?? "claude",
+    cwd: scratchCwd,
+    signal: config.externalSignal,
+  });
+}
+
 /** 실제 CLI를 fake로 치환하는 이 모듈 단위 테스트에서만 사용한다. production import 금지. */
 export function buildClaudeCliFetchUnsafeForTest(config?: ClaudeCliFetchConfig): typeof fetch {
   return buildClaudeCliFetchInternal(config);
@@ -323,7 +344,7 @@ function verifyClaudeMaxSubscriptionAuth(options: {
             || status.subscriptionType !== "max"
           ) {
             reject(new Error(
-              "Claude CLI Max 구독 인증을 증명하지 못했습니다. 모델을 시작하지 않습니다. "
+              `${CLAUDE_CLI_MAX_AUTH_FAILED_MARKER} Claude CLI Max 구독 인증을 증명하지 못했습니다. 모델을 시작하지 않습니다. `
               + "`claude auth status --json`에서 claude.ai/firstParty/max 로그인을 확인하세요.",
             ));
             return;

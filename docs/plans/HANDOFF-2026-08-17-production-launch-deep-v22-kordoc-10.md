@@ -1,5 +1,9 @@
 # 정식 출시 전 deep-v22 + Kordoc 10건 핸드오프
 
+> 역사 문서: seq 0~9 실행과 Kordoc/release dry-run은 종결됐다. 신규 대량 실행에는 이 문서의
+> exact-next·직전 `CONTINUE`·target별 authority 절차를 재사용하지 않는다. 현재 정본은
+> `HANDOFF-2026-08-18-launch-batch-deep-v23-30.md`와 `AGENTS.md`의 2026-08-18 런칭 정책이다.
+
 - 작성일: 2026-08-17
 - 실행 위치: `/Users/ffgg/noten.works/cunote`의 현재 worktree. `spike-out` artifact가 이
   worktree에만 있으므로 새 worktree를 만들지 않는다.

@@ -23,7 +23,11 @@ import {
 import { classifyNoticePeriod } from "@/features/dev/analysis-lab/notice-period";
 import { assertApplicationRoundtripOptIn } from "./application-roundtrip-policy";
 import { partitionCohortEntries, type GrantRunState } from "./batch-plan";
-import { CLAUDE_CLI_WINDOW_EXHAUSTED_MARKER, resolveLabTransport } from "./claude-cli-transport";
+import {
+  CLAUDE_CLI_MAX_AUTH_FAILED_MARKER,
+  CLAUDE_CLI_WINDOW_EXHAUSTED_MARKER,
+  resolveLabTransport,
+} from "./claude-cli-transport";
 import { resolveLabCostPolicy, shouldStopForSettledCost } from "./cost-policy";
 import {
   cohortFilePath,
@@ -419,6 +423,7 @@ export async function runLabBatch(
     totalCostUsd: number;
     costCapped: boolean;
     windowExhausted: boolean;
+    systemicFailure: boolean;
     durationMs: number;
   }): LabBatchSummary => ({
     ok: state.okCount,
@@ -437,9 +442,11 @@ export async function runLabBatch(
       ? "cost-cap"
       : state.windowExhausted
         ? "window-exhausted"
-        : options.signal?.aborted
-          ? "aborted"
-          : "completed",
+        : state.systemicFailure
+          ? "systemic-failure"
+          : options.signal?.aborted
+            ? "aborted"
+            : "completed",
   });
 
   if (targets.length === 0) {
@@ -452,6 +459,7 @@ export async function runLabBatch(
       totalCostUsd: 0,
       costCapped: false,
       windowExhausted: false,
+      systemicFailure: false,
       durationMs: 0,
     });
     emit({ type: "finished", summary });
@@ -484,13 +492,14 @@ export async function runLabBatch(
     totalCostUsd: 0,
     costCapped: false,
     windowExhausted: false,
+    systemicFailure: false,
   };
   let nextIndex = 0;
 
   async function worker(): Promise<void> {
     for (;;) {
       // 상한 도달·윈도 소진·abort — 신규 착수만 중단(진행분은 각 워커가 완료)
-      if (state.costCapped || state.windowExhausted || options.signal?.aborted) return;
+      if (state.costCapped || state.windowExhausted || state.systemicFailure || options.signal?.aborted) return;
       const index = nextIndex;
       if (index >= targets.length) return;
       nextIndex += 1;
@@ -572,6 +581,16 @@ export async function runLabBatch(
             cumulativeCostUsd: state.totalCostUsd,
           });
         }
+        const maxAuthFailed = run.error?.includes(CLAUDE_CLI_MAX_AUTH_FAILED_MARKER) === true
+          || run.applicationRoundtrip?.error?.includes(CLAUDE_CLI_MAX_AUTH_FAILED_MARKER) === true;
+        if (!state.systemicFailure && maxAuthFailed) {
+          state.systemicFailure = true;
+          emit({
+            type: "guard-stop",
+            reason: "systemic-failure",
+            cumulativeCostUsd: state.totalCostUsd,
+          });
+        }
       } catch (caught) {
         // 공고 미존재(LabGrantNotFoundError) 등 — 런 저장 없이 실패. 기록하고 계속.
         state.thrownCount += 1;
@@ -586,6 +605,15 @@ export async function runLabBatch(
           title: null,
           durationMs: Date.now() - targetStartedMs,
         });
+        const message = caught instanceof Error ? caught.message : String(caught);
+        if (!state.systemicFailure && message.includes(CLAUDE_CLI_MAX_AUTH_FAILED_MARKER)) {
+          state.systemicFailure = true;
+          emit({
+            type: "guard-stop",
+            reason: "systemic-failure",
+            cumulativeCostUsd: state.totalCostUsd,
+          });
+        }
       }
       if (!state.costCapped && shouldStopForSettledCost(costPolicy, state.totalCostUsd)) {
         state.costCapped = true;

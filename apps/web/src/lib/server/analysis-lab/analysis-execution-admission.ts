@@ -3,6 +3,7 @@ import {
   type DeepRepairLiveExecutionBinding,
 } from "./deep-repair-live-experiment";
 import { currentApplicationRoundtripCanaryExecutionBinding } from "./application-roundtrip/canary";
+import { currentAnalysisLaunchBatchExecutionBinding } from "./launch-batch-context";
 
 export type AnalysisLabReceiptBoundExecutionBinding = DeepRepairLiveExecutionBinding;
 
@@ -54,14 +55,36 @@ export class AnalysisLabExecutionBindingMismatchError extends Error {
   }
 }
 
-/** legacy 진입점은 core capability 안에서도 열지 않는다. exact expected가 항상 필요하다. */
+/**
+ * legacy 단건은 exact expected가 필요하다. launch coordinator 안에서는 첫 호출의 target 준비를
+ * 허용하고, 준비 뒤 expected binding을 manifest target과 다시 대조한다.
+ */
 export function assertAnalysisLabLiveExecutionAdmitted(
   expected?: AnalysisLabReceiptBoundExecutionExpectation,
 ): void {
-  if (!expected) throw new AnalysisLabExecutionPausedError("모델 실행");
   const admitted = currentDeepRepairLiveExecutionBinding();
-  if (!admitted) throw new AnalysisLabExecutionPausedError("모델 실행");
+  const launch = currentAnalysisLaunchBatchExecutionBinding();
+  if (!expected) {
+    if (launch) return;
+    throw new AnalysisLabExecutionPausedError("모델 실행");
+  }
   const normalizedExpected = normalizeExecutionExpectation(expected);
+  if (launch) {
+    const target = launch.targets.get(normalizedExpected.grantId);
+    if (!target) throw new AnalysisLabExecutionBindingMismatchError("grantId");
+    for (const field of ["inputSha256", "attachmentManifestSha256"] as const) {
+      if (target[field] !== normalizedExpected[field]) {
+        throw new AnalysisLabExecutionBindingMismatchError(field);
+      }
+    }
+    for (const field of ["model", "transport", "promptVersion"] as const) {
+      if (launch[field] !== normalizedExpected[field]) {
+        throw new AnalysisLabExecutionBindingMismatchError(field);
+      }
+    }
+    return;
+  }
+  if (!admitted) throw new AnalysisLabExecutionPausedError("모델 실행");
   for (const field of RECEIPT_BINDING_FIELDS) {
     if (field === "authoritySha256" && normalizedExpected.authoritySha256 === undefined) continue;
     if (admitted[field] !== normalizedExpected[field]) {
@@ -72,7 +95,11 @@ export function assertAnalysisLabLiveExecutionAdmitted(
 
 /** exact prepared 경계가 검증된 뒤 같은 core callback의 하위 transport만 통과시킨다. */
 export function assertAnalysisLabReceiptBoundTransportAdmitted(): void {
-  if (!currentDeepRepairLiveExecutionBinding() && !currentApplicationRoundtripCanaryExecutionBinding()) {
+  if (
+    !currentDeepRepairLiveExecutionBinding()
+    && !currentApplicationRoundtripCanaryExecutionBinding()
+    && !currentAnalysisLaunchBatchExecutionBinding()
+  ) {
     throw new AnalysisLabExecutionPausedError("모델 실행");
   }
 }

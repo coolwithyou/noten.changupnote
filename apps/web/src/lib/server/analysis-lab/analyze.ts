@@ -29,6 +29,7 @@ import { assertApplicationRoundtripOptIn } from "./application-roundtrip-policy"
 import {
   assertAnalysisLabLiveExecutionAdmitted,
 } from "./analysis-execution-admission";
+import { currentAnalysisLaunchBatchExecutionBinding } from "./launch-batch-context";
 import { prepareApplicationRoundtripReuse } from "./application-roundtrip/reuse";
 import { computeLabDimensionDiffs } from "./diff";
 import { resolveLabModel, type DeepAnalysisResult } from "./extractor";
@@ -322,7 +323,13 @@ async function executePreparedLabAnalysisInternal(
   // 부재 throw 가능)는 기존처럼 try 안 — "실패해도 error 런 저장" 계약(상단 주석)을 보존한다.
   const transport = opts?.transport ?? resolveLabTransport();
   const requestedModel = opts?.model ?? resolveLabModel();
-  if (transport !== "claude-cli" || hasReceiptBoundDeepOnlyViolation(opts)) {
+  const launchBinding = currentAnalysisLaunchBatchExecutionBinding();
+  if (
+    transport !== "claude-cli"
+    || (launchBinding
+      ? hasLaunchBatchExecutionViolation(opts, launchBinding)
+      : hasReceiptBoundDeepOnlyViolation(opts))
+  ) {
     throw new AnalysisLabDeepOnlyExecutionError();
   }
   assertAnalysisLabLiveExecutionAdmitted({
@@ -532,6 +539,17 @@ function hasReceiptBoundDeepOnlyViolation(opts: LabAnalysisOverrides | undefined
     || opts?.roundtripModel !== undefined
     || opts?.taskInstruction !== undefined
     || opts?.reviewRepair !== undefined;
+}
+
+function hasLaunchBatchExecutionViolation(
+  opts: LabAnalysisOverrides | undefined,
+  binding: NonNullable<ReturnType<typeof currentAnalysisLaunchBatchExecutionBinding>>,
+): boolean {
+  return opts?.reuseApplicationRoundtripRunId !== undefined
+    || opts?.taskInstruction !== undefined
+    || opts?.reviewRepair !== undefined
+    || (opts?.withApplicationRoundtrip === true) !== binding.withApplicationRoundtrip
+    || (opts?.roundtripModel ?? null) !== binding.roundtripModel;
 }
 
 function numericMetadataValue(

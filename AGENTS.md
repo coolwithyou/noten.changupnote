@@ -69,10 +69,13 @@
 - To add/remove IPs, run `node tools/cloudflare-ip-allowlist.mjs add <CIDR...>` or `node tools/cloudflare-ip-allowlist.mjs remove <CIDR...>`.
 - DNS proxy can be restored with `node tools/cloudflare-ip-allowlist.mjs proxy-on`; turning it off bypasses Cloudflare WAF.
 
-## 딥분석 권한 종류 분리 (2026-08-17 확정)
+## 딥분석 권한 종류 분리 (2026-08-18 런칭 정책)
 
 - **Gate R은 live 모델 실행 전용이다.** 모델 호출, 신규/대체 cohort 선정, 실행 lease, 비정상
-  종료 recovery처럼 모델 실행을 시작·재개하는 작업에만 target별 approval/authority를 요구한다.
+  종료 recovery처럼 모델 실행을 시작·재개하는 작업에만 적용한다. 과거 exact 실험은 target별
+  authority를 보존하지만, 런칭 batch는 exact manifest 전체에 대한 사용자 승인 한 번과
+  `analysis-launch-grant-v1` 하나를 사용한다. 같은 manifest의 target별·sequence별 재승인이나
+  15분 approval 만료를 만들지 않는다.
   읽기 전용 조사, 오프라인 테스트, 이미 봉인된 receipt를 소비하는 release 처리에 Gate R의
   target별 승인 규칙을 전이하지 않는다.
 - **exact release 처리 권한은 범위로 유지한다.** 사용자가 exact grantId/run/source revision과
@@ -88,41 +91,53 @@
   `observe_only` 해제는 release 준비·gate·approve 권한에 포함되지 않으며 각각 명시적 사용자
   승인이 필요하다. 반대로 이 쓰기 경계 때문에 그 이전 단계에 반복 승인을 추가하지 않는다.
 
-## 딥분석 모델 실행 경로 — 구독(claude CLI) vs API (2026-08-04 확정)
+## 딥분석 모델 실행 경로 — 구독(claude CLI) vs API (2026-08-18 런칭 전환)
 
-- **현재 순차 실행 경계**: API 인증 상속을 제거하고 Max preflight를 봉인한 exact-next Adapter는
-  target 하나와 직전 terminal receipt를 기술적으로 결속한다. 이 단건 authority는 실행 fencing이지
-  매 sequence마다 사용자에게 같은 승인을 다시 묻는 절차가 아니다. 사용자가 승인한 exact cohort와
-  최대 실행 단계 안에서는 직전 receipt를 parent로 다음 target authority를 발급해 연속 진행하고,
-  대상·lane·쓰기 상한이 달라질 때만 사용자 범위를 다시 확인한다. `lab:smoke`, `lab:batch` non-dry,
-  `lab:agent --execute`, 자동 대상 선정, 단건/repair, 검수·감사·confirmations의 legacy live 호출은
-  계속 정적 admission이 차단한다.
+- **현재 런칭 실행 경계**: 정식 대량 실행은 `lab:launch:prepare → lab:launch:grant → lab:launch`를
+  사용한다. prepare는 exact allowlist의 현재 input/attachment SHA, model/prompt/validator/package
+  runtime, Kordoc 포함 여부와 동시성을 content-addressed manifest로 봉인한다. 사용자가 이 manifest
+  범위를 승인한 뒤 grant를 한 번 기록하며, 실행은 manifest 전체를 하나의 DB runtime lease 아래
+  연속 처리한다. 전체 git SHA는 관측 telemetry이고 unrelated commit 변화만으로 재봉인하지 않는다.
+  package runtime·validator·prompt 같은 material execution contract가 바뀌면 새 manifest가 필요하다.
+- **대상 오류 격리**: target의 `held`, non-publishable, 현재 input/attachment drift, source unavailable,
+  Kordoc partial/held, 개별 timeout·응답 오류는 해당 target을 `held|failed`로 종결하고 다음 target을
+  계속한다. 임의 대체 target은 넣지 않는다. manifest/grant 손상, Max 인증 공통 preflight 실패,
+  DB runtime lease 충돌·상실, 프로세스 abort, Max window 소진처럼 공유 실행 무결성이 깨질 때만
+  cohort 전체 신규 착수를 중단한다. 품질 비율·구조화 비율·명목 비용은 telemetry이며 실행 admission이 아니다.
+- `deep-repair-experiment`의 exact-next parent receipt와 통계 evaluator는 deep-v18~v22 역사 receipt
+  검증·recovery에 보존한다. 신규 런칭 batch의 진행 gate나 target별 재승인으로 사용하지 않는다.
+  `lab:smoke`, generic `lab:batch` non-dry, `lab:agent --execute`, 검수·감사·confirmations의 legacy live
+  호출은 계속 정적 admission이 차단되고, 검증된 launch capability 안에서만 batch core가 열린다.
 - **로컬 실험실(analysis-lab)의 4레인 전부 구독 스위치를 따른다**: 추출(opus-5)·AI 검수(fable-5)·블라인드 감사(sonnet-5)·confirmations. `ANALYSIS_LAB_TRANSPORT=claude-cli` env가 스위치이고, 미설정이면 기존 API 경로(운영 무영향). 공용 transport는 매 실행 scope의 첫 모델 요청 전 `claude auth status --json`이 `claude.ai/firstParty/max`임을 증명하지 못하면 모델 착수 0회로 종료한다. 검수 레인 전환 근거는 `docs/research/2026-08-04-검수레인-구독전환-일치율-검증.md`(원문 대조 41:26 GO).
 - 현재 일반 허용 명령은 `lab:batch -- --dry-run`, `lab:agent` plan-only, `lab:experiment:test`,
-  `lab:experiment:prepare -- --series=deep-v22`, `lab:roundtrip:preflight`,
-  `lab:experiment:recover -- --inspect=<authority-sha256>` 같은 모델 무호출 경로다.
+  `lab:experiment:prepare -- --series=deep-v23`, `lab:roundtrip:preflight`,
+  `lab:experiment:recover -- --inspect=<authority-sha256>`, `lab:launch:prepare` 같은 모델 무호출 경로다.
+  `lab:launch:grant`는 사용자가 출력된 exact manifest 범위를 승인한 뒤 실행하고, 같은 grant의
+  `lab:launch -- --retry-errors`는 동일 material binding의 실패 target 재시도이므로 새 승인을 요구하지 않는다.
   `lab:experiment:issue`와 `lab:roundtrip:canary`는 승인된 exact cohort 안에서 현행 운영 증거와
   paused runtime을 검증해 한 target씩 실행한다. recovery mutation은 비정상 종료를 확인한 별도
   사용자 approval이 있을 때만 exact expired lease를 해제한다. 과거 `--max-cost-usd`는 구독에서
   1회 경고 후 무시되며 active 실행 정책이나 스냅샷에는 저장하지 않는다.
-- **정식 출시 전환 코호트(2026-08-17)**: `deep-v22` 준비는 과거 formal 표본뿐 아니라 기존 로컬
+- **정식 출시 전환 코호트(2026-08-17, 역사 범위)**: `deep-v22` 준비는 과거 formal 표본뿐 아니라 기존 로컬
   딥분석·Kordoc 이력 전체를 제외한다. 층화된 30건 계획은 evaluator 호환을 위해 유지하되 첫 10건은
   보관 원문 SHA가 일치하고 실제 Kordoc 신청 양식 probe가 통과하며 초기 복잡도 상한 안인 후보로
   정렬한다. 실제 live 범위는 사용자가 승인한 exact 첫 10건까지만이며 나머지 20건은 자동 권한이 아니다.
-  각 publishable deep receipt 뒤에만 같은 공고의 Kordoc preflight/canary를 결속한다.
+  각 publishable deep receipt 뒤에만 같은 공고의 Kordoc preflight/canary를 결속했다. seq 0~9의
+  단건 receipt chain은 그대로 역사·release 증거로 유지하고 새 launch manifest로 재실행하지 않는다.
 - `deep-v20`은 `deep-repair-strata-v2`를 사용한다. 2026-08-15 실측에서 현재 유효·비중복 후보 551건은 충분했지만 `kstartup/thick`은 과거 표본이 현행 재고 7건을 모두 소진했다. v2는 나머지 5층을 첫 15건의 필수 커버리지로 두고, `kstartup/thick`은 새 재고가 있을 때 포함 가능한 선택 층으로 유지한다. 과거 v1 계획의 6층 의미는 변경하지 않는다.
 - 2026-08-14 실제 사용된 `deep-v18` proposal은 `0da79215...`, plan은 `e150c42a...`였고 sequence 0~11이 exact receipt chain으로 종결됐다. 이 artifact는 과거 실행 증거이며 변경된 코드의 신규 live 권한으로 재사용하지 않는다.
 - 2026-08-15 `deep-v19` proposal `6d8eb80a...`, plan `63ee3bb8...`의 sequence 0~9를 순차 종결했다. 10건 모두 기록상 `claude-cli`였지만, 당시 자식 프로세스가 루트 `.env`의 `ANTHROPIC_API_KEY`를 상속한 결함이 있었으므로 이 필드만으로 Max 구독 과금을 증명할 수 없다. Anthropic Console 로그와 실행 시각이 일치한 Kordoc sequence 1은 API 과금 경로로 취급하고, 같은 pre-fix Adapter로 실행한 deep-v19·Kordoc 전체도 Billing 대조 전까지 API 과금 위험 범위로 본다. 이후 공용 transport에서 API credential·provider override를 자식 환경에서 제거했고, 첫 모델 요청 전 `claude.ai/firstParty/max` 인증을 증명하는 preflight를 회귀 테스트로 고정했다. publishable 9건의 Kordoc preflight는 ready 5·not_applicable 1·source_unavailable 3으로 분류했다. sequence 7은 receipt `2503e071...`, sequence 1은 receipt `dd5db646...`로 complete, sequence 3은 receipt `f1ddb830...`, sequence 6은 receipt `06ce82ce...`, sequence 0은 receipt `d47cb185...`로 partial 종결했다. sequence 1은 exact HWPX 2개·구조 필드 408개에서 추천 입력 180개, 미해결·구조 경고 0을 확보해 보정된 수렴 규칙의 실제 적용을 확인했다.
 - **매칭 후보 원칙(사용자 확정)**: 22축 전체의 완벽한 확정을 요구하지 않는다. 순수 `ambiguous`/`input_missing`만 남고 확인된 축이 2개 이상이면 `primaryValidationOutcome=publishable`, `matchingReadiness=conditional`로 기록해 확인된 조건으로 랜딩 매칭 후보에 포함한다. 확인된 축이 1개 이하이거나 unresolved 축에 criterion mismatch가 남으면 `held/deferred`로 보류한다. 확정 탈락은 공고 전체를 제외하는 값이 아니라 등록 사업자와 criterion을 비교하는 matcher가 판정한다.
 - `publishable`은 deep primary 결과가 매칭·후속 검수에 사용 가능하다는 뜻이지 Kordoc 완료를 뜻하지 않는다. Kordoc은 명시적 application-roundtrip 실행과 별도 artifact가 있을 때만 완료로 본다.
 - **Kordoc 반복 보류 원칙(2026-08-15)**: 동일 후보를 독립 판정 2회 모두 `is_user_input=true`, confidence 0.65 이상으로 판단하지만 확정 임계 0.75에 못 미치면 값을 추정하지 않는 optional 사용자 확인 입력으로 보존한다(`37b7afc`). 전역 입력·거절 임계값은 0.75로 유지하고, 저신뢰 `is_user_input=false`는 자동 제외하지 않고 기존 review 상태를 유지한다.
-- **Kordoc 코호트 진행 판정(2026-08-17)**: 신청서 한 건의 품질 상태와 코호트 진행 verdict를
+- **Kordoc 코호트 진행 판정(2026-08-18 런칭 정책)**: 신청서 한 건의 품질 상태와 코호트 진행 verdict를
   분리한다. 정확한 위치를 확정할 수 없어 입력 대상에서 안전하게 제외한 구조 경고는
   `status=partial`, `targetDisposition=conditional`, `cohortVerdict=CONTINUE`로 기록한다. 미해결
   후보·불완전 재판정·문서별 분석 실패는 해당 target을 `held`로 격리하고 다음 exact target을
-  계속한다. 이 target들은 release/promotion 대상이 아니다. source/proposal/model/transport binding
-  drift, receipt·artifact 불일치, Max 인증 실패, lease 상실, timeout·HTTP·invalid response처럼
-  공유 실행 경로의 신뢰를 잃은 경우에만 `cohortVerdict=STOP`으로 전체 순서를 중단한다. 기존
+  계속한다. 이 target들은 release/promotion 대상이 아니다. 개별 source/input/attachment drift와
+  개별 timeout·HTTP·invalid response도 target 실패로 격리한다. manifest/grant 자체의 불일치,
+  공통 Max 인증 실패, lease 상실, Max window 소진처럼 모든 잔여 target에 영향을 주는 공유 실행
+  경로의 신뢰를 잃은 경우에만 `cohortVerdict=STOP`으로 전체 신규 착수를 중단한다. 기존
   immutable receipt는 수정·삭제하지 않으며 새 정책 적용을 위해 같은 모델 분석을 재실행하지 않는다.
 - **Kordoc release admission(2026-08-17)**: release의 application precompute는 LabRun 내부 참조를
   추정하지 않고 `deep terminal receipt → Kordoc proposal execution target → v3 canary receipt`를
@@ -135,14 +150,23 @@
   deep sequence의 역사 terminal receipt가 여러 개면 후속 sequence가 parent로 채택한 유일한 최장
   chain만 사용하며, 같은 최종 sequence까지 둘 이상의 branch가 이어지면 임의 선택하지 않는다.
 - **원칙(사용자 확정)**: 고단가 모델(fable-5 등)을 API로 돌리지 않는다 — 로컬 대량 작업은 구독이 기본. 단, 구독 실행은 **로컬 dev·실험실 한정**(약관 경계) — 운영 worker·Cloud Run·사용자 대면 경로는 API 유지.
-- `/dev/analysis-lab`의 기존 실행 UI와 CLI는 진행 관측·dry-run 용도로만 남고 live start는 Gate R admission에서 거부된다.
+- `/dev/analysis-lab`의 기존 실행 UI와 generic CLI는 진행 관측·dry-run 용도로만 남고 live start는
+  Gate R admission에서 거부된다. 런칭 live start의 유일한 일반 경로는 승인된 `lab:launch`다.
 - 운용 안내 정본: `docs/explainers/구독모델로-딥분석-돌리는-법.md`; 현재 구조·재개 판정 정본: `docs/research/2026-08-14-구독-딥분석-반복실패-구조진단-및-개선-설계.md`; 최근 실패 증거: `docs/research/2026-08-13-딥분석-처리속도-트랙-리뷰-정리.md`. `HANDOFF-2026-08-03.md`는 역사 기록이다.
 
 ## 딥분석 — 운영 크론과 로컬 구독의 겹침 방지 (2026-08-04 조사 확정)
 
-- **운영의 유료 LLM 딥분석은 자동으로 돌리지 않는다**: 2026-08-14 재인증 뒤 Cloud Run 메인 워커 generation 97을 다시 확인했다. `DEEP_ANALYSIS_WORKER_MODE=observe_only`, 안전 worker가 미설정 scope를 fail-closed `unconfigured`로 해석하며, 비종결 Cloud Run execution은 0건이다. 개발 기간에는 이를 유지하고 로컬 구독 lab도 변경된 코드가 봉인된 새 proposal과 사용자 승인 전까지 정적 admission으로 중단한다. 조사 정본: `docs/research/2026-08-04-운영-딥분석-크론과-로컬-구독-겹침-조사.md`.
+- **운영의 유료 LLM 딥분석은 자동으로 돌리지 않는다**: Cloud Run main worker는
+  `DEEP_ANALYSIS_WORKER_MODE=observe_only`를 유지한다. 배포·worker 설정 변경 때 이 계약을 다시
+  확인하되, 변경 없는 로컬 launch의 매 target·매 재시도마다 gcloud 인증과 generation을 반복
+  검사하지 않는다. 각 launch 시작에서는 DB runtime `paused`, owner/expiry 없음, active deep/application
+  lease 0을 한 snapshot으로 읽고 cohort 전체에 exact-generation lease 하나를 획득한다. 조사 정본:
+  `docs/research/2026-08-04-운영-딥분석-크론과-로컬-구독-겹침-조사.md`.
 - proposal/plan의 git SHA는 로컬 구독 canary를 실행할 checkout 출처이고, 운영 evidence의 `GIT_COMMIT_SHA`는 현재 배포된 Cloud Run worker 출처다. 전자는 현재 로컬 git/package/validator와, 후자는 현재 Cloud Run UID/generation/etag/image/env 및 `ec8cec75566e9ba5d07aead3837ce48501b1b6a9` safe worker contract ancestry와 각각 exact 검증하지만 서로 같은 커밋일 필요는 없다. ancestry를 로컬 checkout에서 증명할 수 없으면 fail-closed하며 자동 fetch하지 않는다. Gate R 증거를 맞추기 위해 운영 worker를 로컬 HEAD로 재배포하지 않는다.
-- 로컬 LabRun과 분석 결과는 DB가 아니라 `spike-out`에 저장한다. proposal preparation과 authority issuer는 DB read-only이고, 사용자 승인 뒤의 단건 live Adapter와 비정상 종료 recovery만 exact-generation runtime lease 제어행을 갱신한다. recovery는 분석 결과나 attempt artifact를 삭제·재실행하지 않는다. 분석 결과를 서비스 DB에 쓰는 접점은 `lab:promote --write`뿐이며 3중 확인(release+write+confirm)이 걸려 있다.
+- 로컬 LabRun과 분석 결과는 DB가 아니라 `spike-out`에 저장한다. launch prepare는 DB/R2 read-only이고,
+  승인된 launch 실행은 cohort 전체 DB runtime lease 제어행만 갱신한다. target receipt와 최종
+  `analysis-launch-receipt-v1`은 로컬 immutable artifact다. 분석 결과를 서비스 DB에 쓰는 접점은
+  `lab:promote --write`뿐이며 3중 확인(release+write+confirm)이 걸려 있다.
 - 승격 보호 구현(`c79e2c0`)은 유지한다. local release prepare/gate/approve는 Gate R이 아니라
   receipt 기반 promotion admission과 승인된 exact release 범위를 따른다. `lab:promote --write`는
   실제 서비스 변경이므로 별도 명시 승인이 없으면 실행하지 않는다.

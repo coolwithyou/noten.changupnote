@@ -25,20 +25,23 @@ import { formatDateTime, formatDurationMs, formatUsd } from "./batch-ops-format"
 // 이벤트는 구조화 union(contract LabBatchEvent)이며 로그 파싱이 아니다. 표시는 최근순.
 // ─────────────────────────────────────────────────────────────────────────────
 
-const GUARD_STOP_MESSAGES: Record<"cost-cap" | "window-exhausted", string> = {
+const GUARD_STOP_MESSAGES: Record<"cost-cap" | "window-exhausted" | "systemic-failure", string> = {
   "cost-cap": "API 완료 비용 상한 도달 — Gate R 전에는 재실행하지 않습니다.",
   "window-exhausted": "Max 윈도 소진 — 자동 재실행하지 않고 새 experiment 대상으로 검토합니다.",
+  "systemic-failure": "공통 실행 무결성 실패 — 잔여 대상 신규 착수를 중단했습니다.",
 };
 
-const GUARD_STOP_TITLES: Record<"cost-cap" | "window-exhausted", string> = {
+const GUARD_STOP_TITLES: Record<"cost-cap" | "window-exhausted" | "systemic-failure", string> = {
   "cost-cap": "API 완료 비용 상한 도달",
   "window-exhausted": "Max 윈도 소진",
+  "systemic-failure": "공통 실행 무결성 실패",
 };
 
 const STOP_REASON_LABELS: Record<LabBatchSummary["stopReason"], string> = {
   completed: "정상 완료",
   "cost-cap": "API 완료 비용 상한 도달",
   "window-exhausted": "Max 윈도 소진",
+  "systemic-failure": "공통 실행 무결성 실패",
   aborted: "사용자 중단",
 };
 
@@ -47,7 +50,7 @@ const LEGACY_SUBSCRIPTION_COST_GUARD_MESSAGE =
   "이 중단 규칙은 폐기됐습니다. 명목 비용은 telemetry로만 해석하며, Gate R 전에는 잔여 대상을 재실행하지 않습니다.";
 
 function guardStopTitle(
-  reason: "cost-cap" | "window-exhausted",
+  reason: "cost-cap" | "window-exhausted" | "systemic-failure",
   legacySubscriptionCostGuard: boolean,
 ): string {
   return reason === "cost-cap" && legacySubscriptionCostGuard
@@ -56,7 +59,7 @@ function guardStopTitle(
 }
 
 function guardStopMessage(
-  reason: "cost-cap" | "window-exhausted",
+  reason: "cost-cap" | "window-exhausted" | "systemic-failure",
   legacySubscriptionCostGuard: boolean,
 ): string {
   return reason === "cost-cap" && legacySubscriptionCostGuard

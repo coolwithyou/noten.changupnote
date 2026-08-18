@@ -20,7 +20,10 @@ import {
   type LabBatchRunnerOptions,
   type LabBatchSummary,
 } from "./batch-runner";
-import { CLAUDE_CLI_WINDOW_EXHAUSTED_MARKER } from "./claude-cli-transport";
+import {
+  CLAUDE_CLI_MAX_AUTH_FAILED_MARKER,
+  CLAUDE_CLI_WINDOW_EXHAUSTED_MARKER,
+} from "./claude-cli-transport";
 import type { CohortEntry, CohortFileV2 } from "./cohort-file";
 
 // ---- 픽스처 헬퍼 ---------------------------------------------------------------
@@ -422,6 +425,30 @@ console.log("✅ 비용 상한 — guard-stop(cost-cap)·신규 착수 중단·s
   assert.equal(summary.notStarted, 2);
   assert.equal(summary.stopReason, "window-exhausted");
   console.log("✅ Kordoc 윈도 소진 — 딥 분석 성공 유지·신규 착수 중단");
+}
+
+// Max 인증이 실행 중 사라지면 target 오류 하나로 반복 증폭하지 않고 공통 중단한다.
+{
+  const analyzed: string[] = [];
+  const events: LabBatchEvent[] = [];
+  const summary = await runLabBatch(
+    baseOptions(events, { transport: "claude-cli" }),
+    makeDeps({
+      entries: [entry("auth1"), entry("auth2"), entry("auth3")],
+      run: async (grantId) => {
+        analyzed.push(grantId);
+        return errorResult(`공고 ${grantId}`, `${CLAUDE_CLI_MAX_AUTH_FAILED_MARKER} auth lost`);
+      },
+    }),
+  );
+  assert.deepEqual(analyzed, ["auth1"]);
+  const guard = events.find((event) => event.type === "guard-stop");
+  assert.ok(guard && guard.type === "guard-stop");
+  assert.equal(guard.reason, "systemic-failure");
+  assert.equal(summary.errorRuns, 1);
+  assert.equal(summary.notStarted, 2);
+  assert.equal(summary.stopReason, "systemic-failure");
+  console.log("✅ Max 인증 상실 — 공통 무결성 guard-stop·잔여 신규 착수 중단");
 }
 
 // ---- ④ abort → stopReason aborted + 진행분 완료 --------------------------------
