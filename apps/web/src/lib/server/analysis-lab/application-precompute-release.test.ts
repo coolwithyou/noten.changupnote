@@ -7,8 +7,8 @@ import {
   APPLICATION_ROUNDTRIP_ADOPTED_MODEL,
   APPLICATION_ROUNDTRIP_VERSION,
   type ApplicationRoundtripRun,
-} from "@/features/dev/analysis-lab/application-roundtrip-contract";
-import type { LabRun } from "@/features/dev/analysis-lab/contract";
+} from "@/lib/server/analysis-lab/application-roundtrip/contract";
+import type { LabRun } from "@/lib/server/analysis-lab/lab-contract";
 import {
   buildPromotionApplicationPrecomputeReceipt,
   bundlePromotionApplicationPrecompute,

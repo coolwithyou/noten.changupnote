@@ -3,7 +3,7 @@ import { VERSION } from "kordoc";
 import type {
   RoundtripCohortNotice,
   RoundtripCohortResponse,
-} from "@/features/dev/analysis-lab/application-roundtrip-contract";
+} from "@/lib/server/analysis-lab/application-roundtrip/contract";
 import { getCunoteDb } from "@/lib/server/db/client";
 import * as schema from "@/lib/server/db/schema";
 import {

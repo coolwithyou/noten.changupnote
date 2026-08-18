@@ -5,7 +5,7 @@ import type {
   ApplicationRoundtripRun,
   RoundtripDocumentFormat,
   RoundtripFillResult,
-} from "@/features/dev/analysis-lab/application-roundtrip-contract";
+} from "@/lib/server/analysis-lab/application-roundtrip/contract";
 import { analysisLabDir } from "../run-store";
 
 export interface RoundtripRunManifest {

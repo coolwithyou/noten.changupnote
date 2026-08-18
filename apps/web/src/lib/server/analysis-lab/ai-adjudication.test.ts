@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import type { LabAudit, LabAuditItem } from "@/features/dev/analysis-lab/contract";
-import { isAiAdjudicationResolved } from "@/features/dev/analysis-lab/contract";
+import type { LabAudit, LabAuditItem } from "@/lib/server/analysis-lab/lab-contract";
+import { isAiAdjudicationResolved } from "@/lib/server/analysis-lab/lab-contract";
 import {
   buildAdjudicationJudgments,
   buildAiAdjudicationSystemPrompt,

@@ -3,7 +3,7 @@ import {
   ANALYSIS_QUALITY_POLICY_VERSION,
   type AnalysisQualityGraph,
   type AnalysisQualityStatus,
-} from "@/features/dev/analysis-lab/quality-contract";
+} from "@/lib/server/analysis-lab/quality-contract";
 import { buildAnalysisQualityReport } from "./quality-report";
 
 function graphFixture(

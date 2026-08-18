@@ -26,7 +26,7 @@ import type {
   LabMissedConditionImpact,
   LabRun,
   LabUsage,
-} from "@/features/dev/analysis-lab/contract";
+} from "@/lib/server/analysis-lab/lab-contract";
 import type { AiAxisReview, AiCriterionReview } from "./ai-review-compare";
 import {
   buildSystemPrompt,

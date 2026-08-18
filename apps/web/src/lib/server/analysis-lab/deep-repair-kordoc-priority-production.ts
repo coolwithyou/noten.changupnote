@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { and, eq, inArray } from "drizzle-orm";
-import { APPLICATION_ROUNDTRIP_ADOPTED_MODEL } from "@/features/dev/analysis-lab/application-roundtrip-contract";
-import { kstDayStartUtc } from "@/features/dev/analysis-lab/notice-period";
+import { APPLICATION_ROUNDTRIP_ADOPTED_MODEL } from "@/lib/server/analysis-lab/application-roundtrip/contract";
+import { kstDayStartUtc } from "@/lib/server/analysis-lab/notice-period";
 import { getCunoteDb } from "@/lib/server/db/client";
 import * as schema from "@/lib/server/db/schema";
 import { createR2ObjectStorageFromEnv } from "@/lib/server/storage/r2ObjectStorage";

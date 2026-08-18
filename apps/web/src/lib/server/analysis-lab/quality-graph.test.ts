@@ -4,12 +4,12 @@ import {
   APPLICATION_ROUNDTRIP_VERSION,
   type ApplicationRoundtripRun,
   type RoundtripParsedDocument,
-} from "@/features/dev/analysis-lab/application-roundtrip-contract";
+} from "@/lib/server/analysis-lab/application-roundtrip/contract";
 import {
   ANALYSIS_LAB_PROMPT_VERSION,
   type LabReview,
   type LabRun,
-} from "@/features/dev/analysis-lab/contract";
+} from "@/lib/server/analysis-lab/lab-contract";
 import { evaluateAnalysisQuality } from "./quality-graph";
 
 function runFixture(overrides: Partial<LabRun> = {}): LabRun {

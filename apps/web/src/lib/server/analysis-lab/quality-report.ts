@@ -6,13 +6,13 @@ import {
   type AnalysisQualityNodeId,
   type AnalysisQualityReport,
   type AnalysisQualityReviewEvidence,
-} from "@/features/dev/analysis-lab/quality-contract";
+} from "@/lib/server/analysis-lab/quality-contract";
 import {
   AI_REVIEW_ADOPTED,
   ANALYSIS_LAB_PROMPT_VERSION,
   type LabReview,
   type LabRun,
-} from "@/features/dev/analysis-lab/contract";
+} from "@/lib/server/analysis-lab/lab-contract";
 import { readRoundtripRunArtifacts } from "./application-roundtrip/store";
 import { readAiReviewFile, aiReviewFilePath } from "./ai-review";
 import { labAuditFilePath, readLabAuditFileAt } from "./audit-store";

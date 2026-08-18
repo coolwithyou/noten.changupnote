@@ -8,7 +8,7 @@
 // 표시용으로만 관대하게 읽는다).
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
-import type { LabReview } from "@/features/dev/analysis-lab/contract";
+import type { LabReview } from "@/lib/server/analysis-lab/lab-contract";
 import { labRunFilePath, readLabRun } from "./run-store";
 import { isPublishableLabRun } from "./run-outcome";
 

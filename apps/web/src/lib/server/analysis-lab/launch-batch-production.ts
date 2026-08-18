@@ -24,6 +24,13 @@ import {
   type AnalysisLaunchReceiptTarget,
 } from "./launch-batch-artifacts";
 import { withAnalysisLaunchBatchExecution } from "./launch-batch-context";
+import {
+  applyAnalysisLaunchEvent,
+  createAnalysisLaunchStatus,
+  finishAnalysisLaunchStatus,
+  writeAnalysisLaunchStatus,
+  type AnalysisLaunchStatus,
+} from "./launch-status";
 import { classifyLabRunOutcome } from "./run-outcome";
 import { findMonorepoRoot, labRunFilePath } from "./run-store";
 
@@ -117,6 +124,25 @@ export async function runApprovedAnalysisLaunchBatch(input: {
     manifest,
     current: await readCurrentDeepRepairExecutionProvenance({ repositoryRoot }),
   });
+  let launchStatus: AnalysisLaunchStatus = createAnalysisLaunchStatus({
+    grantSha256: input.grantSha256,
+    manifestSha256: grant.manifestSha256,
+    manifest,
+    now: startedAt,
+  });
+  let statusWriteQueue = Promise.resolve();
+  const persistLaunchStatus = (next: AnalysisLaunchStatus) => {
+    launchStatus = next;
+    statusWriteQueue = statusWriteQueue
+      .then(() => writeAnalysisLaunchStatus(next, repositoryRoot))
+      .catch((error: unknown) => {
+        console.warn(
+          "[launch] 관측 projection 기록 실패:",
+          error instanceof Error ? error.message : error,
+        );
+      });
+  };
+  persistLaunchStatus(launchStatus);
   const outcomes = new Map<string, AnalysisLaunchReceiptTarget>();
   for (const target of manifest.targets) outcomes.set(target.grantId, skippedTarget(target));
   let batchSummary: LabBatchSummary | null = null;
@@ -169,7 +195,10 @@ export async function runApprovedAnalysisLaunchBatch(input: {
           : {}),
         grantIds: manifest.targets.map((target) => target.grantId),
         signal: executionSignal,
-        ...(input.onEvent ? { onEvent: input.onEvent } : {}),
+        onEvent(event) {
+          persistLaunchStatus(applyAnalysisLaunchEvent(launchStatus, event, new Date()));
+          input.onEvent?.(event);
+        },
       }, {
         readCohortImpl: async () => ({
           version: 2,
@@ -250,6 +279,12 @@ export async function runApprovedAnalysisLaunchBatch(input: {
     targets: Object.freeze(targets),
   });
   const stored = await writeAnalysisLaunchArtifact("receipts", receipt, repositoryRoot);
+  persistLaunchStatus(finishAnalysisLaunchStatus({
+    status: launchStatus,
+    receipt,
+    receiptSha256: stored.sha256,
+  }));
+  await statusWriteQueue;
   return Object.freeze({
     receipt,
     receiptSha256: stored.sha256,

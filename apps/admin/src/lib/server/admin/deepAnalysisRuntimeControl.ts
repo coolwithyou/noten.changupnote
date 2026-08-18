@@ -29,7 +29,7 @@ interface LeaseCountRow {
 
 export class DeepAnalysisRuntimeAdminError extends Error {
   constructor(
-    readonly code: "runtime_control_missing" | "runtime_control_conflict" | "invalid_runtime_mode",
+    readonly code: "runtime_control_missing",
     message: string,
     readonly status = 409,
   ) {
@@ -92,73 +92,6 @@ export async function getDeepAnalysisRuntimeControlStatus(
     activeDeepLeases: leaseRows[0]?.active_deep_leases ?? 0,
     activeApplicationLeases: leaseRows[0]?.active_application_leases ?? 0,
   }
-}
-
-export async function setProductionDeepAnalysisMode(input: {
-  mode: "paused" | "production_api"
-  changedBy: string
-  reason?: string | null
-}): Promise<DeepAnalysisRuntimeControlStatus> {
-  if (input.mode !== "paused" && input.mode !== "production_api") {
-    throw new DeepAnalysisRuntimeAdminError(
-      "invalid_runtime_mode",
-      "ops에서는 paused 또는 production_api만 선택할 수 있습니다.",
-      400,
-    )
-  }
-  const sql = getAdminSql()
-  await sql.begin(async (transaction) => {
-    await transaction`SELECT pg_advisory_xact_lock(hashtext('cunote:deep-analysis-runtime-control'))`
-    const rows = await transaction<ControlRow[]>`
-      SELECT
-        control_key,
-        mode,
-        generation,
-        changed_by,
-        change_reason,
-        local_owner_id,
-        local_lease_expires_at,
-        created_at,
-        updated_at
-      FROM deep_analysis_runtime_control
-      WHERE control_key = 'global'
-      FOR UPDATE
-    `
-    const row = rows[0]
-    if (!row) {
-      throw new DeepAnalysisRuntimeAdminError(
-        "runtime_control_missing",
-        "딥분석 실행 모드 정본이 없습니다. migration 0069를 먼저 적용하세요.",
-        503,
-      )
-    }
-    const control = serializeControl(row)
-    const now = new Date()
-    if (
-      input.mode === "production_api"
-      && effectiveDeepAnalysisRuntimeMode(control, now) === "local_subscription"
-    ) {
-      throw new DeepAnalysisRuntimeAdminError(
-        "runtime_control_conflict",
-        "로컬 구독 분석 세션의 임대가 유효합니다. 로컬에서 권한을 해제하거나 만료를 기다려 주세요.",
-      )
-    }
-    await transaction`
-      UPDATE deep_analysis_runtime_control
-      SET
-        mode = ${input.mode},
-        generation = generation + 1,
-        changed_by = ${input.changedBy.slice(0, 200)},
-        change_reason = ${input.reason?.trim().slice(0, 1_000) || (
-          input.mode === "production_api" ? "ops에서 운영 API 자동화 활성화" : "ops에서 운영 API 자동화 중지"
-        )},
-        local_owner_id = NULL,
-        local_lease_expires_at = NULL,
-        updated_at = now()
-      WHERE control_key = 'global'
-    `
-  })
-  return getDeepAnalysisRuntimeControlStatus(sql)
 }
 
 function serializeControl(row: ControlRow): DeepAnalysisRuntimeControl {

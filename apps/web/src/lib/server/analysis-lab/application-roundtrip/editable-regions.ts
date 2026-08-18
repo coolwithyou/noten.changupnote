@@ -5,7 +5,7 @@ import type {
   RoundtripFieldInputKind,
   RoundtripFieldOption,
   RoundtripFieldWriteOperation,
-} from "@/features/dev/analysis-lab/application-roundtrip-contract";
+} from "@/lib/server/analysis-lab/application-roundtrip/contract";
 import { normalizeRoundtripLabel } from "./core";
 
 const UNIT_PATTERN = /^\(\s*(천원|원|만원|백만원|억원|명|건|개|회|%|년|개월|일|시간)\s*\)$/;

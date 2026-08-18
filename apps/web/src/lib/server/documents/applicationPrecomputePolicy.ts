@@ -1,5 +1,5 @@
 import { VERSION as KORDOC_VERSION } from "kordoc";
-import { APPLICATION_ROUNDTRIP_VERSION } from "@/features/dev/analysis-lab/application-roundtrip-contract";
+import { APPLICATION_ROUNDTRIP_VERSION } from "@/lib/server/analysis-lab/application-roundtrip/contract";
 import { ROUNDTRIP_FIELD_CANDIDATE_LIMIT } from "@/lib/server/analysis-lab/application-roundtrip/field-planner";
 import { buildApplicationPrecomputeAnalysisVersion } from "./applicationPrecomputeMaterialization";
 import { APPLICATION_PRECOMPUTE_ENGINE } from "./applicationPrecomputeState";

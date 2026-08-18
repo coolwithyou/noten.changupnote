@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import type {
   ApplicationRoundtripRun,
   RoundtripParsedDocument,
-} from "@/features/dev/analysis-lab/application-roundtrip-contract";
+} from "@/lib/server/analysis-lab/application-roundtrip/contract";
 import {
   buildApplicationRoundtripReference,
   runAnalysisPair,

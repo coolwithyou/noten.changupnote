@@ -1,6 +1,6 @@
 // Receipt 기반 exact release 전용 aggregate CLI.
 // 과거 review/audit 실험 집계는 aggregate.ts에 보존하지만 이 명령 경로에서는 접근하지 않는다.
-import { ANALYSIS_LAB_GATES as GATES } from "@/features/dev/analysis-lab/contract";
+import { ANALYSIS_LAB_GATES as GATES } from "@/lib/server/analysis-lab/lab-contract";
 import { loadAnalysisLabEnv } from "../loadMonorepoEnv";
 import { summarizeReviewedRunCosts } from "./aggregate-cost-policy";
 import { verifyPromotionReleaseSources } from "./promotion-candidates";

@@ -2,8 +2,8 @@
 // 일반 배치의 current-ok 멱등 가드는 유지하고, 이 CLI는 정확한 grantIds + reason을
 // 필수로 요구하는 제한된 탈출구다.
 import { randomUUID } from "node:crypto";
-import { ANALYSIS_LAB_PROMPT_VERSION } from "@/features/dev/analysis-lab/contract";
-import type { AnalysisQualityNodeId } from "@/features/dev/analysis-lab/quality-contract";
+import { ANALYSIS_LAB_PROMPT_VERSION } from "@/lib/server/analysis-lab/lab-contract";
+import type { AnalysisQualityNodeId } from "@/lib/server/analysis-lab/quality-contract";
 import { getLabBatchJobSnapshot } from "./batch-job";
 import { loadAnalysisQualityGraphForRun } from "./quality-report";
 import { readLatestLabRunIndexForPrompt } from "./run-store";

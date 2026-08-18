@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { AsyncLocalStorage } from "node:async_hooks";
-import type { RoundtripFailureCode } from "@/features/dev/analysis-lab/application-roundtrip-contract";
+import type { RoundtripFailureCode } from "@/lib/server/analysis-lab/application-roundtrip/contract";
 import type { ApplicationRoundtripPreflightProposal } from "./candidate-preflight";
 
 const SHA256 = /^[a-f0-9]{64}$/u;

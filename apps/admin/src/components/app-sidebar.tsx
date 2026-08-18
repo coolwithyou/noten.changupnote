@@ -2,10 +2,8 @@
 
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { useEffect, useState } from "react"
 import {
   ActivityIcon,
-  BotIcon,
   BadgeDollarSignIcon,
   BanknoteIcon,
   BookOpenCheckIcon,
@@ -27,7 +25,6 @@ import {
 } from "lucide-react"
 
 import { NavUser } from "@/components/nav-user"
-import { isLocalAdminHostname } from "@/components/app-sidebar-environment"
 import { defaultAdminPath } from "@/lib/auth/routeAccess"
 import type { AdminRole } from "@/lib/server/auth/adminUsers"
 import {
@@ -50,7 +47,7 @@ const NAV_GROUPS = [
     roles: ["reviewer", "admin", "owner"],
     items: [
       { title: "주간 검수", href: "/review", icon: BookOpenCheckIcon },
-      { title: "딥분석 관제", href: "/pipeline", icon: FileSearchIcon },
+      { title: "딥분석 시스템", href: "/pipeline", icon: FileSearchIcon },
     ],
   },
   {
@@ -98,11 +95,6 @@ interface AppSidebarProps extends React.ComponentProps<typeof Sidebar> {
 
 export function AppSidebar({ user, ...props }: AppSidebarProps) {
   const pathname = usePathname()
-  const [isLocalHost, setIsLocalHost] = useState(false)
-
-  useEffect(() => {
-    setIsLocalHost(isLocalAdminHostname(window.location.hostname))
-  }, [])
 
   return (
     <Sidebar collapsible="icon" {...props}>
@@ -147,35 +139,6 @@ export function AppSidebar({ user, ...props }: AppSidebarProps) {
                     </SidebarMenuItem>
                   )
                 })}
-                {group.label === "검수" && (user.role === "admin" || user.role === "owner") ? (
-                  <SidebarMenuItem>
-                    {isLocalHost ? (
-                      <SidebarMenuButton
-                        isActive={pathname.startsWith("/subscription-agent")}
-                        tooltip="구독 분석 에이전트"
-                        render={<Link href="/subscription-agent" />}
-                      >
-                        <BotIcon />
-                        <span>구독 분석 에이전트</span>
-                        <span className="ml-auto text-[10px] font-medium text-primary group-data-[collapsible=icon]:hidden">
-                          로컬
-                        </span>
-                      </SidebarMenuButton>
-                    ) : (
-                      <SidebarMenuButton
-                        disabled
-                        tooltip="구독 분석 에이전트는 로컬 PC에서만 사용할 수 있습니다"
-                        className="opacity-45"
-                      >
-                        <BotIcon />
-                        <span>구독 분석 에이전트</span>
-                        <span className="ml-auto text-[10px] group-data-[collapsible=icon]:hidden">
-                          로컬 전용
-                        </span>
-                      </SidebarMenuButton>
-                    )}
-                  </SidebarMenuItem>
-                ) : null}
               </SidebarMenu>
             </SidebarGroupContent>
           </SidebarGroup>

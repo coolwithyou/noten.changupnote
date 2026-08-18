@@ -12,7 +12,7 @@ import {
   validateAiAuditPayload,
 } from "./ai-audit";
 import { applyAiAuditJudgments, isLabAuditComplete } from "./audit-store";
-import { isAiAuditConcur, type LabAudit, type LabAuditItem } from "@/features/dev/analysis-lab/contract";
+import { isAiAuditConcur, type LabAudit, type LabAuditItem } from "@/lib/server/analysis-lab/lab-contract";
 
 {
   const systemPrompt = buildAiAuditSystemPrompt("검수 기준서");

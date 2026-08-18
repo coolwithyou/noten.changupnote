@@ -4,11 +4,11 @@ import {
   APPLICATION_ROUNDTRIP_VERSION,
   type ApplicationRoundtripRun,
   type RoundtripParsedDocument,
-} from "@/features/dev/analysis-lab/application-roundtrip-contract";
+} from "@/lib/server/analysis-lab/application-roundtrip/contract";
 import {
   ANALYSIS_LAB_PROMPT_VERSION,
   type LabRun,
-} from "@/features/dev/analysis-lab/contract";
+} from "@/lib/server/analysis-lab/lab-contract";
 import {
   ANALYSIS_QUALITY_POLICY_VERSION,
   type AnalysisQualityDownstreamEvidence,
@@ -20,7 +20,7 @@ import {
   type AnalysisQualityNodeId,
   type AnalysisQualityReviewEvidence,
   type AnalysisQualityStatus,
-} from "@/features/dev/analysis-lab/quality-contract";
+} from "@/lib/server/analysis-lab/quality-contract";
 import { assessPromotionReviewRisk } from "./promotion-review-risk";
 import { classifyLabRunOutcome } from "./run-outcome";
 

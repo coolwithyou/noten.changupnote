@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
-import { ANALYSIS_LAB_PROMPT_VERSION } from "@/features/dev/analysis-lab/contract";
-import { ANALYSIS_QUALITY_POLICY_VERSION } from "@/features/dev/analysis-lab/quality-contract";
+import { ANALYSIS_LAB_PROMPT_VERSION } from "@/lib/server/analysis-lab/lab-contract";
+import { ANALYSIS_QUALITY_POLICY_VERSION } from "@/lib/server/analysis-lab/quality-contract";
 import {
   createDeepRepairExperimentPlan,
   type DeepRepairExperimentPlan,

@@ -9,7 +9,7 @@ import {
   type LabMissedConditionImpact,
   type LabRun,
   type LabUsage,
-} from "@/features/dev/analysis-lab/contract";
+} from "@/lib/server/analysis-lab/lab-contract";
 import {
   buildAiAuditSystemPrompt,
   buildAiAuditToolSchema,

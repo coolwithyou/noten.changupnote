@@ -7,7 +7,7 @@ import {
   type LabCriterionVerdict,
   type LabReview,
   type LabRun,
-} from "@/features/dev/analysis-lab/contract";
+} from "@/lib/server/analysis-lab/lab-contract";
 import type { HumanReviewOverlay } from "./human-review-overlay";
 
 export type CriterionResolutionState =

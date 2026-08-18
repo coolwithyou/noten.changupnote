@@ -15,8 +15,8 @@ import type {
   LabAutomaticTargetSelectionItem,
   LabAutomaticTargetSelectionResult,
   LabUsage,
-} from "@/features/dev/analysis-lab/contract";
-import { kstDayStartUtc } from "@/features/dev/analysis-lab/notice-period";
+} from "@/lib/server/analysis-lab/lab-contract";
+import { kstDayStartUtc } from "@/lib/server/analysis-lab/notice-period";
 import { getCunoteDb } from "@/lib/server/db/client";
 import * as schema from "@/lib/server/db/schema";
 import { grantServingVisiblePredicate } from "@/lib/server/grantServingVisibility";

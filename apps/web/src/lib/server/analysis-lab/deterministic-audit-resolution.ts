@@ -6,7 +6,7 @@ import type {
   LabCriterion,
   LabCriterionVerdict,
   LabRun,
-} from "@/features/dev/analysis-lab/contract";
+} from "@/lib/server/analysis-lab/lab-contract";
 
 export const LAB_DETERMINISTIC_AUDIT_POLICY_VERSION =
   "lab-deterministic-audit-v3" as const;

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import type { LabAudit, LabReview, LabRun } from "@/features/dev/analysis-lab/contract";
+import type { LabAudit, LabReview, LabRun } from "@/lib/server/analysis-lab/lab-contract";
 import { runAiAdjudication } from "./ai-adjudication";
 import { runAiAudit } from "./ai-audit";
 import { runAiReview } from "./ai-review";

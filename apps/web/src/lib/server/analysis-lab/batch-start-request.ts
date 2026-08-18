@@ -1,7 +1,7 @@
 import {
   ANALYSIS_LAB_MAX_BATCH_CONCURRENCY,
   type LabBatchStartRequest,
-} from "@/features/dev/analysis-lab/contract";
+} from "@/lib/server/analysis-lab/lab-contract";
 
 /** ops/batch POST 본문을 실행 계약으로 변환한다. 오류면 사유 문자열을 반환한다. */
 export function parseLabBatchStartRequest(body: unknown): LabBatchStartRequest | string {

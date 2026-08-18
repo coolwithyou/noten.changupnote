@@ -3,8 +3,8 @@ import type {
   LabAudit,
   LabAuditItem,
   LabRun,
-} from "@/features/dev/analysis-lab/contract";
-import { isAiAuditConcur } from "@/features/dev/analysis-lab/contract";
+} from "@/lib/server/analysis-lab/lab-contract";
+import { isAiAuditConcur } from "@/lib/server/analysis-lab/lab-contract";
 import type { AuditSourceAiReview } from "./audit-store";
 
 export type DispatchCollectTarget = "audit_file" | "overlay";

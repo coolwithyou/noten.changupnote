@@ -22,7 +22,7 @@ import type {
   LabReview,
   LabRun,
   LabUsage,
-} from "@/features/dev/analysis-lab/contract";
+} from "@/lib/server/analysis-lab/lab-contract";
 import type { AnthropicToolCallResult, AnthropicToolSchema } from "./ai-review";
 import { DIMENSION_LABELS } from "./diff";
 import { CONFIRMATION_PROMPT_RULES, CONFIRMATION_TOOL_SCHEMA, normalizeConfirmation } from "./extractor";

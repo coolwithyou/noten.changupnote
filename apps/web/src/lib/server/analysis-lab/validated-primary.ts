@@ -4,7 +4,7 @@ import type {
   LabPrimaryPassDiagnostic,
   LabPrimaryPassIssue,
   LabPrimaryRepairProvenance,
-} from "@/features/dev/analysis-lab/contract";
+} from "@/lib/server/analysis-lab/lab-contract";
 import { repairDeepAnalysisExecution } from "@/lib/server/deep-analysis/repair";
 import { runDeepGrantAnalysis } from "@/lib/server/deep-analysis/extractor";
 import { sealDeepAnalysisInput } from "@/lib/server/deep-analysis/inputManifest";

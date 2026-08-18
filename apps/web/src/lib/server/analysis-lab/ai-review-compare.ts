@@ -12,7 +12,7 @@ import type {
   LabCriterionVerdict,
   LabEmptyAxisVerdict,
   LabMissedConditionImpact,
-} from "@/features/dev/analysis-lab/contract";
+} from "@/lib/server/analysis-lab/lab-contract";
 import { seededRandom } from "./cohort-file";
 
 /** AI 검수기의 criterion 1건 판정 — LabCriterionReview 와 같은 어휘(검수 시트 계약 공유). */

@@ -19,7 +19,7 @@ import {
   ANALYSIS_LAB_GATES as GATES,
   type LabReview,
   type LabRun,
-} from "@/features/dev/analysis-lab/contract";
+} from "@/lib/server/analysis-lab/lab-contract";
 import {
   loadAuditedConfirmedReviews,
   type AuditedReviewProvenance,
@@ -298,7 +298,7 @@ async function main() {
     auditBreakdown;
   const pendingLine =
     audited.pending.length > 0
-      ? `[안내] 감사 대기 ${audited.pending.length}건 — 게이트 표본 제외(감사 완료 시 편입). 감사 시트: /dev/analysis-lab 런 상세 "감사" 탭.`
+      ? `[안내] 감사 대기 ${audited.pending.length}건 — 게이트 표본 제외(감사 완료 시 편입). 감사 artifact를 확인하세요.`
       : null;
 
   if (reviewed.length + auditedConfirmed.length === 0) {

@@ -4,7 +4,7 @@ import * as CFB from "cfb";
 import type {
   RoundtripChoiceGroup,
   RoundtripChoiceSelectionMode,
-} from "@/features/dev/analysis-lab/application-roundtrip-contract";
+} from "@/lib/server/analysis-lab/application-roundtrip/contract";
 import { normalizeRoundtripLabel } from "./core";
 import { replaceOleStream } from "./ole-stream";
 

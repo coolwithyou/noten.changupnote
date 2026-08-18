@@ -27,7 +27,7 @@ import type {
   LabConfirmationReusable,
   LabReview,
   LabRun,
-} from "@/features/dev/analysis-lab/contract";
+} from "@/lib/server/analysis-lab/lab-contract";
 import type { AiCriterionReviewSnapshot } from "./criterion-resolution";
 import type { HumanReviewOverlay } from "./human-review-overlay";
 import {

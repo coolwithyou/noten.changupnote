@@ -2,7 +2,7 @@ import { and, desc, eq } from "drizzle-orm";
 import {
   APPLICATION_ROUNDTRIP_VERSION,
   type RoundtripFailureCode,
-} from "@/features/dev/analysis-lab/application-roundtrip-contract";
+} from "@/lib/server/analysis-lab/application-roundtrip/contract";
 import { getCunoteDb, type CunoteDbSession } from "../db/client";
 import * as schema from "../db/schema";
 import { FIELD_CANDIDATES_ARTIFACT_KIND } from "./fieldCandidateStore";

@@ -4,7 +4,7 @@ import {
   DEEP_ANALYSIS_MODEL_POLICY_VERSION,
 } from "@cunote/contracts";
 import { and, desc, eq } from "drizzle-orm";
-import { AI_REVIEW_ADOPTED, type LabRun } from "@/features/dev/analysis-lab/contract";
+import { AI_REVIEW_ADOPTED, type LabRun } from "@/lib/server/analysis-lab/lab-contract";
 import { labAuditFilePath } from "./audit-store";
 import { isLabAuditCompleteForRun } from "./audited-reviews";
 import {

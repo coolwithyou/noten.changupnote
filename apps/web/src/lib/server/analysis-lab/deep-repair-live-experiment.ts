@@ -3,8 +3,8 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import {
   ANALYSIS_LAB_PROMPT_VERSION,
   type LabRun,
-} from "@/features/dev/analysis-lab/contract";
-import { ANALYSIS_QUALITY_POLICY_VERSION } from "@/features/dev/analysis-lab/quality-contract";
+} from "@/lib/server/analysis-lab/lab-contract";
+import { ANALYSIS_QUALITY_POLICY_VERSION } from "@/lib/server/analysis-lab/quality-contract";
 import {
   createDeepRepairExperimentPlan,
   replayDeepRepairExperiment,

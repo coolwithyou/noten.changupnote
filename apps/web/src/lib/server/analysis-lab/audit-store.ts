@@ -27,7 +27,7 @@ import {
   type LabEmptyAxisVerdict,
   type LabMissedConditionImpact,
   type LabRun,
-} from "@/features/dev/analysis-lab/contract";
+} from "@/lib/server/analysis-lab/lab-contract";
 import {
   AUDIT_SAMPLE_RATIO,
   AUDIT_SEED,

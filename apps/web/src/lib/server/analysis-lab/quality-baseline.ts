@@ -3,7 +3,7 @@ import type {
   AnalysisQualityNodeId,
   AnalysisQualityReport,
   AnalysisQualityStatus,
-} from "@/features/dev/analysis-lab/quality-contract";
+} from "@/lib/server/analysis-lab/quality-contract";
 
 const READINESS_RANK: Record<AnalysisQualityStatus, number> = {
   failed: 0,

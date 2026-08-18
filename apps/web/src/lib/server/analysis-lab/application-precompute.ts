@@ -1,8 +1,8 @@
 import type {
   ApplicationRoundtripRun,
   RoundtripParsedDocument,
-} from "@/features/dev/analysis-lab/application-roundtrip-contract";
-import type { LabApplicationRoundtripReference } from "@/features/dev/analysis-lab/contract";
+} from "@/lib/server/analysis-lab/application-roundtrip/contract";
+import type { LabApplicationRoundtripReference } from "@/lib/server/analysis-lab/lab-contract";
 
 export type SettledTask<T> =
   | { status: "fulfilled"; value: T }

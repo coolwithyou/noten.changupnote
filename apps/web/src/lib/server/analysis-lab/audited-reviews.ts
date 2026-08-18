@@ -24,7 +24,7 @@ import {
   type LabEmptyAxisVerdict,
   type LabReview,
   type LabRun,
-} from "@/features/dev/analysis-lab/contract";
+} from "@/lib/server/analysis-lab/lab-contract";
 import {
   collectAiReviewsForAudit,
   readLabAuditFileAt,

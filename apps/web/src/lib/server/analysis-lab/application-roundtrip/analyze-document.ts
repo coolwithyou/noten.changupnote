@@ -4,7 +4,7 @@ import type {
   RoundtripFieldPlanningSummary,
   RoundtripLlmTransport,
   RoundtripParsedDocument,
-} from "@/features/dev/analysis-lab/application-roundtrip-contract";
+} from "@/lib/server/analysis-lab/application-roundtrip/contract";
 import {
   classifyRoundtripDocument,
   extractLocatedRoundtripFields,

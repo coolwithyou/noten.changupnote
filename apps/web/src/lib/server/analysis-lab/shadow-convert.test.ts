@@ -8,7 +8,7 @@ import type {
   LabCriterion,
   LabReview,
   LabRun,
-} from "@/features/dev/analysis-lab/contract";
+} from "@/lib/server/analysis-lab/lab-contract";
 import {
   ANALYSIS_LAB_SHADOW_PARSER_VERSION,
   ANALYSIS_LAB_SHADOW_SOURCE_FIELD,

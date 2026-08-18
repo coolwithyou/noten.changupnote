@@ -7,7 +7,7 @@ import type {
   LabCurrentCriterion,
   LabDimensionDiff,
   LabDimensionVerdict,
-} from "@/features/dev/analysis-lab/contract";
+} from "@/lib/server/analysis-lab/lab-contract";
 
 /**
  * 축 한국어 라벨 — packages/core/src/matching/match.ts 의 labelFor(비export)를 복제(dev 전용 허용).

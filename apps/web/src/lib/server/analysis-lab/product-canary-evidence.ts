@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { AnalysisQualityDownstreamEvidence } from "@/features/dev/analysis-lab/quality-contract";
+import type { AnalysisQualityDownstreamEvidence } from "@/lib/server/analysis-lab/quality-contract";
 import { analysisLabDir } from "./run-store";
 
 export const PRODUCT_CANARY_EVIDENCE_SCHEMA = "analysis-lab-product-canary-v1" as const;

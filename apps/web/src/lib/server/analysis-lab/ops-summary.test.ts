@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ANALYSIS_LAB_PROMPT_VERSION } from "@/features/dev/analysis-lab/contract";
+import { ANALYSIS_LAB_PROMPT_VERSION } from "@/lib/server/analysis-lab/lab-contract";
 import { partitionCohortEntries } from "./batch-plan";
 import type { CohortEntry, CohortFileV2 } from "./cohort-file";
 import { buildLabOpsFunnel, scanLabRunsForOps, type LabOpsDbCounts } from "./ops-summary";

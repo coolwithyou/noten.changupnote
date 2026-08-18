@@ -5,7 +5,7 @@ import {
   APPLICATION_ROUNDTRIP_VERSION,
   type ApplicationRoundtripRun,
   type RoundtripFailureCode,
-} from "@/features/dev/analysis-lab/application-roundtrip-contract";
+} from "@/lib/server/analysis-lab/application-roundtrip/contract";
 import { analyzeRoundtripDocument } from "@/lib/server/analysis-lab/application-roundtrip/analyze-document";
 import { likelyApplicationRole } from "@/lib/server/analysis-lab/application-roundtrip/core";
 import { ROUNDTRIP_FIELD_CANDIDATE_LIMIT } from "@/lib/server/analysis-lab/application-roundtrip/field-planner";

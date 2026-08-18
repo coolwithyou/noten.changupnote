@@ -21,7 +21,7 @@ import { join } from "node:path";
 import {
   ANALYSIS_LAB_PROMPT_VERSION,
   type LabRun,
-} from "@/features/dev/analysis-lab/contract";
+} from "@/lib/server/analysis-lab/lab-contract";
 import {
   AI_REVIEW_PROMPT_VERSION,
   aiReviewFilePath,

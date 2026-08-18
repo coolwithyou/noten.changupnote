@@ -5,7 +5,7 @@ import {
   type DeepAnalysisCriterion,
   type DeepAnalysisModelResult,
 } from "@cunote/contracts";
-import type { LabRun } from "@/features/dev/analysis-lab/contract";
+import type { LabRun } from "@/lib/server/analysis-lab/lab-contract";
 import {
   runValidatedLabPrimary,
   ValidatedLabPrimaryError,

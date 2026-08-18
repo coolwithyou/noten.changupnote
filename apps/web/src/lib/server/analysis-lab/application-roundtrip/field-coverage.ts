@@ -2,7 +2,7 @@ import type {
   RoundtripFieldCandidate,
   RoundtripFieldCoverageIssue,
   RoundtripFieldCoverageSummary,
-} from "@/features/dev/analysis-lab/application-roundtrip-contract";
+} from "@/lib/server/analysis-lab/application-roundtrip/contract";
 
 const COLLAPSED_CONTEXT_LENGTH = 400;
 const GENERIC_CHOICE_LABEL = /^선택항목\d+$/;

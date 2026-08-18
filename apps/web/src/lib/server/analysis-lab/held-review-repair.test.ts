@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import type { LabReview, LabRun } from "@/features/dev/analysis-lab/contract";
+import type { LabReview, LabRun } from "@/lib/server/analysis-lab/lab-contract";
 import {
   buildHeldReviewRepairPlan,
   combineHeldReviewRepairPlans,

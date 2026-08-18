@@ -9,7 +9,7 @@ import { createHash } from "node:crypto";
 import { htmlToText } from "@cunote/core";
 import { stripYamlFrontmatter } from "@/lib/server/chat/grounding";
 import { createR2ObjectStorageFromEnv } from "@/lib/server/storage/r2ObjectStorage";
-import type { LabInputBlock } from "@/features/dev/analysis-lab/contract";
+import type { LabInputBlock } from "@/lib/server/analysis-lab/lab-contract";
 
 const DEFAULT_INPUT_CHAR_CAP = 120_000;
 

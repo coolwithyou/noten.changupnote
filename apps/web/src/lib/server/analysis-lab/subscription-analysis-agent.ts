@@ -12,8 +12,8 @@ import {
   AI_REVIEW_ADOPTED,
   ANALYSIS_LAB_PROMPT_VERSION,
   type LabRun,
-} from "@/features/dev/analysis-lab/contract";
-import type { AnalysisQualityGraph } from "@/features/dev/analysis-lab/quality-contract";
+} from "@/lib/server/analysis-lab/lab-contract";
+import type { AnalysisQualityGraph } from "@/lib/server/analysis-lab/quality-contract";
 import { partitionCohortEntries } from "./batch-plan";
 import {
   scanExistingRuns,

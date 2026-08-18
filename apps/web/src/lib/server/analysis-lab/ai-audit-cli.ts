@@ -14,7 +14,7 @@
 //   humanVerdict/note 는 절대 건드리지 않으며, 쓰기는 기존 감사 파일의 aiAudit* 필드
 //   병합뿐이다(파일 삭제·재생성 없음).
 import { join } from "node:path";
-import { AI_REVIEW_ADOPTED, isAiAuditConcur, type LabAudit, type LabRun } from "@/features/dev/analysis-lab/contract";
+import { AI_REVIEW_ADOPTED, isAiAuditConcur, type LabAudit, type LabRun } from "@/lib/server/analysis-lab/lab-contract";
 import { AI_AUDIT_PROMPT_VERSION, resolveAiAuditModel, runAiAudit, selectPendingAuditItems } from "./ai-audit";
 import { computeAiReviewCostUsd, modelSlug } from "./ai-review";
 import {

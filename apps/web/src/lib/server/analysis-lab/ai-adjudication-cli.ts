@@ -1,6 +1,6 @@
 // 정확한 run ID로 좁힌 충돌 항목만 Opus 구독 모델이 최종 판정한다.
 import { join } from "node:path";
-import { AI_REVIEW_ADOPTED, type LabAudit, type LabRun } from "@/features/dev/analysis-lab/contract";
+import { AI_REVIEW_ADOPTED, type LabAudit, type LabRun } from "@/lib/server/analysis-lab/lab-contract";
 import {
   AI_ADJUDICATION_DEFAULT_MODEL,
   AI_ADJUDICATION_PROMPT_VERSION,

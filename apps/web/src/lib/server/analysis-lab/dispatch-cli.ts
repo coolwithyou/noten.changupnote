@@ -2,7 +2,7 @@
 // 복구 재분석은 --grant-ids 와 --batch-key 를 함께 써 기존 주간 배치와 분리할 수 있다.
 import { readFile } from "node:fs/promises";
 import { eq, inArray } from "drizzle-orm";
-import { AI_REVIEW_ADOPTED } from "@/features/dev/analysis-lab/contract";
+import { AI_REVIEW_ADOPTED } from "@/lib/server/analysis-lab/lab-contract";
 import {
   collectAiReviewsForAudit,
   labAuditFilePath,

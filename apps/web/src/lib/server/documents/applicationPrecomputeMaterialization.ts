@@ -7,8 +7,8 @@ import {
   type ApplicationRoundtripRun,
   type RoundtripFieldType,
   type RoundtripParsedDocument,
-} from "@/features/dev/analysis-lab/application-roundtrip-contract";
-import type { LabRun } from "@/features/dev/analysis-lab/contract";
+} from "@/lib/server/analysis-lab/application-roundtrip/contract";
+import type { LabRun } from "@/lib/server/analysis-lab/lab-contract";
 import { readRoundtripRunArtifacts, type RoundtripRunManifest } from "../analysis-lab/application-roundtrip/store";
 import { readLabRun } from "../analysis-lab/run-store";
 import { type CunoteDb, type CunoteDbSession } from "../db/client";

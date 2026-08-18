@@ -19,8 +19,8 @@ import {
   type LabBatchPeriodSkippedEntry,
   type LabBatchSummary as LabBatchSummaryContract,
   type LabApplicationRoundtripReference,
-} from "@/features/dev/analysis-lab/contract";
-import { classifyNoticePeriod } from "@/features/dev/analysis-lab/notice-period";
+} from "@/lib/server/analysis-lab/lab-contract";
+import { classifyNoticePeriod } from "@/lib/server/analysis-lab/notice-period";
 import { assertApplicationRoundtripOptIn } from "./application-roundtrip-policy";
 import { partitionCohortEntries, type GrantRunState } from "./batch-plan";
 import {

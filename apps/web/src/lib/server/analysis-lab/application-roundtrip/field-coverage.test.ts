@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import type { RoundtripFieldCandidate } from "@/features/dev/analysis-lab/application-roundtrip-contract";
+import type { RoundtripFieldCandidate } from "@/lib/server/analysis-lab/application-roundtrip/contract";
 import { finalizeRoundtripFieldCoverage } from "./field-coverage";
 
 const accepted = field({ id: "company-intro", label: "회사소개*", required: true, recommendedInput: true });

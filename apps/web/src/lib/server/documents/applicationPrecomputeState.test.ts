@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { APPLICATION_ROUNDTRIP_VERSION } from "@/features/dev/analysis-lab/application-roundtrip-contract";
+import { APPLICATION_ROUNDTRIP_VERSION } from "@/lib/server/analysis-lab/application-roundtrip/contract";
 import {
   APPLICATION_PRECOMPUTE_ENGINE,
   APPLICATION_PRECOMPUTE_VERSION_PREFIX,

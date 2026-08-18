@@ -3,8 +3,8 @@ import {
   APPLICATION_ROUNDTRIP_VERSION,
   type ApplicationRoundtripRun,
   type RoundtripParsedDocument,
-} from "@/features/dev/analysis-lab/application-roundtrip-contract";
-import type { LabRun } from "@/features/dev/analysis-lab/contract";
+} from "@/lib/server/analysis-lab/application-roundtrip/contract";
+import type { LabRun } from "@/lib/server/analysis-lab/lab-contract";
 import type { RoundtripRunManifest } from "../analysis-lab/application-roundtrip/store";
 import {
   applicationPrecomputeAnalysisVersion,

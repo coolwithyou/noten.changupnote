@@ -14,7 +14,7 @@ import type {
   RoundtripFieldCandidate,
   RoundtripFieldVerification,
   RoundtripFillResult,
-} from "@/features/dev/analysis-lab/application-roundtrip-contract";
+} from "@/lib/server/analysis-lab/application-roundtrip/contract";
 import { createR2ObjectStorageFromEnv } from "@/lib/server/storage/r2ObjectStorage";
 import { sanitizeDownloadFilename } from "@/lib/server/documents/downloadHeaders";
 import {
@@ -238,11 +238,6 @@ export async function fillApplicationRoundtrip(input: {
     warnings.push(`HWP 줄 배치 캐시 ${hwpIntegrity!.repairedLineSegmentParagraphs}개 문단 자동 보정`);
   }
 
-  const downloadParams = new URLSearchParams({
-    grantId: input.grantId,
-    runId: input.runId,
-    fillId,
-  });
   const result: RoundtripFillResult = {
     fillId,
     runId: input.runId,
@@ -269,7 +264,7 @@ export async function fillApplicationRoundtrip(input: {
     fieldVerifications,
     choiceVerifications,
     warnings,
-    downloadUrl: `/api/dev/analysis-lab/application-roundtrip/download?${downloadParams.toString()}`,
+    artifactPath: `fills/${fillId}/filled.${extension}`,
   };
   await saveRoundtripFill({
     runDir: artifacts.dir,

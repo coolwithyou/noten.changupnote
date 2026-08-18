@@ -4,7 +4,7 @@ import type {
   LabCriterion,
   LabReview,
   LabRun,
-} from "@/features/dev/analysis-lab/contract";
+} from "@/lib/server/analysis-lab/lab-contract";
 import {
   criterionNeedsReview,
   publishesConfirmationQuestion,

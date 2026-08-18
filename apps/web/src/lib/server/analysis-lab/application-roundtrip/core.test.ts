@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { VERSION } from "kordoc";
-import type { RoundtripFieldCandidate } from "@/features/dev/analysis-lab/application-roundtrip-contract";
+import type { RoundtripFieldCandidate } from "@/lib/server/analysis-lab/application-roundtrip/contract";
 import {
   buildRoundtripFillValues,
   classifyRoundtripDocument,

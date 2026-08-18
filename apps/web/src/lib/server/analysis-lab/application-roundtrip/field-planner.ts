@@ -4,7 +4,7 @@ import type {
   RoundtripFieldInputKind,
   RoundtripFieldPlanningSummary,
   RoundtripLlmTransport,
-} from "@/features/dev/analysis-lab/application-roundtrip-contract";
+} from "@/lib/server/analysis-lab/application-roundtrip/contract";
 import { priceDeepAnalysisUsage } from "@/lib/server/deep-analysis/costPolicy";
 import {
   EXECUTION_TIMEOUT_HEADER,

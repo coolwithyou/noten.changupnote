@@ -4,7 +4,7 @@
 // ③ round 0 저효율의 거절 수락 임계 0.85(경계 구간은 uncertain → 재판정에서 회복)
 // ④ effort 미설정이면 현행과 100% 동일 동작
 import assert from "node:assert/strict";
-import type { RoundtripFieldCandidate } from "@/features/dev/analysis-lab/application-roundtrip-contract";
+import type { RoundtripFieldCandidate } from "@/lib/server/analysis-lab/application-roundtrip/contract";
 import {
   planRoundtripFields,
   resolveRoundtripEffort,

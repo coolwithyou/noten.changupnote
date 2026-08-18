@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -118,22 +118,18 @@ assertAdmissionBeforeMutation({
   filename: "./smoke.ts",
   mutationNeedle: "loadLabCohort({",
 });
-assertAdmissionBeforeMutation({
-  filename: "../../../app/api/dev/analysis-lab/application-roundtrip/analyze/route.ts",
-  mutationNeedle: "runWithLocalSubscriptionLeaseHeartbeat({",
-});
-assertAdmissionBeforeMutation({
-  filename: "../../../app/api/dev/analysis-lab/analyze/route.ts",
-  mutationNeedle: "runWithLocalSubscriptionLeaseHeartbeat({",
-});
-assertAdmissionBeforeMutation({
-  filename: "../../../app/api/dev/analysis-lab/ops/batch/route.ts",
-  mutationNeedle: "startLabBatchJob(parsed",
-});
-assertAdmissionBeforeMutation({
-  filename: "../../../app/api/dev/analysis-lab/ops/runtime-control/route.ts",
-  mutationNeedle: "const db = getCunoteDb();",
-});
+for (const removedRoute of [
+  "../../../app/api/dev/analysis-lab/application-roundtrip/analyze/route.ts",
+  "../../../app/api/dev/analysis-lab/analyze/route.ts",
+  "../../../app/api/dev/analysis-lab/ops/batch/route.ts",
+  "../../../app/api/dev/analysis-lab/ops/runtime-control/route.ts",
+]) {
+  assert.equal(
+    existsSync(new URL(removedRoute, import.meta.url)),
+    false,
+    `${removedRoute}: legacy dev live entrypoint를 다시 만들면 안 된다`,
+  );
+}
 
 const cohortSource = cliSource("./cohort.ts");
 const freezeStart = cohortSource.indexOf("export async function freezeLabCohortSnapshot(");

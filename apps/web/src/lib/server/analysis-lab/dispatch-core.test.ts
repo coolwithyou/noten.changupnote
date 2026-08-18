@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import type { LabAudit, LabRun } from "@/features/dev/analysis-lab/contract";
+import type { LabAudit, LabRun } from "@/lib/server/analysis-lab/lab-contract";
 import {
   assignDispatchCandidates,
   buildDispatchCandidateItems,

@@ -6,7 +6,7 @@ import type {
   RoundtripFieldInputKind,
   RoundtripFieldType,
   RoundtripRoleScores,
-} from "@/features/dev/analysis-lab/application-roundtrip-contract";
+} from "@/lib/server/analysis-lab/application-roundtrip/contract";
 
 const APPLICATION_FILENAME = /(신청서|지원서|참가신청|입주신청|등록신청|신청양식|제출서류)/i;
 const PLAN_FILENAME = /(사업\s*계획서|수행\s*계획서|제안서|발표자료|사업계획)/i;

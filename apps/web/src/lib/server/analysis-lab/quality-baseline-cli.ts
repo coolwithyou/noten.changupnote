@@ -1,6 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import type { AnalysisQualityReport } from "@/features/dev/analysis-lab/quality-contract";
+import type { AnalysisQualityReport } from "@/lib/server/analysis-lab/quality-contract";
 import {
   compareAnalysisQualityBaselines,
   formatAnalysisQualityComparison,

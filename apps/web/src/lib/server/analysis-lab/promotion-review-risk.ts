@@ -2,7 +2,7 @@ import type {
   LabCriterionVerdict,
   LabReview,
   LabRun,
-} from "@/features/dev/analysis-lab/contract";
+} from "@/lib/server/analysis-lab/lab-contract";
 
 export const PROMOTION_REVIEW_RISK_SCHEMA = "promotion-review-risk-v1" as const;
 

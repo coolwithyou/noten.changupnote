@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { AI_REVIEW_ADOPTED } from "@/features/dev/analysis-lab/contract";
+import { AI_REVIEW_ADOPTED } from "@/lib/server/analysis-lab/lab-contract";
 import { getLabBatchJobSnapshot } from "./batch-job";
 import { loadAuditedConfirmedReviews } from "./audited-reviews";
 import { runLabAnalysis } from "./analyze";

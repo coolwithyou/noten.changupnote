@@ -3,7 +3,7 @@ import {
   APPLICATION_ROUNDTRIP_VERSION,
   type ApplicationRoundtripRun,
   type RoundtripLlmTransport,
-} from "@/features/dev/analysis-lab/application-roundtrip-contract";
+} from "@/lib/server/analysis-lab/application-roundtrip/contract";
 import { declaredRoundtripFormat } from "./core";
 import { resolveRoundtripEffort } from "./field-planner";
 import {

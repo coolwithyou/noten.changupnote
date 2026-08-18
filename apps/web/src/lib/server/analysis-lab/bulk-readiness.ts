@@ -1,8 +1,8 @@
 import { randomBytes } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { AnalysisQualityGraph } from "@/features/dev/analysis-lab/quality-contract";
-import type { LabBatchJobSnapshot, LabRun } from "@/features/dev/analysis-lab/contract";
+import type { AnalysisQualityGraph } from "@/lib/server/analysis-lab/quality-contract";
+import type { LabBatchJobSnapshot, LabRun } from "@/lib/server/analysis-lab/lab-contract";
 import { analysisLabDir } from "./run-store";
 import { isPublishableLabRun } from "./run-outcome";
 

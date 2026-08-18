@@ -25,7 +25,7 @@ import {
   ANALYSIS_LAB_MAX_BATCH_CONCURRENCY,
   ANALYSIS_LAB_PROMPT_VERSION,
   type LabBatchJobSnapshot,
-} from "@/features/dev/analysis-lab/contract";
+} from "@/lib/server/analysis-lab/lab-contract";
 import { loadAnalysisLabEnv } from "../loadMonorepoEnv";
 import { applyLabBatchEvent, labBatchJobFilePath } from "./batch-job";
 import { partitionCohortEntries } from "./batch-plan";
@@ -160,7 +160,7 @@ function parseOptions(transport: LabBatchTransport): BatchOptions | string {
 
 function printCohortMissing(path = cohortFilePath()): void {
   console.error(`[batch] 코호트 파일이 없거나 형식이 깨졌습니다: ${path}`);
-  console.error("[batch] 실험실 UI(/dev/analysis-lab) 또는 코호트 선정 CLI로 코호트를 먼저 생성해주세요.");
+  console.error("[batch] 코호트 선정 CLI로 코호트를 먼저 생성해주세요.");
 }
 
 /** dry-run(래퍼 자체 계산)과 실행 경로(plan 이벤트)가 공유하는 계획 표시 값. */

@@ -18,7 +18,7 @@ import {
   type AuditedAiReviewInput,
 } from "./audited-reviews";
 import { assessPromotionReviewRisk } from "./promotion-review-risk";
-import type { LabAudit, LabAuditItem, LabRun } from "@/features/dev/analysis-lab/contract";
+import type { LabAudit, LabAuditItem, LabRun } from "@/lib/server/analysis-lab/lab-contract";
 
 // ── 픽스처 — ai-review-compare.test.ts 의 감사 표본 픽스처와 같은 구조 ─────────────
 function auditPoolFixture(): AiReviewForAudit[] {

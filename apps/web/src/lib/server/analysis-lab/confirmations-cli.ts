@@ -13,7 +13,7 @@
 //   건드리지 않으며, 쓰기는 사이드카 <runId>.confirmations.json 생성뿐이다.
 import { existsSync } from "node:fs";
 import { pathToFileURL } from "node:url";
-import { AI_REVIEW_ADOPTED, type LabReview, type LabRun } from "@/features/dev/analysis-lab/contract";
+import { AI_REVIEW_ADOPTED, type LabReview, type LabRun } from "@/lib/server/analysis-lab/lab-contract";
 import { callAnthropicToolModel, computeAiReviewCostUsd, reassembleLabInputForRun } from "./ai-review";
 import {
   isClaudeCliWindowExhaustedError,

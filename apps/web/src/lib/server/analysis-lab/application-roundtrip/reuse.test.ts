@@ -6,7 +6,7 @@ import { VERSION } from "kordoc";
 import {
   APPLICATION_ROUNDTRIP_VERSION,
   type ApplicationRoundtripRun,
-} from "@/features/dev/analysis-lab/application-roundtrip-contract";
+} from "@/lib/server/analysis-lab/application-roundtrip/contract";
 import { buildApplicationRoundtripReference } from "../application-precompute";
 import { assertReusableApplicationRoundtrip, prepareApplicationRoundtripReuse } from "./reuse";
 import {

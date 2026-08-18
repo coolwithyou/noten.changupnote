@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { readdir, readFile } from "node:fs/promises";
 import { basename, join, relative, resolve } from "node:path";
 import { and, eq, inArray } from "drizzle-orm";
-import type { LabRun } from "@/features/dev/analysis-lab/contract";
+import type { LabRun } from "@/lib/server/analysis-lab/lab-contract";
 import { getCunoteDb } from "../db/client";
 import * as schema from "../db/schema";
 import { prepareDeepAnalysisInput } from "../deep-analysis/prepareInput";

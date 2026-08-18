@@ -14,7 +14,7 @@ import { join } from "node:path";
 import type {
   LabBatchJobSnapshot,
   LabBatchStartRequest,
-} from "@/features/dev/analysis-lab/contract";
+} from "@/lib/server/analysis-lab/lab-contract";
 import {
   LabBatchJobBusyError,
   applyLabBatchEvent,

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import { ANALYSIS_QUALITY_POLICY_VERSION, type AnalysisQualityGraph } from "@/features/dev/analysis-lab/quality-contract";
-import type { LabBatchEvent, LabBatchJobSnapshot, LabRun } from "@/features/dev/analysis-lab/contract";
+import { ANALYSIS_QUALITY_POLICY_VERSION, type AnalysisQualityGraph } from "@/lib/server/analysis-lab/quality-contract";
+import type { LabBatchEvent, LabBatchJobSnapshot, LabRun } from "@/lib/server/analysis-lab/lab-contract";
 import { evaluateAnalysisBulkReadiness } from "./bulk-readiness";
 
 function snapshot(state: LabBatchJobSnapshot["state"] = "finished"): LabBatchJobSnapshot {

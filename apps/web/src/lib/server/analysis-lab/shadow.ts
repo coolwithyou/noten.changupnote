@@ -21,7 +21,7 @@ import {
   AI_REVIEW_ADOPTED,
   type LabReview,
   type LabRun,
-} from "@/features/dev/analysis-lab/contract";
+} from "@/lib/server/analysis-lab/lab-contract";
 import { loadAuditedConfirmedReviews } from "./audited-reviews";
 import { getCunoteDb } from "../db/client";
 import * as schema from "../db/schema";

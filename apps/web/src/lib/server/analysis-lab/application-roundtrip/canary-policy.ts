@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import type {
   ApplicationRoundtripRun,
   RoundtripFailureCode,
-} from "@/features/dev/analysis-lab/application-roundtrip-contract";
+} from "@/lib/server/analysis-lab/application-roundtrip/contract";
 import {
   classifyApplicationRoundtripCanaryExecution,
   type ApplicationRoundtripCanaryCohortVerdict,

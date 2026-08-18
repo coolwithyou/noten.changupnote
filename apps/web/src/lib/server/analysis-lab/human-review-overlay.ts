@@ -9,7 +9,7 @@ import type {
 import type {
   LabCriterionVerdict,
   LabEmptyAxisVerdict,
-} from "@/features/dev/analysis-lab/contract";
+} from "@/lib/server/analysis-lab/lab-contract";
 import { analysisLabDir, modelSlug } from "./run-store";
 
 export const HUMAN_REVIEW_OVERLAY_SCHEMA = "human-review-overlay-v1" as const;

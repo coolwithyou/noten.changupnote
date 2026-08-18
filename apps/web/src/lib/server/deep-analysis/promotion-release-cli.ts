@@ -12,7 +12,7 @@ import {
   type DeepAnalysisStageKey,
 } from "@cunote/contracts";
 import { and, desc, eq, inArray } from "drizzle-orm";
-import type { LabCurrentCriterion } from "@/features/dev/analysis-lab/contract";
+import type { LabCurrentCriterion } from "@/lib/server/analysis-lab/lab-contract";
 import { getCunoteDb } from "../db/client";
 import * as schema from "../db/schema";
 import { loadMonorepoEnv } from "../loadMonorepoEnv";

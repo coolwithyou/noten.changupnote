@@ -11,7 +11,7 @@ import {
   type LabRun,
   type LabRunAuditSummary,
   type LabRunSummary,
-} from "@/features/dev/analysis-lab/contract";
+} from "@/lib/server/analysis-lab/lab-contract";
 import { classifyLabRunOutcome, isPublishableLabRun, isTerminalLabRun } from "./run-outcome";
 
 /** process.cwd() 에서 위로 pnpm-workspace.yaml 을 탐색해 모노레포 루트를 찾는다. */

@@ -15,7 +15,7 @@ import type {
   LabCriterionConfirmation,
   LabReview,
   LabRun,
-} from "@/features/dev/analysis-lab/contract";
+} from "@/lib/server/analysis-lab/lab-contract";
 import { partitionCohortEntries, type GrantRunState } from "./batch-plan";
 import { runConfirmationTaskPool } from "./confirmations-cli";
 import {

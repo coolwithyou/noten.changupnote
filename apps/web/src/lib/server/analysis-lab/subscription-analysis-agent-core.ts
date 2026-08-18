@@ -1,7 +1,7 @@
 import type {
   AnalysisQualityGraph,
   AnalysisQualityStatus,
-} from "@/features/dev/analysis-lab/quality-contract";
+} from "@/lib/server/analysis-lab/quality-contract";
 import type { LabRunOutcome } from "./run-outcome";
 
 export const SUBSCRIPTION_ANALYSIS_AGENT_VERSION = "subscription-analysis-agent-v1";

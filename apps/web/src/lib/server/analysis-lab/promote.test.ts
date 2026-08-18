@@ -13,7 +13,7 @@ import type {
   LabCriterionConfirmation,
   LabReview,
   LabRun,
-} from "@/features/dev/analysis-lab/contract";
+} from "@/lib/server/analysis-lab/lab-contract";
 import { LAB_CONFIRMATIONS_SCHEMA, type LabConfirmationsFile } from "./confirmations";
 import {
   applyPublishGuards,

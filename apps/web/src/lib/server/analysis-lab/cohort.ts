@@ -35,8 +35,8 @@ import {
   type LabAttachment,
   type LabCohortResponse,
   type LabNoticeSummary,
-} from "@/features/dev/analysis-lab/contract";
-import { kstDayStartUtc } from "@/features/dev/analysis-lab/notice-period";
+} from "@/lib/server/analysis-lab/lab-contract";
+import { kstDayStartUtc } from "@/lib/server/analysis-lab/notice-period";
 import {
   PILOT_STRATUM,
   cohortSnapshotFilePath,

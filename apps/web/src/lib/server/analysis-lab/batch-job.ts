@@ -28,7 +28,7 @@ import type {
   LabBatchJobSnapshot,
   LabBatchStartRequest,
   LabBatchSummary,
-} from "@/features/dev/analysis-lab/contract";
+} from "@/lib/server/analysis-lab/lab-contract";
 import { assertApplicationRoundtripOptIn } from "./application-roundtrip-policy";
 import { assertAnalysisLabLiveExecutionAdmitted } from "./analysis-execution-admission";
 import { runLabBatch, type LabBatchRunnerOptions } from "./batch-runner";

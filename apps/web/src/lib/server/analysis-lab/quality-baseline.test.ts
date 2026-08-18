@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import type { AnalysisQualityGraph, AnalysisQualityReport, AnalysisQualityStatus } from "@/features/dev/analysis-lab/quality-contract";
-import { ANALYSIS_QUALITY_POLICY_VERSION, emptyQualityStatusCounts } from "@/features/dev/analysis-lab/quality-contract";
+import type { AnalysisQualityGraph, AnalysisQualityReport, AnalysisQualityStatus } from "@/lib/server/analysis-lab/quality-contract";
+import { ANALYSIS_QUALITY_POLICY_VERSION, emptyQualityStatusCounts } from "@/lib/server/analysis-lab/quality-contract";
 import { compareAnalysisQualityBaselines, formatAnalysisQualityReport } from "./quality-baseline";
 
 function graph(grantId: string, status: AnalysisQualityStatus): AnalysisQualityGraph {

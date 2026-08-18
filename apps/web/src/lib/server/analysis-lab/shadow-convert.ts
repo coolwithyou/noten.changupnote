@@ -18,7 +18,7 @@ import {
   nonMatchingCriterionReason,
   normalizeGrantLlmCriteria,
 } from "@cunote/core";
-import type { LabCriterion, LabReview, LabRun } from "@/features/dev/analysis-lab/contract";
+import type { LabCriterion, LabReview, LabRun } from "@/lib/server/analysis-lab/lab-contract";
 
 export const ANALYSIS_LAB_SHADOW_SOURCE_PREFIX = "lab-shadow";
 export const ANALYSIS_LAB_SHADOW_PARSER_VERSION = "analysis-lab-shadow-v2";

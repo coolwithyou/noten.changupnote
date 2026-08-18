@@ -12,7 +12,7 @@
 // 안내·경고 문구는 aggregate 의 기존 출력과 동일해야 한다(리팩토링 무변경 계약).
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { LabReview, LabRun } from "@/features/dev/analysis-lab/contract";
+import type { LabReview, LabRun } from "@/lib/server/analysis-lab/lab-contract";
 import { PILOT_STRATUM, type CohortFileV2, readCohortFileV2 } from "./cohort-file";
 import { analysisLabDir } from "./run-store";
 import { isPublishableLabRun } from "./run-outcome";

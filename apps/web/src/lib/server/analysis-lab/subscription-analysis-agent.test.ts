@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
-import type { LabRun } from "@/features/dev/analysis-lab/contract";
+import type { LabRun } from "@/lib/server/analysis-lab/lab-contract";
 import type {
   AnalysisQualityGraph,
   AnalysisQualityNode,
   AnalysisQualityStatus,
-} from "@/features/dev/analysis-lab/quality-contract";
+} from "@/lib/server/analysis-lab/quality-contract";
 import {
   buildInitialAgentCommands,
   buildRepairAgentCommands,

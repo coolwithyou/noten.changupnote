@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import type {
   RoundtripDocumentFormat,
   RoundtripDocumentRole,
-} from "@/features/dev/analysis-lab/application-roundtrip-contract";
+} from "@/lib/server/analysis-lab/application-roundtrip/contract";
 import {
   classifyRoundtripDocument,
   declaredRoundtripFormat,

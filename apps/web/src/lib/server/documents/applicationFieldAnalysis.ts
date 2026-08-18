@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { and, eq, like, sql } from "drizzle-orm";
 import type { DocumentFieldType } from "@cunote/contracts";
 import type { ReconciledField } from "@cunote/core";
-import type { RoundtripParsedDocument } from "@/features/dev/analysis-lab/application-roundtrip-contract";
+import type { RoundtripParsedDocument } from "@/lib/server/analysis-lab/application-roundtrip/contract";
 import type { CompanyAccess } from "../auth/companyGuard";
 import { getCunoteDb, type CunoteDbSession } from "../db/client";
 import * as schema from "../db/schema";
