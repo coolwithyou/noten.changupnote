@@ -110,7 +110,7 @@
   호출은 계속 정적 admission이 차단되고, 검증된 launch capability 안에서만 batch core가 열린다.
 - **로컬 실험실(analysis-lab)의 4레인 전부 구독 스위치를 따른다**: 추출(opus-5)·AI 검수(fable-5)·블라인드 감사(sonnet-5)·confirmations. `ANALYSIS_LAB_TRANSPORT=claude-cli` env가 스위치이고, 미설정이면 기존 API 경로(운영 무영향). 공용 transport는 매 실행 scope의 첫 모델 요청 전 `claude auth status --json`이 `claude.ai/firstParty/max`임을 증명하지 못하면 모델 착수 0회로 종료한다. 검수 레인 전환 근거는 `docs/research/2026-08-04-검수레인-구독전환-일치율-검증.md`(원문 대조 41:26 GO).
 - 현재 일반 허용 명령은 `lab:batch -- --dry-run`, `lab:agent` plan-only, `lab:experiment:test`,
-  `lab:experiment:prepare -- --series=deep-v23`, `lab:roundtrip:preflight`,
+  `lab:experiment:prepare -- --series=deep-v24`, `lab:roundtrip:preflight`,
   `lab:experiment:recover -- --inspect=<authority-sha256>`, `lab:launch:prepare` 같은 모델 무호출 경로다.
   `lab:launch:grant`는 사용자가 출력된 exact manifest 범위를 승인한 뒤 실행하고, 같은 grant의
   `lab:launch -- --retry-errors`는 동일 material binding의 실패 target 재시도이므로 새 승인을 요구하지 않는다.
@@ -129,6 +129,11 @@
   `bizinfo/medium`, `bizinfo/thin`, `kstartup/medium`, `kstartup/thin` 4층을 첫 15건의 필수
   커버리지로 둔다. thick 두 층은 새 비중복 재고가 유입되면 선택 가능한 optional 층이며, 이를 위해
   과거 target을 다시 편입하지 않는다. v1의 6층과 v2의 5층 의미는 변경하지 않는다.
+- **deep-v24 현행 지원 가능 공고 준비(2026-08-18)**: `deep-repair-strata-v3`와 전체 과거 이력 제외를
+  이어가되, 신규 후보는 DB에서 `status=open`, `serving_state=visible`, 현재 KST 날짜가 신청기간 안인
+  공고만 선택한다. proposal과 launch manifest를 봉인하기 직전·직후 exact 30건의 상태·신청기간·현재
+  input/attachment SHA를 다시 확인한다. 당일 마감 공고는 지원 가능 판정을 유지하되 별도로 표시하고,
+  live 모델 실행은 새 exact manifest에 대한 사용자 승인 뒤에만 시작한다.
 - `deep-v20`은 `deep-repair-strata-v2`를 사용한다. 2026-08-15 실측에서 현재 유효·비중복 후보 551건은 충분했지만 `kstartup/thick`은 과거 표본이 현행 재고 7건을 모두 소진했다. v2는 나머지 5층을 첫 15건의 필수 커버리지로 두고, `kstartup/thick`은 새 재고가 있을 때 포함 가능한 선택 층으로 유지한다. 과거 v1 계획의 6층 의미는 변경하지 않는다.
 - 2026-08-14 실제 사용된 `deep-v18` proposal은 `0da79215...`, plan은 `e150c42a...`였고 sequence 0~11이 exact receipt chain으로 종결됐다. 이 artifact는 과거 실행 증거이며 변경된 코드의 신규 live 권한으로 재사용하지 않는다.
 - 2026-08-15 `deep-v19` proposal `6d8eb80a...`, plan `63ee3bb8...`의 sequence 0~9를 순차 종결했다. 10건 모두 기록상 `claude-cli`였지만, 당시 자식 프로세스가 루트 `.env`의 `ANTHROPIC_API_KEY`를 상속한 결함이 있었으므로 이 필드만으로 Max 구독 과금을 증명할 수 없다. Anthropic Console 로그와 실행 시각이 일치한 Kordoc sequence 1은 API 과금 경로로 취급하고, 같은 pre-fix Adapter로 실행한 deep-v19·Kordoc 전체도 Billing 대조 전까지 API 과금 위험 범위로 본다. 이후 공용 transport에서 API credential·provider override를 자식 환경에서 제거했고, 첫 모델 요청 전 `claude.ai/firstParty/max` 인증을 증명하는 preflight를 회귀 테스트로 고정했다. publishable 9건의 Kordoc preflight는 ready 5·not_applicable 1·source_unavailable 3으로 분류했다. sequence 7은 receipt `2503e071...`, sequence 1은 receipt `dd5db646...`로 complete, sequence 3은 receipt `f1ddb830...`, sequence 6은 receipt `06ce82ce...`, sequence 0은 receipt `d47cb185...`로 partial 종결했다. sequence 1은 exact HWPX 2개·구조 필드 408개에서 추천 입력 180개, 미해결·구조 경고 0을 확보해 보정된 수렴 규칙의 실제 적용을 확인했다.

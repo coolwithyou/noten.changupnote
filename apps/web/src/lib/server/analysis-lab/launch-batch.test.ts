@@ -30,7 +30,7 @@ const GRANT_1 = "00000000-0000-4000-8000-000000000002";
 
 const manifest = createAnalysisLaunchManifest({
   inventory: {
-    seriesId: "deep-v23",
+    seriesId: "deep-v24",
     planSha256: SHA_A,
     planArtifactSha256: SHA_B,
     model: "claude-opus-5",
@@ -151,13 +151,13 @@ test("launch capability는 cohort target만 열고 target source drift는 그 ta
 
 test("launch CLI는 prepare/grant/run의 권한 단계를 분리한다", () => {
   assert.deepEqual(parseAnalysisLaunchCliArgs("prepare", [
-    "--series=deep-v23",
+    "--series=deep-v24",
     "--sequences=10-29",
     "--concurrency=2",
     "--with-kordoc",
   ]), {
     kind: "prepare",
-    seriesId: "deep-v23",
+    seriesId: "deep-v24",
     sequenceFrom: 10,
     sequenceTo: 29,
     concurrency: 2,

@@ -558,7 +558,7 @@ export async function listPeriodUnknownGrants(db: CunoteDb): Promise<PeriodUnkno
 // ── 층화 후보 재고 조회 (read-only, 전 재고) ──────────────────────
 
 /**
- * open 공고 전 재고를 층화 후보로 조립한다: 공고별 markdown 변환 첨부 최대 bytes(두께 티어),
+ * open·visible·현재 모집기간 공고 전 재고를 층화 후보로 조립한다: 공고별 markdown 변환 첨부 최대 bytes(두께 티어),
  * 통합공고 여부(제목 정규식), 현행 grant_criteria ≥3 여부. rankByBodyMarkdown 과 달리
  * 후보 풀을 자르지 않는다 — 층 배분·쿼터가 전 재고를 전제로 하기 때문(계획 §3).
  */
@@ -577,6 +577,7 @@ async function loadStratumCandidates(
     .where(
       and(
         eq(schema.grants.status, "open"),
+        eq(schema.grants.servingState, "visible"),
         inArray(schema.grants.source, [...LAB_SOURCES]),
         withinApplyPeriod(new Date()),
         excludeIds.length > 0 ? notInArray(schema.grants.id, excludeIds) : undefined,
