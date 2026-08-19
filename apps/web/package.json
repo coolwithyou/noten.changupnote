@@ -20,7 +20,7 @@
     "@base-ui/react": "^1.6.0",
     "@cunote/contracts": "workspace:*",
     "@cunote/core": "workspace:*",
-    "@rhwp/core": "^0.7.19",
+    "@rhwp/core": "0.8.4",
     "@rhwp/editor": "file:vendor/rhwp-editor-0.8.5.tgz",
     "ai": "7.0.19",
     "bcryptjs": "^3.0.3",

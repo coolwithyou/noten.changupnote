@@ -6,6 +6,8 @@ import { fileURLToPath } from "node:url";
 
 const EXPECTED_NAME = "@rhwp/editor";
 const EXPECTED_VERSION = "0.8.5";
+const EXPECTED_CORE_NAME = "@rhwp/core";
+const EXPECTED_CORE_VERSION = "0.8.4";
 const VENDOR_SPEC = "file:vendor/rhwp-editor-0.8.5.tgz";
 const VENDOR_SHA256 = "1c83c0fd0d6924b09c11f3fcdb184882aad563b5e3556674686ae4e22f366b12";
 
@@ -15,6 +17,17 @@ const vercelConfig = JSON.parse(readFileSync(join(repositoryRoot, "apps/web/verc
 const nextConfig = readFileSync(join(repositoryRoot, "apps/web/next.config.mjs"), "utf8");
 const lockfile = readFileSync(join(repositoryRoot, "pnpm-lock.yaml"), "utf8");
 const dependency = webPackage.dependencies?.[EXPECTED_NAME];
+const coreDependency = webPackage.dependencies?.[EXPECTED_CORE_NAME];
+
+assert(
+  coreDependency === EXPECTED_CORE_VERSION,
+  `${EXPECTED_CORE_NAME}는 Studio WASM과 같은 ${EXPECTED_CORE_VERSION}로 exact 고정해야 합니다.`,
+);
+assert(
+  lockfile.includes(`specifier: ${EXPECTED_CORE_VERSION}`)
+    && lockfile.includes(`'${EXPECTED_CORE_NAME}@${EXPECTED_CORE_VERSION}'`),
+  `${EXPECTED_CORE_NAME} ${EXPECTED_CORE_VERSION} lock이 없습니다.`,
+);
 
 assert(
   typeof vercelConfig.buildCommand === "string"
