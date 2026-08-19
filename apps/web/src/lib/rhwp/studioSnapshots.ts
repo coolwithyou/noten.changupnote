@@ -11,7 +11,16 @@ export interface PersistStudioSnapshotInput {
   baseRevisionId: string | null;
   documentEpoch: number;
   changeSeq: number;
-  origin: "studio_autosave" | "studio_manual";
+  origin:
+    | "studio_autosave"
+    | "studio_manual"
+    | "studio_agent_checkpoint"
+    | "studio_agent_apply"
+    | "studio_agent_undo";
+  checkpointRequestId?: string;
+  agentSuggestionId?: string;
+  agentOperation?: "apply" | "undo";
+  operationVersion?: number;
   materializedAnswers: Record<string, string>;
   verification?: Record<string, unknown>;
 }
@@ -43,6 +52,10 @@ export async function persistStudioSnapshot(
   form.set("documentEpoch", String(input.documentEpoch));
   form.set("changeSeq", String(input.changeSeq));
   form.set("origin", input.origin);
+  if (input.checkpointRequestId) form.set("checkpointRequestId", input.checkpointRequestId);
+  if (input.agentSuggestionId) form.set("agentSuggestionId", input.agentSuggestionId);
+  if (input.agentOperation) form.set("agentOperation", input.agentOperation);
+  if (input.operationVersion !== undefined) form.set("operationVersion", String(input.operationVersion));
   form.set("materializedAnswers", JSON.stringify(input.materializedAnswers));
   form.set("verification", JSON.stringify(input.verification ?? {}));
 

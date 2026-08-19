@@ -42,6 +42,7 @@ import {
   type ApplicationPrecomputeStatus,
   type SurfaceApplicationPrecomputeState,
 } from "./applicationPrecomputeState";
+import { resolveDocumentAgentAvailability } from "./documentAgentAvailability";
 
 /** 성능 저하 사다리(§4.4): (a) 완전 경험 · (b) 프리뷰+필드 분석 중 · (c) 채팅 전면 폴백. */
 export type WorkspaceLadder = "a" | "b" | "c";
@@ -75,6 +76,8 @@ export type WorkspaceExecution =
 export interface WorkspaceData {
   /** 저장 경계를 명시한다. preview 모드는 브라우저 메모리 외의 write를 허용하지 않는다. */
   execution: WorkspaceExecution;
+  /** 서버 flag + persistent write 권한이 모두 확인된 경우에만 true다. */
+  documentAgentAvailable: boolean;
   ladder: WorkspaceLadder;
   /** 선택된 문서(draftableDocument.documentKey). draftable 문서가 없으면 null. */
   activeDocumentKey: string | null;
@@ -145,6 +148,7 @@ export async function loadGrantWorkspaceData(input: {
     const initialDrafts = await initialDraftsPromise;
     return {
       execution: { mode: "persistent" },
+      documentAgentAvailable: false,
       ladder: "c",
       activeDocumentKey: null,
       documents,
@@ -262,6 +266,11 @@ export async function loadGrantWorkspaceData(input: {
 
   return {
     execution: { mode: "persistent" },
+    documentAgentAvailable: resolveDocumentAgentAvailability({
+      executionMode: "persistent",
+      role: access.role,
+      draftId,
+    }),
     ladder,
     activeDocumentKey: activeDocument.documentKey,
     documents,
@@ -358,6 +367,7 @@ async function loadReadOnlyGrantWorkspaceData(input: {
   if (draftable.length === 0) {
     return {
       execution,
+      documentAgentAvailable: false,
       ladder: "c",
       activeDocumentKey: null,
       documents,
@@ -426,6 +436,7 @@ async function loadReadOnlyGrantWorkspaceData(input: {
 
   return {
     execution,
+    documentAgentAvailable: false,
     ladder,
     activeDocumentKey: activeDocument.documentKey,
     documents,

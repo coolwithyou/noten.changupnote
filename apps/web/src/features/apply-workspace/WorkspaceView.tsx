@@ -619,11 +619,13 @@ export function WorkspaceView({
             transport={studioTransport}
             answers={answers}
             quickFields={quickFields}
+            connectedFields={data.connectedFields}
             manualAnchors={manualAnchors}
             duplicateLabels={duplicateSet}
             workingDocument={workingDocument}
             headMaterializedAnswers={data.headRevision?.materializedAnswers ?? EMPTY_MATERIALIZED_ANSWERS}
             activeTask={studioTasks.find((task) => task.fieldId === selectedFieldId) ?? null}
+            documentAgentAvailable={data.documentAgentAvailable}
             onSaved={handleStudioSaved}
           />
         </div>

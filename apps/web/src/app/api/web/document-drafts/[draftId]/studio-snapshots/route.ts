@@ -4,6 +4,7 @@ import { requireCompanyAccess } from "@/lib/server/auth/companyGuard";
 import { webActionError } from "@/lib/server/auth/webActionError";
 import {
   saveStudioSnapshot,
+  type StudioSnapshotOrigin,
   type StudioSnapshotSaveResult,
 } from "@/lib/server/documents/documentRevisions";
 import type { DraftSourceFormat } from "@/lib/server/documents/draftSourceFile";
@@ -27,7 +28,15 @@ export async function POST(request: Request, context: RouteContext) {
     const baseRevisionId = optionalText(form.get("baseRevisionId"));
     const documentEpoch = requireNonNegativeInteger(form.get("documentEpoch"), "documentEpoch");
     const changeSeq = requireNonNegativeInteger(form.get("changeSeq"), "changeSeq");
-    const origin = requireOrigin(form.get("origin"));
+    const agentOperation = optionalAgentOperation(form.get("agentOperation"));
+    const origin = agentOperation === "apply"
+      ? "studio_agent_apply"
+      : agentOperation === "undo"
+        ? "studio_agent_undo"
+        : requireOrigin(form.get("origin"));
+    const checkpointRequestId = optionalUuid(form.get("checkpointRequestId"), "checkpointRequestId");
+    const agentSuggestionId = optionalUuid(form.get("agentSuggestionId"), "agentSuggestionId");
+    const operationVersion = optionalNonNegativeInteger(form.get("operationVersion"), "operationVersion");
     const materializedAnswers = parseStringMap(form.get("materializedAnswers"), "materializedAnswers");
     const verification = parseVerification(form.get("verification"));
 
@@ -43,6 +52,10 @@ export async function POST(request: Request, context: RouteContext) {
       documentEpoch,
       changeSeq,
       origin,
+      checkpointRequestId,
+      agentSuggestionId,
+      agentOperation,
+      operationVersion,
       materializedAnswers,
       verification,
     });
@@ -72,8 +85,12 @@ function requireFormat(value: FormDataEntryValue | null): DraftSourceFormat {
   return value;
 }
 
-function requireOrigin(value: FormDataEntryValue | null): "studio_autosave" | "studio_manual" {
-  if (value !== "studio_autosave" && value !== "studio_manual") {
+function requireOrigin(value: FormDataEntryValue | null): StudioSnapshotOrigin {
+  if (
+    value !== "studio_autosave"
+    && value !== "studio_manual"
+    && value !== "studio_agent_checkpoint"
+  ) {
     throw new SnapshotRequestError(
       "snapshot_origin_invalid",
       "Studio 저장 유형이 올바르지 않습니다.",
@@ -82,6 +99,31 @@ function requireOrigin(value: FormDataEntryValue | null): "studio_autosave" | "s
     );
   }
   return value;
+}
+
+function optionalAgentOperation(value: FormDataEntryValue | null): "apply" | "undo" | null {
+  if (value === null || value === "") return null;
+  if (value === "apply" || value === "undo") return value;
+  throw new SnapshotRequestError(
+    "snapshot_agentOperation_invalid",
+    "agentOperation 값이 올바르지 않습니다.",
+    400,
+    "agentOperation",
+  );
+}
+
+function optionalUuid(value: FormDataEntryValue | null, field: string): string | null {
+  const parsed = optionalText(value);
+  if (parsed === null) return null;
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(parsed)) {
+    throw new SnapshotRequestError(
+      `snapshot_${field}_invalid`,
+      `${field} 값이 올바르지 않습니다.`,
+      400,
+      field,
+    );
+  }
+  return parsed;
 }
 
 function requireText(value: FormDataEntryValue | null, field: string): string {
@@ -111,6 +153,14 @@ function requireNonNegativeInteger(
     );
   }
   return parsed;
+}
+
+function optionalNonNegativeInteger(
+  value: FormDataEntryValue | null,
+  field: string,
+): number | null {
+  if (value === null || value === "") return null;
+  return requireNonNegativeInteger(value, field);
 }
 
 function parseVerification(value: FormDataEntryValue | null): Record<string, unknown> {

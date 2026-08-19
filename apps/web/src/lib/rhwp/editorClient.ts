@@ -5,6 +5,31 @@ import { exportVerifiedRhwpDocument, loadRhwp, type RhwpDocumentFormat } from ".
 export const RHWP_STUDIO_URL =
   process.env.NEXT_PUBLIC_RHWP_STUDIO_URL ?? "https://changupnote-rhwp-studio.vercel.app/";
 
+type RhwpEditorWithDocumentAgentLifecycle = RhwpEditor & {
+  loadFile(
+    bytes: Uint8Array,
+    filename: string,
+    options?: { suppressDialogs?: boolean },
+  ): ReturnType<RhwpEditor["loadFile"]>;
+  notifySaved?: () => Promise<void>;
+};
+
+/** 0.8.5 lifecycle 옵션은 구조 감지로 사용해 0.7.x flag-off 설치도 컴파일 가능하게 유지한다. */
+export function loadEditorFileWithoutDialogs(
+  editor: RhwpEditor,
+  bytes: Uint8Array,
+  filename: string,
+): ReturnType<RhwpEditor["loadFile"]> {
+  return (editor as RhwpEditorWithDocumentAgentLifecycle).loadFile(bytes, filename, {
+    suppressDialogs: true,
+  });
+}
+
+/** 최신 SDK에서는 recovery draft를 지우고, 구 SDK에서는 안전한 no-op이다. */
+export async function notifyEditorSaved(editor: RhwpEditor): Promise<void> {
+  await (editor as RhwpEditorWithDocumentAgentLifecycle).notifySaved?.call(editor);
+}
+
 /** Studio에서 내보낸 실제 바이트를 rhwp core로 다시 열어 페이지 수까지 검증한다. */
 export async function exportVerifiedEditorDocument(
   editor: RhwpEditor,

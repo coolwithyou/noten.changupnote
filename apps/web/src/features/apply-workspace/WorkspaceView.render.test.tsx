@@ -27,7 +27,8 @@ const router: AppRouterInstance = {
 };
 
 const data: WorkspaceData = {
-  execution: { mode: "persistent" },
+      execution: { mode: "persistent" },
+      documentAgentAvailable: false,
   ladder: "a",
   activeDocumentKey: "application_form::신청서::::0",
   documents: [{
