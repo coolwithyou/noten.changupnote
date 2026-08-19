@@ -1,4 +1,5 @@
 {
+  "buildCommand": "pnpm --filter @cunote/contracts build && pnpm --filter @cunote/core build && node scripts/copy-rhwp-wasm.mjs && pnpm exec next build",
   "regions": ["icn1"],
   "crons": [
     { "path": "/api/cron/ingest-kstartup", "schedule": "0 0,6 * * *" },
