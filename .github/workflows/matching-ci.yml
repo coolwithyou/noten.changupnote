@@ -49,6 +49,9 @@ jobs:
           pnpm verify:rls-policy
           pnpm verify:db-migrations
 
+      - name: Run document editor agent regression gates
+        run: pnpm test:document-agent
+
       - name: Run matching regression gates
         run: |
           pnpm test:matching-unit

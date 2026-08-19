@@ -9,14 +9,28 @@
 - 작성일: 2026-08-18
 - 기준 브랜치: `codex/document-editor-ai-agent`
 - 기준 커밋: `ed87aaee604cf75817addedbc4d175f1ce0ad958`
-- 상태: feature flag 기본 off 상태의 구현·자동 검증·실문서 browser gate 완료
+- 상태: 구현·자동 검증·실문서 browser gate·운영 DB migration·production 배포와 feature flag
+  enable 완료
 - 후속 실행 상태(2026-08-19): native command bridge, revision/agent persistence, 서버 제안 API,
   제안 Sheet와 적용/Undo 경로를 구현했다. 실제 HWP/HWPX에서 native apply/revert, 직접 입력,
   저장, 다운로드를 검증했다.
-- 외부 의존성 처리: upstream PR merge와 npm publish가 maintainer 권한 대기라 exact source commit
-  `104ed4da`의 `@rhwp/editor@0.8.5` tarball을 SHA-256과 함께 임시 vendoring한다. npm 게시 후에는
-  exact registry `0.8.5`로 교체한다.
-- 운영 DB migration은 적용·검증을 마쳤다. Cunote 배포와 feature flag enable은 승인된 후속 범위다.
+- 외부 의존성 처리: upstream PR #5569는 2026-08-19 merge commit `b0c0a083`으로 병합됐다.
+  npm `@rhwp/editor@0.8.5`는 아직 게시되지 않아 exact source commit `104ed4da`의 tarball을
+  SHA-256과 함께 임시 vendoring한다. 해당 editor package tree는 merge된 PR head와 동일하다.
+- 운영 상태: DB migration 74개와 RLS를 검증했고, Cunote main `02909ea`를 production에 배포했다.
+  `CUNOTE_DOCUMENT_AGENT_ENABLED=true`에서 루트 200, agent API의 enabled 분기와 HTTP 500 0건을
+  확인했다. 인증된 production browser UAT는 Cloudflare 자동화 차단 때문에 사람 검증 경계로 남는다.
+
+## 0. 현재 남은 작업 (2026-08-19)
+
+| 우선순위 | 작업 | 상태 | 완료 조건 |
+| --- | --- | --- | --- |
+| P0 | `@rhwp/editor@0.8.5` npm 게시 | upstream maintainer 대기 | `npm view @rhwp/editor@0.8.5 version`이 `0.8.5` 반환 |
+| P0 | vendored tarball을 registry exact version으로 교체 | npm 게시 전 blocked | package/lockfile을 `0.8.5`로 바꾸고 vendor 제거 후 document-agent test·typecheck·build 통과 |
+| P1 | 인증된 production 실제 draft UAT | 사람 검증 필요 | 허용된 브라우저에서 제안 생성·적용·Undo·저장·다운로드 확인 |
+
+`pnpm verify:rhwp-editor-dependency`는 현재 vendored tarball의 package identity, SHA-256, lockfile
+integrity를 검사하고, 향후 registry `0.8.5` 전환 뒤에는 vendor lock이 남지 않았는지 검사한다.
 
 ## 1. 결론
 
@@ -779,7 +793,7 @@ git diff --check
 - 빠른 작성, 수동 저장, autosave, 다운로드 회귀가 없다.
 - preview/flag off 환경에서 model call과 DB write가 0회다.
 - route policy, RLS, targeted/aggregate tests, typecheck, production build가 모두 통과한다.
-- feature flag는 기본 off다. 배포/enable은 수행하지 않는다.
+- 코드의 feature flag 기본값은 off다. production은 별도 승인으로 enable·배포·서버 스모크를 마쳤다.
 
 ## 14. 구현 중 판단 금지 목록
 
