@@ -2,7 +2,7 @@ import type { DraftFieldAnswers } from "@/lib/server/documents/fieldAnswers";
 import { answerKey } from "./fieldAnswerState";
 import type { DocumentAuthoringTask } from "./documentAuthoring";
 import { workspaceFieldState, type WorkspaceFieldState } from "./workspacePresentation";
-import type { StudioTableCellTextTargetV1 } from "@/lib/rhwp/studioDocumentAgentProtocol";
+import type { StudioFieldTargetV1 } from "@/lib/rhwp/studioDocumentAgentProtocol";
 
 export type FieldBindingStatus = "resolving" | "unique" | "missing" | "ambiguous";
 export type FieldAssistAvailability =
@@ -38,8 +38,12 @@ export interface FieldAwareDocumentSessionView {
 }
 
 /** 객체 identity가 아닌 strict 좌표로 Studio selection과 서버 확정 binding을 연결한다. */
-export function fieldSelectionTargetKey(target: StudioTableCellTextTargetV1): string {
+export function fieldSelectionTargetKey(target: StudioFieldTargetV1): string {
+  if (target.kind === "form_text") {
+    return [target.kind, target.section, target.paragraph, target.fieldId].join(":");
+  }
   return [
+    target.kind,
     target.section,
     target.parentPara,
     target.controlIndex,

@@ -12,7 +12,6 @@ import type { ConnectedDocumentField } from "@/lib/server/documents/documentFiel
 import { buildChoiceCellReplacement } from "@/lib/documents/fieldOptions";
 import {
   resolveRhwpFieldAnchorsExact,
-  type RhwpExactFieldAnchorResolution,
   type RhwpFieldAnchor,
   type RhwpFieldDescriptor,
 } from "@/lib/rhwp/fieldAnchors";
@@ -47,8 +46,12 @@ import {
   resolveStudioFieldNavigationProtocol,
   resolveStudioFieldSelectionProtocol,
   type StudioFieldNavigationProtocol,
-  type StudioTableCellTextTargetV1,
+  type StudioFieldTargetV1,
 } from "@/lib/rhwp/studioDocumentAgentProtocol";
+import {
+  resolveStudioFieldBindings,
+  type StudioFieldBindingResolution,
+} from "@/lib/rhwp/studioFieldBindings";
 import {
   createStudioFieldAgentTransaction,
   StudioFieldAgentMutationVerificationError,
@@ -122,8 +125,8 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
   documentAgentAvailable?: boolean;
   fieldEditorAgentAvailable?: boolean;
   presentation?: "standalone" | "field_aware";
-  onFieldBindingsResolved?: (resolutions: readonly RhwpExactFieldAnchorResolution[]) => void;
-  onFieldSelectionChanged?: (target: StudioTableCellTextTargetV1 | null) => void;
+  onFieldBindingsResolved?: (resolutions: readonly StudioFieldBindingResolution[]) => void;
+  onFieldSelectionChanged?: (target: StudioFieldTargetV1 | null) => void;
   onSaved: (
     document: RhwpWorkingDocument,
     taskFieldId: string | null,
@@ -162,7 +165,7 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
   const agentTransactionRef = useRef<StudioCommandDocumentAgentTransaction | null>(null);
   const fieldAgentTransactionRef = useRef<StudioFieldAgentTransaction | null>(null);
   const fieldNavigationProtocolRef = useRef<StudioFieldNavigationProtocol | null>(null);
-  const fieldTargetsRef = useRef<Map<string, StudioTableCellTextTargetV1>>(new Map());
+  const fieldTargetsRef = useRef<Map<string, StudioFieldTargetV1>>(new Map());
   const agentCandidatesRef = useRef<DocumentEditCandidate[]>([]);
   const agentReservedAnchorsRef = useRef<DocumentAgentReservedAnchor[]>([]);
   const latestAppliedSuggestionIdRef = useRef<string | null>(null);
@@ -237,18 +240,10 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
         const bindingRhwp = await loadRhwp();
         const bindingDocument = new bindingRhwp.HwpDocument(prepared.bytes);
         try {
-          const resolutions = resolveRhwpFieldAnchorsExact(bindingDocument, connectedFields);
+          const resolutions = resolveStudioFieldBindings(bindingDocument, connectedFields);
           fieldTargetsRef.current = new Map(resolutions.flatMap((resolution) => {
             if (resolution.status !== "unique") return [];
-            const target = resolution.anchor.target;
-            return [[resolution.fieldId, {
-              kind: "table_cell_text" as const,
-              section: target.section,
-              parentPara: target.parentPara,
-              controlIndex: target.controlIndex,
-              cellIndex: target.cellIndex,
-              cellParagraph: target.cellParagraph,
-            }]];
+            return [[resolution.fieldId, resolution.target]];
           }));
           onFieldBindingsResolvedRef.current?.(resolutions);
         } finally {
@@ -683,7 +678,7 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
       return {
         bytes,
         documentSha256,
-        resolutions: resolveRhwpFieldAnchorsExact(document, connectedFields),
+        resolutions: resolveStudioFieldBindings(document, connectedFields),
         pageCount: document.pageCount(),
       };
     } finally {
@@ -1143,14 +1138,7 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
       if (!resolution || resolution.status !== "unique") {
         throw new Error("현재 revision에서 이 필드의 입력 셀을 하나로 확정하지 못했습니다.");
       }
-      const target: StudioTableCellTextTargetV1 = {
-        kind: "table_cell_text",
-        section: resolution.anchor.target.section,
-        parentPara: resolution.anchor.target.parentPara,
-        controlIndex: resolution.anchor.target.controlIndex,
-        cellIndex: resolution.anchor.target.cellIndex,
-        cellParagraph: resolution.anchor.target.cellParagraph,
-      };
+      const target = resolution.target;
       fieldTargetsRef.current.set(fieldId, target);
       onFieldBindingsResolvedRef.current?.(current.resolutions);
       const changeSeq = latestChangeSeqRef.current ?? legacySaveSeqRef.current + 1;

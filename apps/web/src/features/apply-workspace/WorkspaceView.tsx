@@ -30,7 +30,6 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { parsePositionBbox, parsePositionPage } from "@/lib/documents/bbox";
 import { extractFieldOptions } from "@/lib/documents/fieldOptions";
 import type {
-  RhwpExactFieldAnchorResolution,
   RhwpFieldAnchor,
   RhwpFieldDescriptor,
 } from "@/lib/rhwp/fieldAnchors";
@@ -42,7 +41,8 @@ import {
 import type { DraftFieldAnswers, DraftFieldAnswerStatus } from "@/lib/server/documents/fieldAnswers";
 import type { FieldAgentRunDto, FieldAgentSuggestionDto } from "@/lib/server/documents/fieldAgentRuns";
 import { fetchFieldAgentRuns } from "@/lib/rhwp/fieldAgentApi";
-import type { StudioTableCellTextTargetV1 } from "@/lib/rhwp/studioDocumentAgentProtocol";
+import type { StudioFieldTargetV1 } from "@/lib/rhwp/studioDocumentAgentProtocol";
+import type { StudioFieldBindingResolution } from "@/lib/rhwp/studioFieldBindings";
 import type { ConnectedDocumentField } from "@/lib/server/documents/documentFieldLink";
 import type { WorkspaceData } from "@/lib/server/documents/workspaceData";
 import type { ChatMessageContent } from "@/lib/chat/messageContent";
@@ -587,23 +587,16 @@ export function WorkspaceView({
     setRhwpAnchorsReady(true);
   }, []);
 
-  const handleFieldBindingsResolved = useCallback((resolutions: readonly RhwpExactFieldAnchorResolution[]) => {
+  const handleFieldBindingsResolved = useCallback((resolutions: readonly StudioFieldBindingResolution[]) => {
     setFieldBindingStatuses(new Map(resolutions.map((resolution) => [resolution.fieldId, resolution.status])));
     fieldIdByTargetRef.current = new Map(resolutions.flatMap((resolution) => {
       if (resolution.status !== "unique") return [];
-      return [[fieldSelectionTargetKey({
-        kind: "table_cell_text",
-        section: resolution.anchor.target.section,
-        parentPara: resolution.anchor.target.parentPara,
-        controlIndex: resolution.anchor.target.controlIndex,
-        cellIndex: resolution.anchor.target.cellIndex,
-        cellParagraph: resolution.anchor.target.cellParagraph,
-      }), resolution.fieldId]];
+      return [[fieldSelectionTargetKey(resolution.target), resolution.fieldId]];
     }));
     setFieldBindingsResolved(true);
   }, []);
 
-  const handleStudioFieldSelection = useCallback((target: StudioTableCellTextTargetV1 | null) => {
+  const handleStudioFieldSelection = useCallback((target: StudioFieldTargetV1 | null) => {
     if (!target) return;
     const fieldId = fieldIdByTargetRef.current.get(fieldSelectionTargetKey(target));
     if (!fieldId) return;

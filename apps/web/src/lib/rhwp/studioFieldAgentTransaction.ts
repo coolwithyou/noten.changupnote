@@ -5,11 +5,13 @@ import {
   studioRevertFieldCommandSchema,
   type StudioFieldAgentProtocol,
   type StudioFieldCommandReceiptV1,
+  type StudioFieldTargetV1,
+  type StudioFormTextTargetV1,
   type StudioTableCellTextTargetV1,
 } from "./studioDocumentAgentProtocol";
 
 export interface FieldCommandBindingV1 {
-  target: StudioTableCellTextTargetV1;
+  target: StudioFieldTargetV1;
   beforeText: string;
   beforeTextSha256: string;
   formatSha256: string;
@@ -245,7 +247,7 @@ async function verifyCommittedFieldMutation(input: {
   rhwp: RhwpModule;
   exportCurrentBytes(format: RhwpDocumentFormat): Promise<Uint8Array>;
   format: RhwpDocumentFormat;
-  target: StudioTableCellTextTargetV1;
+  target: StudioFieldTargetV1;
   expectedText: string;
   expectedFormatSha256: string;
   expectedAdjacentContextSha256: string;
@@ -283,10 +285,13 @@ interface FieldEvidence {
 export async function collectStudioFieldEvidence(
   rhwp: RhwpModule,
   bytes: Uint8Array,
-  target: StudioTableCellTextTargetV1,
+  target: StudioFieldTargetV1,
 ): Promise<FieldEvidence> {
   const document = new rhwp.HwpDocument(bytes);
   try {
+    if (target.kind === "form_text") {
+      return await collectStudioFormTextEvidence(document, target);
+    }
     const dimensions = JSON.parse(document.getTableDimensions(
       target.section,
       target.parentPara,
@@ -353,6 +358,197 @@ export async function collectStudioFieldEvidence(
   } finally {
     document.free();
   }
+}
+
+interface StudioFormFieldEntry {
+  fieldId: number;
+  fieldType: string;
+  cellField: boolean;
+  name: string;
+  guide: string;
+  command: string;
+  value: string;
+  location: { sectionIndex: number; paraIndex: number; path?: unknown[] };
+  startCharIdx?: number;
+  endCharIdx?: number;
+  editableInForm?: boolean;
+}
+
+async function collectStudioFormTextEvidence(
+  document: InstanceType<RhwpModule["HwpDocument"]>,
+  target: StudioFormTextTargetV1,
+): Promise<FieldEvidence> {
+  const fields = parseFormFields(document);
+  const matches = fields.filter(field => field.fieldId === target.fieldId);
+  if (matches.length !== 1) throw new Error("exact 누름틀 fieldId를 찾지 못했습니다.");
+  const field = matches[0]!;
+  const path = field.location?.path;
+  if (field.fieldType !== "clickhere"
+      || field.cellField === true
+      || field.editableInForm !== true
+      || field.location?.sectionIndex !== target.section
+      || field.location?.paraIndex !== target.paragraph
+      || (Array.isArray(path) && path.length > 0)
+      || !Number.isSafeInteger(field.startCharIdx)
+      || !Number.isSafeInteger(field.endCharIdx)
+      || (field.startCharIdx as number) < 0
+      || (field.endCharIdx as number) < (field.startCharIdx as number)) {
+    throw new Error("본문의 편집 가능한 exact 누름틀 field target이 아닙니다.");
+  }
+  const start = field.startCharIdx as number;
+  const end = field.endCharIdx as number;
+  const paragraphLength = document.getParagraphLength(target.section, target.paragraph);
+  if (end > paragraphLength || paragraphLength > 4_000) {
+    throw new Error("누름틀 범위가 current paragraph와 다릅니다.");
+  }
+  const valueResult = JSON.parse(document.getFieldValue(target.fieldId)) as { ok?: unknown; value?: unknown };
+  if (valueResult.ok !== true
+      || typeof valueResult.value !== "string"
+      || Array.from(valueResult.value).length !== end - start) {
+    throw new Error("누름틀 값과 current field 범위가 다릅니다.");
+  }
+  const charShapeIds: number[] = [];
+  for (let offset = start; offset < Math.max(end, start + 1); offset += 1) {
+    charShapeIds.push(readId(
+      document.getCharPropertiesAt(target.section, target.paragraph, offset),
+      "charShapeId",
+    ));
+  }
+  const charShapeId = charShapeIds[0]!;
+  const charShape = charShapeIds.every(id => id === charShapeId)
+    ? { kind: "uniform", id: charShapeId }
+    : { kind: "runs", ids: charShapeIds };
+  const paraShapeId = readId(
+    document.getParaPropertiesAt(target.section, target.paragraph),
+    "paraShapeId",
+  );
+  const styleId = readId(document.getStyleAt(target.section, target.paragraph), "id");
+  return {
+    text: valueResult.value,
+    textSha256: await sha256Hex(valueResult.value),
+    formatSha256: await sha256Hex(stableJson({
+      schemaVersion: 1,
+      kind: "form_text",
+      charShape,
+      paraShapeId,
+      styleId,
+      field: {
+        fieldId: field.fieldId,
+        fieldType: field.fieldType,
+        name: field.name,
+        guide: field.guide,
+        command: field.command,
+        editableInForm: field.editableInForm,
+      },
+    })),
+    adjacentContextSha256: await formNonTargetManifest(document, target, field, fields),
+  };
+}
+
+async function formNonTargetManifest(
+  document: InstanceType<RhwpModule["HwpDocument"]>,
+  target: StudioFormTextTargetV1,
+  field: StudioFormFieldEntry & { startCharIdx?: number; endCharIdx?: number },
+  fields: StudioFormFieldEntry[],
+): Promise<string> {
+  const start = field.startCharIdx as number;
+  const end = field.endCharIdx as number;
+  const paragraphs: Array<Record<string, unknown>> = [];
+  for (let section = 0; section < document.getSectionCount(); section += 1) {
+    for (let paragraph = 0; paragraph < document.getParagraphCount(section); paragraph += 1) {
+      if (section !== target.section || paragraph !== target.paragraph) {
+        paragraphs.push(await formParagraphSemantic(document, section, paragraph));
+        continue;
+      }
+      const length = document.getParagraphLength(section, paragraph);
+      paragraphs.push({
+        section,
+        paragraph,
+        prefixTextSha256: await sha256Hex(textSlice(document, section, paragraph, 0, start)),
+        suffixTextSha256: await sha256Hex(textSlice(document, section, paragraph, end, length)),
+        prefixCharShapeIds: formCharShapeSlice(document, section, paragraph, 0, start),
+        suffixCharShapeIds: formCharShapeSlice(document, section, paragraph, end, length),
+        paraShapeId: readId(document.getParaPropertiesAt(section, paragraph), "paraShapeId"),
+        styleId: readId(document.getStyleAt(section, paragraph), "id"),
+      });
+    }
+  }
+  const otherFields = fields
+    .filter(entry => entry.fieldId !== target.fieldId)
+    .filter(entry => entry.location?.sectionIndex !== target.section
+      || entry.location?.paraIndex !== target.paragraph)
+    .map(entry => ({
+      fieldId: entry.fieldId,
+      fieldType: entry.fieldType,
+      cellField: entry.cellField,
+      name: entry.name,
+      guide: entry.guide,
+      command: entry.command,
+      value: entry.value,
+      location: entry.location,
+      startCharIdx: entry.startCharIdx,
+      endCharIdx: entry.endCharIdx,
+      editableInForm: entry.editableInForm,
+    }));
+  return sha256Hex(stableJson({
+    schemaVersion: 1,
+    sectionCount: document.getSectionCount(),
+    paragraphCounts: Array.from(
+      { length: document.getSectionCount() },
+      (_, section) => document.getParagraphCount(section),
+    ),
+    paragraphs,
+    otherFields,
+  }));
+}
+
+async function formParagraphSemantic(
+  document: InstanceType<RhwpModule["HwpDocument"]>,
+  section: number,
+  paragraph: number,
+): Promise<Record<string, unknown>> {
+  const length = document.getParagraphLength(section, paragraph);
+  const text = length > 0 ? document.getTextRange(section, paragraph, 0, length) : "";
+  return {
+    section,
+    paragraph,
+    length,
+    textSha256: await sha256Hex(text),
+    paraShapeId: readId(document.getParaPropertiesAt(section, paragraph), "paraShapeId"),
+    styleId: readId(document.getStyleAt(section, paragraph), "id"),
+    charShapeIds: formCharShapeSlice(document, section, paragraph, 0, Math.max(length, 1)),
+    controls: JSON.parse(document.getControlTextPositions(section, paragraph)) as unknown,
+  };
+}
+
+function formCharShapeSlice(
+  document: InstanceType<RhwpModule["HwpDocument"]>,
+  section: number,
+  paragraph: number,
+  start: number,
+  end: number,
+): number[] {
+  const ids: number[] = [];
+  for (let offset = start; offset < end; offset += 1) {
+    ids.push(readId(document.getCharPropertiesAt(section, paragraph, offset), "charShapeId"));
+  }
+  return ids;
+}
+
+function textSlice(
+  document: InstanceType<RhwpModule["HwpDocument"]>,
+  section: number,
+  paragraph: number,
+  start: number,
+  end: number,
+): string {
+  return end > start ? document.getTextRange(section, paragraph, start, end - start) : "";
+}
+
+function parseFormFields(document: InstanceType<RhwpModule["HwpDocument"]>): StudioFormFieldEntry[] {
+  const parsed = JSON.parse(document.getFieldList()) as unknown;
+  if (!Array.isArray(parsed)) throw new Error("누름틀 필드 목록이 배열이 아닙니다.");
+  return parsed as StudioFormFieldEntry[];
 }
 
 async function fieldNonTargetManifest(
@@ -484,11 +680,16 @@ function assertApplyReceipt(
   ) throw new Error("Studio field apply receipt가 승인된 exact binding과 다릅니다.");
 }
 
-function sameTarget(left: StudioTableCellTextTargetV1, right: StudioTableCellTextTargetV1): boolean {
-  return left.kind === right.kind
-    && left.section === right.section
-    && left.parentPara === right.parentPara
-    && left.controlIndex === right.controlIndex
-    && left.cellIndex === right.cellIndex
-    && left.cellParagraph === right.cellParagraph;
+function sameTarget(left: StudioFieldTargetV1, right: StudioFieldTargetV1): boolean {
+  if (left.kind !== right.kind || left.section !== right.section) return false;
+  if (left.kind === "form_text" && right.kind === "form_text") {
+    return left.paragraph === right.paragraph && left.fieldId === right.fieldId;
+  }
+  if (left.kind === "table_cell_text" && right.kind === "table_cell_text") {
+    return left.parentPara === right.parentPara
+      && left.controlIndex === right.controlIndex
+      && left.cellIndex === right.cellIndex
+      && left.cellParagraph === right.cellParagraph;
+  }
+  return false;
 }

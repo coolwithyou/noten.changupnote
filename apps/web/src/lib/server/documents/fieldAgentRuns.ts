@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { and, desc, eq, ne, sql } from "drizzle-orm";
-import type { StudioTableCellTextTargetV1 } from "@/lib/rhwp/studioDocumentAgentProtocol";
+import type { StudioFieldTargetV1 } from "@/lib/rhwp/studioDocumentAgentProtocol";
 import type { CompanyAccess } from "../auth/companyGuard";
 import { getCunoteDb, withCunoteDbUser } from "../db/client";
 import * as schema from "../db/schema";
@@ -51,7 +51,7 @@ export interface FieldAgentRunDto {
   baseRevisionId: string;
   documentSha256: string;
   fieldBindingSha256: string;
-  target: StudioTableCellTextTargetV1;
+  target: StudioFieldTargetV1;
   beforeText: string;
   beforeAnswer: DraftFieldAnswer | null;
   beforeTextSha256: string;
@@ -68,7 +68,7 @@ export async function requestFieldAgentSuggestions(input: {
   fieldId: string;
   clientRequestId: string;
   baseRevisionId: string;
-  target: StudioTableCellTextTargetV1;
+  target: StudioFieldTargetV1;
   sourceText?: string;
   access: CompanyAccess;
 }): Promise<FieldAgentRunDto> {
@@ -415,7 +415,7 @@ async function loadFieldAgentRunDto(runId: string, access: CompanyAccess): Promi
       baseRevisionId: run.baseRevisionId,
       documentSha256: run.documentSha256,
       fieldBindingSha256: run.fieldBindingSha256,
-      target: run.target as unknown as StudioTableCellTextTargetV1,
+      target: run.target as unknown as StudioFieldTargetV1,
       beforeText: run.beforeText,
       beforeAnswer: run.beforeAnswer,
       beforeTextSha256: run.beforeTextSha256,

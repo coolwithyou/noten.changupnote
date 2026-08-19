@@ -86,13 +86,19 @@ assert.equal(fieldSelectionTargetKey({
   controlIndex: 1,
   cellIndex: 3,
   cellParagraph: 0,
-}), "0:4:1:3:0");
+}), "table_cell_text:0:4:1:3:0");
 assert.notEqual(
   fieldSelectionTargetKey({
     kind: "table_cell_text", section: 0, parentPara: 4,
     controlIndex: 1, cellIndex: 3, cellParagraph: 1,
   }),
-  "0:4:1:3:0",
+  "table_cell_text:0:4:1:3:0",
 );
+assert.equal(fieldSelectionTargetKey({
+  kind: "form_text",
+  section: 0,
+  paragraph: 7,
+  fieldId: 41,
+}), "form_text:0:7:41");
 
 console.log("field-aware document session tests passed");

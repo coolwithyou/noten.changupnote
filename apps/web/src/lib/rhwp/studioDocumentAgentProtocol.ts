@@ -29,6 +29,18 @@ export const studioTableCellTextTargetSchema = z.strictObject({
   cellParagraph: nonnegativeSafeInteger,
 });
 
+export const studioFormTextTargetSchema = z.strictObject({
+  kind: z.literal("form_text"),
+  section: nonnegativeSafeInteger,
+  paragraph: nonnegativeSafeInteger,
+  fieldId: nonnegativeSafeInteger,
+});
+
+export const studioFieldTargetSchema = z.discriminatedUnion("kind", [
+  studioTableCellTextTargetSchema,
+  studioFormTextTargetSchema,
+]);
+
 export const studioDocumentStateSchema = z.strictObject({
   schemaVersion: z.literal(1),
   format: z.enum(["hwp", "hwpx"]),
@@ -56,7 +68,7 @@ export const studioFieldSelectionContextSchema = z.strictObject({
   changeSeq: nonnegativeSafeInteger,
   page: positiveSafeInteger,
   editable: z.boolean(),
-  target: studioTableCellTextTargetSchema.nullable(),
+  target: studioFieldTargetSchema.nullable(),
 }).superRefine((selection, context) => {
   if (selection.target === null && selection.editable) {
     context.addIssue({ code: "custom", message: "target이 없는 field selection은 editable일 수 없습니다." });
@@ -94,7 +106,7 @@ export const studioApplyFieldCommandSchema = z.strictObject({
   expectedDocumentEpoch: positiveSafeInteger,
   expectedChangeSeq: nonnegativeSafeInteger,
   expectedDocumentSha256: sha256Schema,
-  target: studioTableCellTextTargetSchema,
+  target: studioFieldTargetSchema,
   expectedBeforeSha256: sha256Schema,
   expectedFormatSha256: sha256Schema,
   expectedAdjacentContextSha256: sha256Schema,
@@ -143,7 +155,7 @@ export const studioFieldCommandReceiptSchema = z.strictObject({
   adjacentContextSha256: sha256Schema,
   pageCountBefore: positiveSafeInteger,
   pageCountAfter: positiveSafeInteger,
-  target: studioTableCellTextTargetSchema,
+  target: studioFieldTargetSchema,
 }).superRefine((receipt, context) => {
   if (receipt.afterChangeSeq !== receipt.beforeChangeSeq + 1) {
     context.addIssue({ code: "custom", message: "field receipt change sequence가 연속되지 않습니다." });
@@ -165,6 +177,8 @@ export const studioDocumentChangedEventSchema = z.strictObject({
 
 export type StudioBodyParagraphTargetV1 = z.infer<typeof studioBodyParagraphTargetSchema>;
 export type StudioTableCellTextTargetV1 = z.infer<typeof studioTableCellTextTargetSchema>;
+export type StudioFormTextTargetV1 = z.infer<typeof studioFormTextTargetSchema>;
+export type StudioFieldTargetV1 = z.infer<typeof studioFieldTargetSchema>;
 export type StudioDocumentStateV1 = z.infer<typeof studioDocumentStateSchema>;
 export type StudioSelectionContextV1 = z.infer<typeof studioSelectionContextSchema>;
 export type StudioFieldSelectionContextV1 = z.infer<typeof studioFieldSelectionContextSchema>;
@@ -187,7 +201,7 @@ export interface StudioDocumentAgentProtocol {
 }
 
 export interface StudioFieldNavigationProtocol {
-  focusFieldTarget(target: StudioTableCellTextTargetV1): Promise<StudioFocusTargetResultV1>;
+  focusFieldTarget(target: StudioFieldTargetV1): Promise<StudioFocusTargetResultV1>;
 }
 
 export interface StudioFieldSelectionProtocol {
@@ -252,7 +266,7 @@ export function resolveStudioFieldNavigationProtocol(editor: unknown): StudioFie
   if (typeof method !== "function") return null;
   return {
     focusFieldTarget: async (target) => studioFocusTargetResultSchema.parse(
-      await (method as UnknownMethod).call(editor, studioTableCellTextTargetSchema.parse(target)),
+      await (method as UnknownMethod).call(editor, studioFieldTargetSchema.parse(target)),
     ),
   };
 }
@@ -300,7 +314,7 @@ export function resolveStudioFieldAgentProtocol(editor: unknown): StudioFieldAge
   return {
     getDocumentState: async () => studioDocumentStateSchema.parse(await invoke("getDocumentState")),
     focusFieldTarget: async (target) => studioFocusTargetResultSchema.parse(
-      await invoke("focusFieldTarget", studioTableCellTextTargetSchema.parse(target)),
+      await invoke("focusFieldTarget", studioFieldTargetSchema.parse(target)),
     ),
     applyFieldCommand: async (command) => studioFieldCommandReceiptSchema.parse(
       await invoke("applyFieldCommand", studioApplyFieldCommandSchema.parse(command)),

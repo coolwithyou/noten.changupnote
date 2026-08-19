@@ -4,6 +4,7 @@ import { z } from "zod";
 import { requireCompanyAccess } from "@/lib/server/auth/companyGuard";
 import { webActionError } from "@/lib/server/auth/webActionError";
 import { requireFieldEditorAgentFeature } from "@/lib/server/documents/documentAgentAvailability";
+import { studioFieldTargetSchema } from "@/lib/rhwp/studioDocumentAgentProtocol";
 import {
   loadRecentFieldAgentRuns,
   requestFieldAgentSuggestions,
@@ -14,19 +15,11 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const MAX_BODY_BYTES = 16 * 1024;
-const targetSchema = z.strictObject({
-  kind: z.literal("table_cell_text"),
-  section: z.number().int().nonnegative(),
-  parentPara: z.number().int().nonnegative(),
-  controlIndex: z.number().int().nonnegative(),
-  cellIndex: z.number().int().nonnegative(),
-  cellParagraph: z.number().int().nonnegative(),
-});
 const postBodySchema = z.strictObject({
   fieldId: z.string().uuid(),
   clientRequestId: z.string().uuid(),
   baseRevisionId: z.string().uuid(),
-  target: targetSchema,
+  target: studioFieldTargetSchema,
   sourceText: z.string().trim().min(1).max(4_000).optional(),
 });
 

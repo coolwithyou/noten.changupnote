@@ -9,7 +9,7 @@ const EXPECTED_VERSION = "0.8.5";
 const EXPECTED_CORE_NAME = "@rhwp/core";
 const EXPECTED_CORE_VERSION = "0.8.4";
 const VENDOR_SPEC = "file:vendor/rhwp-editor-0.8.5.tgz";
-const VENDOR_SHA256 = "1c83c0fd0d6924b09c11f3fcdb184882aad563b5e3556674686ae4e22f366b12";
+const VENDOR_SHA256 = "901be8121322dcd14c7cf06af8426ba4cccbf8cb02022953e53230242d323e6e";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const webPackage = JSON.parse(readFileSync(join(repositoryRoot, "apps/web/package.json"), "utf8"));

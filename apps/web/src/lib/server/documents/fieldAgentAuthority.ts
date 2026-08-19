@@ -6,9 +6,9 @@ import * as schema from "../db/schema";
 import { loadDocumentAgentCore } from "../rhwp/documentAgentCore";
 import { answerKey } from "@/features/apply-workspace/fieldAnswerState";
 import { buildChoiceCellReplacement, extractFieldOptions } from "@/lib/documents/fieldOptions";
-import { resolveRhwpFieldAnchorsExact } from "@/lib/rhwp/fieldAnchors";
 import { collectStudioFieldEvidence } from "@/lib/rhwp/studioFieldAgentTransaction";
-import type { StudioTableCellTextTargetV1 } from "@/lib/rhwp/studioDocumentAgentProtocol";
+import { resolveStudioFieldBindings } from "@/lib/rhwp/studioFieldBindings";
+import type { StudioFieldTargetV1 } from "@/lib/rhwp/studioDocumentAgentProtocol";
 import { isLlmSuggestableLabel } from "./fieldSuggest";
 import { resolveFieldAnswers, type DraftFieldAnswer } from "./fieldAnswers";
 import { loadConnectedDocumentFields, resolveArchiveStorageKey } from "./documentFieldLink";
@@ -26,7 +26,7 @@ export async function rebuildFieldAgentAuthority(input: {
   draftId: string;
   fieldId: string;
   baseRevisionId: string;
-  requestedTarget: StudioTableCellTextTargetV1;
+  requestedTarget: StudioFieldTargetV1;
   access: CompanyAccess;
 }) {
   const db = getCunoteDb();
@@ -81,12 +81,12 @@ export async function rebuildFieldAgentAuthority(input: {
 
   const rhwp = await loadDocumentAgentCore();
   const document = new rhwp.HwpDocument(revision.body);
-  let target: StudioTableCellTextTargetV1;
+  let target: StudioFieldTargetV1;
   try {
     if (document.pageCount() !== revision.pageCount) {
       throw new FieldAgentAuthorityError("revision_page_count_mismatch", "필드 기준 문서의 페이지 수가 다릅니다.", 409);
     }
-    const resolution = resolveRhwpFieldAnchorsExact(document, [field])[0];
+    const resolution = resolveStudioFieldBindings(document, [field])[0];
     if (!resolution || resolution.status !== "unique") {
       throw new FieldAgentAuthorityError(
         resolution?.status === "ambiguous" ? "field_binding_ambiguous" : "field_binding_missing",
@@ -94,14 +94,7 @@ export async function rebuildFieldAgentAuthority(input: {
         409,
       );
     }
-    target = {
-      kind: "table_cell_text",
-      section: resolution.anchor.target.section,
-      parentPara: resolution.anchor.target.parentPara,
-      controlIndex: resolution.anchor.target.controlIndex,
-      cellIndex: resolution.anchor.target.cellIndex,
-      cellParagraph: resolution.anchor.target.cellParagraph,
-    };
+    target = resolution.target;
   } finally {
     document.free();
   }
@@ -156,13 +149,18 @@ function isSupportedField(fieldType: string, options: readonly string[]): boolea
   return !["file", "table", "checkbox", "radio", "select", "long_text"].includes(normalized);
 }
 
-function sameTarget(left: StudioTableCellTextTargetV1, right: StudioTableCellTextTargetV1): boolean {
-  return left.kind === right.kind
-    && left.section === right.section
-    && left.parentPara === right.parentPara
-    && left.controlIndex === right.controlIndex
-    && left.cellIndex === right.cellIndex
-    && left.cellParagraph === right.cellParagraph;
+function sameTarget(left: StudioFieldTargetV1, right: StudioFieldTargetV1): boolean {
+  if (left.kind !== right.kind || left.section !== right.section) return false;
+  if (left.kind === "form_text" && right.kind === "form_text") {
+    return left.paragraph === right.paragraph && left.fieldId === right.fieldId;
+  }
+  if (left.kind === "table_cell_text" && right.kind === "table_cell_text") {
+    return left.parentPara === right.parentPara
+      && left.controlIndex === right.controlIndex
+      && left.cellIndex === right.cellIndex
+      && left.cellParagraph === right.cellParagraph;
+  }
+  return false;
 }
 
 function sha256(value: string): string {

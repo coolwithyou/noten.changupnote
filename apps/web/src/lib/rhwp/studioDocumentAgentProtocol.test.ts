@@ -126,10 +126,21 @@ const fieldProtocol = resolveStudioFieldNavigationProtocol({
 });
 assert.ok(fieldProtocol);
 assert.deepEqual(await fieldProtocol.focusFieldTarget(fieldTarget), { focused: true, page: 2 });
-assert.deepEqual(fieldCalls, [fieldTarget]);
+const formFieldTarget = {
+  kind: "form_text" as const,
+  section: 0,
+  paragraph: 7,
+  fieldId: 41,
+};
+assert.deepEqual(await fieldProtocol.focusFieldTarget(formFieldTarget), { focused: true, page: 2 });
+assert.deepEqual(fieldCalls, [fieldTarget, formFieldTarget]);
 assert.equal(resolveStudioFieldNavigationProtocol({ focusTarget: async () => ({ focused: true, page: 1 }) }), null);
 await assert.rejects(
   () => fieldProtocol.focusFieldTarget({ ...fieldTarget, cellIndex: -1 }),
+  /too_small|greater than or equal to 0/u,
+);
+await assert.rejects(
+  () => fieldProtocol.focusFieldTarget({ ...formFieldTarget, fieldId: -1 }),
   /too_small|greater than or equal to 0/u,
 );
 
