@@ -3,8 +3,8 @@
 - 작성일: 2026-08-19
 - 상위 계획: `docs/plans/2026-08-18-document-editor-ai-agent.md`
 - 기준 브랜치: `codex/document-editor-ai-agent`
-- 상태: upstream bridge·Cunote adapter·compatible Studio 배포·실제 문서 제품 gate 완료.
-  upstream merge/package publish 대기 중에는 exact source commit `104ed4da`의 `0.8.5` tarball을
+- 상태: upstream bridge·PR #5569 병합·Cunote adapter·compatible Studio 배포·실제 문서 제품 gate
+  완료. npm package publish 대기 중에는 exact source commit `104ed4da`의 `0.8.5` tarball을
   SHA-256으로 검증해 Cunote에 임시 vendoring한다.
 - 범위: Studio/@rhwp/editor 공개 command bridge 설계와 재개 gate를 확정한다. Cunote의 DB, API,
   모델 호출, 사용자 노출 UI, 배포와 feature flag enable은 이 문서 범위가 아니다.
@@ -22,9 +22,10 @@
 - `pnpm test:document-agent`, web typecheck, `pnpm build:web`이 통과했다.
 - self-hosted Studio는 `changupnote-rhwp-studio.vercel.app`에 compatible build로 배포했고, 실제
   HWP/HWPX에서 native apply/revert, target focus, 직접 입력, 수동 저장, 다운로드를 통과했다.
-- Cunote DB/API/UI는 상위 계획에서 feature flag 기본 off로 구현·검증했다. upstream PR merge와
-  package publish가 끝나기 전까지 production도 동일한 packed `0.8.5` artifact를 사용하도록
-  `apps/web/vendor`에 provenance를 고정한다.
+- upstream PR #5569는 merge commit `b0c0a08394f9318f23d562192458c688b136cd06`으로 병합됐다.
+  Cunote DB/API/UI와 production feature flag enable도 상위 계획에서 완료했다. npm package
+  publish가 끝나기 전까지 production은 동일한 packed `0.8.5` artifact를 사용하며,
+  `apps/web/vendor`와 `pnpm verify:rhwp-editor-dependency`에 provenance와 무결성 검사를 고정한다.
 
 ## 1. 결론
 
