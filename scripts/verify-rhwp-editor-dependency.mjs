@@ -12,6 +12,7 @@ const VENDOR_SHA256 = "1c83c0fd0d6924b09c11f3fcdb184882aad563b5e3556674686ae4e22
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const webPackage = JSON.parse(readFileSync(join(repositoryRoot, "apps/web/package.json"), "utf8"));
 const vercelConfig = JSON.parse(readFileSync(join(repositoryRoot, "apps/web/vercel.json"), "utf8"));
+const nextConfig = readFileSync(join(repositoryRoot, "apps/web/next.config.mjs"), "utf8");
 const lockfile = readFileSync(join(repositoryRoot, "pnpm-lock.yaml"), "utf8");
 const dependency = webPackage.dependencies?.[EXPECTED_NAME];
 
@@ -19,6 +20,10 @@ assert(
   typeof vercelConfig.buildCommand === "string"
     && vercelConfig.buildCommand.includes("scripts/copy-rhwp-wasm.mjs"),
   "Vercel production build가 @rhwp/core WASM public 복사 단계를 실행해야 합니다.",
+);
+assert(
+  nextConfig.includes('"./node_modules/@rhwp/core/**/*"'),
+  "Vercel server function이 @rhwp/core package boundary와 WASM sidecar를 함께 추적해야 합니다.",
 );
 
 if (dependency === EXPECTED_VERSION) {
