@@ -405,6 +405,97 @@ interface Candidate {
   key: string;
 }
 
+export type RhwpExactFieldAnchorResolution =
+  | { fieldId: string; status: "unique"; anchor: RhwpFieldAnchor; candidateCount: 1 }
+  | { fieldId: string; status: "missing"; candidateCount: 0 }
+  | { fieldId: string; status: "ambiguous"; candidateCount: number };
+
+interface ResolverContext {
+  pageInfoCache: Map<number, PageInfo | null>;
+  tableCache: Map<string, CellBox[]>;
+  cellRunCache: Map<number, PageTextRun[][]>;
+}
+
+function createResolverContext(): ResolverContext {
+  return {
+    pageInfoCache: new Map<number, PageInfo | null>(),
+    tableCache: new Map<string, CellBox[]>(),
+    cellRunCache: new Map<number, PageTextRun[][]>(),
+  };
+}
+
+function enumerateFieldCandidates(
+  document: RhwpAnchorDocument,
+  field: RhwpFieldDescriptor,
+  context: ResolverContext,
+): Candidate[] {
+  const hintPage = parsePositionPage(field.position);
+  const hintBox = parsePositionBbox(field.position);
+  const pageInfoAt = (pageIndex: number): PageInfo | null => {
+    if (!context.pageInfoCache.has(pageIndex)) {
+      context.pageInfoCache.set(pageIndex, parsePageInfo(document.getPageInfo(pageIndex)));
+    }
+    return context.pageInfoCache.get(pageIndex) ?? null;
+  };
+  const candidates = new Map<string, Candidate>();
+  for (const [variantIndex, variant] of labelVariants(field.label).entries()) {
+    const hits = [
+      ...parseArray<SearchHit>(document.searchAllText(variant, false, true)),
+      ...normalizedLayoutHits(document, variant, hintPage, context.cellRunCache),
+    ];
+    for (const hit of hits) {
+      const cellContext = hit.cellContext;
+      if (!cellContext || normalizedText(variant).length === 0 || hit.length < variant.length) continue;
+      const tableKey = `${hit.sec}:${cellContext.parentPara}:${cellContext.ctrlIdx}:${hintPage ?? "all"}`;
+      if (!context.tableCache.has(tableKey)) {
+        context.tableCache.set(tableKey, parseArray<CellBox>(document.getTableCellBboxes(
+          hit.sec,
+          cellContext.parentPara,
+          cellContext.ctrlIdx,
+          hintPage ? hintPage - 1 : null,
+        )));
+      }
+      const cells = context.tableCache.get(tableKey) ?? [];
+      const labelCell = cells.find((cell) => cell.cellIdx === cellContext.cellIdx);
+      if (!labelCell) continue;
+      const targetCell = targetCellForLabel(labelCell, cells);
+      if (!targetCell) continue;
+      const pageInfo = pageInfoAt(targetCell.pageIndex);
+      if (!pageInfo) continue;
+      const box = normalizeBox(
+        { x: targetCell.x, y: targetCell.y, width: targetCell.w, height: targetCell.h },
+        pageInfo,
+      );
+      if (!box) continue;
+      const target: RhwpCellTarget = {
+        kind: "cell",
+        section: hit.sec,
+        parentPara: cellContext.parentPara,
+        controlIndex: cellContext.ctrlIdx,
+        cellIndex: targetCell.cellIdx,
+        cellParagraph: 0,
+        labelCellIndex: labelCell.cellIdx,
+      };
+      const anchor: RhwpFieldAnchor = {
+        fieldId: field.fieldId,
+        label: field.label,
+        page: targetCell.pageIndex + 1,
+        box,
+        source: "rhwp_table_cell",
+        confidence: "exact",
+        target,
+        choices: choiceAnchors(document, field, target, targetCell.pageIndex, pageInfo),
+      };
+      const key = `${hit.sec}:${cellContext.parentPara}:${cellContext.ctrlIdx}:${targetCell.cellIdx}:${targetCell.pageIndex}`;
+      const pageBonus = hintPage === anchor.page ? 100 : 0;
+      const score = 1_000 - variantIndex * 100 + pageBonus - candidateDistance(box, hintBox) * 100;
+      const previous = candidates.get(key);
+      if (!previous || previous.score < score) candidates.set(key, { anchor, score, key });
+    }
+  }
+  return [...candidates.values()].sort((a, b) => b.score - a.score);
+}
+
 function choiceAnchors(
   document: RhwpAnchorDocument,
   field: RhwpFieldDescriptor,
@@ -454,78 +545,11 @@ export function resolveRhwpFieldAnchors(
   document: RhwpAnchorDocument,
   fields: readonly RhwpFieldDescriptor[],
 ): RhwpFieldAnchor[] {
-  const pageInfoCache = new Map<number, PageInfo | null>();
-  const tableCache = new Map<string, CellBox[]>();
-  const cellRunCache = new Map<number, PageTextRun[][]>();
-  const pageInfoAt = (pageIndex: number): PageInfo | null => {
-    if (!pageInfoCache.has(pageIndex)) {
-      pageInfoCache.set(pageIndex, parsePageInfo(document.getPageInfo(pageIndex)));
-    }
-    return pageInfoCache.get(pageIndex) ?? null;
-  };
-
+  const context = createResolverContext();
   const resolved: RhwpFieldAnchor[] = [];
   for (const field of fields) {
     const hintPage = parsePositionPage(field.position);
-    const hintBox = parsePositionBbox(field.position);
-    const candidates = new Map<string, Candidate>();
-    for (const [variantIndex, variant] of labelVariants(field.label).entries()) {
-      const hits = [
-        ...parseArray<SearchHit>(document.searchAllText(variant, false, true)),
-        ...normalizedLayoutHits(document, variant, hintPage, cellRunCache),
-      ];
-      for (const hit of hits) {
-        const context = hit.cellContext;
-        if (!context || normalizedText(variant).length === 0 || hit.length < variant.length) continue;
-        const tableKey = `${hit.sec}:${context.parentPara}:${context.ctrlIdx}:${hintPage ?? "all"}`;
-        if (!tableCache.has(tableKey)) {
-          tableCache.set(tableKey, parseArray<CellBox>(document.getTableCellBboxes(
-            hit.sec,
-            context.parentPara,
-            context.ctrlIdx,
-            hintPage ? hintPage - 1 : null,
-          )));
-        }
-        const cells = tableCache.get(tableKey) ?? [];
-        const labelCell = cells.find((cell) => cell.cellIdx === context.cellIdx);
-        if (!labelCell) continue;
-        const targetCell = targetCellForLabel(labelCell, cells);
-        if (!targetCell) continue;
-        const pageInfo = pageInfoAt(targetCell.pageIndex);
-        if (!pageInfo) continue;
-        const box = normalizeBox(
-          { x: targetCell.x, y: targetCell.y, width: targetCell.w, height: targetCell.h },
-          pageInfo,
-        );
-        if (!box) continue;
-        const target: RhwpCellTarget = {
-          kind: "cell",
-          section: hit.sec,
-          parentPara: context.parentPara,
-          controlIndex: context.ctrlIdx,
-          cellIndex: targetCell.cellIdx,
-          cellParagraph: 0,
-          labelCellIndex: labelCell.cellIdx,
-        };
-        const anchor: RhwpFieldAnchor = {
-          fieldId: field.fieldId,
-          label: field.label,
-          page: targetCell.pageIndex + 1,
-          box,
-          source: "rhwp_table_cell",
-          confidence: "exact",
-          target,
-          choices: choiceAnchors(document, field, target, targetCell.pageIndex, pageInfo),
-        };
-        const key = `${hit.sec}:${context.parentPara}:${context.ctrlIdx}:${targetCell.cellIdx}:${targetCell.pageIndex}`;
-        const pageBonus = hintPage === anchor.page ? 100 : 0;
-        const score = 1_000 - variantIndex * 100 + pageBonus - candidateDistance(box, hintBox) * 100;
-        const previous = candidates.get(key);
-        if (!previous || previous.score < score) candidates.set(key, { anchor, score, key });
-      }
-    }
-
-    const ranked = [...candidates.values()].sort((a, b) => b.score - a.score);
+    const ranked = enumerateFieldCandidates(document, field, context);
     if (ranked.length === 0) continue;
     // 위치 힌트도 없고 동률에 가까운 후보가 둘이면 잘못 고르지 않는다.
     if (!hintPage && ranked[1] && Math.abs(ranked[0]!.score - ranked[1].score) < 1) continue;
@@ -536,6 +560,42 @@ export function resolveRhwpFieldAnchors(
     });
   }
   return resolved;
+}
+
+/**
+ * document agent의 reserved anchor 권위값. 위치 힌트/점수와 무관하게 서로 다른 구조 target이
+ * 둘 이상이면 임의 선택하지 않고 ambiguous로 종결한다.
+ */
+export function resolveRhwpFieldAnchorsExact(
+  document: RhwpAnchorDocument,
+  fields: readonly RhwpFieldDescriptor[],
+): RhwpExactFieldAnchorResolution[] {
+  const context = createResolverContext();
+  return fields.map((field) => {
+    const structural = new Map<string, RhwpFieldAnchor>();
+    for (const candidate of enumerateFieldCandidates(document, field, context)) {
+      const target = candidate.anchor.target;
+      const key = [
+        target.section,
+        target.parentPara,
+        target.controlIndex,
+        target.cellIndex,
+        target.cellParagraph,
+      ].join(":");
+      if (!structural.has(key)) structural.set(key, candidate.anchor);
+    }
+    if (structural.size === 0) return { fieldId: field.fieldId, status: "missing", candidateCount: 0 };
+    if (structural.size > 1) {
+      return { fieldId: field.fieldId, status: "ambiguous", candidateCount: structural.size };
+    }
+    const anchor = [...structural.values()][0]!;
+    return {
+      fieldId: field.fieldId,
+      status: "unique",
+      anchor: { ...anchor, appearance: cellAppearance(document, field, anchor.target) },
+      candidateCount: 1,
+    };
+  });
 }
 
 /** 사용자가 rhwp 페이지에서 직접 누른 표 셀을 세션용 정확 앵커로 변환한다. */

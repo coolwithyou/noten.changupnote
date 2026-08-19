@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { detectHwpFormat } from "@cunote/core/documents/hwpx-fill";
 import type { CompanyAccess } from "../auth/companyGuard";
 import { getCunoteDb } from "../db/client";
@@ -21,10 +21,21 @@ export interface StudioSnapshotSaveInput {
   baseRevisionId: string | null;
   documentEpoch: number;
   changeSeq: number;
-  origin: "studio_autosave" | "studio_manual";
+  origin: StudioSnapshotOrigin;
+  checkpointRequestId: string | null;
+  agentSuggestionId?: string | null;
+  agentOperation?: "apply" | "undo" | null;
+  operationVersion?: number | null;
   materializedAnswers: Record<string, string>;
   verification: Record<string, unknown>;
 }
+
+export type StudioSnapshotOrigin =
+  | "studio_autosave"
+  | "studio_manual"
+  | "studio_agent_checkpoint"
+  | "studio_agent_apply"
+  | "studio_agent_undo";
 
 export interface StudioSnapshotSaveResult {
   revisionId: string;
@@ -33,6 +44,24 @@ export interface StudioSnapshotSaveResult {
   savedAt: string;
   byteSize: number;
   pageCount: number;
+}
+
+export interface ExactDraftRevisionFile {
+  revisionId: string;
+  draftId: string;
+  parentRevisionId: string | null;
+  origin: string;
+  checkpointRequestId: string | null;
+  sha256: string;
+  format: DraftSourceFormat;
+  body: Buffer;
+  byteSize: number;
+  pageCount: number;
+  studioSessionId: string;
+  documentEpoch: number;
+  changeSeq: number;
+  createdBy: string;
+  createdAt: Date;
 }
 
 export class DocumentRevisionError extends Error {
@@ -95,15 +124,39 @@ export async function saveStudioSnapshot(
 
   const currentHead = await getDraftRevisionHead(input.draftId);
   const sha256 = createHash("sha256").update(input.body).digest("hex");
-  const idempotent = await findIdempotentRevision({
-    draftId: input.draftId,
-    sessionId: input.sessionId,
-    documentEpoch: input.documentEpoch,
-    changeSeq: input.changeSeq,
-    sha256,
-  });
-  if (idempotent && currentHead?.revisionId === idempotent.id) {
-    return toSaveResult(idempotent);
+  const agentRequest = isAgentSnapshot(input) ? input : null;
+  const agentPreauthorization = agentRequest
+    ? await authorizeAgentSnapshotPreupload({ input: agentRequest, sha256, currentHead })
+    : null;
+  if (agentPreauthorization?.existingRevision) {
+    return toSaveResult(agentPreauthorization.existingRevision);
+  }
+  if (input.origin === "studio_agent_checkpoint") {
+    const checkpoint = await findCheckpointRevision({
+      draftId: input.draftId,
+      createdBy: input.access.userId,
+      checkpointRequestId: input.checkpointRequestId!,
+    });
+    if (checkpoint) {
+      assertCheckpointReplay({ input, sha256, checkpoint, currentHead });
+      return toSaveResult(checkpoint);
+    }
+  } else if (!agentPreauthorization) {
+    const idempotent = await findLegacyIdempotentRevision({
+      draftId: input.draftId,
+      sessionId: input.sessionId,
+      documentEpoch: input.documentEpoch,
+      changeSeq: input.changeSeq,
+      sha256,
+    });
+    if (idempotent) {
+      if (currentHead?.revisionId === idempotent.id) return toSaveResult(idempotent);
+      if (currentHead && isCheckpointChildOfLegacyReplay(currentHead, idempotent.id, sha256)) {
+        const checkpointHead = await getRevisionById(currentHead.revisionId);
+        if (checkpointHead) return toSaveResult(checkpointHead);
+      }
+      throw revisionConflict(currentHead?.revisionId ?? null);
+    }
   }
   assertExpectedHead(input.baseRevisionId, currentHead?.revisionId ?? null);
 
@@ -154,30 +207,71 @@ export async function saveStudioSnapshot(
     }
 
     const [head] = await tx
-      .select({ revisionId: schema.grantDocumentRevisionHeads.revisionId })
+      .select({
+        revisionId: schema.grantDocumentRevisionHeads.revisionId,
+        parentRevisionId: schema.grantDocumentRevisions.parentRevisionId,
+        origin: schema.grantDocumentRevisions.origin,
+        sha256: schema.grantDocumentRevisions.sha256,
+      })
       .from(schema.grantDocumentRevisionHeads)
+      .innerJoin(
+        schema.grantDocumentRevisions,
+        eq(schema.grantDocumentRevisionHeads.revisionId, schema.grantDocumentRevisions.id),
+      )
       .where(eq(schema.grantDocumentRevisionHeads.draftId, input.draftId))
       .limit(1);
 
-    const [existing] = await tx
-      .select()
-      .from(schema.grantDocumentRevisions)
-      .where(and(
-        eq(schema.grantDocumentRevisions.draftId, input.draftId),
-        eq(schema.grantDocumentRevisions.studioSessionId, input.sessionId),
-        eq(schema.grantDocumentRevisions.documentEpoch, input.documentEpoch),
-        eq(schema.grantDocumentRevisions.changeSeq, input.changeSeq),
-        eq(schema.grantDocumentRevisions.sha256, sha256),
-      ))
-      .limit(1);
-    if (existing) {
-      if (head?.revisionId === existing.id) return existing;
-      throw new DocumentRevisionError(
-        "revision_conflict",
-        "다른 편집 세션에서 저장한 문서가 있습니다. 최신 문서를 다시 불러와 주세요.",
-        409,
-        head?.revisionId ?? null,
-      );
+    let transactionAgentAuthorization: AgentSnapshotAuthorization | null = null;
+    if (input.origin === "studio_agent_checkpoint") {
+      const [existingCheckpoint] = await tx
+        .select()
+        .from(schema.grantDocumentRevisions)
+        .where(and(
+          eq(schema.grantDocumentRevisions.draftId, input.draftId),
+          eq(schema.grantDocumentRevisions.createdBy, input.access.userId),
+          eq(schema.grantDocumentRevisions.checkpointRequestId, input.checkpointRequestId!),
+        ))
+        .limit(1);
+      if (existingCheckpoint) {
+        assertCheckpointReplay({ input, sha256, checkpoint: existingCheckpoint, currentHead: head ?? null });
+        return existingCheckpoint;
+      }
+    } else if (agentPreauthorization) {
+      transactionAgentAuthorization = await authorizeAgentSnapshotInTransaction({
+        tx,
+        input: agentRequest!,
+        sha256,
+        currentHead: head ?? null,
+      });
+      if (transactionAgentAuthorization.existingRevision) {
+        return transactionAgentAuthorization.existingRevision;
+      }
+    } else {
+      const [existing] = await tx
+        .select()
+        .from(schema.grantDocumentRevisions)
+        .where(and(
+          eq(schema.grantDocumentRevisions.draftId, input.draftId),
+          eq(schema.grantDocumentRevisions.studioSessionId, input.sessionId),
+          eq(schema.grantDocumentRevisions.documentEpoch, input.documentEpoch),
+          eq(schema.grantDocumentRevisions.changeSeq, input.changeSeq),
+          eq(schema.grantDocumentRevisions.sha256, sha256),
+          isNull(schema.grantDocumentRevisions.checkpointRequestId),
+          isNull(schema.grantDocumentRevisions.agentCommandId),
+        ))
+        .limit(1);
+      if (existing) {
+        if (head?.revisionId === existing.id) return existing;
+        if (isCheckpointChildOfLegacyReplay(head ?? null, existing.id, sha256)) {
+          const [checkpointHead] = await tx
+            .select()
+            .from(schema.grantDocumentRevisions)
+            .where(eq(schema.grantDocumentRevisions.id, head!.revisionId))
+            .limit(1);
+          if (checkpointHead) return checkpointHead;
+        }
+        throw revisionConflict(head?.revisionId ?? null);
+      }
     }
     assertExpectedHead(input.baseRevisionId, head?.revisionId ?? null);
 
@@ -204,6 +298,11 @@ export async function saveStudioSnapshot(
         studioSessionId: input.sessionId,
         documentEpoch: input.documentEpoch,
         changeSeq: input.changeSeq,
+        checkpointRequestId: input.checkpointRequestId,
+        agentCommandId: transactionAgentAuthorization?.commandId ?? null,
+        agentOperation: transactionAgentAuthorization?.operation ?? null,
+        agentRunId: transactionAgentAuthorization?.run.id ?? null,
+        agentSuggestionId: transactionAgentAuthorization?.suggestion.id ?? null,
         createdBy: input.access.userId,
       })
       .returning();
@@ -236,10 +335,68 @@ export async function saveStudioSnapshot(
       });
     }
 
+    if (transactionAgentAuthorization) {
+      const authorization = transactionAgentAuthorization;
+      const operationValues = authorization.operation === "apply"
+        ? {
+            status: "applied",
+            statusVersion: authorization.suggestion.statusVersion + 1,
+            operationState: "idle",
+            operationVersion: authorization.suggestion.operationVersion + 1,
+            operationStartedAt: null,
+            operationClientId: null,
+            failureCode: null,
+            appliedDocumentSha256: sha256,
+            appliedRevisionId: revision.id,
+            appliedAt: new Date(),
+            updatedAt: new Date(),
+          }
+        : {
+            status: "undone",
+            statusVersion: authorization.suggestion.statusVersion + 1,
+            operationState: "idle",
+            operationVersion: authorization.suggestion.operationVersion + 1,
+            operationStartedAt: null,
+            operationClientId: null,
+            failureCode: null,
+            undoneDocumentSha256: sha256,
+            undoneRevisionId: revision.id,
+            undoneAt: new Date(),
+            updatedAt: new Date(),
+          };
+      const [transitioned] = await tx
+        .update(schema.grantDocumentAgentSuggestions)
+        .set(operationValues)
+        .where(and(
+          eq(schema.grantDocumentAgentSuggestions.id, authorization.suggestion.id),
+          eq(schema.grantDocumentAgentSuggestions.statusVersion, authorization.suggestion.statusVersion),
+          eq(schema.grantDocumentAgentSuggestions.operationVersion, authorization.suggestion.operationVersion),
+        ))
+        .returning({ id: schema.grantDocumentAgentSuggestions.id });
+      if (!transitioned) throw revisionConflict(head?.revisionId ?? null);
+      if (authorization.operation === "apply") {
+        await tx
+          .update(schema.grantDocumentAgentSuggestions)
+          .set({
+            status: "stale",
+            statusVersion: sql`${schema.grantDocumentAgentSuggestions.statusVersion} + 1`,
+            updatedAt: new Date(),
+          })
+          .where(and(
+            eq(schema.grantDocumentAgentSuggestions.runId, authorization.run.id),
+            eq(schema.grantDocumentAgentSuggestions.status, "pending"),
+          ));
+      }
+    }
+
     await tx.insert(schema.grantDocumentDraftEvents).values({
       draftId: input.draftId,
       actorUserId: input.access.userId,
-      event: "studio_snapshot_saved",
+      event: transactionAgentAuthorization
+        ? transactionAgentAuthorization.operation === "apply"
+          ? "document_agent_suggestion_applied"
+          : "document_agent_suggestion_undone"
+        : "studio_snapshot_saved",
       payload: {
         revisionId: revision.id,
         parentRevisionId: revision.parentRevisionId,
@@ -249,6 +406,11 @@ export async function saveStudioSnapshot(
         documentEpoch: revision.documentEpoch,
         changeSeq: revision.changeSeq,
         origin: revision.origin,
+        ...(transactionAgentAuthorization ? {
+          runId: transactionAgentAuthorization.run.id,
+          suggestionId: transactionAgentAuthorization.suggestion.id,
+          operation: transactionAgentAuthorization.operation,
+        } : {}),
       },
     });
 
@@ -320,8 +482,106 @@ export async function loadDraftHeadRevisionFile(input: {
   };
 }
 
+/** 문서 agent가 권위값으로 쓰는 exact immutable revision 바이트를 소유권 범위에서 검증해 읽는다. */
+export async function loadExactDraftRevisionFile(input: {
+  draftId: string;
+  revisionId: string;
+  access: CompanyAccess;
+  requireCreator?: boolean;
+}, dependencies: {
+  storage?: R2ObjectStorage | null;
+} = {}): Promise<ExactDraftRevisionFile> {
+  if (!isUuid(input.draftId) || !isUuid(input.revisionId)) {
+    throw new DocumentRevisionError("invalid_revision_id", "문서 revision 식별자가 올바르지 않습니다.", 400);
+  }
+  const db = getCunoteDb();
+  const [row] = await db
+    .select({
+      revisionId: schema.grantDocumentRevisions.id,
+      draftId: schema.grantDocumentRevisions.draftId,
+      parentRevisionId: schema.grantDocumentRevisions.parentRevisionId,
+      origin: schema.grantDocumentRevisions.origin,
+      checkpointRequestId: schema.grantDocumentRevisions.checkpointRequestId,
+      sha256: schema.grantDocumentRevisions.sha256,
+      format: schema.grantDocumentRevisions.format,
+      storageKey: schema.grantDocumentRevisions.artifactStorageKey,
+      byteSize: schema.grantDocumentRevisions.byteSize,
+      pageCount: schema.grantDocumentRevisions.pageCount,
+      studioSessionId: schema.grantDocumentRevisions.studioSessionId,
+      documentEpoch: schema.grantDocumentRevisions.documentEpoch,
+      changeSeq: schema.grantDocumentRevisions.changeSeq,
+      createdBy: schema.grantDocumentRevisions.createdBy,
+      createdAt: schema.grantDocumentRevisions.createdAt,
+    })
+    .from(schema.grantDocumentRevisions)
+    .innerJoin(
+      schema.grantDocumentDrafts,
+      eq(schema.grantDocumentRevisions.draftId, schema.grantDocumentDrafts.id),
+    )
+    .where(and(
+      eq(schema.grantDocumentRevisions.id, input.revisionId),
+      eq(schema.grantDocumentRevisions.draftId, input.draftId),
+      eq(schema.grantDocumentDrafts.companyId, input.access.companyId),
+      ...(input.requireCreator
+        ? [eq(schema.grantDocumentRevisions.createdBy, input.access.userId)]
+        : []),
+    ))
+    .limit(1);
+  if (!row) {
+    throw new DocumentRevisionError("revision_not_found", "문서 revision을 찾지 못했습니다.", 404);
+  }
+  if (row.format !== "hwp" && row.format !== "hwpx") {
+    throw new DocumentRevisionError("snapshot_format_invalid", "저장된 문서 형식이 올바르지 않습니다.", 500);
+  }
+  const storage = dependencies.storage ?? createR2ObjectStorageFromEnv();
+  if (!storage) {
+    throw new DocumentRevisionError(
+      "snapshot_storage_not_configured",
+      "문서 저장소가 준비되지 않아 저장본을 불러오지 못했습니다.",
+      503,
+    );
+  }
+  let body: Buffer;
+  try {
+    body = (await storage.getObjectBytes(row.storageKey)).body;
+  } catch (error) {
+    throw new DocumentRevisionError(
+      "snapshot_fetch_failed",
+      `저장된 문서 작업본을 불러오지 못했습니다: ${error instanceof Error ? error.message : String(error)}`,
+      502,
+    );
+  }
+  const sha256 = createHash("sha256").update(body).digest("hex");
+  if (
+    sha256 !== row.sha256
+    || body.byteLength !== row.byteSize
+    || detectSnapshotFormat(body) !== row.format
+  ) {
+    throw new DocumentRevisionError("snapshot_corrupted", "저장된 문서 작업본의 무결성이 맞지 않습니다.", 500);
+  }
+  return {
+    revisionId: row.revisionId,
+    draftId: row.draftId,
+    parentRevisionId: row.parentRevisionId,
+    origin: row.origin,
+    checkpointRequestId: row.checkpointRequestId,
+    sha256,
+    format: row.format,
+    body,
+    byteSize: row.byteSize,
+    pageCount: row.pageCount,
+    studioSessionId: row.studioSessionId,
+    documentEpoch: row.documentEpoch,
+    changeSeq: row.changeSeq,
+    createdBy: row.createdBy,
+    createdAt: row.createdAt,
+  };
+}
+
 export async function getDraftRevisionHead(draftId: string): Promise<{
   revisionId: string;
+  parentRevisionId: string | null;
+  origin: string;
   sha256: string;
   savedAt: Date;
   materializedAnswers: Record<string, string>;
@@ -330,6 +590,8 @@ export async function getDraftRevisionHead(draftId: string): Promise<{
   const [row] = await db
     .select({
       revisionId: schema.grantDocumentRevisions.id,
+      parentRevisionId: schema.grantDocumentRevisions.parentRevisionId,
+      origin: schema.grantDocumentRevisions.origin,
       sha256: schema.grantDocumentRevisions.sha256,
       savedAt: schema.grantDocumentRevisions.createdAt,
       materializedAnswers: schema.grantDocumentRevisions.materializedAnswers,
@@ -372,6 +634,44 @@ function validateSnapshotInput(input: StudioSnapshotSaveInput): void {
   }
   if (input.baseRevisionId !== null && !isUuid(input.baseRevisionId)) {
     throw new DocumentRevisionError("invalid_base_revision", "기준 문서 revision이 올바르지 않습니다.", 400);
+  }
+  if (input.origin === "studio_agent_checkpoint") {
+    if (!input.checkpointRequestId || !isUuid(input.checkpointRequestId)) {
+      throw new DocumentRevisionError(
+        "invalid_checkpoint_request",
+        "AI 제안 checkpoint 요청 식별자가 올바르지 않습니다.",
+        400,
+      );
+    }
+  } else if (input.checkpointRequestId !== null) {
+    throw new DocumentRevisionError(
+      "unexpected_checkpoint_request",
+      "일반 Studio 저장에는 checkpoint 요청 식별자를 넣을 수 없습니다.",
+      400,
+    );
+  }
+  if (isAgentSnapshot(input)) {
+    if (!input.agentSuggestionId || !isUuid(input.agentSuggestionId)) {
+      throw new DocumentRevisionError("invalid_agent_suggestion", "AI 제안 식별자가 올바르지 않습니다.", 400);
+    }
+    if (
+      !Number.isSafeInteger(input.operationVersion)
+      || (input.operationVersion as number) < 1
+    ) {
+      throw new DocumentRevisionError("invalid_agent_operation_version", "AI 작업 버전이 올바르지 않습니다.", 400);
+    }
+    const expectedOrigin = input.agentOperation === "apply"
+      ? "studio_agent_apply"
+      : "studio_agent_undo";
+    if (input.origin !== expectedOrigin) {
+      throw new DocumentRevisionError("agent_origin_mismatch", "AI 작업과 저장 유형이 일치하지 않습니다.", 400);
+    }
+  } else if (
+    input.agentSuggestionId != null
+    || input.agentOperation != null
+    || input.operationVersion != null
+  ) {
+    throw new DocumentRevisionError("unexpected_agent_operation", "일반 저장에는 AI 작업 정보를 넣을 수 없습니다.", 400);
   }
   if (Object.keys(input.materializedAnswers).length > 500) {
     throw new DocumentRevisionError(
@@ -440,7 +740,7 @@ function stableJson(value: unknown): string {
   return JSON.stringify(value) ?? "null";
 }
 
-async function findIdempotentRevision(input: {
+async function findLegacyIdempotentRevision(input: {
   draftId: string;
   sessionId: string;
   documentEpoch: number;
@@ -457,9 +757,275 @@ async function findIdempotentRevision(input: {
       eq(schema.grantDocumentRevisions.documentEpoch, input.documentEpoch),
       eq(schema.grantDocumentRevisions.changeSeq, input.changeSeq),
       eq(schema.grantDocumentRevisions.sha256, input.sha256),
+      isNull(schema.grantDocumentRevisions.checkpointRequestId),
+      isNull(schema.grantDocumentRevisions.agentCommandId),
     ))
     .limit(1);
   return row ?? null;
+}
+
+async function findCheckpointRevision(input: {
+  draftId: string;
+  createdBy: string;
+  checkpointRequestId: string;
+}) {
+  const db = getCunoteDb();
+  const [row] = await db
+    .select()
+    .from(schema.grantDocumentRevisions)
+    .where(and(
+      eq(schema.grantDocumentRevisions.draftId, input.draftId),
+      eq(schema.grantDocumentRevisions.createdBy, input.createdBy),
+      eq(schema.grantDocumentRevisions.checkpointRequestId, input.checkpointRequestId),
+    ))
+    .limit(1);
+  return row ?? null;
+}
+
+async function getRevisionById(revisionId: string) {
+  const db = getCunoteDb();
+  const [row] = await db
+    .select()
+    .from(schema.grantDocumentRevisions)
+    .where(eq(schema.grantDocumentRevisions.id, revisionId))
+    .limit(1);
+  return row ?? null;
+}
+
+interface AgentSnapshotAuthorization {
+  operation: "apply" | "undo";
+  commandId: string;
+  run: typeof schema.grantDocumentAgentRuns.$inferSelect;
+  suggestion: typeof schema.grantDocumentAgentSuggestions.$inferSelect;
+  existingRevision: typeof schema.grantDocumentRevisions.$inferSelect | null;
+}
+
+type RevisionTx = Parameters<Parameters<ReturnType<typeof getCunoteDb>["transaction"]>[0]>[0];
+
+function isAgentSnapshot(input: StudioSnapshotSaveInput): input is StudioSnapshotSaveInput & {
+  agentSuggestionId: string;
+  agentOperation: "apply" | "undo";
+  operationVersion: number;
+} {
+  return input.agentOperation === "apply" || input.agentOperation === "undo";
+}
+
+async function authorizeAgentSnapshotPreupload(input: {
+  input: StudioSnapshotSaveInput & {
+    agentSuggestionId: string;
+    agentOperation: "apply" | "undo";
+    operationVersion: number;
+  };
+  sha256: string;
+  currentHead: {
+    revisionId: string;
+    parentRevisionId: string | null;
+    origin: string;
+    sha256: string;
+  } | null;
+}): Promise<AgentSnapshotAuthorization> {
+  const db = getCunoteDb();
+  const joined = await loadAgentSnapshotRows(db, input.input);
+  const commandId = agentCommandId(input.input.agentSuggestionId, input.input.agentOperation);
+  const [existingRevision] = await db
+    .select()
+    .from(schema.grantDocumentRevisions)
+    .where(eq(schema.grantDocumentRevisions.agentCommandId, commandId))
+    .limit(1);
+  if (existingRevision) {
+    assertExistingAgentCommandReplay({
+      request: input.input,
+      sha256: input.sha256,
+      currentHead: input.currentHead,
+      existingRevision,
+      ...joined,
+    });
+    return { ...joined, operation: input.input.agentOperation, commandId, existingRevision };
+  }
+  assertActiveAgentSnapshotAuthorization({
+    request: input.input,
+    currentHead: input.currentHead,
+    ...joined,
+  });
+  return { ...joined, operation: input.input.agentOperation, commandId, existingRevision: null };
+}
+
+async function authorizeAgentSnapshotInTransaction(input: {
+  tx: RevisionTx;
+  input: StudioSnapshotSaveInput & {
+    agentSuggestionId: string;
+    agentOperation: "apply" | "undo";
+    operationVersion: number;
+  };
+  sha256: string;
+  currentHead: {
+    revisionId: string;
+    parentRevisionId: string | null;
+    origin: string;
+    sha256: string;
+  } | null;
+}): Promise<AgentSnapshotAuthorization> {
+  await input.tx.execute(sql`
+    SELECT id FROM grant_document_agent_suggestions
+    WHERE id = ${input.input.agentSuggestionId}
+      AND draft_id = ${input.input.draftId}
+      AND created_by = ${input.input.access.userId}
+    FOR UPDATE
+  `);
+  const joined = await loadAgentSnapshotRows(input.tx, input.input);
+  const commandId = agentCommandId(input.input.agentSuggestionId, input.input.agentOperation);
+  const [existingRevision] = await input.tx
+    .select()
+    .from(schema.grantDocumentRevisions)
+    .where(eq(schema.grantDocumentRevisions.agentCommandId, commandId))
+    .limit(1);
+  if (existingRevision) {
+    assertExistingAgentCommandReplay({
+      request: input.input,
+      sha256: input.sha256,
+      currentHead: input.currentHead,
+      existingRevision,
+      ...joined,
+    });
+    return { ...joined, operation: input.input.agentOperation, commandId, existingRevision };
+  }
+  assertActiveAgentSnapshotAuthorization({
+    request: input.input,
+    currentHead: input.currentHead,
+    ...joined,
+  });
+  return { ...joined, operation: input.input.agentOperation, commandId, existingRevision: null };
+}
+
+async function loadAgentSnapshotRows(
+  db: Pick<ReturnType<typeof getCunoteDb>, "select">,
+  input: StudioSnapshotSaveInput & { agentSuggestionId: string },
+): Promise<{
+  run: typeof schema.grantDocumentAgentRuns.$inferSelect;
+  suggestion: typeof schema.grantDocumentAgentSuggestions.$inferSelect;
+}> {
+  const [joined] = await db
+    .select({ suggestion: schema.grantDocumentAgentSuggestions, run: schema.grantDocumentAgentRuns })
+    .from(schema.grantDocumentAgentSuggestions)
+    .innerJoin(
+      schema.grantDocumentAgentRuns,
+      eq(schema.grantDocumentAgentSuggestions.runId, schema.grantDocumentAgentRuns.id),
+    )
+    .where(and(
+      eq(schema.grantDocumentAgentSuggestions.id, input.agentSuggestionId),
+      eq(schema.grantDocumentAgentSuggestions.draftId, input.draftId),
+      eq(schema.grantDocumentAgentSuggestions.createdBy, input.access.userId),
+    ))
+    .limit(1);
+  if (!joined) {
+    throw new DocumentRevisionError("agent_suggestion_not_found", "AI 문서 제안을 찾지 못했습니다.", 404);
+  }
+  return joined;
+}
+
+function assertActiveAgentSnapshotAuthorization(input: {
+  request: StudioSnapshotSaveInput & {
+    agentOperation: "apply" | "undo";
+    operationVersion: number;
+  };
+  currentHead: { revisionId: string; sha256: string } | null;
+  run: typeof schema.grantDocumentAgentRuns.$inferSelect;
+  suggestion: typeof schema.grantDocumentAgentSuggestions.$inferSelect;
+}): void {
+  const { request, currentHead, run, suggestion } = input;
+  if (suggestion.operationVersion !== request.operationVersion) throw revisionConflict(currentHead?.revisionId ?? null);
+  if (request.agentOperation === "apply") {
+    if (
+      suggestion.status !== "approved"
+      || suggestion.operationState !== "apply_saving"
+      || currentHead?.revisionId !== run.baseRevisionId
+      || currentHead.sha256 !== run.documentSha256
+    ) throw revisionConflict(currentHead?.revisionId ?? null);
+  } else if (
+    suggestion.status !== "applied"
+    || suggestion.operationState !== "undo_saving"
+    || currentHead?.revisionId !== suggestion.appliedRevisionId
+    || currentHead.sha256 !== suggestion.appliedDocumentSha256
+  ) {
+    throw revisionConflict(currentHead?.revisionId ?? null);
+  }
+}
+
+function assertExistingAgentCommandReplay(input: {
+  request: StudioSnapshotSaveInput & { agentOperation: "apply" | "undo"; agentSuggestionId: string };
+  sha256: string;
+  currentHead: { revisionId: string } | null;
+  run: typeof schema.grantDocumentAgentRuns.$inferSelect;
+  suggestion: typeof schema.grantDocumentAgentSuggestions.$inferSelect;
+  existingRevision: typeof schema.grantDocumentRevisions.$inferSelect;
+}): void {
+  const expectedParent = input.request.agentOperation === "apply"
+    ? input.run.baseRevisionId
+    : input.suggestion.appliedRevisionId;
+  const expectedOrigin = input.request.agentOperation === "apply"
+    ? "studio_agent_apply"
+    : "studio_agent_undo";
+  if (
+    input.currentHead?.revisionId === input.existingRevision.id
+    && input.existingRevision.draftId === input.request.draftId
+    && input.existingRevision.createdBy === input.request.access.userId
+    && input.existingRevision.parentRevisionId === expectedParent
+    && input.existingRevision.origin === expectedOrigin
+    && input.existingRevision.agentOperation === input.request.agentOperation
+    && input.existingRevision.agentRunId === input.run.id
+    && input.existingRevision.agentSuggestionId === input.suggestion.id
+    && input.existingRevision.sha256 === input.sha256
+  ) return;
+  throw revisionConflict(input.currentHead?.revisionId ?? null);
+}
+
+function agentCommandId(suggestionId: string, operation: "apply" | "undo"): string {
+  return operation === "apply" ? suggestionId : `${suggestionId}:undo`;
+}
+
+function assertCheckpointReplay(input: {
+  input: StudioSnapshotSaveInput;
+  sha256: string;
+  checkpoint: typeof schema.grantDocumentRevisions.$inferSelect;
+  currentHead: {
+    revisionId: string;
+    parentRevisionId: string | null;
+    origin: string;
+    sha256: string;
+  } | null;
+}): void {
+  if (
+    input.currentHead?.revisionId === input.checkpoint.id
+    && input.checkpoint.origin === "studio_agent_checkpoint"
+    && input.checkpoint.parentRevisionId === input.input.baseRevisionId
+    && input.checkpoint.sha256 === input.sha256
+    && input.checkpoint.checkpointRequestId === input.input.checkpointRequestId
+  ) return;
+  throw revisionConflict(input.currentHead?.revisionId ?? null);
+}
+
+function isCheckpointChildOfLegacyReplay(
+  currentHead: {
+    revisionId: string;
+    parentRevisionId: string | null;
+    origin: string;
+    sha256: string;
+  } | null,
+  legacyRevisionId: string,
+  sha256: string,
+): boolean {
+  return currentHead?.origin === "studio_agent_checkpoint"
+    && currentHead.parentRevisionId === legacyRevisionId
+    && currentHead.sha256 === sha256;
+}
+
+function revisionConflict(currentRevisionId: string | null): DocumentRevisionError {
+  return new DocumentRevisionError(
+    "revision_conflict",
+    "다른 편집 세션에서 저장한 문서가 있습니다. 최신 문서를 다시 불러와 주세요.",
+    409,
+    currentRevisionId,
+  );
 }
 
 function toSaveResult(row: typeof schema.grantDocumentRevisions.$inferSelect): StudioSnapshotSaveResult {

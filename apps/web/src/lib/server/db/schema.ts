@@ -2044,6 +2044,17 @@ export const grantDocumentRevisions = pgTable("grant_document_revisions", {
   studioSessionId: text("studio_session_id").notNull(),
   documentEpoch: integer("document_epoch").notNull(),
   changeSeq: integer("change_seq").notNull(),
+  checkpointRequestId: uuid("checkpoint_request_id"),
+  agentCommandId: text("agent_command_id"),
+  agentOperation: text("agent_operation"),
+  agentRunId: uuid("agent_run_id").references(
+    (): AnyPgColumn => grantDocumentAgentRuns.id,
+    { onDelete: "restrict" },
+  ),
+  agentSuggestionId: uuid("agent_suggestion_id").references(
+    (): AnyPgColumn => grantDocumentAgentSuggestions.id,
+    { onDelete: "restrict" },
+  ),
   createdBy: uuid("created_by").notNull().references(() => users.id, { onDelete: "cascade" }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 }, (table) => ({
@@ -2055,7 +2066,49 @@ export const grantDocumentRevisions = pgTable("grant_document_revisions", {
     table.documentEpoch,
     table.changeSeq,
     table.sha256,
-  ),
+  ).where(sql`${table.checkpointRequestId} IS NULL`),
+  checkpointRequestUnique: uniqueIndex("grant_document_revisions_checkpoint_request_unique").on(
+    table.draftId,
+    table.createdBy,
+    table.checkpointRequestId,
+  ).where(sql`${table.checkpointRequestId} IS NOT NULL`),
+  agentCommandUnique: uniqueIndex("grant_document_revisions_agent_command_unique").on(
+    table.agentCommandId,
+  ).where(sql`${table.agentCommandId} IS NOT NULL`),
+  agentRunIdx: index("grant_document_revisions_agent_run_idx").on(table.agentRunId),
+  agentSuggestionIdx: index("grant_document_revisions_agent_suggestion_idx").on(table.agentSuggestionId),
+  agentBindingCheck: check("grant_document_revisions_agent_binding_check", sql`
+    (
+      ${table.agentCommandId} IS NULL
+      AND ${table.agentOperation} IS NULL
+      AND ${table.agentRunId} IS NULL
+      AND ${table.agentSuggestionId} IS NULL
+    ) OR (
+      ${table.agentCommandId} IS NOT NULL
+      AND ${table.agentOperation} IN ('apply', 'undo')
+      AND ${table.agentRunId} IS NOT NULL
+      AND ${table.agentSuggestionId} IS NOT NULL
+    )
+  `),
+  originBindingCheck: check("grant_document_revisions_origin_binding_check", sql`
+    (
+      ${table.origin} = 'studio_agent_checkpoint'
+      AND ${table.checkpointRequestId} IS NOT NULL
+      AND ${table.agentCommandId} IS NULL
+    ) OR (
+      ${table.origin} IN ('studio_agent_apply', 'studio_agent_undo')
+      AND ${table.checkpointRequestId} IS NULL
+      AND ${table.agentCommandId} IS NOT NULL
+      AND ${table.agentOperation} = CASE
+        WHEN ${table.origin} = 'studio_agent_apply' THEN 'apply'
+        ELSE 'undo'
+      END
+    ) OR (
+      ${table.origin} NOT IN ('studio_agent_checkpoint', 'studio_agent_apply', 'studio_agent_undo')
+      AND ${table.checkpointRequestId} IS NULL
+      AND ${table.agentCommandId} IS NULL
+    )
+  `),
 }));
 
 /**
@@ -2070,6 +2123,215 @@ export const grantDocumentRevisionHeads = pgTable("grant_document_revision_heads
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 }, (table) => ({
   revisionUnique: uniqueIndex("grant_document_revision_heads_revision_unique").on(table.revisionId),
+}));
+
+/** 사용자가 명시적으로 요청한 문서 작성 제안의 exact checkpoint/model 실행 원장. */
+export const grantDocumentAgentRuns = pgTable("grant_document_agent_runs", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  draftId: uuid("draft_id").notNull().references(() => grantDocumentDrafts.id, { onDelete: "cascade" }),
+  createdBy: uuid("created_by").notNull().references(() => users.id, { onDelete: "cascade" }),
+  clientRequestId: uuid("client_request_id").notNull(),
+  status: text("status").notNull().default("generating"),
+  statusVersion: integer("status_version").notNull().default(0),
+  attempt: integer("attempt").notNull().default(1),
+  leaseOwner: uuid("lease_owner"),
+  leaseVersion: integer("lease_version").notNull().default(1),
+  leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+  requestBindingSha256: text("request_binding_sha256").notNull(),
+  baseRevisionId: uuid("base_revision_id").notNull().references(
+    () => grantDocumentRevisions.id,
+    { onDelete: "restrict" },
+  ),
+  documentSha256: text("document_sha256").notNull(),
+  studioSessionId: text("studio_session_id").notNull(),
+  documentEpoch: integer("document_epoch").notNull(),
+  changeSeq: integer("change_seq").notNull(),
+  selectedPage: integer("selected_page").notNull(),
+  candidate: jsonb("candidate").$type<Record<string, unknown>>().notNull(),
+  candidateId: text("candidate_id").notNull(),
+  modelVersion: text("model_version").notNull(),
+  promptVersion: text("prompt_version").notNull(),
+  groundingBindingSha256: text("grounding_binding_sha256").notNull(),
+  groundingProvenance: jsonb("grounding_provenance").$type<Record<string, unknown>>().notNull(),
+  inputTokens: integer("input_tokens").notNull().default(0),
+  outputTokens: integer("output_tokens").notNull().default(0),
+  cacheReadTokens: integer("cache_read_tokens").notNull().default(0),
+  cacheWriteTokens: integer("cache_write_tokens").notNull().default(0),
+  failureCode: text("failure_code"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+}, (table) => ({
+  clientRequestUnique: uniqueIndex("grant_document_agent_runs_client_request_unique").on(
+    table.draftId,
+    table.createdBy,
+    table.clientRequestId,
+  ),
+  activeCreatorUnique: uniqueIndex("grant_document_agent_runs_active_creator_unique").on(
+    table.draftId,
+    table.createdBy,
+  ).where(sql`${table.status} = 'generating'`),
+  statusLeaseIdx: index("grant_document_agent_runs_status_lease_idx").on(
+    table.status,
+    table.leaseExpiresAt,
+  ),
+  createdByIdx: index("grant_document_agent_runs_created_by_idx").on(table.createdBy),
+  baseRevisionIdx: index("grant_document_agent_runs_base_revision_idx").on(table.baseRevisionId),
+  stateCheck: check("grant_document_agent_runs_state_check", sql`
+    ${table.status} IN ('generating', 'ready', 'empty', 'failed', 'cancelled')
+    AND ${table.statusVersion} >= 0
+    AND ${table.attempt} >= 1
+    AND ${table.leaseVersion} >= 1
+    AND ${table.documentEpoch} >= 1
+    AND ${table.changeSeq} >= 0
+    AND ${table.selectedPage} >= 1
+    AND ${table.inputTokens} >= 0
+    AND ${table.outputTokens} >= 0
+    AND ${table.cacheReadTokens} >= 0
+    AND ${table.cacheWriteTokens} >= 0
+    AND char_length(${table.requestBindingSha256}) = 64
+    AND char_length(${table.documentSha256}) = 64
+    AND char_length(${table.groundingBindingSha256}) = 64
+    AND (
+      (${table.status} = 'generating' AND ${table.leaseOwner} IS NOT NULL AND ${table.leaseExpiresAt} IS NOT NULL)
+      OR (${table.status} <> 'generating' AND ${table.leaseOwner} IS NULL AND ${table.leaseExpiresAt} IS NULL)
+    )
+  `),
+}));
+
+/** run이 만든 최대 2개 제안과 적용/Undo CAS 상태. */
+export const grantDocumentAgentSuggestions = pgTable("grant_document_agent_suggestions", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  runId: uuid("run_id").notNull().references(() => grantDocumentAgentRuns.id, { onDelete: "cascade" }),
+  draftId: uuid("draft_id").notNull().references(() => grantDocumentDrafts.id, { onDelete: "cascade" }),
+  createdBy: uuid("created_by").notNull().references(() => users.id, { onDelete: "cascade" }),
+  ordinal: integer("ordinal").notNull(),
+  anchor: jsonb("anchor").$type<Record<string, unknown>>().notNull(),
+  location: jsonb("location").$type<Record<string, unknown>>().notNull(),
+  beforeText: text("before_text").notNull(),
+  afterText: text("after_text").notNull(),
+  format: jsonb("format").$type<Record<string, unknown>>().notNull(),
+  rationale: text("rationale").notNull(),
+  evidence: jsonb("evidence").$type<Record<string, unknown>[]>().notNull(),
+  status: text("status").notNull().default("pending"),
+  statusVersion: integer("status_version").notNull().default(0),
+  operationState: text("operation_state").notNull().default("idle"),
+  operationVersion: integer("operation_version").notNull().default(0),
+  operationStartedAt: timestamp("operation_started_at", { withTimezone: true }),
+  operationClientId: uuid("operation_client_id"),
+  failureCode: text("failure_code"),
+  appliedDocumentSha256: text("applied_document_sha256"),
+  undoneDocumentSha256: text("undone_document_sha256"),
+  appliedRevisionId: uuid("applied_revision_id").references(
+    () => grantDocumentRevisions.id,
+    { onDelete: "restrict" },
+  ),
+  undoneRevisionId: uuid("undone_revision_id").references(
+    () => grantDocumentRevisions.id,
+    { onDelete: "restrict" },
+  ),
+  approvedAt: timestamp("approved_at", { withTimezone: true }),
+  appliedAt: timestamp("applied_at", { withTimezone: true }),
+  undoneAt: timestamp("undone_at", { withTimezone: true }),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  runOrdinalUnique: uniqueIndex("grant_document_agent_suggestions_run_ordinal_unique").on(
+    table.runId,
+    table.ordinal,
+  ),
+  draftCreatorUpdatedIdx: index("grant_document_agent_suggestions_draft_creator_updated_idx").on(
+    table.draftId,
+    table.createdBy,
+    table.updatedAt,
+  ),
+  createdByIdx: index("grant_document_agent_suggestions_created_by_idx").on(table.createdBy),
+  appliedRevisionIdx: index("grant_document_agent_suggestions_applied_revision_idx").on(
+    table.appliedRevisionId,
+  ),
+  undoneRevisionIdx: index("grant_document_agent_suggestions_undone_revision_idx").on(
+    table.undoneRevisionId,
+  ),
+  stateCheck: check("grant_document_agent_suggestions_state_check", sql`
+    ${table.ordinal} BETWEEN 0 AND 1
+    AND ${table.status} IN ('pending', 'approved', 'applied', 'undone', 'dismissed', 'stale')
+    AND ${table.statusVersion} >= 0
+    AND ${table.operationVersion} >= 0
+    AND ${table.operationState} IN ('idle', 'apply_saving', 'apply_save_failed', 'undo_saving', 'undo_save_failed')
+    AND (
+      ${table.failureCode} IS NULL OR ${table.failureCode} IN (
+        'core_validation_failed', 'reload_failed', 'snapshot_upload_failed', 'revision_conflict',
+        'undo_conflict', 'apply_rolled_back', 'undo_rolled_back', 'operation_recovered'
+      )
+    )
+  `),
+  operationBindingCheck: check("grant_document_agent_suggestions_operation_binding_check", sql`
+    (
+      ${table.operationState} IN ('apply_saving', 'undo_saving')
+      AND ${table.operationStartedAt} IS NOT NULL
+      AND ${table.operationClientId} IS NOT NULL
+    ) OR (
+      ${table.operationState} IN ('apply_save_failed', 'undo_save_failed')
+      AND ${table.operationStartedAt} IS NULL
+      AND ${table.operationClientId} IS NOT NULL
+    ) OR (
+      ${table.operationState} = 'idle'
+      AND ${table.operationStartedAt} IS NULL
+      AND ${table.operationClientId} IS NULL
+    )
+  `),
+}));
+
+/** provider 시도별 토큰 사용을 ACK 유실과 lease fencing과 독립적으로 한 번 기록한다. */
+export const generativeUsageEvents = pgTable("generative_usage_events", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  companyId: uuid("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  grantId: uuid("grant_id").references(() => grants.id, { onDelete: "set null" }),
+  sourceKind: text("source_kind").notNull(),
+  sourceRequestId: uuid("source_request_id").notNull(),
+  runId: uuid("run_id").references(() => grantDocumentAgentRuns.id, { onDelete: "cascade" }),
+  attempt: integer("attempt"),
+  leaseVersion: integer("lease_version"),
+  model: text("model").notNull(),
+  usageStatus: text("usage_status").notNull().default("started"),
+  providerRequestId: text("provider_request_id"),
+  inputTokens: integer("input_tokens"),
+  outputTokens: integer("output_tokens"),
+  cacheReadTokens: integer("cache_read_tokens"),
+  cacheWriteTokens: integer("cache_write_tokens"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  finalizedAt: timestamp("finalized_at", { withTimezone: true }),
+}, (table) => ({
+  companyUserCreatedIdx: index("generative_usage_events_company_user_created_idx").on(
+    table.companyId,
+    table.userId,
+    table.createdAt,
+  ),
+  userIdx: index("generative_usage_events_user_idx").on(table.userId),
+  grantIdx: index("generative_usage_events_grant_idx").on(table.grantId),
+  runAttemptUnique: uniqueIndex("generative_usage_events_run_attempt_unique").on(
+    table.runId,
+    table.attempt,
+    table.leaseVersion,
+  ).where(sql`${table.runId} IS NOT NULL`),
+  sourceRequestUnique: uniqueIndex("generative_usage_events_source_request_unique").on(
+    table.sourceKind,
+    table.sourceRequestId,
+  ).where(sql`${table.runId} IS NULL`),
+  stateCheck: check("generative_usage_events_state_check", sql`
+    ${table.usageStatus} IN ('started', 'reported', 'unavailable')
+    AND (
+      (${table.runId} IS NOT NULL AND ${table.attempt} >= 1 AND ${table.leaseVersion} >= 1)
+      OR (${table.runId} IS NULL AND ${table.attempt} IS NULL AND ${table.leaseVersion} IS NULL)
+    )
+    AND (
+      (${table.usageStatus} = 'started' AND ${table.finalizedAt} IS NULL)
+      OR (${table.usageStatus} <> 'started' AND ${table.finalizedAt} IS NOT NULL)
+    )
+    AND (${table.inputTokens} IS NULL OR ${table.inputTokens} >= 0)
+    AND (${table.outputTokens} IS NULL OR ${table.outputTokens} >= 0)
+    AND (${table.cacheReadTokens} IS NULL OR ${table.cacheReadTokens} >= 0)
+    AND (${table.cacheWriteTokens} IS NULL OR ${table.cacheWriteTokens} >= 0)
+  `),
 }));
 
 export const dedupLinks = pgTable("dedup_links", {

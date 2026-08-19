@@ -30,6 +30,9 @@ export const REQUIRED_TABLES = [
   "grant_document_draft_events",
   "grant_document_revisions",
   "grant_document_revision_heads",
+  "grant_document_agent_runs",
+  "grant_document_agent_suggestions",
+  "generative_usage_events",
   "source_cursor",
   "dedup_links",
   "match_state",
@@ -72,4 +75,7 @@ export const RLS_TABLES = [
   "grant_document_draft_events",
   "grant_document_revisions",
   "grant_document_revision_heads",
+  "grant_document_agent_runs",
+  "grant_document_agent_suggestions",
+  "generative_usage_events",
 ] as const;

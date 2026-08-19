@@ -3,6 +3,7 @@ import { extractFieldOptions } from "@/lib/documents/fieldOptions";
 import {
   resolveRhwpCellAtPoint,
   resolveRhwpFieldAnchors,
+  resolveRhwpFieldAnchorsExact,
   type RhwpAnchorDocument,
 } from "./fieldAnchors";
 
@@ -90,6 +91,25 @@ const ambiguous: RhwpAnchorDocument = {
   ]),
 };
 assert.equal(resolveRhwpFieldAnchors(ambiguous, [{ fieldId: "address", label: "주소", fieldType: "text" }]).length, 0);
+assert.deepEqual(
+  resolveRhwpFieldAnchorsExact(ambiguous, [{ fieldId: "address", label: "주소", fieldType: "text" }]),
+  [{ fieldId: "address", status: "ambiguous", candidateCount: 2 }],
+);
+
+const exactUnique = resolveRhwpFieldAnchorsExact(document, [{
+  fieldId: "founder-type",
+  label,
+  fieldType: "checkbox",
+  sourceSpan: "□ 예비창업자 □ 폐업 후 재창업자",
+  position: { page: 1, bbox: [0.1, 0.29, 0.8, 0.07] },
+  options,
+}]);
+assert.equal(exactUnique[0]?.status, "unique");
+assert.equal(exactUnique[0]?.candidateCount, 1);
+assert.deepEqual(
+  resolveRhwpFieldAnchorsExact(document, [{ fieldId: "missing", label: "없는 라벨", fieldType: "text" }]),
+  [{ fieldId: "missing", status: "missing", candidateCount: 0 }],
+);
 
 // 원문 셀의 시각적 자간 공백은 무시하고, 위치 힌트가 가리키는 페이지의 같은 라벨을 찾는다.
 const spacedLabelDocument: RhwpAnchorDocument = {

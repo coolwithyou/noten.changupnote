@@ -498,6 +498,20 @@
       "when": 1786208248691,
       "tag": "0070_tearful_sleeper",
       "breakpoints": true
+    },
+    {
+      "idx": 71,
+      "version": "7",
+      "when": 1787118997137,
+      "tag": "0071_sweet_monster_badoon",
+      "breakpoints": true
+    },
+    {
+      "idx": 72,
+      "version": "7",
+      "when": 1787119036383,
+      "tag": "0072_rainy_george_stacy",
+      "breakpoints": true
     }
   ]
 }

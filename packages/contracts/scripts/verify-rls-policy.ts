@@ -7,6 +7,8 @@ const profileScopeMigrationPath = "db/migrations/0034_sturdy_boom_boom.sql";
 const creditMigrationPath = "db/migrations/0038_yielding_leader.sql";
 const profileQuestionMigrationPath = "db/migrations/0045_mushy_daimon_hellstrom.sql";
 const documentRevisionMigrationPath = "db/migrations/0048_cool_nick_fury.sql";
+const documentAgentMigrationPath = "db/migrations/0071_sweet_monster_badoon.sql";
+const documentAgentIndexMigrationPath = "db/migrations/0072_rainy_george_stacy.sql";
 const journalPath = "db/migrations/meta/_journal.json";
 const schemaPath = "apps/web/src/lib/server/db/schema.ts";
 
@@ -16,6 +18,8 @@ const profileScopeMigration = readFileSync(resolve(process.cwd(), profileScopeMi
 const creditMigration = readFileSync(resolve(process.cwd(), creditMigrationPath), "utf8");
 const profileQuestionMigration = readFileSync(resolve(process.cwd(), profileQuestionMigrationPath), "utf8");
 const documentRevisionMigration = readFileSync(resolve(process.cwd(), documentRevisionMigrationPath), "utf8");
+const documentAgentMigration = readFileSync(resolve(process.cwd(), documentAgentMigrationPath), "utf8");
+const documentAgentIndexMigration = readFileSync(resolve(process.cwd(), documentAgentIndexMigrationPath), "utf8");
 const journal = readFileSync(resolve(process.cwd(), journalPath), "utf8");
 const schema = readFileSync(resolve(process.cwd(), schemaPath), "utf8");
 
@@ -141,6 +145,54 @@ for (const pattern of [
 if (!journal.includes('"tag": "0048_cool_nick_fury"')) {
   errors.push(`${journalPath} is missing 0048_cool_nick_fury`);
 }
+for (const table of [
+  "grant_document_agent_runs",
+  "grant_document_agent_suggestions",
+  "generative_usage_events",
+]) {
+  requireDocumentAgentPattern(`ALTER TABLE "${table}" ENABLE ROW LEVEL SECURITY`, `${table} RLS enable`);
+  requireDocumentAgentPattern(`ALTER TABLE "${table}" FORCE ROW LEVEL SECURITY`, `${table} RLS force`);
+}
+for (const policy of [
+  "grant_document_agent_runs_creator_select",
+  "grant_document_agent_runs_writer_insert",
+  "grant_document_agent_runs_writer_update",
+  "grant_document_agent_suggestions_creator_select",
+  "grant_document_agent_suggestions_writer_insert",
+  "grant_document_agent_suggestions_writer_update",
+  "generative_usage_events_creator_select",
+  "generative_usage_events_writer_insert",
+  "generative_usage_events_writer_update",
+]) {
+  requireDocumentAgentPattern(`CREATE POLICY "${policy}"`, `${policy} policy`);
+}
+for (const pattern of [
+  "grant_document_agent_runs_active_creator_unique",
+  "generative_usage_events_run_attempt_unique",
+  "generative_usage_events_source_request_unique",
+  "grant_document_revisions_checkpoint_request_unique",
+  "grant_document_revisions_agent_command_unique",
+  "grant_document_revisions_agent_binding_check",
+  "grant_document_revisions_origin_binding_check",
+]) {
+  requireDocumentAgentPattern(pattern, `${pattern} constraint/index`);
+}
+for (const pattern of [
+  "generative_usage_events_user_idx",
+  "generative_usage_events_grant_idx",
+  "grant_document_agent_runs_created_by_idx",
+  "grant_document_agent_suggestions_created_by_idx",
+]) {
+  if (!documentAgentIndexMigration.includes(pattern)) {
+    errors.push(`${documentAgentIndexMigrationPath} is missing ${pattern}`);
+  }
+}
+if (!journal.includes('"tag": "0071_sweet_monster_badoon"')) {
+  errors.push(`${journalPath} is missing 0071_sweet_monster_badoon`);
+}
+if (!journal.includes('"tag": "0072_rainy_george_stacy"')) {
+  errors.push(`${journalPath} is missing 0072_rainy_george_stacy`);
+}
 
 if (!journal.includes('"tag": "0003_rls_company_scope"')) {
   errors.push(`${journalPath} is missing 0003_rls_company_scope`);
@@ -187,4 +239,8 @@ function requireProfileScopePattern(pattern: string, label: string) {
 
 function requireCreditPattern(pattern: string, label: string) {
   if (!creditMigration.includes(pattern)) errors.push(`${creditMigrationPath} is missing ${label}`);
+}
+
+function requireDocumentAgentPattern(pattern: string, label: string) {
+  if (!documentAgentMigration.includes(pattern)) errors.push(`${documentAgentMigrationPath} is missing ${label}`);
 }

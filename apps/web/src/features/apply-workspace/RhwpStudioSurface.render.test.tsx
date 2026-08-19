@@ -11,6 +11,7 @@ const html = renderToStaticMarkup(
     transport={{ mode: "persistent", draftId: "00000000-0000-4000-8000-000000000001" }}
     answers={{}}
     quickFields={[]}
+    connectedFields={[]}
     manualAnchors={[]}
     duplicateLabels={new Set()}
     workingDocument={null}
@@ -39,6 +40,7 @@ const localHtml = renderToStaticMarkup(
     }}
     answers={{}}
     quickFields={[]}
+    connectedFields={[]}
     manualAnchors={[]}
     duplicateLabels={new Set()}
     workingDocument={null}

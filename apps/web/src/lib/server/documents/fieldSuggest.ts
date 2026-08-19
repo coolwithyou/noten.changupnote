@@ -14,14 +14,15 @@
  *   5. 결과는 서버가 `fieldAnswers[label]={status:"suggested", source:"llm", basis, suggestedValue…}` 로
  *      저장 후 **저장된 fieldAnswers 에서 재구성**해 반환한다(컨펌 게이트 — 클라이언트 직접 쓰기 경로 없음).
  *   6. labels ≤ 10개/호출. 일일 예산은 채팅과 합산 집행(ADR-6 — assertChatBudget 재사용, usage 는 채팅
- *      세션에 합산 기록해 당일 합산 SQL 이 잡도록 한다. 상세는 recordSuggestionUsage 주석).
+ *      세션에 합산 기록해 당일 합산 SQL 이 잡도록 한다. 상세는 generativeUsage.ts의 원장 계약을 따른다).
  *   7. 모델 CHAT_DRAFT_MODEL(기본 claude-sonnet-4-6, ADR-7), temperature 0.2(0~0.3), structured output.
  */
 import { generateObject, type ModelMessage } from "ai";
 import { createAnthropic } from "@ai-sdk/anthropic";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { z } from "zod";
-import { getCunoteDb, type CunoteDb } from "../db/client";
+import { isManualLabel } from "@/lib/documents/manualFieldPolicy";
+import { getCunoteDb } from "../db/client";
 import * as schema from "../db/schema";
 import type { CompanyAccess } from "../auth/companyGuard";
 import { buildGrantGrounding, type GroundingDocumentBlock } from "../chat/grounding";
@@ -34,6 +35,7 @@ import {
   type ConnectedDocumentField,
 } from "./documentFieldLink";
 import { normalizeAnswerLabel, normalizeAnswerValue } from "./fieldAnswers";
+import { beginGenerativeUsage, finalizeGenerativeUsage } from "./generativeUsage";
 
 const DEFAULT_DRAFT_MODEL = "claude-sonnet-4-6"; // ADR-7 — env CHAT_DRAFT_MODEL 로 오버라이드.
 const MAX_LABELS = 10; // §7.4 labels ≤ 10개/호출.
@@ -57,39 +59,7 @@ export class FieldSuggestError extends Error {
   }
 }
 
-// ── manual류 라벨 제외(마스터 8.7 · v2.4, 서버 단일 원천 상수) ──────────────
-// 자동 처리 금지 필드: 서명·직인·날인·동의·서약·첨부류. normalizeLabel(core)은 괄호 내용을 지워
-// "대표자(서명)" → "대표자" 로 키워드를 놓치므로, 여기서는 공백만 제거하고 원문 키워드를 부분 매칭한다.
-const MANUAL_LABEL_KEYWORDS: readonly string[] = [
-  "서명",
-  "署名",
-  "사인",
-  "직인",
-  "날인",
-  "인감",
-  "도장",
-  "동의",
-  "서약",
-  "확인서명",
-  "첨부",
-  "붙임",
-  "별첨",
-  "주민등록",
-  "외국인등록",
-  "여권번호",
-  "운전면허",
-];
-
-function stripSpaces(label: string): string {
-  return label.replace(/\s+/g, "");
-}
-
-/** manual류(자동 처리 금지) 라벨인지 — 정규화(공백 제거) label 에 제외 키워드가 포함되면 true. */
-export function isManualLabel(label: string): boolean {
-  const normalized = stripSpaces(label);
-  if (!normalized) return true;
-  return MANUAL_LABEL_KEYWORDS.some((keyword) => normalized.includes(keyword));
-}
+export { isManualLabel } from "@/lib/documents/manualFieldPolicy";
 
 /** LLM 제안 대상이 될 수 있는 라벨인지(manual류 아님). '제안 받기' 노출·서버 생성 공용 판정. */
 export function isLlmSuggestableLabel(label: string): boolean {
@@ -301,57 +271,6 @@ async function loadDatabaseSuggestableLabels(input: {
   return selectDatabaseSuggestableLabels(fields);
 }
 
-// ── 예산 합산용 usage 기록(ADR-6) ───────────────────────────────────────
-/**
- * 제안 usage 를 당일 합산 SQL(getCompanyDailyTokenUsage — chat_sessions 4개 usage 컬럼 합)이 잡도록 기록한다.
- *
- * **판단(§12 보고 대상)**: 당일 합산 SQL 은 chat_sessions 만 읽으므로, 제안 usage 도 chat_sessions 행에
- * 얹혀야 잡힌다. "별도 chat_session 만들지 말라"는 규약을 따라 **제안 호출마다 새 세션을 만들지 않고**,
- * 이 회사·유저·공고의 **오늘(KST) 세션이 이미 있으면 그 행의 usage 컬럼에 누적**한다(workspace 진입 시
- * 채팅이 자동 오픈돼 grant 세션이 보통 존재 — P3-6). 없을 때만 usage 원장용 grant 세션 1행을 만든다.
- * 트레이드오프: 채팅 세션에 제안(Sonnet) 토큰이 섞여 세션당 채팅 KPI(§11)가 소폭 희석될 수 있다 — 예산
- * 집행 정확성(합산)을 우선했다. 정밀 분리는 크레딧 결합(P6-3, credit_usage_events)에서 정산한다.
- */
-async function recordSuggestionUsage(
-  db: CunoteDb,
-  input: { companyId: string; userId: string; grantId: string; model: string; usage: NormalizedChatUsage },
-): Promise<void> {
-  const { companyId, userId, grantId, model, usage } = input;
-  if (usage.input + usage.output + usage.cacheRead + usage.cacheWrite <= 0) return;
-
-  // 오늘(KST) 이 회사·유저·공고의 최근 세션.
-  const existing = (await db.execute(sql`
-    SELECT id FROM chat_sessions
-    WHERE company_id = ${companyId}
-      AND user_id = ${userId}
-      AND grant_id = ${grantId}
-      AND created_at >= date_trunc('day', now() AT TIME ZONE 'Asia/Seoul') AT TIME ZONE 'Asia/Seoul'
-    ORDER BY last_message_at DESC
-    LIMIT 1
-  `)) as unknown as Array<{ id: string }>;
-
-  let sessionId = existing[0]?.id ?? null;
-  if (!sessionId) {
-    const created = await db
-      .insert(schema.chatSessions)
-      .values({ companyId, userId, contextType: "grant", grantId, model })
-      .returning({ id: schema.chatSessions.id });
-    sessionId = created[0]?.id ?? null;
-  }
-  if (!sessionId) return;
-
-  await db
-    .update(schema.chatSessions)
-    .set({
-      inputTokens: sql`${schema.chatSessions.inputTokens} + ${usage.input}`,
-      outputTokens: sql`${schema.chatSessions.outputTokens} + ${usage.output}`,
-      cacheReadTokens: sql`${schema.chatSessions.cacheReadTokens} + ${usage.cacheRead}`,
-      cacheWriteTokens: sql`${schema.chatSessions.cacheWriteTokens} + ${usage.cacheWrite}`,
-      lastMessageAt: sql`now()`,
-    })
-    .where(eq(schema.chatSessions.id, sessionId));
-}
-
 // ── 오케스트레이터 ──────────────────────────────────────────────────────
 export interface FieldSuggestResult {
   suggestions: Record<string, {
@@ -423,6 +342,13 @@ export async function generateFieldSuggestions(input: {
 
   const model = fieldSuggestModel();
   const anthropic = createAnthropic({ apiKey });
+  const usageAttempt = await beginGenerativeUsage({
+    companyId: input.access.companyId,
+    userId: input.access.userId,
+    grantId: draft.grantId,
+    sourceKind: "field_suggestion",
+    model,
+  });
 
   const userParts: Array<Record<string, unknown>> = [
     ...grounding.documents.map((doc) => doc as unknown as Record<string, unknown>),
@@ -458,6 +384,18 @@ export async function generateFieldSuggestions(input: {
     object = result.object;
     usage = normalizeChatUsage(result.usage, result.providerMetadata);
   } catch (error) {
+    try {
+      await finalizeGenerativeUsage({
+        eventId: usageAttempt.id,
+        companyId: input.access.companyId,
+        userId: input.access.userId,
+        grantId: draft.grantId,
+        model,
+        status: "unavailable",
+      });
+    } catch (usageError) {
+      console.error("[field-suggest] 실패 usage 종결 실패", usageError);
+    }
     throw new FieldSuggestError(
       "field_suggest_generation_failed",
       `필드 제안을 생성하지 못했습니다: ${error instanceof Error ? error.message : String(error)}`,
@@ -465,13 +403,15 @@ export async function generateFieldSuggestions(input: {
     );
   }
 
-  // usage 를 당일 합산에 기록(어보트 없음 — 비스트리밍이라 서버에서 완주 보장).
+  // provider usage를 idempotent event에서 종결하고 같은 transaction으로 일일 합산한다.
   try {
-    await recordSuggestionUsage(db, {
+    await finalizeGenerativeUsage({
+      eventId: usageAttempt.id,
       companyId: input.access.companyId,
       userId: input.access.userId,
       grantId: draft.grantId,
       model,
+      status: "reported",
       usage,
     });
   } catch (error) {

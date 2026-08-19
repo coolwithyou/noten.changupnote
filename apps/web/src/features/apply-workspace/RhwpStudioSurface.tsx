@@ -1,7 +1,7 @@
 "use client";
 
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useReducer, useRef, useState } from "react";
-import { ArrowLeft, CheckCircle2, Download, FilePenLine, RefreshCw, Save } from "lucide-react";
+import { ArrowLeft, CheckCircle2, Download, FilePenLine, RefreshCw, Save, WandSparkles } from "lucide-react";
 import { toast } from "sonner";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -9,16 +9,41 @@ import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import type { DraftFieldAnswers } from "@/lib/server/documents/fieldAnswers";
 import type { ConnectedDocumentField } from "@/lib/server/documents/documentFieldLink";
-import type { RhwpFieldAnchor } from "@/lib/rhwp/fieldAnchors";
-import { downloadBytes } from "@/lib/rhwp/client";
-import { exportVerifiedEditorDocument, RHWP_STUDIO_URL } from "@/lib/rhwp/editorClient";
+import { resolveRhwpFieldAnchorsExact, type RhwpFieldAnchor } from "@/lib/rhwp/fieldAnchors";
+import { downloadBytes, loadRhwp } from "@/lib/rhwp/client";
+import {
+  extractDocumentEditCandidates,
+  reservedAnchorsFromExactResolutions,
+} from "@/lib/rhwp/documentAgentCandidates";
+import {
+  sha256Hex,
+  type DocumentAgentReservedAnchor,
+  type DocumentEditCandidate,
+} from "@/lib/rhwp/documentAgentContract";
+import {
+  fetchDocumentAgentRuns,
+  requestDocumentAgentSuggestions,
+  transitionDocumentAgentSuggestion,
+} from "@/lib/rhwp/documentAgentApi";
+import {
+  createStudioCommandDocumentAgentTransaction,
+  StudioDocumentAgentVerificationError,
+  type StudioCommandDocumentAgentTransaction,
+} from "@/lib/rhwp/studioCommandDocumentAgentTransaction";
+import { resolveStudioDocumentAgentProtocol } from "@/lib/rhwp/studioDocumentAgentProtocol";
+import {
+  exportVerifiedEditorDocument,
+  loadEditorFileWithoutDialogs,
+  notifyEditorSaved,
+  RHWP_STUDIO_URL,
+} from "@/lib/rhwp/editorClient";
 import {
   initialStudioSaveState,
   isStudioSaveInFlight,
   reduceStudioSaveState,
 } from "@/lib/rhwp/studioSaveState";
 import { resolveRhwpStudioSaveProtocol, type RhwpStudioSaveProtocol } from "@/lib/rhwp/studioSaveProtocol";
-import { persistStudioSnapshot } from "@/lib/rhwp/studioSnapshots";
+import { persistStudioSnapshot, StudioSnapshotPersistenceError } from "@/lib/rhwp/studioSnapshots";
 import { commitStudioSnapshot } from "@/lib/rhwp/studioTransport";
 import {
   prepareRhwpWorkingDocument,
@@ -27,7 +52,16 @@ import {
   type RhwpWorkingDocumentTransport,
 } from "@/lib/rhwp/workingDocument";
 import type { DocumentAuthoringTask } from "./documentAuthoring";
+import type {
+  DocumentAgentRunDto,
+  DocumentAgentSuggestionDto,
+} from "@/lib/server/documents/documentAgentRuns";
 import { StudioSaveIndicator } from "./StudioSaveIndicator";
+import { DocumentAgentSheet } from "./DocumentAgentSheet";
+import {
+  initialDocumentAgentUiState,
+  reduceDocumentAgentUiState,
+} from "./documentAgentState";
 
 type RhwpEditorInstance = import("@rhwp/editor").RhwpEditor;
 
@@ -46,11 +80,13 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
   transport: RhwpWorkingDocumentTransport;
   answers: DraftFieldAnswers;
   quickFields: readonly ConnectedDocumentField[];
+  connectedFields: readonly ConnectedDocumentField[];
   manualAnchors: readonly RhwpFieldAnchor[];
   duplicateLabels: ReadonlySet<string>;
   workingDocument: RhwpWorkingDocument | null;
   headMaterializedAnswers: Record<string, string>;
   activeTask: DocumentAuthoringTask | null;
+  documentAgentAvailable?: boolean;
   onSaved: (
     document: RhwpWorkingDocument,
     taskFieldId: string | null,
@@ -60,11 +96,13 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
   transport,
   answers,
   quickFields,
+  connectedFields,
   manualAnchors,
   duplicateLabels,
   workingDocument,
   headMaterializedAnswers,
   activeTask,
+  documentAgentAvailable = false,
   onSaved,
 }, ref) => {
   const localPreview = transport.mode === "local_preview";
@@ -72,9 +110,16 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
   const [attempt, setAttempt] = useState(0);
   const [state, setState] = useState<StudioState>({ status: "loading", message: "작업 문서를 준비하고 있어요." });
   const [saveState, dispatchSave] = useReducer(reduceStudioSaveState, initialStudioSaveState);
+  const [agentState, dispatchAgent] = useReducer(reduceDocumentAgentUiState, initialDocumentAgentUiState);
+  const [agentCapabilityReady, setAgentCapabilityReady] = useState(false);
+  const [agentHardLock, setAgentHardLock] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const editorRef = useRef<RhwpEditorInstance | null>(null);
   const saveProtocolRef = useRef<RhwpStudioSaveProtocol | null>(null);
+  const agentTransactionRef = useRef<StudioCommandDocumentAgentTransaction | null>(null);
+  const agentCandidatesRef = useRef<DocumentEditCandidate[]>([]);
+  const agentReservedAnchorsRef = useRef<DocumentAgentReservedAnchor[]>([]);
+  const latestAppliedSuggestionIdRef = useRef<string | null>(null);
   const preparedRef = useRef<RhwpWorkingDocument | null>(null);
   const onSavedRef = useRef(onSaved);
   const activeTaskFieldIdRef = useRef(activeTask?.fieldId ?? null);
@@ -138,17 +183,28 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
         return;
       }
       editorRef.current = editor;
-      // 첫 로드에서 브라우저 로컬 글꼴 확인이 필요할 수 있다. 이 단계에서는 부모 오버레이가
-      // iframe 클릭을 가로막으면 Promise가 끝나지 않으므로 편집기를 노출한다.
       setState({
         status: "loading",
-        message: "처음 한 번 문서 확인창은 ‘그대로 보기’, 글꼴 확인창은 ‘로컬 글꼴 감지 (권장)’를 선택해 주세요.",
-        allowEditorInteraction: true,
+        message: "문서 편집기를 준비하고 있습니다.",
+        allowEditorInteraction: false,
       });
-      const result = await editor.loadFile(prepared.bytes.slice(), prepared.filename);
+      const result = await loadEditorFileWithoutDialogs(editor, prepared.bytes.slice(), prepared.filename);
       if (disposed || requestSeq.current !== seq) return;
       const saveProtocol = resolveRhwpStudioSaveProtocol(editor);
       saveProtocolRef.current = saveProtocol;
+      const agentProtocol = resolveStudioDocumentAgentProtocol(editor);
+      if (documentAgentAvailable && transport.mode === "persistent" && agentProtocol) {
+        const rhwp = await loadRhwp();
+        agentTransactionRef.current = createStudioCommandDocumentAgentTransaction({
+          rhwp,
+          protocol: agentProtocol,
+          exportCurrentBytes: (format) => exportVerifiedEditorDocument(editor, format),
+        });
+        setAgentCapabilityReady(true);
+      } else {
+        agentTransactionRef.current = null;
+        setAgentCapabilityReady(false);
+      }
       const dirtyState = saveProtocol.getDirtyState ? await saveProtocol.getDirtyState() : null;
       if (disposed || requestSeq.current !== seq) return;
       documentEpochRef.current = dirtyState?.documentEpoch ?? 0;
@@ -180,11 +236,16 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
       editorRef.current?.destroy();
       editorRef.current = null;
       saveProtocolRef.current = null;
+      agentTransactionRef.current = null;
+      agentCandidatesRef.current = [];
+      agentReservedAnchorsRef.current = [];
+      latestAppliedSuggestionIdRef.current = null;
+      setAgentCapabilityReady(false);
       preparedRef.current = null;
     };
     // Studio는 현재 draft에서 한 번만 생성한다. 빠른 작성 값이 바뀌었다고 iframe을 파괴해
     // 재로드하면 글꼴 권한 확인이 매번 반복된다. 최신 빠른 작성 값은 최종 저장에서 delta로 합친다.
-  }, [attempt, sourceKey]);
+  }, [attempt, documentAgentAvailable, sourceKey]);
 
   const save = useCallback(async (intent: StudioSaveIntent): Promise<RhwpWorkingDocument | null> => {
     const editor = editorRef.current;
@@ -244,6 +305,9 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
       });
       if (commit.mode === "local_preview") {
         const savedAt = new Date().toISOString();
+        await notifyEditorSaved(editor).catch((error) => {
+          console.warn("rhwp Studio 탭 저장 완료 통지 실패", error);
+        });
         if (!supportsChangeEvents) legacySaveSeqRef.current = savedSeq;
         onSavedRef.current(tabSnapshot, activeTaskFieldIdRef.current, intent === "return");
         dispatchSave({
@@ -270,6 +334,9 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
       };
       preparedRef.current = serverSnapshot;
       sessionDocumentRef.current = serverSnapshot;
+      await notifyEditorSaved(editor).catch((error) => {
+        console.warn("rhwp Studio 서버 저장 완료 통지 실패", error);
+      });
       if (!supportsChangeEvents) legacySaveSeqRef.current = savedSeq;
       onSavedRef.current(serverSnapshot, activeTaskFieldIdRef.current, intent === "return");
       dispatchSave({
@@ -323,7 +390,7 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
       void save("auto");
     };
     scheduleAutosaveRef.current = (changeSeq) => {
-      if (!saveProtocolRef.current?.supportsChangeEvents) return;
+      if (!saveProtocolRef.current?.supportsChangeEvents || saveInFlightRef.current) return;
       if (autosaveIdleTimerRef.current) clearTimeout(autosaveIdleTimerRef.current);
       const dueAt = Date.now() + 10_000;
       dispatchSave({ type: "scheduled", changeSeq, dueAt });
@@ -386,7 +453,507 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
     toast.success("현재 탭의 편집본을 검증해 다운로드했습니다.");
   }, [localPreview, save]);
 
+  const clearAutosaveTimers = useCallback(() => {
+    if (autosaveIdleTimerRef.current) clearTimeout(autosaveIdleTimerRef.current);
+    if (autosaveMaxTimerRef.current) clearTimeout(autosaveMaxTimerRef.current);
+    autosaveIdleTimerRef.current = null;
+    autosaveMaxTimerRef.current = null;
+  }, []);
+
+  const beginAgentMutation = useCallback(() => {
+    if (saveInFlightRef.current || agentHardLock) {
+      throw new Error(agentHardLock ?? "다른 문서 저장 작업이 끝난 뒤 다시 시도해 주세요.");
+    }
+    saveInFlightRef.current = true;
+    clearAutosaveTimers();
+  }, [agentHardLock, clearAutosaveTimers]);
+
+  const finishAgentMutation = useCallback((keepLocked = false) => {
+    if (!keepLocked) saveInFlightRef.current = false;
+  }, []);
+
+  const acceptPersistedAgentSnapshot = useCallback(async (input: {
+    bytes: Uint8Array;
+    revisionId: string;
+    savedAt: string;
+    changeSeq: number;
+  }) => {
+    const prepared = preparedRef.current;
+    const editor = editorRef.current;
+    if (!prepared || !editor) throw new Error("현재 Studio 작업본을 찾지 못했습니다.");
+    const snapshot: RhwpWorkingDocument = {
+      ...prepared,
+      bytes: input.bytes,
+      revisionId: input.revisionId,
+      serverSavedAt: input.savedAt,
+    };
+    preparedRef.current = snapshot;
+    sessionDocumentRef.current = snapshot;
+    await notifyEditorSaved(editor).catch((error) => {
+      console.warn("rhwp Studio AI revision 저장 완료 통지 실패", error);
+    });
+    try {
+      onSavedRef.current(snapshot, activeTaskFieldIdRef.current, false);
+    } catch (error) {
+      console.error("rhwp Studio AI revision parent state 반영 실패", error);
+    }
+    dispatchSave({
+      type: "save-succeeded",
+      revisionId: input.revisionId,
+      savedAt: input.savedAt,
+      savedSeq: input.changeSeq,
+      currentSeq: latestChangeSeqRef.current,
+      supportsChangeEvents: saveProtocolRef.current?.supportsChangeEvents ?? false,
+    });
+  }, []);
+
+  const readCurrentAgentDocument = useCallback(async () => {
+    const editor = editorRef.current;
+    const prepared = preparedRef.current;
+    if (!editor || !prepared) throw new Error("현재 Studio 작업본을 찾지 못했습니다.");
+    const bytes = await exportVerifiedEditorDocument(editor, prepared.format);
+    const documentSha256 = await sha256Hex(bytes);
+    const rhwp = await loadRhwp();
+    const document = new rhwp.HwpDocument(bytes);
+    try {
+      const reservedAnchors = reservedAnchorsFromExactResolutions(
+        resolveRhwpFieldAnchorsExact(document, connectedFields),
+      );
+      return { bytes, documentSha256, reservedAnchors, pageCount: document.pageCount() };
+    } finally {
+      document.free();
+    }
+  }, [connectedFields]);
+
+  const refreshRun = useCallback(async (runId: string): Promise<DocumentAgentRunDto> => {
+    if (transport.mode !== "persistent") throw new Error("서버 문서 초안이 아닙니다.");
+    const runs = await fetchDocumentAgentRuns(transport.draftId);
+    const run = runs.find((entry) => entry.id === runId);
+    if (!run) throw new Error("갱신된 문서 작성 제안을 찾지 못했습니다.");
+    return run;
+  }, [transport]);
+
+  const openDocumentAgent = useCallback(async () => {
+    if (!agentCapabilityReady || state.status !== "ready" || transport.mode !== "persistent") return;
+    dispatchAgent({ type: "open", pageCount: state.pageCount });
+    try {
+      const [recent] = await fetchDocumentAgentRuns(transport.draftId);
+      if (recent) dispatchAgent({ type: "history_loaded", run: recent });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "최근 문서 제안을 불러오지 못했습니다.");
+    }
+  }, [agentCapabilityReady, state, transport]);
+
+  const scanDocumentAgentPage = useCallback(async () => {
+    dispatchAgent({ type: "scan_started" });
+    try {
+      const current = await readCurrentAgentDocument();
+      const rhwp = await loadRhwp();
+      const document = new rhwp.HwpDocument(current.bytes);
+      try {
+        const candidates = await extractDocumentEditCandidates({
+          document,
+          sourceKey,
+          documentSha256: current.documentSha256,
+          selectedPage: agentState.selectedPage,
+          reservedAnchors: current.reservedAnchors,
+        });
+        agentCandidatesRef.current = candidates;
+        agentReservedAnchorsRef.current = current.reservedAnchors;
+        dispatchAgent({ type: "scan_succeeded", candidates });
+        if (candidates.length === 0) toast.info("이 쪽에서 안전하게 바꿀 수 있는 독립 본문을 찾지 못했습니다.");
+      } finally {
+        document.free();
+      }
+    } catch (error) {
+      dispatchAgent({ type: "failed", message: errorMessage(error, "작성 위치를 찾지 못했습니다.") });
+    }
+  }, [agentState.selectedPage, readCurrentAgentDocument, sourceKey]);
+
+  const requestAgentSuggestions = useCallback(async () => {
+    if (transport.mode !== "persistent") return;
+    const candidate = agentCandidatesRef.current.find(
+      (entry) => entry.candidateId === agentState.selectedCandidateId,
+    );
+    const prepared = preparedRef.current;
+    const editor = editorRef.current;
+    if (!candidate || !prepared || !editor) return;
+    const checkpointRequestId = crypto.randomUUID();
+    const clientRequestId = crypto.randomUUID();
+    dispatchAgent({ type: "request_started", checkpointRequestId, clientRequestId });
+    try {
+      beginAgentMutation();
+      const current = await readCurrentAgentDocument();
+      if (current.documentSha256 !== candidate.documentSha256) {
+        throw new Error("문서가 후보 탐색 뒤 변경되었습니다. 작성 위치를 다시 찾아 주세요.");
+      }
+      const changeSeq = latestChangeSeqRef.current ?? legacySaveSeqRef.current + 1;
+      const checkpoint = await persistStudioSnapshot({
+        draftId: transport.draftId,
+        bytes: current.bytes,
+        filename: prepared.filename,
+        format: prepared.format,
+        pageCount: current.pageCount,
+        sessionId: studioSessionIdRef.current!,
+        baseRevisionId: prepared.revisionId,
+        documentEpoch: documentEpochRef.current,
+        changeSeq,
+        origin: "studio_agent_checkpoint",
+        checkpointRequestId,
+        materializedAnswers: prepared.materializedAnswers,
+        verification: {
+          client: "rhwp-core-reopen",
+          verified: true,
+          purpose: "document_agent_checkpoint",
+          documentSha256: current.documentSha256,
+        },
+      });
+      await acceptPersistedAgentSnapshot({
+        bytes: current.bytes,
+        revisionId: checkpoint.revisionId,
+        savedAt: checkpoint.savedAt,
+        changeSeq,
+      });
+      dispatchAgent({ type: "checkpoint_saved" });
+      const result = await requestDocumentAgentSuggestions({
+        draftId: transport.draftId,
+        clientRequestId,
+        checkpointRequestId,
+        baseRevisionId: checkpoint.revisionId,
+        selectedPage: agentState.selectedPage,
+        candidateId: candidate.candidateId,
+        anchor: candidate.anchor,
+      });
+      dispatchAgent({ type: "run_received", run: result.run });
+    } catch (error) {
+      dispatchAgent({ type: "failed", message: errorMessage(error, "문서 작성 제안을 만들지 못했습니다.") });
+    } finally {
+      finishAgentMutation();
+    }
+  }, [acceptPersistedAgentSnapshot, agentState.selectedCandidateId, agentState.selectedPage, beginAgentMutation, finishAgentMutation, readCurrentAgentDocument, transport]);
+
+  const dismissAgentSuggestion = useCallback(async (suggestionId: string) => {
+    if (transport.mode !== "persistent" || !agentState.run) return;
+    const suggestion = agentState.run.suggestions.find((entry) => entry.id === suggestionId);
+    if (!suggestion) return;
+    try {
+      await transitionDocumentAgentSuggestion({
+        draftId: transport.draftId,
+        suggestionId,
+        action: "dismiss",
+        expectedStatusVersion: suggestion.statusVersion,
+        expectedOperationVersion: suggestion.operationVersion,
+      });
+      dispatchAgent({ type: "run_received", run: await refreshRun(agentState.run.id) });
+    } catch (error) {
+      dispatchAgent({ type: "failed", message: errorMessage(error, "제안을 건너뛰지 못했습니다.") });
+    }
+  }, [agentState.run, refreshRun, transport]);
+
+  const applyAgentSuggestion = useCallback(async (suggestionId: string) => {
+    if (transport.mode !== "persistent" || !agentState.run) return;
+    const run = agentState.run;
+    const suggestion = run.suggestions.find((entry) => entry.id === suggestionId);
+    const transaction = agentTransactionRef.current;
+    const prepared = preparedRef.current;
+    if (!suggestion || !transaction || !prepared) return;
+    const operationClientId = crypto.randomUUID();
+    let started: DocumentAgentSuggestionDto | null = null;
+    let applied: Awaited<ReturnType<StudioCommandDocumentAgentTransaction["apply"]>> | null = null;
+    let keepLocked = false;
+    dispatchAgent({ type: "operation_started", operation: "apply" });
+    try {
+      beginAgentMutation();
+      const approved = await transitionDocumentAgentSuggestion({
+        draftId: transport.draftId,
+        suggestionId,
+        action: "approve",
+        expectedStatusVersion: suggestion.statusVersion,
+        expectedOperationVersion: suggestion.operationVersion,
+      });
+      if (approved.status !== "approved") {
+        dispatchAgent({ type: "operation_finished", run: await refreshRun(run.id) });
+        toast.error("제안 근거나 문서 기준이 바뀌어 이 제안을 반영하지 않았습니다.");
+        return;
+      }
+      started = await transitionDocumentAgentSuggestion({
+        draftId: transport.draftId,
+        suggestionId,
+        action: "start_apply",
+        expectedStatusVersion: approved.statusVersion,
+        expectedOperationVersion: approved.operationVersion,
+        operationClientId,
+      });
+      const current = await readCurrentAgentDocument();
+      agentReservedAnchorsRef.current = current.reservedAnchors;
+      applied = await transaction.apply({
+        bytes: current.bytes,
+        format: prepared.format,
+        reservedAnchors: current.reservedAnchors,
+        command: {
+          schemaVersion: "document-agent-v1",
+          candidate: run.candidate,
+          replacement: suggestion.afterText,
+        },
+      });
+      const persisted = await persistStudioSnapshot({
+        draftId: transport.draftId,
+        bytes: applied.bytes,
+        filename: prepared.filename,
+        format: prepared.format,
+        pageCount: current.pageCount,
+        sessionId: studioSessionIdRef.current!,
+        baseRevisionId: run.baseRevisionId,
+        documentEpoch: applied.studioReceipt.documentEpoch,
+        changeSeq: applied.studioReceipt.afterChangeSeq,
+        origin: "studio_agent_apply",
+        agentSuggestionId: suggestion.id,
+        agentOperation: "apply",
+        operationVersion: started.operationVersion,
+        materializedAnswers: prepared.materializedAnswers,
+        verification: agentVerification(applied, suggestion.id),
+      });
+      await acceptPersistedAgentSnapshot({
+        bytes: applied.bytes,
+        revisionId: persisted.revisionId,
+        savedAt: persisted.savedAt,
+        changeSeq: applied.studioReceipt.afterChangeSeq,
+      });
+      latestAppliedSuggestionIdRef.current = suggestion.id;
+      const optimistic = replaceSuggestion(run, {
+        ...started,
+        status: "applied",
+        statusVersion: started.statusVersion + 1,
+        operationState: "idle",
+        operationVersion: started.operationVersion + 1,
+        operationStartedAt: null,
+        operationClientId: null,
+        failureCode: null,
+        appliedDocumentSha256: applied.afterDocumentSha256,
+        appliedRevisionId: persisted.revisionId,
+        appliedAt: persisted.savedAt,
+        updatedAt: persisted.savedAt,
+      });
+      dispatchAgent({ type: "operation_finished", run: optimistic });
+      toast.success("승인한 문안만 문서에 반영하고 새 revision으로 저장했습니다.");
+      void refreshRun(run.id).then((fresh) => dispatchAgent({ type: "run_received", run: fresh })).catch(() => undefined);
+    } catch (error) {
+      const mutationCommitted = applied !== null || error instanceof StudioDocumentAgentVerificationError;
+      if (mutationCommitted) {
+        if (!applied) {
+          keepLocked = true;
+          const message = "Studio 변경은 발생했지만 검증하지 못했습니다. 이 탭의 편집을 잠그고 새로고침을 요구합니다.";
+          setAgentHardLock(message);
+          dispatchAgent({ type: "failed", message });
+        } else {
+          const failureCode = agentPersistenceFailureCode(error);
+          let failed: DocumentAgentSuggestionDto | null = null;
+          try {
+            failed = await transitionDocumentAgentSuggestion({
+              draftId: transport.draftId,
+              suggestionId,
+              action: "apply_save_failed",
+              expectedStatusVersion: started!.statusVersion,
+              expectedOperationVersion: started!.operationVersion,
+              operationClientId,
+              documentSha256: applied.afterDocumentSha256,
+              failureCode,
+            });
+          } catch {
+            // 서버 상태가 바뀌었어도 로컬 문서는 먼저 exact rollback한다.
+          }
+          try {
+            const rolledBack = await transaction.undo({
+              bytes: applied.bytes,
+              format: prepared.format,
+              reservedAnchors: agentReservedAnchorsRef.current,
+              command: { schemaVersion: "document-agent-v1", candidate: run.candidate, afterText: suggestion.afterText },
+            });
+            if (editorRef.current) await notifyEditorSaved(editorRef.current);
+            if (failed) {
+              await transitionDocumentAgentSuggestion({
+                draftId: transport.draftId,
+                suggestionId,
+                action: "abandon_apply",
+                expectedStatusVersion: failed.statusVersion,
+                expectedOperationVersion: failed.operationVersion,
+                operationClientId,
+                documentSha256: rolledBack.afterDocumentSha256,
+                failureCode: "apply_rolled_back",
+              });
+            }
+            dispatchAgent({ type: "failed", message: `${errorMessage(error, "AI 변경을 저장하지 못했습니다.")} 문서 변경은 원상 복구했습니다.` });
+          } catch (rollbackError) {
+            keepLocked = true;
+            const message = `AI 변경 저장과 원상 복구가 모두 실패해 편집을 잠갔습니다: ${errorMessage(rollbackError, "복구 실패")}`;
+            setAgentHardLock(message);
+            dispatchAgent({ type: "failed", message });
+          }
+        }
+      } else {
+        if (started) {
+          await transitionDocumentAgentSuggestion({
+            draftId: transport.draftId,
+            suggestionId,
+            action: "abandon_apply",
+            expectedStatusVersion: started.statusVersion,
+            expectedOperationVersion: started.operationVersion,
+            operationClientId,
+            failureCode: "core_validation_failed",
+          }).catch(() => undefined);
+        }
+        dispatchAgent({ type: "failed", message: errorMessage(error, "제안을 문서에 반영하지 못했습니다.") });
+      }
+    } finally {
+      finishAgentMutation(keepLocked);
+    }
+  }, [acceptPersistedAgentSnapshot, agentState.run, beginAgentMutation, finishAgentMutation, readCurrentAgentDocument, refreshRun, transport]);
+
+  const undoAgentSuggestion = useCallback(async (suggestionId: string) => {
+    if (transport.mode !== "persistent" || !agentState.run || latestAppliedSuggestionIdRef.current !== suggestionId) return;
+    const run = agentState.run;
+    const suggestion = run.suggestions.find((entry) => entry.id === suggestionId);
+    const transaction = agentTransactionRef.current;
+    const prepared = preparedRef.current;
+    if (!suggestion || !transaction || !prepared) return;
+    const operationClientId = crypto.randomUUID();
+    let started: DocumentAgentSuggestionDto | null = null;
+    let undone: Awaited<ReturnType<StudioCommandDocumentAgentTransaction["undo"]>> | null = null;
+    let keepLocked = false;
+    dispatchAgent({ type: "operation_started", operation: "undo" });
+    try {
+      beginAgentMutation();
+      started = await transitionDocumentAgentSuggestion({
+        draftId: transport.draftId,
+        suggestionId,
+        action: "authorize_undo",
+        expectedStatusVersion: suggestion.statusVersion,
+        expectedOperationVersion: suggestion.operationVersion,
+        operationClientId,
+      });
+      const current = await readCurrentAgentDocument();
+      agentReservedAnchorsRef.current = current.reservedAnchors;
+      undone = await transaction.undo({
+        bytes: current.bytes,
+        format: prepared.format,
+        reservedAnchors: current.reservedAnchors,
+        command: { schemaVersion: "document-agent-v1", candidate: run.candidate, afterText: suggestion.afterText },
+      });
+      const persisted = await persistStudioSnapshot({
+        draftId: transport.draftId,
+        bytes: undone.bytes,
+        filename: prepared.filename,
+        format: prepared.format,
+        pageCount: current.pageCount,
+        sessionId: studioSessionIdRef.current!,
+        baseRevisionId: suggestion.appliedRevisionId,
+        documentEpoch: undone.studioReceipt.documentEpoch,
+        changeSeq: undone.studioReceipt.afterChangeSeq,
+        origin: "studio_agent_undo",
+        agentSuggestionId: suggestion.id,
+        agentOperation: "undo",
+        operationVersion: started.operationVersion,
+        materializedAnswers: prepared.materializedAnswers,
+        verification: agentVerification(undone, suggestion.id),
+      });
+      await acceptPersistedAgentSnapshot({
+        bytes: undone.bytes,
+        revisionId: persisted.revisionId,
+        savedAt: persisted.savedAt,
+        changeSeq: undone.studioReceipt.afterChangeSeq,
+      });
+      latestAppliedSuggestionIdRef.current = null;
+      const optimistic = replaceSuggestion(run, {
+        ...started,
+        status: "undone",
+        statusVersion: started.statusVersion + 1,
+        operationState: "idle",
+        operationVersion: started.operationVersion + 1,
+        operationStartedAt: null,
+        operationClientId: null,
+        failureCode: null,
+        undoneDocumentSha256: undone.afterDocumentSha256,
+        undoneRevisionId: persisted.revisionId,
+        undoneAt: persisted.savedAt,
+        updatedAt: persisted.savedAt,
+      });
+      dispatchAgent({ type: "operation_finished", run: optimistic });
+      toast.success("최근 AI 변경을 새 revision으로 되돌렸습니다.");
+      void refreshRun(run.id).then((fresh) => dispatchAgent({ type: "run_received", run: fresh })).catch(() => undefined);
+    } catch (error) {
+      const mutationCommitted = undone !== null || error instanceof StudioDocumentAgentVerificationError;
+      if (mutationCommitted) {
+        if (!undone) {
+          keepLocked = true;
+          const message = "Studio 되돌리기는 발생했지만 검증하지 못했습니다. 이 탭의 편집을 잠갔습니다.";
+          setAgentHardLock(message);
+          dispatchAgent({ type: "failed", message });
+        } else {
+          const failureCode = agentPersistenceFailureCode(error, true);
+          let failed: DocumentAgentSuggestionDto | null = null;
+          try {
+            failed = await transitionDocumentAgentSuggestion({
+              draftId: transport.draftId,
+              suggestionId,
+              action: "undo_save_failed",
+              expectedStatusVersion: started!.statusVersion,
+              expectedOperationVersion: started!.operationVersion,
+              operationClientId,
+              documentSha256: undone.afterDocumentSha256,
+              failureCode,
+            });
+          } catch {
+            // 서버 상태와 무관하게 로컬 applied 상태부터 복구한다.
+          }
+          try {
+            const restored = await transaction.apply({
+              bytes: undone.bytes,
+              format: prepared.format,
+              reservedAnchors: agentReservedAnchorsRef.current,
+              command: { schemaVersion: "document-agent-v1", candidate: run.candidate, replacement: suggestion.afterText },
+            });
+            if (editorRef.current) await notifyEditorSaved(editorRef.current);
+            if (failed) {
+              await transitionDocumentAgentSuggestion({
+                draftId: transport.draftId,
+                suggestionId,
+                action: "abandon_undo",
+                expectedStatusVersion: failed.statusVersion,
+                expectedOperationVersion: failed.operationVersion,
+                operationClientId,
+                documentSha256: restored.afterDocumentSha256,
+                failureCode: "undo_rolled_back",
+              });
+            }
+            dispatchAgent({ type: "failed", message: `${errorMessage(error, "되돌린 문서를 저장하지 못했습니다.")} 문서는 AI 반영 상태로 복구했습니다.` });
+          } catch (rollbackError) {
+            keepLocked = true;
+            const message = `Undo 저장과 로컬 복구가 모두 실패해 편집을 잠갔습니다: ${errorMessage(rollbackError, "복구 실패")}`;
+            setAgentHardLock(message);
+            dispatchAgent({ type: "failed", message });
+          }
+        }
+      } else {
+        if (started) {
+          await transitionDocumentAgentSuggestion({
+            draftId: transport.draftId,
+            suggestionId,
+            action: "abandon_undo",
+            expectedStatusVersion: started.statusVersion,
+            expectedOperationVersion: started.operationVersion,
+            operationClientId,
+            failureCode: "undo_conflict",
+          }).catch(() => undefined);
+        }
+        dispatchAgent({ type: "failed", message: errorMessage(error, "최근 AI 변경을 되돌리지 못했습니다.") });
+      }
+    } finally {
+      finishAgentMutation(keepLocked);
+    }
+  }, [acceptPersistedAgentSnapshot, agentState.run, beginAgentMutation, finishAgentMutation, readCurrentAgentDocument, refreshRun, transport]);
+
   const saving = isStudioSaveInFlight(saveState);
+  const agentBusy = ["scanning", "checkpointing", "generating", "applying", "undoing"].includes(agentState.phase);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3 p-3 lg:p-4">
@@ -407,11 +974,22 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
           <StudioSaveIndicator state={saveState} className="mt-1" />
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2">
+          {agentCapabilityReady && transport.mode === "persistent" ? (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => void openDocumentAgent()}
+              disabled={state.status !== "ready" || saving || agentBusy || Boolean(agentHardLock)}
+            >
+              <WandSparkles data-icon="inline-start" aria-hidden />
+              AI 작성 제안
+            </Button>
+          ) : null}
           <Button
             type="button"
             variant="outline"
             onClick={() => void save("stay")}
-            disabled={state.status !== "ready" || saving}
+            disabled={state.status !== "ready" || saving || agentBusy || Boolean(agentHardLock)}
           >
             {saving
               ? <Spinner data-icon="inline-start" />
@@ -427,7 +1005,7 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
               type="button"
               variant="outline"
               onClick={() => void downloadLocalCopy()}
-              disabled={state.status !== "ready" || saving}
+              disabled={state.status !== "ready" || saving || agentBusy || Boolean(agentHardLock)}
             >
               <Download data-icon="inline-start" aria-hidden />
               편집본 다운로드
@@ -436,7 +1014,7 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
           <Button
             type="button"
             onClick={() => void saveAndReturn()}
-            disabled={state.status !== "ready" || saving}
+            disabled={state.status !== "ready" || saving || agentBusy || Boolean(agentHardLock)}
           >
             {saving
               ? <Spinner data-icon="inline-start" />
@@ -487,6 +1065,19 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
         </Alert>
       ) : null}
 
+      {agentHardLock ? (
+        <Alert variant="destructive">
+          <AlertTitle>문서 상태를 안전하게 확정하지 못해 편집을 잠갔습니다.</AlertTitle>
+          <AlertDescription>{agentHardLock} 저장을 다시 누르지 말고 최신 문서를 새로 불러와 주세요.</AlertDescription>
+          <div className="mt-3">
+            <Button type="button" variant="outline" size="sm" onClick={() => window.location.reload()}>
+              <RefreshCw data-icon="inline-start" aria-hidden />
+              최신 문서 다시 불러오기
+            </Button>
+          </div>
+        </Alert>
+      ) : null}
+
       {state.status === "ready" && state.skipped.length > 0 ? (
         <Alert className="border-warning-strong/30 bg-warning-strong-soft">
           <AlertTitle>빠른 작성 값 {state.skipped.length.toLocaleString("ko-KR")}개는 자동 반영하지 않았어요.</AlertTitle>
@@ -501,12 +1092,16 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
           <div className="pointer-events-none absolute top-3 left-1/2 z-10 w-[min(92%,42rem)] -translate-x-1/2 rounded-[var(--radius-lg)] border border-warning-strong/30 bg-card/95 px-3 py-2 text-center text-xs text-muted-foreground shadow-[var(--shadow-subtle)] backdrop-blur-sm">
             {state.message}
           </div>
-        ) : state.status === "loading" || saving ? (
+        ) : state.status === "loading" || saving || agentBusy || agentHardLock ? (
           <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/80 backdrop-blur-sm">
             <div className="flex items-center gap-2 rounded-full border bg-card px-4 py-2 text-sm shadow-[var(--shadow-subtle)]">
-              <Spinner className="text-primary" />
-              {state.status === "loading"
+              {agentHardLock ? <RefreshCw className="text-destructive" aria-hidden /> : <Spinner className="text-primary" />}
+              {agentHardLock
+                ? "안전을 위해 편집을 잠갔습니다. 최신 문서를 다시 불러와 주세요."
+                : state.status === "loading"
                 ? state.message
+                : agentBusy
+                  ? "문서 AI 작업을 검증하고 저장하고 있어요."
                 : localPreview
                   ? "작업본을 검증해 이 브라우저 탭에 반영하고 있어요."
                   : "작업본을 검증해 서버에 저장하고 있어요."}
@@ -520,8 +1115,70 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
         ) : null}
         <div ref={containerRef} className="h-full min-h-[68dvh] w-full" aria-label="rhwp 문서 직접 편집기" />
       </div>
+
+      {agentCapabilityReady && transport.mode === "persistent" && state.status === "ready" ? (
+        <DocumentAgentSheet
+          state={agentState}
+          pageCount={state.pageCount}
+          onOpenChange={(open) => {
+            if (!open) dispatchAgent({ type: "close" });
+          }}
+          onSelectPage={(page) => dispatchAgent({ type: "select_page", page, pageCount: state.pageCount })}
+          onScan={() => void scanDocumentAgentPage()}
+          onSelectCandidate={(candidateId) => dispatchAgent({ type: "select_candidate", candidateId })}
+          onRequest={() => void requestAgentSuggestions()}
+          onApply={(suggestionId) => void applyAgentSuggestion(suggestionId)}
+          onDismiss={(suggestionId) => void dismissAgentSuggestion(suggestionId)}
+          onUndo={(suggestionId) => void undoAgentSuggestion(suggestionId)}
+          onRetry={() => dispatchAgent({ type: "retry" })}
+          canUndoSuggestion={(suggestionId) => latestAppliedSuggestionIdRef.current === suggestionId}
+        />
+      ) : null}
     </div>
   );
 });
 
 RhwpStudioSurface.displayName = "RhwpStudioSurface";
+
+type StudioAgentResult = Awaited<ReturnType<StudioCommandDocumentAgentTransaction["apply"]>>;
+
+function agentVerification(result: StudioAgentResult, suggestionId: string): Record<string, unknown> {
+  return {
+    client: "rhwp-studio-command-v1",
+    verified: true,
+    operation: result.operation,
+    suggestionId,
+    commandId: result.studioReceipt.commandId,
+    beforeDocumentSha256: result.beforeDocumentSha256,
+    afterDocumentSha256: result.afterDocumentSha256,
+    documentEpoch: result.studioReceipt.documentEpoch,
+    afterChangeSeq: result.studioReceipt.afterChangeSeq,
+    focusSucceeded: result.focus.focused,
+    focusPage: result.focus.page,
+  };
+}
+
+function replaceSuggestion(
+  run: DocumentAgentRunDto,
+  suggestion: DocumentAgentSuggestionDto,
+): DocumentAgentRunDto {
+  return {
+    ...run,
+    suggestions: run.suggestions.map((entry) => entry.id === suggestion.id ? suggestion : entry),
+  };
+}
+
+function agentPersistenceFailureCode(
+  error: unknown,
+  undo = false,
+): "snapshot_upload_failed" | "revision_conflict" | "undo_conflict" {
+  if (error instanceof StudioSnapshotPersistenceError) {
+    if (error.code === "revision_conflict") return undo ? "undo_conflict" : "revision_conflict";
+    if (error.code === "snapshot_upload_failed" || error.status >= 500) return "snapshot_upload_failed";
+  }
+  return undo ? "undo_conflict" : "snapshot_upload_failed";
+}
+
+function errorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error && error.message.trim() ? error.message : fallback;
+}
