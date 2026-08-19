@@ -322,10 +322,6 @@ export async function collectStudioFieldEvidence(
         offset,
       ), "charShapeId"));
     }
-    const charShapeId = charShapeIds[0]!;
-    if (!charShapeIds.every((id) => id === charShapeId)) {
-      throw new Error("혼합 글자 서식 셀은 자동 입력할 수 없습니다.");
-    }
     const paraShapeId = readId(document.getCellParaPropertiesAt(
       target.section,
       target.parentPara,
@@ -339,12 +335,16 @@ export async function collectStudioFieldEvidence(
       target.controlIndex,
       target.cellIndex,
     )) as unknown;
+    const charShapeId = charShapeIds[0];
+    const charShape = charShapeIds.every((id) => id === charShapeId)
+      ? { kind: "uniform", id: charShapeId }
+      : { kind: "runs", ids: charShapeIds };
     return {
       text,
       textSha256: await sha256Hex(text),
       formatSha256: await sha256Hex(stableJson({
         schemaVersion: 1,
-        charShapeId,
+        charShape,
         paraShapeId,
         cellProperties,
       })),

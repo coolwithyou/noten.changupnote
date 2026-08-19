@@ -24,6 +24,11 @@ function field(overrides: Partial<ConnectedDocumentField>): ConnectedDocumentFie
 
 assert.equal(classifyDocumentAuthoringTask(field({ label: "상호명" })).mode, "quick");
 assert.equal(classifyDocumentAuthoringTask(field({ label: "창업분야", fieldType: "checkbox" })).kind, "choice");
+assert.equal(classifyDocumentAuthoringTask(field({
+  label: "창업자 유형",
+  fieldType: "text",
+  sourceSpan: "□ 예비창업자 □ 폐업 후 재창업자",
+})).kind, "choice");
 assert.equal(classifyDocumentAuthoringTask(field({ label: "경력사항", fieldType: "long_text" })).mode, "studio");
 assert.equal(classifyDocumentAuthoringTask(field({ label: "기술/자격증/입상실적" })).kind, "repeating_table");
 assert.equal(classifyDocumentAuthoringTask(field({ label: "신청인(대표자) 서명", fillStrategy: "manual" })).kind, "attachment_or_stamp");

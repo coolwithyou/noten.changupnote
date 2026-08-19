@@ -15,7 +15,7 @@ import {
 import { rebuildFieldAgentAuthority } from "./fieldAgentAuthority";
 import { fieldSuggestModel, generateFieldSuggestions } from "./fieldSuggest";
 
-const PROMPT_VERSION = "field-agent-v1";
+const PROMPT_VERSION = "field-agent-v2";
 
 export class FieldAgentRunError extends Error {
   constructor(readonly code: string, message: string, readonly status = 400) {
@@ -159,6 +159,9 @@ export async function requestFieldAgentSuggestions(input: {
       ...(authority.beforeAnswer?.value ? { currentValue: authority.beforeAnswer.value } : {}),
       ...(input.sourceText?.trim() ? { sourceText: input.sourceText.trim() } : {}),
       alternativesPerLabel: 2,
+      ...(authority.options.length > 0
+        ? { allowedValuesByLabel: { [authority.field.label]: authority.options } }
+        : {}),
       persistProjection: false,
     });
     const suggestion = generated.suggestions[authority.field.label];

@@ -5,6 +5,7 @@ import { getCunoteDb } from "../db/client";
 import * as schema from "../db/schema";
 import { loadDocumentAgentCore } from "../rhwp/documentAgentCore";
 import { answerKey } from "@/features/apply-workspace/fieldAnswerState";
+import { buildChoiceCellReplacement, extractFieldOptions } from "@/lib/documents/fieldOptions";
 import { resolveRhwpFieldAnchorsExact } from "@/lib/rhwp/fieldAnchors";
 import { collectStudioFieldEvidence } from "@/lib/rhwp/studioFieldAgentTransaction";
 import type { StudioTableCellTextTargetV1 } from "@/lib/rhwp/studioDocumentAgentProtocol";
@@ -73,8 +74,9 @@ export async function rebuildFieldAgentAuthority(input: {
   });
   const field = fields.find((entry) => entry.fieldId === input.fieldId);
   if (!field) throw new FieldAgentAuthorityError("field_not_found", "현재 문서의 필드를 찾지 못했습니다.", 404);
-  if (!isAtomicTextField(field.fieldType) || !isLlmSuggestableLabel(field.label)) {
-    throw new FieldAgentAuthorityError("field_unsupported", "이 필드는 atomic text 자동 입력 대상이 아닙니다.", 409);
+  const options = extractFieldOptions(field.fieldType, field.sourceSpan);
+  if (!isSupportedField(field.fieldType, options) || !isLlmSuggestableLabel(field.label)) {
+    throw new FieldAgentAuthorityError("field_unsupported", "이 필드는 현재 자동 입력 대상이 아닙니다.", 409);
   }
 
   const rhwp = await loadDocumentAgentCore();
@@ -107,6 +109,21 @@ export async function rebuildFieldAgentAuthority(input: {
     throw new FieldAgentAuthorityError("field_binding_mismatch", "요청한 필드 위치가 서버 binding과 다릅니다.", 409);
   }
   const evidence = await collectStudioFieldEvidence(rhwp, revision.body, target);
+  if (options.length > 0) {
+    try {
+      for (const option of options) {
+        if (buildChoiceCellReplacement(evidence.text, option) === null) {
+          throw new Error("choice markers missing");
+        }
+      }
+    } catch {
+      throw new FieldAgentAuthorityError(
+        "field_binding_choice_mismatch",
+        "현재 revision의 선택지와 필드 계획이 일치하지 않습니다.",
+        409,
+      );
+    }
+  }
   const answers = resolveFieldAnswers(draft);
   const beforeAnswer = answers[answerKey(field.label)] as DraftFieldAnswer | undefined;
   const fieldBindingSha256 = sha256(stableJson({
@@ -119,6 +136,7 @@ export async function rebuildFieldAgentAuthority(input: {
     beforeTextSha256: evidence.textSha256,
     formatSha256: evidence.formatSha256,
     adjacentContextSha256: evidence.adjacentContextSha256,
+    options,
   }));
   return {
     draft,
@@ -127,11 +145,13 @@ export async function rebuildFieldAgentAuthority(input: {
     target,
     evidence,
     beforeAnswer: beforeAnswer ?? null,
+    options,
     fieldBindingSha256,
   };
 }
 
-function isAtomicTextField(fieldType: string): boolean {
+function isSupportedField(fieldType: string, options: readonly string[]): boolean {
+  if (options.length > 0) return true;
   const normalized = fieldType.trim().toLocaleLowerCase("en-US");
   return !["file", "table", "checkbox", "radio", "select", "long_text"].includes(normalized);
 }

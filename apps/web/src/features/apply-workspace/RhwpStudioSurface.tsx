@@ -9,10 +9,12 @@ import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import type { DraftFieldAnswers } from "@/lib/server/documents/fieldAnswers";
 import type { ConnectedDocumentField } from "@/lib/server/documents/documentFieldLink";
+import { buildChoiceCellReplacement } from "@/lib/documents/fieldOptions";
 import {
   resolveRhwpFieldAnchorsExact,
   type RhwpExactFieldAnchorResolution,
   type RhwpFieldAnchor,
+  type RhwpFieldDescriptor,
 } from "@/lib/rhwp/fieldAnchors";
 import { downloadBytes, loadRhwp } from "@/lib/rhwp/client";
 import {
@@ -111,7 +113,7 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
   transport: RhwpWorkingDocumentTransport;
   answers: DraftFieldAnswers;
   quickFields: readonly ConnectedDocumentField[];
-  connectedFields: readonly ConnectedDocumentField[];
+  connectedFields: readonly RhwpFieldDescriptor[];
   manualAnchors: readonly RhwpFieldAnchor[];
   duplicateLabels: ReadonlySet<string>;
   workingDocument: RhwpWorkingDocument | null;
@@ -1231,7 +1233,7 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
           formatSha256: run.formatSha256,
           adjacentContextSha256: run.adjacentContextSha256,
         },
-        replacement: suggestion.value,
+        replacement: buildChoiceCellReplacement(run.beforeText, suggestion.value) ?? suggestion.value,
       });
       const materializedAnswers = { ...prepared.materializedAnswers, [run.fieldId]: suggestion.value };
       const persisted = await persistStudioSnapshot({
@@ -1340,15 +1342,16 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
         operationClientId,
       });
       const current = await readCurrentFieldDocument();
+      const appliedText = buildChoiceCellReplacement(run.beforeText, suggestion.value) ?? suggestion.value;
       reverted = await transaction.revert({
         bytes: current.bytes,
         format: prepared.format,
         commandId: `field:${suggestion.id}`,
-        expectedAfterTextSha256: await sha256Hex(suggestion.value),
+        expectedAfterTextSha256: await sha256Hex(appliedText),
         ...(suggestion.appliedDocumentSha256 ? {
           recovery: {
             appliedDocumentSha256: suggestion.appliedDocumentSha256,
-            appliedText: suggestion.value,
+            appliedText,
             binding: {
               target: run.target,
               beforeText: run.beforeText,
@@ -1360,7 +1363,7 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
         } : {}),
       });
       const materializedAnswers = { ...prepared.materializedAnswers };
-      if (run.beforeText.trim()) materializedAnswers[run.fieldId] = run.beforeText.trim();
+      if (run.beforeAnswer?.value) materializedAnswers[run.fieldId] = run.beforeAnswer.value;
       else delete materializedAnswers[run.fieldId];
       const persisted = await persistStudioSnapshot({
         draftId: transport.draftId,

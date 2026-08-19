@@ -1,5 +1,6 @@
 import type { DraftFieldAnswers } from "@/lib/server/documents/fieldAnswers";
 import type { ConnectedDocumentField } from "@/lib/server/documents/documentFieldLink";
+import { extractFieldOptions } from "@/lib/documents/fieldOptions";
 import { answerKey } from "./fieldAnswerState";
 import { workspaceFieldState } from "./workspacePresentation";
 
@@ -45,7 +46,7 @@ export function classifyDocumentAuthoringTask(field: ConnectedDocumentField): Do
   if (fieldType === "table" || REPEATING_OR_STRUCTURED.test(label)) {
     return task(field, "studio", "repeating_table", "여러 행과 열의 관계를 유지해야 하는 표라서 문서에서 직접 작성해요.", "structure");
   }
-  if (CHOICE_TYPE.test(fieldType)) {
+  if (CHOICE_TYPE.test(fieldType) || extractFieldOptions(fieldType, field.sourceSpan).length > 0) {
     return task(field, "quick", "choice", "원본 선택지 중 하나를 골라 바로 반영할 수 있어요.", "structure");
   }
   if (fieldType === "long_text") {

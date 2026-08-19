@@ -1289,8 +1289,8 @@ function buildFieldAgentProjection(input: {
     }
     if (authorization.run.beforeAnswer) nextAnswers[label] = authorization.run.beforeAnswer;
     else delete nextAnswers[label];
-    const beforeText = authorization.run.beforeText.trim();
-    if (beforeText) nextMaterialized[authorization.run.fieldId] = beforeText;
+    const beforeValue = authorization.run.beforeAnswer?.value?.trim();
+    if (beforeValue) nextMaterialized[authorization.run.fieldId] = beforeValue;
     else delete nextMaterialized[authorization.run.fieldId];
   }
   return { fieldAnswers: nextAnswers, materializedAnswers: nextMaterialized };

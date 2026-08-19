@@ -314,7 +314,7 @@ function bindingLabel(status: FieldAwareSessionItem["bindingStatus"]): string {
 function assistDescription(status: FieldAwareSessionItem["assistAvailability"]): string {
   switch (status) {
     case "ready":
-      return "이 필드는 현재 문서의 한 입력 셀에 정확히 결속되어 AI 제안을 요청할 수 있습니다.";
+      return "이 필드는 현재 문서의 한 입력 셀에 정확히 결속되어 AI 제안을 요청할 수 있습니다. 선택형은 원래 보기 중 하나만 제안합니다.";
     case "rollout_off":
       return "AI 필드 제안은 현재 내부 rollout 범위에서만 사용할 수 있습니다. 문서 직접 편집은 계속 가능합니다.";
     case "binding_resolving":
@@ -324,7 +324,7 @@ function assistDescription(status: FieldAwareSessionItem["assistAvailability"]):
     case "binding_ambiguous":
       return "같은 항목 후보가 여러 곳이라 임의로 고르지 않았습니다. 문서에서 직접 작성해 주세요.";
     case "unsupported_kind":
-      return "반복 표·서명·첨부 항목은 이번 atomic text 단계에서 직접 편집 대상으로 유지합니다.";
+      return "반복 표·서명·첨부 항목은 현재 단계에서 직접 편집 대상으로 유지합니다.";
     case "not_suggestable":
       return "이 값은 회사 정보 등 결정 가능한 출처를 먼저 확인합니다. 문서에서 직접 수정할 수 있습니다.";
   }

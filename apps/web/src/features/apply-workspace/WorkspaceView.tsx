@@ -818,7 +818,7 @@ export function WorkspaceView({
                 transport={studioTransport}
                 answers={answers}
                 quickFields={quickFields}
-                connectedFields={data.connectedFields}
+                connectedFields={rhwpFields}
                 manualAnchors={manualAnchors}
                 duplicateLabels={duplicateSet}
                 workingDocument={workingDocument}
@@ -886,7 +886,7 @@ export function WorkspaceView({
             transport={studioTransport}
             answers={answers}
             quickFields={quickFields}
-            connectedFields={data.connectedFields}
+            connectedFields={rhwpFields}
             manualAnchors={manualAnchors}
             duplicateLabels={duplicateSet}
             workingDocument={workingDocument}

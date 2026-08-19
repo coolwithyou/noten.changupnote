@@ -23,23 +23,35 @@ const table: ConnectedDocumentField = {
   label: "경력사항",
   fieldType: "table",
 };
-const tasks = buildDocumentAuthoringTasks([atomic, table]);
+const choice: ConnectedDocumentField = {
+  ...atomic,
+  fieldId: "field-founder-type",
+  fieldKey: "founder_type",
+  label: "창업자 유형",
+  sourceSpan: "□ 예비창업자 □ 폐업 후 재창업자",
+};
+const tasks = buildDocumentAuthoringTasks([atomic, table, choice]);
 
 const ready = buildFieldAwareDocumentSession({
   tasks,
   answers: {},
   selectedFieldId: atomic.fieldId,
-  bindingStatuses: new Map([[atomic.fieldId, "unique"], [table.fieldId, "unique"]]),
+  bindingStatuses: new Map([
+    [atomic.fieldId, "unique"],
+    [table.fieldId, "unique"],
+    [choice.fieldId, "unique"],
+  ]),
   bindingsResolved: true,
   fieldEditorAgentAvailable: true,
-  suggestableLabels: new Set([atomic.label, table.label]),
+  suggestableLabels: new Set([atomic.label, table.label, choice.label]),
   suggestingLabels: new Set(),
 });
 assert.equal(ready.selected?.fieldId, atomic.fieldId);
 assert.equal(ready.selected?.assistAvailability, "ready");
 assert.equal(ready.selected?.canRequestSuggestion, true);
 assert.equal(ready.fields[1]?.assistAvailability, "unsupported_kind");
-assert.equal(ready.boundCount, 2);
+assert.equal(ready.fields[2]?.assistAvailability, "ready");
+assert.equal(ready.boundCount, 3);
 
 const flagOff = buildFieldAwareDocumentSession({
   tasks: [tasks[0]!],

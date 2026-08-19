@@ -18,6 +18,18 @@ assert.ok(instruction.includes("원문에 없는 회사 사실을 추가하지 �
 assert.ok(instruction.includes("표현 방향이 분명히 다른 대안을 최대 2개"));
 assert.ok(instruction.includes("억지로 두 개를 만들지 않습니다"));
 
+const choiceInstruction = buildSuggestInstruction({
+  labels: ["창업자 유형"],
+  mode: "generate",
+  alternativesPerLabel: 2,
+  allowedValuesByLabel: {
+    "창업자 유형": ["예비창업자", "폐업 후 재창업자"],
+  },
+});
+assert.ok(choiceInstruction.includes("[허용 선택지]"));
+assert.ok(choiceInstruction.includes("예비창업자 | 폐업 후 재창업자"));
+assert.ok(choiceInstruction.includes("글자 단위로 정확히"));
+
 const verified = verifySuggestion(
   {
     label: "회사소개",

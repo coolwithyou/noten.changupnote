@@ -1,5 +1,9 @@
 import assert from "node:assert/strict";
-import { extractFieldOptions } from "@/lib/documents/fieldOptions";
+import {
+  buildChoiceCellReplacement,
+  extractFieldOptions,
+  parseChoiceCellOptions,
+} from "@/lib/documents/fieldOptions";
 import {
   resolveRhwpCellAtPoint,
   resolveRhwpFieldAnchors,
@@ -15,7 +19,23 @@ assert.deepEqual(
   extractFieldOptions("checkbox", "수신동의여부 동의( ) 미동의( )"),
   ["동의", "미동의"],
 );
-assert.deepEqual(extractFieldOptions("text", "□ 예 □ 아니오"), []);
+assert.deepEqual(extractFieldOptions("text", "□ 예 □ 아니오"), ["예", "아니오"]);
+assert.deepEqual(
+  parseChoiceCellOptions("□ 예비창업자 □ 폐업 후 재창업자").map(({ value, markerOffset }) => ({ value, markerOffset })),
+  [{ value: "예비창업자", markerOffset: 0 }, { value: "폐업 후 재창업자", markerOffset: 8 }],
+);
+assert.equal(
+  buildChoiceCellReplacement("□ 예비창업자 □ 폐업 후 재창업자", "폐업 후 재창업자"),
+  "□ 예비창업자 ■ 폐업 후 재창업자",
+);
+assert.equal(
+  buildChoiceCellReplacement("☑ 남 ☐ 여", "여"),
+  "☐ 남 ☑ 여",
+);
+assert.throws(
+  () => buildChoiceCellReplacement("□ 예비창업자 □ 폐업 후 재창업자", "학생"),
+  /exact 선택지/u,
+);
 
 const label = "창업자 유형";
 const options = ["예비창업자", "폐업 후 재창업자"];

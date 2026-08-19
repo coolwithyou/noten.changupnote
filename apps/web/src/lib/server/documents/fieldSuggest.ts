@@ -119,6 +119,7 @@ export function buildSuggestInstruction(input: {
   sourceText?: string;
   userEvidenceText?: string;
   alternativesPerLabel?: 1 | 2;
+  allowedValuesByLabel?: Readonly<Record<string, readonly string[]>>;
 }): string {
   const lines: string[] = [
     "[작성 요청]",
@@ -133,6 +134,18 @@ export function buildSuggestInstruction(input: {
       "",
       "각 항목마다 같은 사실 근거 안에서 표현 방향이 분명히 다른 대안을 최대 2개 제시합니다.",
       "두 대안의 사실·수치·고유명사는 같아야 하며, 근거가 하나뿐이면 억지로 두 개를 만들지 않습니다.",
+    );
+  }
+  const choiceLines = input.labels.flatMap((label) => {
+    const options = input.allowedValuesByLabel?.[label] ?? [];
+    return options.length > 0 ? [`- ${label}: ${options.join(" | ")}`] : [];
+  });
+  if (choiceLines.length > 0) {
+    lines.push(
+      "",
+      "[허용 선택지]",
+      ...choiceLines,
+      "선택형 항목의 value는 위 보기 중 하나와 글자 단위로 정확히 같아야 합니다. 새로운 보기를 만들거나 보기들을 합치지 마세요.",
     );
   }
   if (input.mode === "regenerate" && input.currentValue && input.currentValue.trim()) {
@@ -314,6 +327,8 @@ export async function generateFieldSuggestions(input: {
   userEvidenceText?: string;
   /** field-aware UI에서 한 필드당 사용자가 고를 수 있는 검증된 대안 수. */
   alternativesPerLabel?: 1 | 2;
+  /** 선택형 field는 모델과 서버 검증 모두 이 exact 보기 안으로 제한한다. */
+  allowedValuesByLabel?: Readonly<Record<string, readonly string[]>>;
   /** field-aware agent는 suggestion entity와 projection을 자기 DB transaction에서 함께 저장한다. */
   persistProjection?: boolean;
 }): Promise<FieldSuggestResult> {
@@ -391,6 +406,7 @@ export async function generateFieldSuggestions(input: {
       ...(input.sourceText ? { sourceText: input.sourceText } : {}),
       ...(input.userEvidenceText ? { userEvidenceText: input.userEvidenceText } : {}),
       ...(input.alternativesPerLabel ? { alternativesPerLabel: input.alternativesPerLabel } : {}),
+      ...(input.allowedValuesByLabel ? { allowedValuesByLabel: input.allowedValuesByLabel } : {}),
     }),
   });
   // 파트는 FilePart(grounding 문서, citations:false·cacheControl providerOptions) + TextPart 로 UserContent
@@ -480,6 +496,8 @@ export async function generateFieldSuggestions(input: {
     for (const raw of rawByLabel.get(label) ?? []) {
       const ok = verifySuggestion(raw, groundingCorpus, userEvidenceCorpus);
       if (!ok || seenValues.has(ok.value)) continue;
+      const allowedValues = input.allowedValuesByLabel?.[label];
+      if (allowedValues?.length && !allowedValues.includes(ok.value)) continue;
       seenValues.add(ok.value);
       alternatives.push({
         ...ok,

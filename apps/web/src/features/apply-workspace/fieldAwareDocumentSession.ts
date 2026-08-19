@@ -109,7 +109,7 @@ function resolveAssistAvailability(input: {
   suggestable: boolean;
 }): FieldAssistAvailability {
   if (!input.fieldEditorAgentAvailable) return "rollout_off";
-  if (input.task.kind !== "atomic_text") return "unsupported_kind";
+  if (input.task.kind !== "atomic_text" && input.task.kind !== "choice") return "unsupported_kind";
   if (input.bindingStatus === "resolving") return "binding_resolving";
   if (input.bindingStatus === "missing") return "binding_missing";
   if (input.bindingStatus === "ambiguous") return "binding_ambiguous";
