@@ -3,7 +3,7 @@
 - 작성일: 2026-08-19
 - 적용 화면: `/grants/[grantId]/workspace`
 - 기준 상태: `origin/main` `2891e84231adbbbebf28f14849636f911be7cfe0`
-- 상태: **제품 방향 정본 · Phase 1 atomic text와 Phase 2 양방향 field loop 구현·실사용 검증 완료, 확장 field kind 진행 중**
+- 상태: **제품 방향 정본 · Phase 1 atomic text, Phase 2 양방향 field loop, Phase 3 choice/form text 구현·실사용 검증 완료**
 - 선행 기반:
   - [`2026-07-22-rhwp-field-agent-workspace.md`](./2026-07-22-rhwp-field-agent-workspace.md)
   - [`2026-08-18-document-editor-ai-agent.md`](./2026-08-18-document-editor-ai-agent.md)
@@ -834,3 +834,52 @@ field_agent_revision_conflict
 
 따라서 **atomic `table_cell_text` MVP와 양방향 field loop, 복수 대안 선택은 실제 HWP/HWPX 경로에서
 검증 완료**다. choice/form/longform은 같은 exact command 원칙을 만족할 때만 순차 활성화한다.
+
+### 2026-08-20 — 선택형과 본문 누름틀 확장·프로덕션 검증
+
+추가 완료:
+
+- checkbox/radio/select 계열은 원본 문서에서 추출한 선택지와 exact 일치하는 값만 제안하고, 해당 셀의
+  전체 preimage를 native field command로 교체한다. 임의 선택지나 원본에 없는 값은 적용하지 않는다.
+- 본문 `clickhere` 누름틀은 `fieldId + section + paragraph`를 exact target으로 사용한다. 표 셀 resolver를
+  우선 보존하고, 표 셀이 없을 때만 누름틀 이름과 connected field의 `fieldKey|label`을 NFKC exact 비교한다.
+- 중첩 누름틀, 셀 내부 누름틀, 동명 누름틀, 편집 불가 필드는 fail-closed한다.
+- Studio controller, embed RPC, npm SDK, Cunote 서버 권위 resolver와 browser transaction이 같은
+  `form_text` target·format/context 증거·apply/revert receipt를 사용한다.
+- 기존 표 셀과 누름틀의 차이는 공용 field binding/transaction 모듈 안에 두고, workspace와 rail은 같은
+  target union만 사용한다.
+
+검증·배포 증거:
+
+- choice field는 프로덕션 HWPX의 `창업자 유형`에 `예비창업자`를 적용하고 새 revision 저장 뒤 Undo로
+  원문과 `fieldAnswers`/`filledFields`/`materializedAnswers`를 복원했다.
+- 실제 `field-01.hwp`의 `회사명` 누름틀에서 focus → `주식회사 노튼` apply → HWP export/reopen →
+  다른 exact 값 probe → revert → 복원본 reopen을 수행했다. 값, format/context SHA, page count,
+  changeSeq, public selection/document event가 모두 일치했다.
+- Studio 프로덕션 배포 `dpl_5taWEH5EYRKcfemFdbgVTUe7QsnC`와 Cunote 프로덕션 배포
+  `dpl_4icr2yCiGrktg2ccQKJ5d1fyTJbu`가 Ready이며 각각
+  `https://changupnote-rhwp-studio.vercel.app`, `https://changupnote.com`에 연결됐다.
+- `https://changupnote.com/grants/c5327ffd-d4a4-459a-b8c7-482b8f46d613/workspace`의 새 브라우저
+  세션에서 8쪽 Studio와 AI field rail이 동시에 열리고, `아이템명` rail 선택이 현재 과제와 exact Studio
+  위치를 함께 바꾸는 것을 확인했다.
+- 프로덕션 DB/R2의 현재 revision 3건을 읽기 전용 조사했으나 지원 가능한 본문 누름틀 문서는 0건이었다.
+  따라서 Cunote form-text 통합의 실제 서비스 데이터 apply는 신규 누름틀 양식 유입 전까지 검증할 수 없다.
+
+자동 검증:
+
+- RHWP local field E2E: table cell 24개, form text 16개 assertion 통과.
+- RHWP production public SDK form-text smoke: 9개 assertion 통과.
+- Cunote `test:document-agent`, `test:apply-workspace`, web typecheck와 production build 통과.
+- RHWP 전체 982개 중 975 pass, 3 skip. 기존 4개 파일은 Node 26에서 제거된
+  `--experimental-transform-types` 옵션 때문에 환경 실패하며 이번 변경 대상 테스트는 모두 통과했다.
+
+현재 남은 확장 범위:
+
+1. field-bound longform의 stable region resolver/validator/command/revert와 실제 HWP/HWPX corpus
+2. 반복 표의 existing-row 다중 항목 binding 정책과 corpus. 기존 unique 셀은 이미 atomic path를 재사용한다.
+3. 반복 행 생성/삭제, 병합 구조 변경, 서명/도장은 별도 구조 편집 계획 전까지 수동 편집 유지
+4. `@rhwp/editor@0.8.5` npm 게시. 패키지 dry-run은 통과했지만 현재 머신의 npm publish 인증이 없다.
+
+따라서 **완전 편집 가능한 Studio 옆에서 LLM이 exact 필드를 인지하고 제안·선택·자동 입력하는 핵심 흐름은
+atomic text, 선택형, 본문 누름틀까지 구현·배포됐다.** 다음 구현은 안정적인 장문 범위 메타데이터와 반복 표
+binding corpus가 확보된 뒤 같은 exact command 원칙으로 확장한다.
