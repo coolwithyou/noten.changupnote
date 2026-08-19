@@ -9,18 +9,25 @@ type RhwpEditorWithDocumentAgentLifecycle = RhwpEditor & {
   loadFile(
     bytes: Uint8Array,
     filename: string,
-    options?: { suppressDialogs?: boolean },
+    options?: { skipUnsavedGuard?: boolean; suppressDialogs?: boolean },
   ): ReturnType<RhwpEditor["loadFile"]>;
   notifySaved?: () => Promise<void>;
 };
 
-/** 0.8.5 lifecycle 옵션은 구조 감지로 사용해 0.7.x flag-off 설치도 컴파일 가능하게 유지한다. */
+/**
+ * 호스트가 검증한 서버 작업본으로 새 embed 세션을 여는 경로다.
+ *
+ * Studio 내부의 이전 dirty/recovery 상태가 미저장 확인창을 열면 부모 로딩 overlay 뒤에서
+ * 사용자 입력을 받을 수 없어 loadFile RPC가 교착된다. 이 초기 로드에는 사용자가 보존해야 할
+ * iframe 변경이 아직 없으므로 unsaved guard와 후속 안내창을 모두 명시적으로 건너뛴다.
+ */
 export function loadEditorFileWithoutDialogs(
   editor: RhwpEditor,
   bytes: Uint8Array,
   filename: string,
 ): ReturnType<RhwpEditor["loadFile"]> {
   return (editor as RhwpEditorWithDocumentAgentLifecycle).loadFile(bytes, filename, {
+    skipUnsavedGuard: true,
     suppressDialogs: true,
   });
 }

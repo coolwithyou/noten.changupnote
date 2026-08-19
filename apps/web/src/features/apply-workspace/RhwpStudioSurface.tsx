@@ -69,6 +69,13 @@ import {
   reduceStudioSaveState,
 } from "@/lib/rhwp/studioSaveState";
 import { resolveRhwpStudioSaveProtocol, type RhwpStudioSaveProtocol } from "@/lib/rhwp/studioSaveProtocol";
+import {
+  STUDIO_INITIALIZATION_ATTEMPTS,
+  StudioInitializationTimeoutError,
+  studioInitializationTimeoutMs,
+  studioUrlForInitializationAttempt,
+  withStudioInitializationTimeout,
+} from "@/lib/rhwp/studioInitialization";
 import { persistStudioSnapshot, StudioSnapshotPersistenceError } from "@/lib/rhwp/studioSnapshots";
 import { commitStudioSnapshot } from "@/lib/rhwp/studioTransport";
 import { cn } from "@/lib/utils";
@@ -256,24 +263,75 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
       }
       setState({ status: "loading", message: "자가 호스팅 rhwp Studio를 불러오고 있어요." });
       const { createEditor } = await import("@rhwp/editor");
-      if (!containerRef.current) throw new Error("문서 편집 화면을 준비하지 못했습니다.");
-      const editor = await createEditor(containerRef.current, {
-        studioUrl: RHWP_STUDIO_URL,
-        requestTimeoutMs: 180_000,
-      });
+      const container = containerRef.current;
+      if (!container) throw new Error("문서 편집 화면을 준비하지 못했습니다.");
+      const timeoutMs = studioInitializationTimeoutMs(prepared.bytes.byteLength);
+      let initialized: { editor: RhwpEditorInstance; result: { pageCount: number } } | null = null;
+      let lastInitializationError: unknown = null;
+
+      for (let editorAttempt = 0; editorAttempt < STUDIO_INITIALIZATION_ATTEMPTS; editorAttempt += 1) {
+        let attemptCancelled = false;
+        const attemptState: { editor: RhwpEditorInstance | null } = { editor: null };
+        if (editorAttempt > 0) {
+          setState({
+            status: "loading",
+            message: "편집기 연결이 지연되어 새 연결로 다시 준비하고 있어요.",
+          });
+        }
+        container.replaceChildren();
+        const initializeEditor = (async () => {
+          const candidate = await createEditor(container, {
+            studioUrl: studioUrlForInitializationAttempt(
+              RHWP_STUDIO_URL,
+              editorAttempt,
+              studioSessionIdRef.current!,
+            ),
+            requestTimeoutMs: 180_000,
+          });
+          if (attemptCancelled || disposed || requestSeq.current !== seq) {
+            candidate.destroy();
+            throw new Error("문서 편집기 초기화가 취소되었습니다.");
+          }
+          attemptState.editor = candidate;
+          setState({
+            status: "loading",
+            message: "문서 편집기를 준비하고 있습니다.",
+            allowEditorInteraction: false,
+          });
+          const loadResult = await loadEditorFileWithoutDialogs(
+            candidate,
+            prepared.bytes.slice(),
+            prepared.filename,
+          );
+          return { editor: candidate, result: loadResult };
+        })();
+
+        try {
+          initialized = await withStudioInitializationTimeout(initializeEditor, timeoutMs);
+          break;
+        } catch (error) {
+          attemptCancelled = true;
+          lastInitializationError = error;
+          attemptState.editor?.destroy();
+          attemptState.editor = null;
+          container.replaceChildren();
+          if (!(error instanceof StudioInitializationTimeoutError)
+            || editorAttempt + 1 >= STUDIO_INITIALIZATION_ATTEMPTS) {
+            throw error;
+          }
+        }
+      }
+
+      if (!initialized) {
+        throw lastInitializationError ?? new Error("문서 편집기를 준비하지 못했습니다.");
+      }
+      const { editor, result } = initialized;
       if (disposed || requestSeq.current !== seq) {
         editor.destroy();
         return;
       }
       editorRef.current = editor;
       fieldNavigationProtocolRef.current = resolveStudioFieldNavigationProtocol(editor);
-      setState({
-        status: "loading",
-        message: "문서 편집기를 준비하고 있습니다.",
-        allowEditorInteraction: false,
-      });
-      const result = await loadEditorFileWithoutDialogs(editor, prepared.bytes.slice(), prepared.filename);
-      if (disposed || requestSeq.current !== seq) return;
       const fieldSelectionProtocol = resolveStudioFieldSelectionProtocol(editor);
       if (presentation === "field_aware" && fieldSelectionProtocol) {
         const publishFieldSelection = (selection: Awaited<ReturnType<
