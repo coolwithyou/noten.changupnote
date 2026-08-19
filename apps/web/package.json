@@ -21,7 +21,7 @@
     "@cunote/contracts": "workspace:*",
     "@cunote/core": "workspace:*",
     "@rhwp/core": "^0.7.19",
-    "@rhwp/editor": "^0.7.19",
+    "@rhwp/editor": "file:vendor/rhwp-editor-0.8.5.tgz",
     "ai": "7.0.19",
     "bcryptjs": "^3.0.3",
     "class-variance-authority": "^0.7.1",

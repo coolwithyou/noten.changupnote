@@ -154,8 +154,8 @@ importers:
         specifier: ^0.7.19
         version: 0.7.19
       '@rhwp/editor':
-        specifier: ^0.7.19
-        version: 0.7.19
+        specifier: file:vendor/rhwp-editor-0.8.5.tgz
+        version: file:apps/web/vendor/rhwp-editor-0.8.5.tgz
       ai:
         specifier: 7.0.19
         version: 7.0.19(zod@4.4.3)
@@ -1456,6 +1456,11 @@ packages:
 
   '@rhwp/editor@0.7.19':
     resolution: {integrity: sha512-/b3nPHwt26pdxpbHVaaW7ob/RefrOF+ltOj8T6OLjaCLxP2hCNhMc+gt9jQ/Uj1V9Ck+P/h/oIUrhOXTRSFG8A==}
+
+  '@rhwp/editor@file:apps/web/vendor/rhwp-editor-0.8.5.tgz':
+    resolution: {integrity: sha512-uVEQmJF2KLFzXwDc0Lby/SGSXgK+Tav86KZrkeEm1i06NbetS2x1TKKI5+p1iq4KQJytB69CToe9pFZ4P3HNAg==, tarball: file:apps/web/vendor/rhwp-editor-0.8.5.tgz}
+    version: 0.8.5
+    engines: {node: '>=18.0.0'}
 
   '@sec-ant/readable-stream@0.4.1':
     resolution: {integrity: sha512-831qok9r2t8AlxLko40y2ebgSDhenenCatLVeW/uBtnHPyhHOvG0C7TvfgecV+wHzIm5KUICgzmVpWS+IMEAeg==}
@@ -4863,6 +4868,8 @@ snapshots:
   '@rhwp/core@0.7.19': {}
 
   '@rhwp/editor@0.7.19': {}
+
+  '@rhwp/editor@file:apps/web/vendor/rhwp-editor-0.8.5.tgz': {}
 
   '@sec-ant/readable-stream@0.4.1': {}
 

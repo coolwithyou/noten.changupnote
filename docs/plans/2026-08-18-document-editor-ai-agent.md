@@ -7,8 +7,10 @@
 - 후속 실행 상태(2026-08-19): native command bridge, revision/agent persistence, 서버 제안 API,
   제안 Sheet와 적용/Undo 경로를 구현했다. 실제 HWP/HWPX에서 native apply/revert, 직접 입력,
   저장, 다운로드를 검증했다.
-- 남은 외부 의존성: upstream PR merge와 `@rhwp/editor@0.8.5` publish 후 Cunote exact dependency
-  lock. 운영 DB migration, Cunote 배포, feature flag enable은 별도 승인 범위다.
+- 외부 의존성 처리: upstream PR merge와 npm publish가 maintainer 권한 대기라 exact source commit
+  `104ed4da`의 `@rhwp/editor@0.8.5` tarball을 SHA-256과 함께 임시 vendoring한다. npm 게시 후에는
+  exact registry `0.8.5`로 교체한다.
+- 운영 DB migration은 적용·검증을 마쳤다. Cunote 배포와 feature flag enable은 승인된 후속 범위다.
 
 ## 1. 결론
 

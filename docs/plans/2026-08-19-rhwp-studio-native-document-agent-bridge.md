@@ -3,8 +3,9 @@
 - 작성일: 2026-08-19
 - 상위 계획: `docs/plans/2026-08-18-document-editor-ai-agent.md`
 - 기준 브랜치: `codex/document-editor-ai-agent`
-- 상태: upstream bridge·Cunote adapter·compatible Studio 배포·실제 문서 제품 gate 완료,
-  upstream merge/package publish와 Cunote exact dependency lock 대기
+- 상태: upstream bridge·Cunote adapter·compatible Studio 배포·실제 문서 제품 gate 완료.
+  upstream merge/package publish 대기 중에는 exact source commit `104ed4da`의 `0.8.5` tarball을
+  SHA-256으로 검증해 Cunote에 임시 vendoring한다.
 - 범위: Studio/@rhwp/editor 공개 command bridge 설계와 재개 gate를 확정한다. Cunote의 DB, API,
   모델 호출, 사용자 노출 UI, 배포와 feature flag enable은 이 문서 범위가 아니다.
 
@@ -22,8 +23,8 @@
 - self-hosted Studio는 `changupnote-rhwp-studio.vercel.app`에 compatible build로 배포했고, 실제
   HWP/HWPX에서 native apply/revert, target focus, 직접 입력, 수동 저장, 다운로드를 통과했다.
 - Cunote DB/API/UI는 상위 계획에서 feature flag 기본 off로 구현·검증했다. upstream PR merge와
-  package publish가 끝나기 전까지 Cunote dependency는 registry `0.7.19`를 유지하며, 로컬 검증에만
-  packed `0.8.5`를 사용한다.
+  package publish가 끝나기 전까지 production도 동일한 packed `0.8.5` artifact를 사용하도록
+  `apps/web/vendor`에 provenance를 고정한다.
 
 ## 1. 결론
 
