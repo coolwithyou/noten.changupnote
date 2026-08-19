@@ -20,6 +20,15 @@ export const studioBodyParagraphTargetSchema = z.strictObject({
   length: nonnegativeSafeInteger.max(4_000),
 });
 
+export const studioTableCellTextTargetSchema = z.strictObject({
+  kind: z.literal("table_cell_text"),
+  section: nonnegativeSafeInteger,
+  parentPara: nonnegativeSafeInteger,
+  controlIndex: nonnegativeSafeInteger,
+  cellIndex: nonnegativeSafeInteger,
+  cellParagraph: nonnegativeSafeInteger,
+});
+
 export const studioDocumentStateSchema = z.strictObject({
   schemaVersion: z.literal(1),
   format: z.enum(["hwp", "hwpx"]),
@@ -39,6 +48,19 @@ export const studioSelectionContextSchema = z.strictObject({
   collapsed: z.boolean(),
   target: studioBodyParagraphTargetSchema.nullable(),
   selectedTextSha256: sha256Schema.nullable(),
+});
+
+export const studioFieldSelectionContextSchema = z.strictObject({
+  schemaVersion: z.literal(1),
+  documentEpoch: positiveSafeInteger,
+  changeSeq: nonnegativeSafeInteger,
+  page: positiveSafeInteger,
+  editable: z.boolean(),
+  target: studioTableCellTextTargetSchema.nullable(),
+}).superRefine((selection, context) => {
+  if (selection.target === null && selection.editable) {
+    context.addIssue({ code: "custom", message: "target이 없는 field selection은 editable일 수 없습니다." });
+  }
 });
 
 export const studioApplyTextCommandSchema = z.strictObject({
@@ -66,6 +88,24 @@ export const studioRevertTextCommandSchema = z.strictObject({
   expectedAfterSha256: sha256Schema,
 });
 
+export const studioApplyFieldCommandSchema = z.strictObject({
+  schemaVersion: z.literal(1),
+  commandId: z.string().min(1).max(128),
+  expectedDocumentEpoch: positiveSafeInteger,
+  expectedChangeSeq: nonnegativeSafeInteger,
+  expectedDocumentSha256: sha256Schema,
+  target: studioTableCellTextTargetSchema,
+  expectedBeforeSha256: sha256Schema,
+  expectedFormatSha256: sha256Schema,
+  expectedAdjacentContextSha256: sha256Schema,
+  replacement: z.string().max(4_000).refine(
+    (value) => !/[\u0000-\u001f\u007f]/u.test(value),
+    "atomic field replacement에 control 문자나 줄바꿈을 넣을 수 없습니다.",
+  ),
+});
+
+export const studioRevertFieldCommandSchema = studioRevertTextCommandSchema;
+
 export const studioTextCommandReceiptSchema = z.strictObject({
   schemaVersion: z.literal(1),
   commandId: z.string().min(1).max(128),
@@ -88,6 +128,28 @@ export const studioTextCommandReceiptSchema = z.strictObject({
   }
 });
 
+export const studioFieldCommandReceiptSchema = z.strictObject({
+  schemaVersion: z.literal(1),
+  commandId: z.string().min(1).max(128),
+  operation: z.enum(["apply", "revert"]),
+  documentEpoch: positiveSafeInteger,
+  beforeChangeSeq: nonnegativeSafeInteger,
+  afterChangeSeq: positiveSafeInteger,
+  beforeDocumentSha256: sha256Schema,
+  afterDocumentSha256: sha256Schema,
+  beforeTextSha256: sha256Schema,
+  afterTextSha256: sha256Schema,
+  formatSha256: sha256Schema,
+  adjacentContextSha256: sha256Schema,
+  pageCountBefore: positiveSafeInteger,
+  pageCountAfter: positiveSafeInteger,
+  target: studioTableCellTextTargetSchema,
+}).superRefine((receipt, context) => {
+  if (receipt.afterChangeSeq !== receipt.beforeChangeSeq + 1) {
+    context.addIssue({ code: "custom", message: "field receipt change sequence가 연속되지 않습니다." });
+  }
+});
+
 export const studioFocusTargetResultSchema = z.strictObject({
   focused: z.boolean(),
   page: positiveSafeInteger,
@@ -95,18 +157,23 @@ export const studioFocusTargetResultSchema = z.strictObject({
 
 export const studioDocumentChangedEventSchema = z.strictObject({
   schemaVersion: z.literal(1),
-  reason: z.enum(["agent_apply", "agent_revert"]),
+  reason: z.enum(["agent_apply", "agent_revert", "field_agent_apply", "field_agent_revert"]),
   documentEpoch: positiveSafeInteger,
   changeSeq: positiveSafeInteger,
   commandId: z.string().min(1).max(128),
 });
 
 export type StudioBodyParagraphTargetV1 = z.infer<typeof studioBodyParagraphTargetSchema>;
+export type StudioTableCellTextTargetV1 = z.infer<typeof studioTableCellTextTargetSchema>;
 export type StudioDocumentStateV1 = z.infer<typeof studioDocumentStateSchema>;
 export type StudioSelectionContextV1 = z.infer<typeof studioSelectionContextSchema>;
+export type StudioFieldSelectionContextV1 = z.infer<typeof studioFieldSelectionContextSchema>;
 export type StudioApplyTextCommandV1 = z.infer<typeof studioApplyTextCommandSchema>;
 export type StudioRevertTextCommandV1 = z.infer<typeof studioRevertTextCommandSchema>;
+export type StudioApplyFieldCommandV1 = z.infer<typeof studioApplyFieldCommandSchema>;
+export type StudioRevertFieldCommandV1 = z.infer<typeof studioRevertFieldCommandSchema>;
 export type StudioTextCommandReceiptV1 = z.infer<typeof studioTextCommandReceiptSchema>;
+export type StudioFieldCommandReceiptV1 = z.infer<typeof studioFieldCommandReceiptSchema>;
 export type StudioFocusTargetResultV1 = z.infer<typeof studioFocusTargetResultSchema>;
 export type StudioDocumentChangedEventV1 = z.infer<typeof studioDocumentChangedEventSchema>;
 
@@ -116,6 +183,22 @@ export interface StudioDocumentAgentProtocol {
   applyTextCommand(command: StudioApplyTextCommandV1): Promise<StudioTextCommandReceiptV1>;
   revertTextCommand(command: StudioRevertTextCommandV1): Promise<StudioTextCommandReceiptV1>;
   focusTarget(target: StudioBodyParagraphTargetV1): Promise<StudioFocusTargetResultV1>;
+  onDocumentChanged(listener: (event: StudioDocumentChangedEventV1) => void): () => void;
+}
+
+export interface StudioFieldNavigationProtocol {
+  focusFieldTarget(target: StudioTableCellTextTargetV1): Promise<StudioFocusTargetResultV1>;
+}
+
+export interface StudioFieldSelectionProtocol {
+  getFieldSelectionContext(): Promise<StudioFieldSelectionContextV1>;
+  onFieldSelectionChanged(listener: (event: StudioFieldSelectionContextV1) => void): () => void;
+}
+
+export interface StudioFieldAgentProtocol extends StudioFieldNavigationProtocol {
+  getDocumentState(): Promise<StudioDocumentStateV1>;
+  applyFieldCommand(command: StudioApplyFieldCommandV1): Promise<StudioFieldCommandReceiptV1>;
+  revertFieldCommand(command: StudioRevertFieldCommandV1): Promise<StudioFieldCommandReceiptV1>;
   onDocumentChanged(listener: (event: StudioDocumentChangedEventV1) => void): () => void;
 }
 
@@ -156,6 +239,81 @@ export function resolveStudioDocumentAgentProtocol(editor: unknown): StudioDocum
       });
       if (typeof unsubscribe !== "function") {
         throw new Error("RHWP Studio documentChanged 구독 해제 함수가 없습니다.");
+      }
+      return unsubscribe as () => void;
+    },
+  };
+}
+
+/** 일반 문단 agent capability와 독립적으로 exact field 탐색 capability만 연다. */
+export function resolveStudioFieldNavigationProtocol(editor: unknown): StudioFieldNavigationProtocol | null {
+  if (!editor || typeof editor !== "object") return null;
+  const method = (editor as Record<string, unknown>).focusFieldTarget;
+  if (typeof method !== "function") return null;
+  return {
+    focusFieldTarget: async (target) => studioFocusTargetResultSchema.parse(
+      await (method as UnknownMethod).call(editor, studioTableCellTextTargetSchema.parse(target)),
+    ),
+  };
+}
+
+/** Studio의 현재 셀 선택을 호스트 필드 선택으로 동기화하는 read-only capability. */
+export function resolveStudioFieldSelectionProtocol(editor: unknown): StudioFieldSelectionProtocol | null {
+  if (!editor || typeof editor !== "object") return null;
+  const record = editor as Record<string, unknown>;
+  if (
+    typeof record.getFieldSelectionContext !== "function"
+    || typeof record.onFieldSelectionChanged !== "function"
+  ) return null;
+  return {
+    getFieldSelectionContext: async () => studioFieldSelectionContextSchema.parse(
+      await (record.getFieldSelectionContext as UnknownMethod).call(editor),
+    ),
+    onFieldSelectionChanged: (listener) => {
+      const unsubscribe = (record.onFieldSelectionChanged as UnknownMethod).call(
+        editor,
+        (event: unknown) => listener(studioFieldSelectionContextSchema.parse(event)),
+      );
+      if (typeof unsubscribe !== "function") {
+        throw new Error("RHWP Studio fieldSelectionChanged 구독 해제 함수가 없습니다.");
+      }
+      return unsubscribe as () => void;
+    },
+  };
+}
+
+/** field apply/revert 전체 capability가 있을 때만 mutation adapter를 노출한다. */
+export function resolveStudioFieldAgentProtocol(editor: unknown): StudioFieldAgentProtocol | null {
+  if (!editor || typeof editor !== "object") return null;
+  const record = editor as Record<string, unknown>;
+  const required = [
+    "getDocumentState",
+    "focusFieldTarget",
+    "applyFieldCommand",
+    "revertFieldCommand",
+    "onDocumentChanged",
+  ] as const;
+  if (required.some((name) => typeof record[name] !== "function")) return null;
+  const invoke = (name: typeof required[number], ...args: unknown[]): unknown => (
+    (record[name] as UnknownMethod).call(editor, ...args)
+  );
+  return {
+    getDocumentState: async () => studioDocumentStateSchema.parse(await invoke("getDocumentState")),
+    focusFieldTarget: async (target) => studioFocusTargetResultSchema.parse(
+      await invoke("focusFieldTarget", studioTableCellTextTargetSchema.parse(target)),
+    ),
+    applyFieldCommand: async (command) => studioFieldCommandReceiptSchema.parse(
+      await invoke("applyFieldCommand", studioApplyFieldCommandSchema.parse(command)),
+    ),
+    revertFieldCommand: async (command) => studioFieldCommandReceiptSchema.parse(
+      await invoke("revertFieldCommand", studioRevertFieldCommandSchema.parse(command)),
+    ),
+    onDocumentChanged: (listener) => {
+      const unsubscribe = invoke("onDocumentChanged", (event: unknown) => {
+        listener(studioDocumentChangedEventSchema.parse(event));
+      });
+      if (typeof unsubscribe !== "function") {
+        throw new Error("RHWP Studio field documentChanged 구독 해제 함수가 없습니다.");
       }
       return unsubscribe as () => void;
     },

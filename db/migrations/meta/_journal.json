@@ -512,6 +512,13 @@
       "when": 1787119036383,
       "tag": "0072_rainy_george_stacy",
       "breakpoints": true
+    },
+    {
+      "idx": 73,
+      "version": "7",
+      "when": 1787152694847,
+      "tag": "0073_loose_spirit",
+      "breakpoints": true
     }
   ]
 }

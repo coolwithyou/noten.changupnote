@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import {
   buildStudioDocumentAgentCommandEvidence,
   resolveStudioDocumentAgentProtocol,
+  resolveStudioFieldNavigationProtocol,
+  resolveStudioFieldSelectionProtocol,
   studioDocumentStateSchema,
   studioTextCommandReceiptSchema,
   type StudioDocumentAgentEvidenceDocument,
@@ -106,5 +108,57 @@ const protocol = resolveStudioDocumentAgentProtocol(editor);
 assert.ok(protocol);
 assert.deepEqual(await protocol.getDocumentState(), state);
 assert.deepEqual(calls, ["state"]);
+
+const fieldTarget = {
+  kind: "table_cell_text" as const,
+  section: 0,
+  parentPara: 4,
+  controlIndex: 1,
+  cellIndex: 3,
+  cellParagraph: 0,
+};
+const fieldCalls: unknown[] = [];
+const fieldProtocol = resolveStudioFieldNavigationProtocol({
+  focusFieldTarget: async (target: unknown) => {
+    fieldCalls.push(target);
+    return { focused: true, page: 2 };
+  },
+});
+assert.ok(fieldProtocol);
+assert.deepEqual(await fieldProtocol.focusFieldTarget(fieldTarget), { focused: true, page: 2 });
+assert.deepEqual(fieldCalls, [fieldTarget]);
+assert.equal(resolveStudioFieldNavigationProtocol({ focusTarget: async () => ({ focused: true, page: 1 }) }), null);
+await assert.rejects(
+  () => fieldProtocol.focusFieldTarget({ ...fieldTarget, cellIndex: -1 }),
+  /too_small|greater than or equal to 0/u,
+);
+
+const fieldSelection = {
+  schemaVersion: 1 as const,
+  documentEpoch: 1,
+  changeSeq: 0,
+  page: 2,
+  editable: true,
+  target: fieldTarget,
+};
+const fieldSelectionListener: { current: ((event: unknown) => void) | null } = { current: null };
+const fieldSelectionProtocol = resolveStudioFieldSelectionProtocol({
+  getFieldSelectionContext: async () => fieldSelection,
+  onFieldSelectionChanged: (listener: (event: unknown) => void) => {
+    fieldSelectionListener.current = listener;
+    return () => { fieldSelectionListener.current = null; };
+  },
+});
+assert.ok(fieldSelectionProtocol);
+assert.deepEqual(await fieldSelectionProtocol.getFieldSelectionContext(), fieldSelection);
+const selectedTargets: unknown[] = [];
+const unsubscribeFieldSelection = fieldSelectionProtocol.onFieldSelectionChanged(
+  (event) => selectedTargets.push(event.target),
+);
+fieldSelectionListener.current?.(fieldSelection);
+assert.deepEqual(selectedTargets, [fieldTarget]);
+unsubscribeFieldSelection();
+assert.equal(fieldSelectionListener.current, null);
+assert.equal(resolveStudioFieldSelectionProtocol({ getFieldSelectionContext: async () => fieldSelection }), null);
 
 console.log("rhwp Studio document-agent protocol tests passed");

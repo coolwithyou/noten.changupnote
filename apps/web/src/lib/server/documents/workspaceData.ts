@@ -42,7 +42,10 @@ import {
   type ApplicationPrecomputeStatus,
   type SurfaceApplicationPrecomputeState,
 } from "./applicationPrecomputeState";
-import { resolveDocumentAgentAvailability } from "./documentAgentAvailability";
+import {
+  resolveDocumentAgentAvailability,
+  resolveFieldEditorAgentAvailability,
+} from "./documentAgentAvailability";
 
 /** 성능 저하 사다리(§4.4): (a) 완전 경험 · (b) 프리뷰+필드 분석 중 · (c) 채팅 전면 폴백. */
 export type WorkspaceLadder = "a" | "b" | "c";
@@ -78,6 +81,8 @@ export interface WorkspaceData {
   execution: WorkspaceExecution;
   /** 서버 flag + persistent write 권한이 모두 확인된 경우에만 true다. */
   documentAgentAvailable: boolean;
+  /** exact field binding 기반 편집 에이전트의 별도 서버 rollout 권한. */
+  fieldEditorAgentAvailable: boolean;
   ladder: WorkspaceLadder;
   /** 선택된 문서(draftableDocument.documentKey). draftable 문서가 없으면 null. */
   activeDocumentKey: string | null;
@@ -149,6 +154,7 @@ export async function loadGrantWorkspaceData(input: {
     return {
       execution: { mode: "persistent" },
       documentAgentAvailable: false,
+      fieldEditorAgentAvailable: false,
       ladder: "c",
       activeDocumentKey: null,
       documents,
@@ -271,6 +277,11 @@ export async function loadGrantWorkspaceData(input: {
       role: access.role,
       draftId,
     }),
+    fieldEditorAgentAvailable: resolveFieldEditorAgentAvailability({
+      executionMode: "persistent",
+      role: access.role,
+      draftId,
+    }),
     ladder,
     activeDocumentKey: activeDocument.documentKey,
     documents,
@@ -368,6 +379,7 @@ async function loadReadOnlyGrantWorkspaceData(input: {
     return {
       execution,
       documentAgentAvailable: false,
+      fieldEditorAgentAvailable: false,
       ladder: "c",
       activeDocumentKey: null,
       documents,
@@ -437,6 +449,7 @@ async function loadReadOnlyGrantWorkspaceData(input: {
   return {
     execution,
     documentAgentAvailable: false,
+    fieldEditorAgentAvailable: false,
     ladder,
     activeDocumentKey: activeDocument.documentKey,
     documents,

@@ -1,5 +1,10 @@
 # rhwp 필드 에이전트 워크스페이스 상세 구현 계획
 
+> **제품 방향 갱신(2026-08-19):** 이 문서의 field anchor·Studio·revision 기반은 계속 사용하지만,
+> `빠른 작성 우선 → 문서 직접 편집 전환` UX는 더 이상 주 흐름이 아니다. 새 정본
+> [`2026-08-19-field-aware-document-editor-agent.md`](./2026-08-19-field-aware-document-editor-agent.md)는
+> 완전한 Studio와 field-aware AI rail을 동시에 배치하고 exact field 적용을 중심으로 한다.
+
 > **상태: Phase A~I 최소 통합·L1 구현 완료 · 서버 리비전/프로토콜 고도화(J/K)·실문서 회귀(L2) 후속 (2026-07-23)**
 >
 > 이 문서는 `/grants/[grantId]/workspace`를 **원본 HWP/HWPX 프리뷰 → 필드 선택 → 근거 기반 안내/대화 → 사용자 확인 → 원본 형식 내보내기**의 한 흐름으로 연결하는 실행 정본이다. 구현·검증·잔여 제한도 이 문서에 함께 갱신한다.

@@ -22,6 +22,7 @@ const html = renderToStaticMarkup(
 );
 
 assert.ok(html.includes("지금 저장"), "Studio 작업본을 서버에 저장하는 버튼이 보여야 합니다.");
+assert.ok(html.includes("편집본 다운로드"), "persistent Studio도 현재 검증 편집본 다운로드를 제공해야 합니다.");
 assert.ok(
   html.includes("수정 후 직접 저장이 필요해요"),
   "legacy Studio에서는 자동 저장을 가장하지 않고 수동 저장 필요 상태를 보여야 합니다.",
@@ -53,5 +54,25 @@ assert.ok(localHtml.includes("서버에는 저장되지 않습니다"), "가상 
 assert.ok(localHtml.includes("이 탭에 반영"), "가상 기업 편집본은 브라우저 탭에만 반영해야 합니다.");
 assert.ok(localHtml.includes("편집본 다운로드"), "가상 기업 RHWP 편집본 다운로드를 제공해야 합니다.");
 assert.equal(localHtml.includes("지금 저장"), false, "가상 기업 편집에서 서버 저장 표현을 노출하면 안 됩니다.");
+
+const fieldAwareHtml = renderToStaticMarkup(
+  <RhwpStudioSurface
+    transport={{ mode: "persistent", draftId: "00000000-0000-4000-8000-000000000001" }}
+    answers={{}}
+    quickFields={[]}
+    connectedFields={[]}
+    manualAnchors={[]}
+    duplicateLabels={new Set()}
+    workingDocument={null}
+    headMaterializedAnswers={{}}
+    activeTask={null}
+    documentAgentAvailable
+    presentation="field_aware"
+    onSaved={() => undefined}
+  />,
+);
+assert.ok(fieldAwareHtml.includes("문서 편집"), "통합 화면은 Studio를 주 편집 표면으로 표시해야 합니다.");
+assert.equal(fieldAwareHtml.includes("AI 작성 제안"), false, "일반 문단 에이전트를 필드 에이전트 CTA로 노출하면 안 됩니다.");
+assert.equal(fieldAwareHtml.includes("저장하고 빠른 작성으로"), false, "통합 화면은 quick-first 복귀 동작을 제공하면 안 됩니다.");
 
 console.log("RhwpStudioSurface dual save actions render test passed");

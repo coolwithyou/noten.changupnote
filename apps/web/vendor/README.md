@@ -6,9 +6,9 @@ dependency다.
 - package: `@rhwp/editor@0.8.5`
 - source repository: `https://github.com/edwardkim/rhwp`
 - source PR: `https://github.com/edwardkim/rhwp/pull/5569`
-- exact source commit: `104ed4dad71dccd3cf1c97963200d483299f2640`
-- SHA-256: `d76db865d87e2a688c1409bb960b6b873f97aff28f7a37a0effe1009572aef4a`
-- npm pack SHA-1: `536871833cfd13eeefcb100e1aa3a745715f3799`
+- exact source commit: `c02f422c46e258b43a91a45f187d1513b445923e`
+- SHA-256: `1c83c0fd0d6924b09c11f3fcdb184882aad563b5e3556674686ae4e22f366b12`
+- npm pack SHA-1: `4aaa287582f6967afb27acf1716adf67744d3548`
 
 upstream이 `@rhwp/editor@0.8.5`를 npm에 게시하면 `apps/web/package.json`을 exact registry version
 `0.8.5`로 바꾸고 이 디렉터리를 제거한다. 교체 전에는 registry tarball의 공개 API와 현재 artifact

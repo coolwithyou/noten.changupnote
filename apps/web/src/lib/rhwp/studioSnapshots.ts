@@ -19,6 +19,7 @@ export interface PersistStudioSnapshotInput {
     | "studio_agent_undo";
   checkpointRequestId?: string;
   agentSuggestionId?: string;
+  fieldAgentSuggestionId?: string;
   agentOperation?: "apply" | "undo";
   operationVersion?: number;
   materializedAnswers: Record<string, string>;
@@ -54,6 +55,7 @@ export async function persistStudioSnapshot(
   form.set("origin", input.origin);
   if (input.checkpointRequestId) form.set("checkpointRequestId", input.checkpointRequestId);
   if (input.agentSuggestionId) form.set("agentSuggestionId", input.agentSuggestionId);
+  if (input.fieldAgentSuggestionId) form.set("fieldAgentSuggestionId", input.fieldAgentSuggestionId);
   if (input.agentOperation) form.set("agentOperation", input.agentOperation);
   if (input.operationVersion !== undefined) form.set("operationVersion", String(input.operationVersion));
   form.set("materializedAnswers", JSON.stringify(input.materializedAnswers));

@@ -9,7 +9,11 @@ import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import type { DraftFieldAnswers } from "@/lib/server/documents/fieldAnswers";
 import type { ConnectedDocumentField } from "@/lib/server/documents/documentFieldLink";
-import { resolveRhwpFieldAnchorsExact, type RhwpFieldAnchor } from "@/lib/rhwp/fieldAnchors";
+import {
+  resolveRhwpFieldAnchorsExact,
+  type RhwpExactFieldAnchorResolution,
+  type RhwpFieldAnchor,
+} from "@/lib/rhwp/fieldAnchors";
 import { downloadBytes, loadRhwp } from "@/lib/rhwp/client";
 import {
   extractDocumentEditCandidates,
@@ -26,11 +30,28 @@ import {
   transitionDocumentAgentSuggestion,
 } from "@/lib/rhwp/documentAgentApi";
 import {
+  fetchFieldAgentRuns,
+  requestFieldAgentRun,
+  transitionFieldAgentRunSuggestion,
+} from "@/lib/rhwp/fieldAgentApi";
+import {
   createStudioCommandDocumentAgentTransaction,
   StudioDocumentAgentVerificationError,
   type StudioCommandDocumentAgentTransaction,
 } from "@/lib/rhwp/studioCommandDocumentAgentTransaction";
-import { resolveStudioDocumentAgentProtocol } from "@/lib/rhwp/studioDocumentAgentProtocol";
+import {
+  resolveStudioDocumentAgentProtocol,
+  resolveStudioFieldAgentProtocol,
+  resolveStudioFieldNavigationProtocol,
+  resolveStudioFieldSelectionProtocol,
+  type StudioFieldNavigationProtocol,
+  type StudioTableCellTextTargetV1,
+} from "@/lib/rhwp/studioDocumentAgentProtocol";
+import {
+  createStudioFieldAgentTransaction,
+  StudioFieldAgentMutationVerificationError,
+  type StudioFieldAgentTransaction,
+} from "@/lib/rhwp/studioFieldAgentTransaction";
 import {
   exportVerifiedEditorDocument,
   loadEditorFileWithoutDialogs,
@@ -45,6 +66,7 @@ import {
 import { resolveRhwpStudioSaveProtocol, type RhwpStudioSaveProtocol } from "@/lib/rhwp/studioSaveProtocol";
 import { persistStudioSnapshot, StudioSnapshotPersistenceError } from "@/lib/rhwp/studioSnapshots";
 import { commitStudioSnapshot } from "@/lib/rhwp/studioTransport";
+import { cn } from "@/lib/utils";
 import {
   prepareRhwpWorkingDocument,
   sourceKeyForTransport,
@@ -56,6 +78,10 @@ import type {
   DocumentAgentRunDto,
   DocumentAgentSuggestionDto,
 } from "@/lib/server/documents/documentAgentRuns";
+import type {
+  FieldAgentRunDto,
+  FieldAgentSuggestionDto,
+} from "@/lib/server/documents/fieldAgentRuns";
 import { StudioSaveIndicator } from "./StudioSaveIndicator";
 import { DocumentAgentSheet } from "./DocumentAgentSheet";
 import {
@@ -67,6 +93,11 @@ type RhwpEditorInstance = import("@rhwp/editor").RhwpEditor;
 
 export interface RhwpStudioSurfaceHandle {
   saveAndReturn(): Promise<void>;
+  focusField(fieldId: string): Promise<boolean>;
+  requestFieldSuggestion(fieldId: string, sourceText?: string): Promise<FieldAgentRunDto>;
+  applyFieldSuggestion(run: FieldAgentRunDto, suggestion: FieldAgentSuggestionDto): Promise<FieldAgentRunDto>;
+  undoFieldSuggestion(run: FieldAgentRunDto, suggestion: FieldAgentSuggestionDto): Promise<FieldAgentRunDto>;
+  dismissFieldSuggestion(run: FieldAgentRunDto, suggestion: FieldAgentSuggestionDto): Promise<FieldAgentRunDto>;
 }
 
 type StudioState =
@@ -87,6 +118,10 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
   headMaterializedAnswers: Record<string, string>;
   activeTask: DocumentAuthoringTask | null;
   documentAgentAvailable?: boolean;
+  fieldEditorAgentAvailable?: boolean;
+  presentation?: "standalone" | "field_aware";
+  onFieldBindingsResolved?: (resolutions: readonly RhwpExactFieldAnchorResolution[]) => void;
+  onFieldSelectionChanged?: (target: StudioTableCellTextTargetV1 | null) => void;
   onSaved: (
     document: RhwpWorkingDocument,
     taskFieldId: string | null,
@@ -103,6 +138,10 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
   headMaterializedAnswers,
   activeTask,
   documentAgentAvailable = false,
+  fieldEditorAgentAvailable = false,
+  presentation = "standalone",
+  onFieldBindingsResolved,
+  onFieldSelectionChanged,
   onSaved,
 }, ref) => {
   const localPreview = transport.mode === "local_preview";
@@ -113,15 +152,22 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
   const [agentState, dispatchAgent] = useReducer(reduceDocumentAgentUiState, initialDocumentAgentUiState);
   const [agentCapabilityReady, setAgentCapabilityReady] = useState(false);
   const [agentHardLock, setAgentHardLock] = useState<string | null>(null);
+  const [fieldAgentBusy, setFieldAgentBusy] = useState(false);
+  const [downloadBusy, setDownloadBusy] = useState(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const editorRef = useRef<RhwpEditorInstance | null>(null);
   const saveProtocolRef = useRef<RhwpStudioSaveProtocol | null>(null);
   const agentTransactionRef = useRef<StudioCommandDocumentAgentTransaction | null>(null);
+  const fieldAgentTransactionRef = useRef<StudioFieldAgentTransaction | null>(null);
+  const fieldNavigationProtocolRef = useRef<StudioFieldNavigationProtocol | null>(null);
+  const fieldTargetsRef = useRef<Map<string, StudioTableCellTextTargetV1>>(new Map());
   const agentCandidatesRef = useRef<DocumentEditCandidate[]>([]);
   const agentReservedAnchorsRef = useRef<DocumentAgentReservedAnchor[]>([]);
   const latestAppliedSuggestionIdRef = useRef<string | null>(null);
   const preparedRef = useRef<RhwpWorkingDocument | null>(null);
   const onSavedRef = useRef(onSaved);
+  const onFieldBindingsResolvedRef = useRef(onFieldBindingsResolved);
+  const onFieldSelectionChangedRef = useRef(onFieldSelectionChanged);
   const activeTaskFieldIdRef = useRef(activeTask?.fieldId ?? null);
   // 임시 저장으로 부모 workingDocument가 갱신돼도 편집기를 다시 열지 않는다. 이 ref는 빠른
   // 작성으로 전환해 화면을 숨긴 동안에도 유지되는 현재 Studio 세션의 최신 검증 스냅샷이다.
@@ -150,6 +196,14 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
   }, [onSaved]);
 
   useEffect(() => {
+    onFieldBindingsResolvedRef.current = onFieldBindingsResolved;
+  }, [onFieldBindingsResolved]);
+
+  useEffect(() => {
+    onFieldSelectionChangedRef.current = onFieldSelectionChanged;
+  }, [onFieldSelectionChanged]);
+
+  useEffect(() => {
     activeTaskFieldIdRef.current = activeTask?.fieldId ?? null;
   }, [activeTask?.fieldId]);
 
@@ -157,9 +211,15 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
     const seq = ++requestSeq.current;
     let disposed = false;
     let unsubscribeDocumentChanged: (() => void) | null = null;
+    let unsubscribeFieldSelectionChanged: (() => void) | null = null;
     const initialize = async () => {
       const initializationInput = initializationInputRef.current;
-      setState({ status: "loading", message: "확정한 빠른 작성 값을 원본 문서에 반영하고 있어요." });
+      setState({
+        status: "loading",
+        message: presentation === "field_aware"
+          ? "현재 revision과 필드 입력 위치를 확인하고 있어요."
+          : "확정한 빠른 작성 값을 원본 문서에 반영하고 있어요.",
+      });
       const prepared = await prepareRhwpWorkingDocument({
         transport,
         answers: initializationInput.answers,
@@ -171,6 +231,32 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
       });
       if (disposed || requestSeq.current !== seq) return;
       preparedRef.current = prepared;
+      try {
+        const bindingRhwp = await loadRhwp();
+        const bindingDocument = new bindingRhwp.HwpDocument(prepared.bytes);
+        try {
+          const resolutions = resolveRhwpFieldAnchorsExact(bindingDocument, connectedFields);
+          fieldTargetsRef.current = new Map(resolutions.flatMap((resolution) => {
+            if (resolution.status !== "unique") return [];
+            const target = resolution.anchor.target;
+            return [[resolution.fieldId, {
+              kind: "table_cell_text" as const,
+              section: target.section,
+              parentPara: target.parentPara,
+              controlIndex: target.controlIndex,
+              cellIndex: target.cellIndex,
+              cellParagraph: target.cellParagraph,
+            }]];
+          }));
+          onFieldBindingsResolvedRef.current?.(resolutions);
+        } finally {
+          bindingDocument.free();
+        }
+      } catch (error) {
+        console.warn("rhwp Studio field binding 해석 실패", error);
+        fieldTargetsRef.current = new Map();
+        onFieldBindingsResolvedRef.current?.([]);
+      }
       setState({ status: "loading", message: "자가 호스팅 rhwp Studio를 불러오고 있어요." });
       const { createEditor } = await import("@rhwp/editor");
       if (!containerRef.current) throw new Error("문서 편집 화면을 준비하지 못했습니다.");
@@ -183,6 +269,7 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
         return;
       }
       editorRef.current = editor;
+      fieldNavigationProtocolRef.current = resolveStudioFieldNavigationProtocol(editor);
       setState({
         status: "loading",
         message: "문서 편집기를 준비하고 있습니다.",
@@ -190,6 +277,21 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
       });
       const result = await loadEditorFileWithoutDialogs(editor, prepared.bytes.slice(), prepared.filename);
       if (disposed || requestSeq.current !== seq) return;
+      const fieldSelectionProtocol = resolveStudioFieldSelectionProtocol(editor);
+      if (presentation === "field_aware" && fieldSelectionProtocol) {
+        const publishFieldSelection = (selection: Awaited<ReturnType<
+          typeof fieldSelectionProtocol.getFieldSelectionContext
+        >>) => {
+          if (disposed || requestSeq.current !== seq) return;
+          onFieldSelectionChangedRef.current?.(
+            selection.editable ? selection.target : null,
+          );
+        };
+        unsubscribeFieldSelectionChanged = fieldSelectionProtocol.onFieldSelectionChanged(
+          publishFieldSelection,
+        );
+        publishFieldSelection(await fieldSelectionProtocol.getFieldSelectionContext());
+      }
       const saveProtocol = resolveRhwpStudioSaveProtocol(editor);
       saveProtocolRef.current = saveProtocol;
       const agentProtocol = resolveStudioDocumentAgentProtocol(editor);
@@ -204,6 +306,22 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
       } else {
         agentTransactionRef.current = null;
         setAgentCapabilityReady(false);
+      }
+      const fieldAgentProtocol = resolveStudioFieldAgentProtocol(editor);
+      if (
+        fieldEditorAgentAvailable
+        && presentation === "field_aware"
+        && transport.mode === "persistent"
+        && fieldAgentProtocol
+      ) {
+        const rhwp = await loadRhwp();
+        fieldAgentTransactionRef.current = createStudioFieldAgentTransaction({
+          rhwp,
+          protocol: fieldAgentProtocol,
+          exportCurrentBytes: (format) => exportVerifiedEditorDocument(editor, format),
+        });
+      } else {
+        fieldAgentTransactionRef.current = null;
       }
       const dirtyState = saveProtocol.getDirtyState ? await saveProtocol.getDirtyState() : null;
       if (disposed || requestSeq.current !== seq) return;
@@ -233,10 +351,14 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
       disposed = true;
       requestSeq.current += 1;
       unsubscribeDocumentChanged?.();
+      unsubscribeFieldSelectionChanged?.();
       editorRef.current?.destroy();
       editorRef.current = null;
       saveProtocolRef.current = null;
       agentTransactionRef.current = null;
+      fieldAgentTransactionRef.current = null;
+      fieldNavigationProtocolRef.current = null;
+      fieldTargetsRef.current = new Map();
       agentCandidatesRef.current = [];
       agentReservedAnchorsRef.current = [];
       latestAppliedSuggestionIdRef.current = null;
@@ -245,7 +367,7 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
     };
     // Studio는 현재 draft에서 한 번만 생성한다. 빠른 작성 값이 바뀌었다고 iframe을 파괴해
     // 재로드하면 글꼴 권한 확인이 매번 반복된다. 최신 빠른 작성 값은 최종 저장에서 delta로 합친다.
-  }, [attempt, documentAgentAvailable, sourceKey]);
+  }, [attempt, documentAgentAvailable, fieldEditorAgentAvailable, presentation, sourceKey]);
 
   const save = useCallback(async (intent: StudioSaveIntent): Promise<RhwpWorkingDocument | null> => {
     const editor = editorRef.current;
@@ -442,16 +564,37 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
     await save("return");
   }, [save]);
 
-  useImperativeHandle(ref, () => ({ saveAndReturn }), [saveAndReturn]);
+  const focusField = useCallback(async (fieldId: string): Promise<boolean> => {
+    const protocol = fieldNavigationProtocolRef.current;
+    const target = fieldTargetsRef.current.get(fieldId);
+    if (!protocol || !target) return false;
+    try {
+      const result = await protocol.focusFieldTarget(target);
+      if (!result.focused) toast.error("문서에서 이 필드의 입력 셀로 이동하지 못했습니다.");
+      return result.focused;
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "필드 입력 셀로 이동하지 못했습니다.");
+      return false;
+    }
+  }, []);
 
-  const downloadLocalCopy = useCallback(async () => {
-    if (!localPreview) return;
-    const document = await save("stay");
-    if (!document) return;
-    const base = document.filename.replace(/\.(hwp|hwpx)$/i, "");
-    downloadBytes(document.bytes, `${base}-가상기업-작성본.${document.format}`);
-    toast.success("현재 탭의 편집본을 검증해 다운로드했습니다.");
-  }, [localPreview, save]);
+  const downloadCurrentCopy = useCallback(async () => {
+    const editor = editorRef.current;
+    const document = preparedRef.current;
+    if (!editor || !document || state.status !== "ready" || downloadBusy) return;
+    setDownloadBusy(true);
+    try {
+      const bytes = await exportVerifiedEditorDocument(editor, document.format);
+      const base = document.filename.replace(/\.(hwp|hwpx)$/i, "");
+      const suffix = localPreview ? "가상기업-작성본" : "작업본";
+      downloadBytes(bytes, `${base}-${suffix}.${document.format}`);
+      toast.success("현재 편집본을 검증해 다운로드했습니다.");
+    } catch (error) {
+      toast.error(errorMessage(error, "현재 편집본을 다운로드하지 못했습니다."));
+    } finally {
+      setDownloadBusy(false);
+    }
+  }, [downloadBusy, localPreview, state.status]);
 
   const clearAutosaveTimers = useCallback(() => {
     if (autosaveIdleTimerRef.current) clearTimeout(autosaveIdleTimerRef.current);
@@ -477,6 +620,7 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
     revisionId: string;
     savedAt: string;
     changeSeq: number;
+    materializedAnswers?: Record<string, string>;
   }) => {
     const prepared = preparedRef.current;
     const editor = editorRef.current;
@@ -486,6 +630,7 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
       bytes: input.bytes,
       revisionId: input.revisionId,
       serverSavedAt: input.savedAt,
+      ...(input.materializedAnswers ? { materializedAnswers: input.materializedAnswers } : {}),
     };
     preparedRef.current = snapshot;
     sessionDocumentRef.current = snapshot;
@@ -516,10 +661,29 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
     const rhwp = await loadRhwp();
     const document = new rhwp.HwpDocument(bytes);
     try {
-      const reservedAnchors = reservedAnchorsFromExactResolutions(
-        resolveRhwpFieldAnchorsExact(document, connectedFields),
-      );
-      return { bytes, documentSha256, reservedAnchors, pageCount: document.pageCount() };
+      const resolutions = resolveRhwpFieldAnchorsExact(document, connectedFields);
+      const reservedAnchors = reservedAnchorsFromExactResolutions(resolutions);
+      return { bytes, documentSha256, reservedAnchors, resolutions, pageCount: document.pageCount() };
+    } finally {
+      document.free();
+    }
+  }, [connectedFields]);
+
+  const readCurrentFieldDocument = useCallback(async () => {
+    const editor = editorRef.current;
+    const prepared = preparedRef.current;
+    if (!editor || !prepared) throw new Error("현재 Studio 작업본을 찾지 못했습니다.");
+    const bytes = await exportVerifiedEditorDocument(editor, prepared.format);
+    const documentSha256 = await sha256Hex(bytes);
+    const rhwp = await loadRhwp();
+    const document = new rhwp.HwpDocument(bytes);
+    try {
+      return {
+        bytes,
+        documentSha256,
+        resolutions: resolveRhwpFieldAnchorsExact(document, connectedFields),
+        pageCount: document.pageCount(),
+      };
     } finally {
       document.free();
     }
@@ -952,17 +1116,354 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
     }
   }, [acceptPersistedAgentSnapshot, agentState.run, beginAgentMutation, finishAgentMutation, readCurrentAgentDocument, refreshRun, transport]);
 
+  const refreshFieldRun = useCallback(async (runId: string): Promise<FieldAgentRunDto> => {
+    if (transport.mode !== "persistent") throw new Error("서버 문서 초안이 아닙니다.");
+    const runs = await fetchFieldAgentRuns(transport.draftId);
+    const run = runs.find((entry) => entry.id === runId);
+    if (!run) throw new Error("갱신된 AI 필드 제안을 찾지 못했습니다.");
+    return run;
+  }, [transport]);
+
+  const requestFieldSuggestion = useCallback(async (
+    fieldId: string,
+    sourceText?: string,
+  ): Promise<FieldAgentRunDto> => {
+    if (transport.mode !== "persistent" || !fieldAgentTransactionRef.current) {
+      throw new Error("현재 Studio에서는 AI 필드 명령을 사용할 수 없습니다.");
+    }
+    const prepared = preparedRef.current;
+    if (!prepared) throw new Error("현재 Studio 작업본을 찾지 못했습니다.");
+    setFieldAgentBusy(true);
+    try {
+      beginAgentMutation();
+      const current = await readCurrentFieldDocument();
+      const resolution = current.resolutions.find((entry) => entry.fieldId === fieldId);
+      if (!resolution || resolution.status !== "unique") {
+        throw new Error("현재 revision에서 이 필드의 입력 셀을 하나로 확정하지 못했습니다.");
+      }
+      const target: StudioTableCellTextTargetV1 = {
+        kind: "table_cell_text",
+        section: resolution.anchor.target.section,
+        parentPara: resolution.anchor.target.parentPara,
+        controlIndex: resolution.anchor.target.controlIndex,
+        cellIndex: resolution.anchor.target.cellIndex,
+        cellParagraph: resolution.anchor.target.cellParagraph,
+      };
+      fieldTargetsRef.current.set(fieldId, target);
+      onFieldBindingsResolvedRef.current?.(current.resolutions);
+      const changeSeq = latestChangeSeqRef.current ?? legacySaveSeqRef.current + 1;
+      const checkpoint = await persistStudioSnapshot({
+        draftId: transport.draftId,
+        bytes: current.bytes,
+        filename: prepared.filename,
+        format: prepared.format,
+        pageCount: current.pageCount,
+        sessionId: studioSessionIdRef.current!,
+        baseRevisionId: prepared.revisionId,
+        documentEpoch: documentEpochRef.current,
+        changeSeq,
+        origin: "studio_agent_checkpoint",
+        checkpointRequestId: crypto.randomUUID(),
+        materializedAnswers: prepared.materializedAnswers,
+        verification: {
+          client: "rhwp-core-reopen",
+          verified: true,
+          purpose: "field_agent_checkpoint",
+          documentSha256: current.documentSha256,
+          fieldId,
+        },
+      });
+      await acceptPersistedAgentSnapshot({
+        bytes: current.bytes,
+        revisionId: checkpoint.revisionId,
+        savedAt: checkpoint.savedAt,
+        changeSeq,
+      });
+      return await requestFieldAgentRun({
+        draftId: transport.draftId,
+        fieldId,
+        clientRequestId: crypto.randomUUID(),
+        baseRevisionId: checkpoint.revisionId,
+        target,
+        ...(sourceText?.trim() ? { sourceText: sourceText.trim() } : {}),
+      });
+    } finally {
+      finishAgentMutation();
+      setFieldAgentBusy(false);
+    }
+  }, [acceptPersistedAgentSnapshot, beginAgentMutation, finishAgentMutation, readCurrentFieldDocument, transport]);
+
+  const applyFieldSuggestion = useCallback(async (
+    run: FieldAgentRunDto,
+    suggestion: FieldAgentSuggestionDto,
+  ): Promise<FieldAgentRunDto> => {
+    if (transport.mode !== "persistent") throw new Error("서버 문서 초안이 아닙니다.");
+    const transaction = fieldAgentTransactionRef.current;
+    const prepared = preparedRef.current;
+    if (!transaction || !prepared) throw new Error("현재 Studio에서 필드 명령을 실행할 수 없습니다.");
+    const operationClientId = crypto.randomUUID();
+    let started: FieldAgentSuggestionDto | null = null;
+    let applied: Awaited<ReturnType<StudioFieldAgentTransaction["apply"]>> | null = null;
+    let keepLocked = false;
+    setFieldAgentBusy(true);
+    try {
+      beginAgentMutation();
+      started = await transitionFieldAgentRunSuggestion({
+        draftId: transport.draftId,
+        suggestionId: suggestion.id,
+        action: "start_apply",
+        expectedStatusVersion: suggestion.statusVersion,
+        expectedOperationVersion: suggestion.operationVersion,
+        operationClientId,
+      });
+      const current = await readCurrentFieldDocument();
+      if (current.documentSha256 !== run.documentSha256) {
+        throw new Error("제안 기준 revision 뒤 문서가 변경되었습니다. 필드 제안을 다시 받아 주세요.");
+      }
+      applied = await transaction.apply({
+        bytes: current.bytes,
+        format: prepared.format,
+        commandId: `field:${suggestion.id}`,
+        binding: {
+          target: run.target,
+          beforeText: run.beforeText,
+          beforeTextSha256: run.beforeTextSha256,
+          formatSha256: run.formatSha256,
+          adjacentContextSha256: run.adjacentContextSha256,
+        },
+        replacement: suggestion.value,
+      });
+      const materializedAnswers = { ...prepared.materializedAnswers, [run.fieldId]: suggestion.value };
+      const persisted = await persistStudioSnapshot({
+        draftId: transport.draftId,
+        bytes: applied.bytes,
+        filename: prepared.filename,
+        format: prepared.format,
+        pageCount: applied.receipt.pageCountAfter,
+        sessionId: studioSessionIdRef.current!,
+        baseRevisionId: run.baseRevisionId,
+        documentEpoch: applied.receipt.documentEpoch,
+        changeSeq: applied.receipt.afterChangeSeq,
+        origin: "studio_agent_apply",
+        fieldAgentSuggestionId: suggestion.id,
+        agentOperation: "apply",
+        operationVersion: started.operationVersion,
+        materializedAnswers,
+        verification: fieldAgentVerification(applied, run, suggestion),
+      });
+      await acceptPersistedAgentSnapshot({
+        bytes: applied.bytes,
+        revisionId: persisted.revisionId,
+        savedAt: persisted.savedAt,
+        changeSeq: applied.receipt.afterChangeSeq,
+        materializedAnswers,
+      });
+      toast.success(`'${run.fieldLabel}' 값을 문서의 정확한 입력 칸에 반영했습니다.`);
+      return await refreshFieldRun(run.id);
+    } catch (error) {
+      if (applied) {
+        try {
+          await transaction.revert({
+            bytes: applied.bytes,
+            format: prepared.format,
+            commandId: `field:${suggestion.id}`,
+            expectedAfterTextSha256: applied.receipt.afterTextSha256,
+          });
+          await notifyEditorSaved(editorRef.current!);
+          if (started) {
+            await transitionFieldAgentRunSuggestion({
+              draftId: transport.draftId,
+              suggestionId: suggestion.id,
+              action: "abandon_apply",
+              expectedStatusVersion: started.statusVersion,
+              expectedOperationVersion: started.operationVersion,
+              operationClientId,
+              failureCode: "apply_rolled_back",
+            }).catch(() => undefined);
+          }
+        } catch (rollbackError) {
+          keepLocked = true;
+          const message = `필드 적용 저장과 원상 복구를 확정하지 못해 편집을 잠갔습니다: ${errorMessage(rollbackError, "복구 실패")}`;
+          setAgentHardLock(message);
+          throw new Error(message);
+        }
+        throw new Error(`${errorMessage(error, "필드 값을 저장하지 못했습니다.")} 문서 변경은 원상 복구했습니다.`);
+      }
+      if (started) {
+        await transitionFieldAgentRunSuggestion({
+          draftId: transport.draftId,
+          suggestionId: suggestion.id,
+          action: "abandon_apply",
+          expectedStatusVersion: started.statusVersion,
+          expectedOperationVersion: started.operationVersion,
+          operationClientId,
+          failureCode: error instanceof StudioFieldAgentMutationVerificationError
+            ? "core_validation_failed"
+            : "revision_conflict",
+        }).catch(() => undefined);
+      }
+      if (error instanceof StudioFieldAgentMutationVerificationError) {
+        keepLocked = true;
+        const detail = errorMessage(error.cause, error.message);
+        const message = `Studio 필드 변경 결과를 검증하지 못해 편집을 잠갔습니다: ${detail} 최신 문서를 다시 불러와 주세요.`;
+        setAgentHardLock(message);
+        throw new Error(message);
+      }
+      throw error;
+    } finally {
+      finishAgentMutation(keepLocked);
+      setFieldAgentBusy(false);
+    }
+  }, [acceptPersistedAgentSnapshot, beginAgentMutation, finishAgentMutation, readCurrentFieldDocument, refreshFieldRun, transport]);
+
+  const undoFieldSuggestion = useCallback(async (
+    run: FieldAgentRunDto,
+    suggestion: FieldAgentSuggestionDto,
+  ): Promise<FieldAgentRunDto> => {
+    if (transport.mode !== "persistent") throw new Error("서버 문서 초안이 아닙니다.");
+    const transaction = fieldAgentTransactionRef.current;
+    const prepared = preparedRef.current;
+    if (!transaction || !prepared) throw new Error("현재 Studio에서 필드 Undo를 실행할 수 없습니다.");
+    const operationClientId = crypto.randomUUID();
+    let started: FieldAgentSuggestionDto | null = null;
+    let reverted: Awaited<ReturnType<StudioFieldAgentTransaction["revert"]>> | null = null;
+    let keepLocked = false;
+    setFieldAgentBusy(true);
+    try {
+      beginAgentMutation();
+      started = await transitionFieldAgentRunSuggestion({
+        draftId: transport.draftId,
+        suggestionId: suggestion.id,
+        action: "authorize_undo",
+        expectedStatusVersion: suggestion.statusVersion,
+        expectedOperationVersion: suggestion.operationVersion,
+        operationClientId,
+      });
+      const current = await readCurrentFieldDocument();
+      reverted = await transaction.revert({
+        bytes: current.bytes,
+        format: prepared.format,
+        commandId: `field:${suggestion.id}`,
+        expectedAfterTextSha256: await sha256Hex(suggestion.value),
+        ...(suggestion.appliedDocumentSha256 ? {
+          recovery: {
+            appliedDocumentSha256: suggestion.appliedDocumentSha256,
+            appliedText: suggestion.value,
+            binding: {
+              target: run.target,
+              beforeText: run.beforeText,
+              beforeTextSha256: run.beforeTextSha256,
+              formatSha256: run.formatSha256,
+              adjacentContextSha256: run.adjacentContextSha256,
+            },
+          },
+        } : {}),
+      });
+      const materializedAnswers = { ...prepared.materializedAnswers };
+      if (run.beforeText.trim()) materializedAnswers[run.fieldId] = run.beforeText.trim();
+      else delete materializedAnswers[run.fieldId];
+      const persisted = await persistStudioSnapshot({
+        draftId: transport.draftId,
+        bytes: reverted.bytes,
+        filename: prepared.filename,
+        format: prepared.format,
+        pageCount: reverted.receipt.pageCountAfter,
+        sessionId: studioSessionIdRef.current!,
+        baseRevisionId: suggestion.appliedRevisionId,
+        documentEpoch: reverted.receipt.documentEpoch,
+        changeSeq: reverted.receipt.afterChangeSeq,
+        origin: "studio_agent_undo",
+        fieldAgentSuggestionId: suggestion.id,
+        agentOperation: "undo",
+        operationVersion: started.operationVersion,
+        materializedAnswers,
+        verification: fieldAgentVerification(reverted, run, suggestion),
+      });
+      await acceptPersistedAgentSnapshot({
+        bytes: reverted.bytes,
+        revisionId: persisted.revisionId,
+        savedAt: persisted.savedAt,
+        changeSeq: reverted.receipt.afterChangeSeq,
+        materializedAnswers,
+      });
+      toast.success(`'${run.fieldLabel}'의 최근 AI 입력을 되돌렸습니다.`);
+      return await refreshFieldRun(run.id);
+    } catch (error) {
+      if (started) {
+        await transitionFieldAgentRunSuggestion({
+          draftId: transport.draftId,
+          suggestionId: suggestion.id,
+          action: "abandon_undo",
+          expectedStatusVersion: started.statusVersion,
+          expectedOperationVersion: started.operationVersion,
+          operationClientId,
+          failureCode: reverted ? "undo_requires_reload" : "undo_conflict",
+        }).catch(() => undefined);
+      }
+      if (reverted || error instanceof StudioFieldAgentMutationVerificationError) {
+        keepLocked = true;
+        const message = "필드 Undo 결과를 서버 revision으로 확정하지 못해 편집을 잠갔습니다. 최신 문서를 다시 불러와 주세요.";
+        setAgentHardLock(message);
+        throw new Error(message);
+      }
+      throw error;
+    } finally {
+      finishAgentMutation(keepLocked);
+      setFieldAgentBusy(false);
+    }
+  }, [acceptPersistedAgentSnapshot, beginAgentMutation, finishAgentMutation, readCurrentFieldDocument, refreshFieldRun, transport]);
+
+  const dismissFieldSuggestion = useCallback(async (
+    run: FieldAgentRunDto,
+    suggestion: FieldAgentSuggestionDto,
+  ): Promise<FieldAgentRunDto> => {
+    if (transport.mode !== "persistent") throw new Error("서버 문서 초안이 아닙니다.");
+    setFieldAgentBusy(true);
+    try {
+      await transitionFieldAgentRunSuggestion({
+        draftId: transport.draftId,
+        suggestionId: suggestion.id,
+        action: "dismiss",
+        expectedStatusVersion: suggestion.statusVersion,
+        expectedOperationVersion: suggestion.operationVersion,
+      });
+      return await refreshFieldRun(run.id);
+    } finally {
+      setFieldAgentBusy(false);
+    }
+  }, [refreshFieldRun, transport]);
+
+  useImperativeHandle(ref, () => ({
+    saveAndReturn,
+    focusField,
+    requestFieldSuggestion,
+    applyFieldSuggestion,
+    undoFieldSuggestion,
+    dismissFieldSuggestion,
+  }), [
+    applyFieldSuggestion,
+    dismissFieldSuggestion,
+    focusField,
+    requestFieldSuggestion,
+    saveAndReturn,
+    undoFieldSuggestion,
+  ]);
+
   const saving = isStudioSaveInFlight(saveState);
-  const agentBusy = ["scanning", "checkpointing", "generating", "applying", "undoing"].includes(agentState.phase);
+  const agentBusy = fieldAgentBusy
+    || ["scanning", "checkpointing", "generating", "applying", "undoing"].includes(agentState.phase);
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-3 p-3 lg:p-4">
+    <div className={cn(
+      "flex min-h-0 flex-1 flex-col gap-3",
+      presentation === "standalone" ? "p-3 lg:p-4" : "p-0",
+    )}>
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-[var(--radius-xl)] border border-studio/30 bg-card px-4 py-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant="outline" className="border-studio/35 bg-studio-soft text-studio">
               <FilePenLine data-icon="inline-start" aria-hidden />
-              문서 직접 편집
+              {presentation === "field_aware" ? "문서 편집" : "문서 직접 편집"}
             </Badge>
             {activeTask ? <strong className="truncate text-sm">현재 과제: {activeTask.label}</strong> : null}
           </div>
@@ -974,7 +1475,7 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
           <StudioSaveIndicator state={saveState} className="mt-1" />
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2">
-          {agentCapabilityReady && transport.mode === "persistent" ? (
+          {presentation === "standalone" && agentCapabilityReady && transport.mode === "persistent" ? (
             <Button
               type="button"
               variant="outline"
@@ -1000,29 +1501,31 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
                 ? localPreview ? "탭 반영 재시도" : "서버 저장 재시도"
                 : localPreview ? "이 탭에 반영" : "지금 저장"}
           </Button>
-          {localPreview ? (
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => void downloadLocalCopy()}
-              disabled={state.status !== "ready" || saving || agentBusy || Boolean(agentHardLock)}
-            >
-              <Download data-icon="inline-start" aria-hidden />
-              편집본 다운로드
-            </Button>
-          ) : null}
           <Button
             type="button"
-            onClick={() => void saveAndReturn()}
-            disabled={state.status !== "ready" || saving || agentBusy || Boolean(agentHardLock)}
+            variant="outline"
+            onClick={() => void downloadCurrentCopy()}
+            disabled={state.status !== "ready" || saving || agentBusy || downloadBusy || Boolean(agentHardLock)}
           >
-            {saving
+            {downloadBusy
               ? <Spinner data-icon="inline-start" />
-              : <ArrowLeft data-icon="inline-start" aria-hidden />}
-            {saving
-              ? localPreview ? "이 탭에 반영 중…" : "서버에 저장 중…"
-              : localPreview ? "반영하고 빠른 작성으로" : "저장하고 빠른 작성으로"}
+              : <Download data-icon="inline-start" aria-hidden />}
+            {downloadBusy ? "내보내는 중…" : "편집본 다운로드"}
           </Button>
+          {presentation === "standalone" ? (
+            <Button
+              type="button"
+              onClick={() => void saveAndReturn()}
+              disabled={state.status !== "ready" || saving || agentBusy || Boolean(agentHardLock)}
+            >
+              {saving
+                ? <Spinner data-icon="inline-start" />
+                : <ArrowLeft data-icon="inline-start" aria-hidden />}
+              {saving
+                ? localPreview ? "이 탭에 반영 중…" : "서버에 저장 중…"
+                : localPreview ? "반영하고 빠른 작성으로" : "저장하고 빠른 작성으로"}
+            </Button>
+          ) : null}
         </div>
       </div>
 
@@ -1080,7 +1583,9 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
 
       {state.status === "ready" && state.skipped.length > 0 ? (
         <Alert className="border-warning-strong/30 bg-warning-strong-soft">
-          <AlertTitle>빠른 작성 값 {state.skipped.length.toLocaleString("ko-KR")}개는 자동 반영하지 않았어요.</AlertTitle>
+          <AlertTitle>
+            {presentation === "field_aware" ? "필드 값" : "빠른 작성 값"} {state.skipped.length.toLocaleString("ko-KR")}개는 자동 반영하지 않았어요.
+          </AlertTitle>
           <AlertDescription>
             Studio에서 직접 확인해 주세요: {state.skipped.map((entry) => entry.label).join(", ")}
           </AlertDescription>
@@ -1116,7 +1621,7 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
         <div ref={containerRef} className="h-full min-h-[68dvh] w-full" aria-label="rhwp 문서 직접 편집기" />
       </div>
 
-      {agentCapabilityReady && transport.mode === "persistent" && state.status === "ready" ? (
+      {presentation === "standalone" && agentCapabilityReady && transport.mode === "persistent" && state.status === "ready" ? (
         <DocumentAgentSheet
           state={agentState}
           pageCount={state.pageCount}
@@ -1141,6 +1646,7 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
 RhwpStudioSurface.displayName = "RhwpStudioSurface";
 
 type StudioAgentResult = Awaited<ReturnType<StudioCommandDocumentAgentTransaction["apply"]>>;
+type StudioFieldAgentResult = Awaited<ReturnType<StudioFieldAgentTransaction["apply"]>>;
 
 function agentVerification(result: StudioAgentResult, suggestionId: string): Record<string, unknown> {
   return {
@@ -1155,6 +1661,31 @@ function agentVerification(result: StudioAgentResult, suggestionId: string): Rec
     afterChangeSeq: result.studioReceipt.afterChangeSeq,
     focusSucceeded: result.focus.focused,
     focusPage: result.focus.page,
+  };
+}
+
+function fieldAgentVerification(
+  result: StudioFieldAgentResult,
+  run: FieldAgentRunDto,
+  suggestion: FieldAgentSuggestionDto,
+): Record<string, unknown> {
+  return {
+    client: "rhwp-studio-field-command-v1",
+    verified: true,
+    operation: result.receipt.operation,
+    runId: run.id,
+    suggestionId: suggestion.id,
+    fieldId: run.fieldId,
+    commandId: result.receipt.commandId,
+    target: result.receipt.target,
+    beforeDocumentSha256: result.beforeDocumentSha256,
+    afterDocumentSha256: result.afterDocumentSha256,
+    beforeTextSha256: result.receipt.beforeTextSha256,
+    afterTextSha256: result.receipt.afterTextSha256,
+    formatSha256: result.receipt.formatSha256,
+    adjacentContextSha256: result.receipt.adjacentContextSha256,
+    documentEpoch: result.receipt.documentEpoch,
+    afterChangeSeq: result.receipt.afterChangeSeq,
   };
 }
 

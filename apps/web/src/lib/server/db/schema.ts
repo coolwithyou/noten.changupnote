@@ -2055,6 +2055,14 @@ export const grantDocumentRevisions = pgTable("grant_document_revisions", {
     (): AnyPgColumn => grantDocumentAgentSuggestions.id,
     { onDelete: "restrict" },
   ),
+  fieldAgentRunId: uuid("field_agent_run_id").references(
+    (): AnyPgColumn => grantDocumentFieldAgentRuns.id,
+    { onDelete: "restrict" },
+  ),
+  fieldAgentSuggestionId: uuid("field_agent_suggestion_id").references(
+    (): AnyPgColumn => grantDocumentFieldAgentSuggestions.id,
+    { onDelete: "restrict" },
+  ),
   createdBy: uuid("created_by").notNull().references(() => users.id, { onDelete: "cascade" }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 }, (table) => ({
@@ -2077,17 +2085,34 @@ export const grantDocumentRevisions = pgTable("grant_document_revisions", {
   ).where(sql`${table.agentCommandId} IS NOT NULL`),
   agentRunIdx: index("grant_document_revisions_agent_run_idx").on(table.agentRunId),
   agentSuggestionIdx: index("grant_document_revisions_agent_suggestion_idx").on(table.agentSuggestionId),
+  fieldAgentRunIdx: index("grant_document_revisions_field_agent_run_idx").on(table.fieldAgentRunId),
+  fieldAgentSuggestionIdx: index("grant_document_revisions_field_agent_suggestion_idx").on(
+    table.fieldAgentSuggestionId,
+  ),
   agentBindingCheck: check("grant_document_revisions_agent_binding_check", sql`
     (
       ${table.agentCommandId} IS NULL
       AND ${table.agentOperation} IS NULL
       AND ${table.agentRunId} IS NULL
       AND ${table.agentSuggestionId} IS NULL
+      AND ${table.fieldAgentRunId} IS NULL
+      AND ${table.fieldAgentSuggestionId} IS NULL
     ) OR (
       ${table.agentCommandId} IS NOT NULL
       AND ${table.agentOperation} IN ('apply', 'undo')
-      AND ${table.agentRunId} IS NOT NULL
-      AND ${table.agentSuggestionId} IS NOT NULL
+      AND (
+        (
+          ${table.agentRunId} IS NOT NULL
+          AND ${table.agentSuggestionId} IS NOT NULL
+          AND ${table.fieldAgentRunId} IS NULL
+          AND ${table.fieldAgentSuggestionId} IS NULL
+        ) OR (
+          ${table.agentRunId} IS NULL
+          AND ${table.agentSuggestionId} IS NULL
+          AND ${table.fieldAgentRunId} IS NOT NULL
+          AND ${table.fieldAgentSuggestionId} IS NOT NULL
+        )
+      )
     )
   `),
   originBindingCheck: check("grant_document_revisions_origin_binding_check", sql`
@@ -2276,6 +2301,119 @@ export const grantDocumentAgentSuggestions = pgTable("grant_document_agent_sugge
       ${table.operationState} = 'idle'
       AND ${table.operationStartedAt} IS NULL
       AND ${table.operationClientId} IS NULL
+    )
+  `),
+}));
+
+/** current revision의 exact field binding에 결속된 사용자 트리거 제안 실행. */
+export const grantDocumentFieldAgentRuns = pgTable("grant_document_field_agent_runs", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  draftId: uuid("draft_id").notNull().references(() => grantDocumentDrafts.id, { onDelete: "cascade" }),
+  fieldId: uuid("field_id").notNull().references(() => grantDocumentFields.id, { onDelete: "restrict" }),
+  fieldLabel: text("field_label").notNull(),
+  createdBy: uuid("created_by").notNull().references(() => users.id, { onDelete: "cascade" }),
+  clientRequestId: uuid("client_request_id").notNull(),
+  status: text("status").notNull().default("generating"),
+  statusVersion: integer("status_version").notNull().default(0),
+  requestBindingSha256: text("request_binding_sha256").notNull(),
+  baseRevisionId: uuid("base_revision_id").notNull().references(
+    () => grantDocumentRevisions.id,
+    { onDelete: "restrict" },
+  ),
+  documentSha256: text("document_sha256").notNull(),
+  fieldBindingSha256: text("field_binding_sha256").notNull(),
+  target: jsonb("target").$type<Record<string, unknown>>().notNull(),
+  beforeText: text("before_text").notNull(),
+  beforeTextSha256: text("before_text_sha256").notNull(),
+  formatSha256: text("format_sha256").notNull(),
+  adjacentContextSha256: text("adjacent_context_sha256").notNull(),
+  beforeAnswer: jsonb("before_answer").$type<DraftFieldAnswer>(),
+  modelVersion: text("model_version").notNull(),
+  promptVersion: text("prompt_version").notNull(),
+  groundingBindingSha256: text("grounding_binding_sha256").notNull(),
+  failureCode: text("failure_code"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+}, (table) => ({
+  clientRequestUnique: uniqueIndex("grant_document_field_agent_runs_client_request_unique").on(
+    table.draftId,
+    table.createdBy,
+    table.clientRequestId,
+  ),
+  fieldCreatedIdx: index("grant_document_field_agent_runs_field_created_idx").on(
+    table.draftId,
+    table.fieldId,
+    table.createdAt,
+  ),
+  createdByIdx: index("grant_document_field_agent_runs_created_by_idx").on(table.createdBy),
+  stateCheck: check("grant_document_field_agent_runs_state_check", sql`
+    ${table.status} IN ('generating', 'ready', 'empty', 'failed')
+    AND ${table.statusVersion} >= 0
+    AND char_length(${table.requestBindingSha256}) = 64
+    AND char_length(${table.documentSha256}) = 64
+    AND char_length(${table.fieldBindingSha256}) = 64
+    AND char_length(${table.beforeTextSha256}) = 64
+    AND char_length(${table.formatSha256}) = 64
+    AND char_length(${table.adjacentContextSha256}) = 64
+    AND char_length(${table.groundingBindingSha256}) = 64
+  `),
+}));
+
+/** field run이 만든 대안과 exact apply/undo CAS 상태. */
+export const grantDocumentFieldAgentSuggestions = pgTable("grant_document_field_agent_suggestions", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  runId: uuid("run_id").notNull().references(() => grantDocumentFieldAgentRuns.id, { onDelete: "cascade" }),
+  draftId: uuid("draft_id").notNull().references(() => grantDocumentDrafts.id, { onDelete: "cascade" }),
+  fieldId: uuid("field_id").notNull().references(() => grantDocumentFields.id, { onDelete: "restrict" }),
+  createdBy: uuid("created_by").notNull().references(() => users.id, { onDelete: "cascade" }),
+  ordinal: integer("ordinal").notNull(),
+  value: text("value").notNull(),
+  rationale: text("rationale").notNull(),
+  evidence: jsonb("evidence").$type<Record<string, unknown>[]>().notNull(),
+  status: text("status").notNull().default("pending"),
+  statusVersion: integer("status_version").notNull().default(0),
+  operationState: text("operation_state").notNull().default("idle"),
+  operationVersion: integer("operation_version").notNull().default(0),
+  operationStartedAt: timestamp("operation_started_at", { withTimezone: true }),
+  operationClientId: uuid("operation_client_id"),
+  failureCode: text("failure_code"),
+  appliedDocumentSha256: text("applied_document_sha256"),
+  undoneDocumentSha256: text("undone_document_sha256"),
+  appliedRevisionId: uuid("applied_revision_id").references(
+    () => grantDocumentRevisions.id,
+    { onDelete: "restrict" },
+  ),
+  undoneRevisionId: uuid("undone_revision_id").references(
+    () => grantDocumentRevisions.id,
+    { onDelete: "restrict" },
+  ),
+  appliedAt: timestamp("applied_at", { withTimezone: true }),
+  undoneAt: timestamp("undone_at", { withTimezone: true }),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  runOrdinalUnique: uniqueIndex("grant_document_field_agent_suggestions_run_ordinal_unique").on(
+    table.runId,
+    table.ordinal,
+  ),
+  draftCreatorUpdatedIdx: index("grant_document_field_agent_suggestions_draft_creator_updated_idx").on(
+    table.draftId,
+    table.createdBy,
+    table.updatedAt,
+  ),
+  createdByIdx: index("grant_document_field_agent_suggestions_created_by_idx").on(table.createdBy),
+  stateCheck: check("grant_document_field_agent_suggestions_state_check", sql`
+    ${table.ordinal} BETWEEN 0 AND 1
+    AND ${table.status} IN ('pending', 'applied', 'undone', 'dismissed', 'stale')
+    AND ${table.statusVersion} >= 0
+    AND ${table.operationVersion} >= 0
+    AND ${table.operationState} IN ('idle', 'apply_saving', 'undo_saving')
+    AND (
+      (${table.operationState} IN ('apply_saving', 'undo_saving')
+        AND ${table.operationStartedAt} IS NOT NULL
+        AND ${table.operationClientId} IS NOT NULL)
+      OR (${table.operationState} = 'idle'
+        AND ${table.operationStartedAt} IS NULL
+        AND ${table.operationClientId} IS NULL)
     )
   `),
 }));

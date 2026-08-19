@@ -8,12 +8,15 @@ const instruction = buildSuggestInstruction({
   labels: ["회사소개"],
   mode: "generate",
   sourceText,
+  alternativesPerLabel: 2,
 });
 
 assert.ok(instruction.includes("[사용자가 작성한 원문 — 보강 대상이자 사실의 기준]"));
 assert.ok(instruction.includes(sourceText));
 assert.ok(instruction.includes("사실·수치·고유명사·의미를 유지"));
 assert.ok(instruction.includes("원문에 없는 회사 사실을 추가하지 마세요"));
+assert.ok(instruction.includes("표현 방향이 분명히 다른 대안을 최대 2개"));
+assert.ok(instruction.includes("억지로 두 개를 만들지 않습니다"));
 
 const verified = verifySuggestion(
   {

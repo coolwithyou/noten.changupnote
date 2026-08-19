@@ -17,6 +17,20 @@ const SURFACE_ID = "00000000-0000-4000-8000-000000000003";
 const ARTIFACT_ID = "00000000-0000-4000-8000-000000000004";
 const PAGE_KEY = "grant-convert/source/id/page-1.png";
 
+const ATOMIC_FIELD = {
+  fieldId: "field-name",
+  fieldKey: "company_name",
+  label: "상호명",
+  section: "기업 현황",
+  fieldType: "text",
+  required: true,
+  sourceSpan: null,
+  mappedCompanyField: "name",
+  fillStrategy: "copy",
+  position: { page: 1, bbox: [0.1, 0.1, 0.4, 0.15] },
+  visualEvidence: null,
+} satisfies WorkspaceData["connectedFields"][number];
+
 const router: AppRouterInstance = {
   back() {},
   forward() {},
@@ -27,8 +41,9 @@ const router: AppRouterInstance = {
 };
 
 const data: WorkspaceData = {
-      execution: { mode: "persistent" },
-      documentAgentAvailable: false,
+  execution: { mode: "persistent" },
+  documentAgentAvailable: true,
+  fieldEditorAgentAvailable: true,
   ladder: "a",
   activeDocumentKey: "application_form::신청서::::0",
   documents: [{
@@ -39,7 +54,7 @@ const data: WorkspaceData = {
   draftId: DRAFT_ID,
   headRevision: null,
   hwpxTemplateAvailable: true,
-  connectedFields: [],
+  connectedFields: [ATOMIC_FIELD],
   fieldAnswers: {},
   duplicateLabels: [],
   suggestableLabels: [],
@@ -96,13 +111,22 @@ const html = renderToStaticMarkup(
   </AppRouterContext.Provider>,
 );
 
+const previewHtml = renderToStaticMarkup(
+  <AppRouterContext.Provider value={router}>
+    <WorkspaceView
+      data={{ ...data, draftId: null, documentAgentAvailable: false, fieldEditorAgentAvailable: false }}
+      greeting={{ text: "지원서 작성을 도와드릴게요.", generalNotice: true }}
+      institutionContact={null}
+    />
+  </AppRouterContext.Provider>,
+);
 const expectedImageUrl = `/api/web/grants/${DATABASE_GRANT_ID}/page-image/${PAGE_KEY}`;
 assert.ok(
-  html.includes(expectedImageUrl),
-  `페이지 이미지는 DB grant UUID를 사용해야 합니다.\n${html.match(/src="[^"]*page-image[^"]*"/)?.[0] ?? "image missing"}`,
+  previewHtml.includes(expectedImageUrl),
+  `페이지 이미지는 DB grant UUID를 사용해야 합니다.\n${previewHtml.match(/src="[^"]*page-image[^"]*"/)?.[0] ?? "image missing"}`,
 );
 assert.equal(
-  html.includes("bizinfo%253APBLN_TEST/page-image"),
+  previewHtml.includes("bizinfo%253APBLN_TEST/page-image"),
   false,
   "인코딩된 공개 공고 ID를 다시 인코딩하면 안 됩니다.",
 );
@@ -116,9 +140,17 @@ assert.equal(html.includes("HWPX 다운로드"), false, "상시 하단 다운로
 // 상단 바 back 링크는 "공고 요약"으로 노출된다.
 assert.ok(html.includes("공고 요약"), "상단 바에 '공고 요약' 링크가 있어야 합니다.");
 assert.ok(
-  html.includes("문서 직접 편집"),
-  "준비된 HWP/HWPX draft는 복합 과제가 없어도 RHWP Studio 직접 편집 진입점을 보여야 합니다.",
+  html.includes("rhwp 문서 직접 편집기") && html.includes("AI 필드 도우미"),
+  "지원 가능한 persistent draft는 RHWP Studio와 AI 필드 레일을 동시에 보여야 합니다.",
 );
+assert.ok(html.includes("data-field-aware-editor"), "통합 편집 세션 식별자가 있어야 합니다.");
+assert.ok(html.includes("AI 도우미"), "작은 화면에서 필드 레일을 여는 고정 진입점이 있어야 합니다.");
+assert.ok(
+  html.includes("relative overflow-hidden max-h-48"),
+  "필드 목록 ScrollArea는 제안 카드와 겹치지 않도록 내용을 클리핑해야 합니다.",
+);
+assert.equal(html.includes('aria-label="문서 작성 방식"'), false, "통합 편집 화면에 quick/studio 주 모드 토글이 있으면 안 됩니다.");
+assert.equal(html.includes("AI 작성 제안"), false, "일반 본문 문단 에이전트가 필드 에이전트 주 CTA로 노출되면 안 됩니다.");
 
 // current terminal 선분석은 무한 재분석처럼 보이지 않고 직접 편집으로 이어져야 한다.
 const reviewRequiredHtml = renderToStaticMarkup(
@@ -151,19 +183,7 @@ const confirmedHtml = renderToStaticMarkup(
         // 검증하는 이 케이스는 서버 이미지 폴백 경로를 사용한다.
         draftId: null,
         headRevision: null,
-        connectedFields: [{
-          fieldId: "field-name",
-          fieldKey: "company_name",
-          label: "상호명",
-          section: "기업 현황",
-          fieldType: "text",
-          required: true,
-          sourceSpan: null,
-          mappedCompanyField: "name",
-          fillStrategy: "copy",
-          position: { page: 1, bbox: [0.1, 0.1, 0.4, 0.15] },
-          visualEvidence: null,
-        }],
+        connectedFields: [ATOMIC_FIELD],
         fieldAnswers: {
           상호명: {
             value: confirmedValue,
@@ -180,7 +200,7 @@ const confirmedHtml = renderToStaticMarkup(
 );
 assert.ok(confirmedHtml.includes(confirmedValue), "승인된 값이 프리뷰 셀 오버레이에 보여야 합니다.");
 
-// 반복 표는 textarea로 축약하지 않고 Studio 과제로 분류하며, 두 작성 모드를 명시한다.
+// 반복 표는 textarea로 축약하지 않고 통합 Studio의 수동 편집 과제로 유지한다.
 const studioHtml = renderToStaticMarkup(
   <AppRouterContext.Provider value={router}>
     <WorkspaceView
@@ -205,9 +225,9 @@ const studioHtml = renderToStaticMarkup(
     />
   </AppRouterContext.Provider>,
 );
-assert.ok(studioHtml.includes("문서에서 편집"), "반복 표에는 Studio 편집 CTA가 보여야 합니다.");
-assert.ok(studioHtml.includes("빠른 작성"), "빠른 작성 모드 전환이 보여야 합니다.");
-assert.ok(studioHtml.includes("문서 직접 편집"), "문서 직접 편집 모드 전환이 보여야 합니다.");
+assert.ok(studioHtml.includes("직접 편집 대상으로 유지"), "반복 표는 Studio 직접 편집 대상으로 안내해야 합니다.");
+assert.ok(studioHtml.includes("AI 필드 도우미"), "반복 표도 통합 필드 레일에서 상태를 보여야 합니다.");
+assert.equal(studioHtml.includes('aria-label="문서 작성 방식"'), false, "반복 표도 quick/studio 주 모드 토글로 돌아가면 안 됩니다.");
 assert.equal(studioHtml.includes("<textarea"), false, "반복 표를 textarea로 축약하면 안 됩니다.");
 
 const virtualHtml = renderToStaticMarkup(

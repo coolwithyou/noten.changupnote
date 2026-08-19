@@ -26,6 +26,10 @@ export interface DraftFieldAnswer {
   basis?: string;
   /** grant_document_fields.id (있을 때만). */
   fieldId?: string;
+  /** field agent가 값을 실제 문서에 materialize한 immutable revision. */
+  materializedRevisionId?: string;
+  /** materialized revision에서 확인한 값의 SHA-256. */
+  valueSha256?: string;
   /** ISO */
   updatedAt: string;
 }
@@ -213,6 +217,10 @@ export function applyFieldAnswerPatch(
     if (existing?.suggestionInput !== undefined) merged.suggestionInput = existing.suggestionInput;
     if (existing?.basis !== undefined) merged.basis = existing.basis;
     if (existing?.fieldId !== undefined) merged.fieldId = existing.fieldId;
+    if (existing?.materializedRevisionId !== undefined) {
+      merged.materializedRevisionId = existing.materializedRevisionId;
+    }
+    if (existing?.valueSha256 !== undefined) merged.valueSha256 = existing.valueSha256;
     next[label] = merged;
   }
   return next;

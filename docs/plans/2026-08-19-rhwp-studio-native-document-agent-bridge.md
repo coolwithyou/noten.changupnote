@@ -1,10 +1,16 @@
 # RHWP Studio native document-agent command bridge 선행 계획
 
+> **제품 방향 연결(2026-08-19):** 이 문서는 native command/revision 기반 기술의 역사와 계약을
+> 보존한다. 사용자-facing 제품 방향은
+> [`2026-08-19-field-aware-document-editor-agent.md`](./2026-08-19-field-aware-document-editor-agent.md)가
+> 우선한다. body paragraph command는 향후 보조 `문장 다듬기`에 사용하고, 주 흐름은 exact field
+> navigation/selection/apply command로 확장한다.
+
 - 작성일: 2026-08-19
 - 상위 계획: `docs/plans/2026-08-18-document-editor-ai-agent.md`
 - 기준 브랜치: `codex/document-editor-ai-agent`
 - 상태: upstream bridge·Cunote adapter·compatible Studio 배포·실제 문서 제품 gate 완료.
-  upstream merge/package publish 대기 중에는 exact source commit `104ed4da`의 `0.8.5` tarball을
+  upstream merge/package publish 대기 중에는 exact source commit `c02f422c`의 `0.8.5` tarball을
   SHA-256으로 검증해 Cunote에 임시 vendoring한다.
 - 범위: Studio/@rhwp/editor 공개 command bridge 설계와 재개 gate를 확정한다. Cunote의 DB, API,
   모델 호출, 사용자 노출 UI, 배포와 feature flag enable은 이 문서 범위가 아니다.

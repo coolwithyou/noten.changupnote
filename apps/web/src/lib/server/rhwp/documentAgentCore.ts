@@ -17,7 +17,12 @@ export function loadDocumentAgentCore(): Promise<RhwpModule> {
 }
 
 export function resolveDocumentAgentCoreRuntimeFiles(): { modulePath: string; wasmPath: string } {
-  const require = createRequire(import.meta.url);
+  // Turbopack rewrites this module's `import.meta.url` to a virtual `[project]`
+  // path. Resolving the sidecar WASM from that URL works in plain Node tests but
+  // produces an ENOENT in the Next.js route runtime. Anchor resolution to the
+  // actual runtime working directory instead; both local Next.js and Vercel run
+  // with the application package reachable from this package.json boundary.
+  const require = createRequire(join(process.cwd(), "package.json"));
   const modulePath = require.resolve("@rhwp/core");
   return { modulePath, wasmPath: join(dirname(modulePath), "rhwp_bg.wasm") };
 }

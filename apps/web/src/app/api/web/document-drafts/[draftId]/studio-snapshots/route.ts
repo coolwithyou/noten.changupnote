@@ -36,6 +36,7 @@ export async function POST(request: Request, context: RouteContext) {
         : requireOrigin(form.get("origin"));
     const checkpointRequestId = optionalUuid(form.get("checkpointRequestId"), "checkpointRequestId");
     const agentSuggestionId = optionalUuid(form.get("agentSuggestionId"), "agentSuggestionId");
+    const fieldAgentSuggestionId = optionalUuid(form.get("fieldAgentSuggestionId"), "fieldAgentSuggestionId");
     const operationVersion = optionalNonNegativeInteger(form.get("operationVersion"), "operationVersion");
     const materializedAnswers = parseStringMap(form.get("materializedAnswers"), "materializedAnswers");
     const verification = parseVerification(form.get("verification"));
@@ -54,6 +55,7 @@ export async function POST(request: Request, context: RouteContext) {
       origin,
       checkpointRequestId,
       agentSuggestionId,
+      fieldAgentSuggestionId,
       agentOperation,
       operationVersion,
       materializedAnswers,

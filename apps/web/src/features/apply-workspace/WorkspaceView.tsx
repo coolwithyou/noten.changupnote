@@ -22,19 +22,27 @@ import { useRouter } from "next/navigation";
 import { ChevronLeft, FilePenLine, WandSparkles } from "lucide-react";
 import { toast } from "sonner";
 import type { ActionResult } from "@cunote/contracts";
+import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { parsePositionBbox, parsePositionPage } from "@/lib/documents/bbox";
 import { extractFieldOptions } from "@/lib/documents/fieldOptions";
-import type { RhwpFieldAnchor, RhwpFieldDescriptor } from "@/lib/rhwp/fieldAnchors";
+import type {
+  RhwpExactFieldAnchorResolution,
+  RhwpFieldAnchor,
+  RhwpFieldDescriptor,
+} from "@/lib/rhwp/fieldAnchors";
 import {
   sourceKeyForTransport,
   type RhwpWorkingDocument,
   type RhwpWorkingDocumentTransport,
 } from "@/lib/rhwp/workingDocument";
 import type { DraftFieldAnswers, DraftFieldAnswerStatus } from "@/lib/server/documents/fieldAnswers";
+import type { FieldAgentRunDto, FieldAgentSuggestionDto } from "@/lib/server/documents/fieldAgentRuns";
+import { fetchFieldAgentRuns } from "@/lib/rhwp/fieldAgentApi";
+import type { StudioTableCellTextTargetV1 } from "@/lib/rhwp/studioDocumentAgentProtocol";
 import type { ConnectedDocumentField } from "@/lib/server/documents/documentFieldLink";
 import type { WorkspaceData } from "@/lib/server/documents/workspaceData";
 import type { ChatMessageContent } from "@/lib/chat/messageContent";
@@ -53,6 +61,8 @@ import {
   type StudioTaskStatus,
 } from "./documentAuthoring";
 import { FieldPanel, type WorkspacePanelMode } from "./FieldPanel";
+import { FieldAgentRail } from "./FieldAgentRail";
+import { buildFieldAwareDocumentSession, fieldSelectionTargetKey } from "./fieldAwareDocumentSession";
 import { RhwpStudioSurface, type RhwpStudioSurfaceHandle } from "./RhwpStudioSurface";
 import { workspaceFieldState, type InstitutionContact } from "./workspacePresentation";
 
@@ -80,6 +90,7 @@ export function WorkspaceView({
   const [suggestingLabels, setSuggestingLabels] = useState<Set<string>>(() => new Set());
   const [panelMode, setPanelMode] = useState<WorkspacePanelMode>("single");
   const [showChat, setShowChat] = useState(false);
+  const [showFieldAgent, setShowFieldAgent] = useState(false);
   const [rhwpAnchorsReady, setRhwpAnchorsReady] = useState(false);
   const [locatingFieldId, setLocatingFieldId] = useState<string | null>(null);
   const [manualAnchors, setManualAnchors] = useState<RhwpFieldAnchor[]>([]);
@@ -88,7 +99,13 @@ export function WorkspaceView({
   const [studioTaskStates, setStudioTaskStates] = useState<StudioTaskStates>({});
   const [workingDocument, setWorkingDocument] = useState<RhwpWorkingDocument | null>(null);
   const [workingPreviewUrl, setWorkingPreviewUrl] = useState<string | null>(null);
+  const [fieldBindingsResolved, setFieldBindingsResolved] = useState(false);
+  const [fieldBindingStatuses, setFieldBindingStatuses] = useState<Map<string, "unique" | "missing" | "ambiguous">>(
+    () => new Map(),
+  );
+  const [fieldAgentRuns, setFieldAgentRuns] = useState<Map<string, FieldAgentRunDto>>(() => new Map());
   const studioSurfaceRef = useRef<RhwpStudioSurfaceHandle | null>(null);
+  const fieldIdByTargetRef = useRef<Map<string, string>>(new Map());
   const chat = useGrantChat({ grantId, draftId: data.draftId });
   const answersRef = useRef(answers);
   useEffect(() => {
@@ -130,13 +147,38 @@ export function WorkspaceView({
   // Studio는 복합 과제 전용 화면이 아니라 준비된 HWP/HWPX 전체 문서 편집기이기도 하다.
   // 따라서 모든 필드가 quick으로 분류돼도 ladder (a)의 원본 draft에서는 직접 열 수 있어야 한다.
   const canOpenStudio = studioTransport !== null;
+  const integratedFieldEditor = data.ladder === "a" && studioTransport?.mode === "persistent";
 
   useEffect(() => {
     setAuthoringMode("quick");
     setStudioSourceKey(null);
     setStudioTaskStates({});
     setWorkingDocument(null);
+    setFieldBindingsResolved(false);
+    setFieldBindingStatuses(new Map());
+    setFieldAgentRuns(new Map());
   }, [currentStudioSourceKey]);
+
+  useEffect(() => {
+    if (!integratedFieldEditor || !data.fieldEditorAgentAvailable || !data.draftId) return;
+    let disposed = false;
+    void fetchFieldAgentRuns(data.draftId)
+      .then((runs) => {
+        if (disposed) return;
+        const latestByField = new Map<string, FieldAgentRunDto>();
+        // API는 최신 run부터 반환한다. 같은 필드의 오래된 이력은 현재 레일 상태를 덮지 않는다.
+        for (const run of runs) {
+          if (!latestByField.has(run.fieldId)) latestByField.set(run.fieldId, run);
+        }
+        setFieldAgentRuns(latestByField);
+      })
+      .catch(() => {
+        // 문서 편집 자체는 제안 이력 조회 실패와 독립적으로 계속 사용할 수 있다.
+      });
+    return () => {
+      disposed = true;
+    };
+  }, [data.draftId, data.fieldEditorAgentAvailable, integratedFieldEditor]);
 
   useEffect(() => {
     if (!workingDocument) {
@@ -213,6 +255,26 @@ export function WorkspaceView({
     if (data.ladder !== "a" || data.connectedFields.length === 0) return null;
     return computeAuthoringProgress({ tasks: authoringTasks, answers, studioTaskStates, pendingLabels });
   }, [data.ladder, data.connectedFields.length, authoringTasks, answers, studioTaskStates, pendingLabels]);
+
+  const fieldAgentSession = useMemo(() => buildFieldAwareDocumentSession({
+    tasks: authoringTasks,
+    answers,
+    selectedFieldId,
+    bindingStatuses: fieldBindingStatuses,
+    bindingsResolved: fieldBindingsResolved,
+    fieldEditorAgentAvailable: data.fieldEditorAgentAvailable,
+    suggestableLabels: suggestableSet,
+    suggestingLabels,
+  }), [
+    answers,
+    authoringTasks,
+    data.fieldEditorAgentAvailable,
+    fieldBindingStatuses,
+    fieldBindingsResolved,
+    selectedFieldId,
+    suggestableSet,
+    suggestingLabels,
+  ]);
 
   async function patchAnswer(label: string, entry: { value?: string; status: DraftFieldAnswerStatus }) {
     const key = answerKey(label);
@@ -299,8 +361,46 @@ export function WorkspaceView({
   async function requestSuggestion(field: ConnectedDocumentField, sourceText: string) {
     if (!data.draftId) return;
     const normalizedSourceText = sourceText.trim();
-    if (!normalizedSourceText) return;
     const key = answerKey(field.label);
+    if (integratedFieldEditor) {
+      setSuggestingLabels((current) => new Set(current).add(key));
+      try {
+        const run = await studioSurfaceRef.current?.requestFieldSuggestion(
+          field.fieldId,
+          normalizedSourceText || undefined,
+        );
+        if (!run) throw new Error("문서 편집기가 아직 준비되지 않았습니다.");
+        setFieldAgentRuns((current) => new Map(current).set(field.fieldId, run));
+        const suggestion = run.suggestions.find((entry) => entry.status === "pending");
+        if (suggestion) {
+          setAnswers((current) => ({
+            ...current,
+            [key]: {
+              value: suggestion.value,
+              status: "suggested",
+              source: "llm",
+              suggestedValue: suggestion.value,
+              basis: suggestion.rationale,
+              fieldId: field.fieldId,
+              ...(normalizedSourceText ? { suggestionInput: normalizedSourceText } : {}),
+              updatedAt: new Date().toISOString(),
+            },
+          }));
+        } else if (run.status === "empty") {
+          toast.info("확인 가능한 근거로 이 필드의 값을 제안하지 못했습니다.");
+        }
+      } catch (caught) {
+        toast.error(caught instanceof Error ? caught.message : "AI 필드 제안을 만들지 못했습니다.");
+      } finally {
+        setSuggestingLabels((current) => {
+          const next = new Set(current);
+          next.delete(key);
+          return next;
+        });
+      }
+      return;
+    }
+    if (!normalizedSourceText) return;
     const existing = answersRef.current[key];
     // 기존 제안을 편집해 다시 보강하는 경우에만 regenerate 로 기록한다.
     const mode: "generate" | "regenerate" = existing?.value ? "regenerate" : "generate";
@@ -363,6 +463,74 @@ export function WorkspaceView({
     }
   }
 
+  async function runFieldAgentAction(
+    action: "apply" | "undo" | "dismiss",
+    run: FieldAgentRunDto,
+    suggestion: FieldAgentSuggestionDto,
+  ) {
+    const key = answerKey(run.fieldLabel);
+    setSuggestingLabels((current) => new Set(current).add(key));
+    try {
+      const surface = studioSurfaceRef.current;
+      if (!surface) throw new Error("문서 편집기가 아직 준비되지 않았습니다.");
+      const updated = action === "apply"
+        ? await surface.applyFieldSuggestion(run, suggestion)
+        : action === "undo"
+          ? await surface.undoFieldSuggestion(run, suggestion)
+          : await surface.dismissFieldSuggestion(run, suggestion);
+      setFieldAgentRuns((current) => new Map(current).set(run.fieldId, updated));
+      if (action === "apply") {
+        const applied = updated.suggestions.find((entry) => entry.id === suggestion.id);
+        const nextAnswers: DraftFieldAnswers = {
+          ...answersRef.current,
+          [key]: {
+            value: suggestion.value,
+            status: "accepted",
+            source: "llm",
+            suggestedValue: suggestion.value,
+            basis: suggestion.rationale,
+            fieldId: run.fieldId,
+            ...(applied?.appliedRevisionId ? { materializedRevisionId: applied.appliedRevisionId } : {}),
+            updatedAt: new Date().toISOString(),
+          },
+        };
+        setAnswers(nextAnswers);
+        answersRef.current = nextAnswers;
+        const next = nextIncompleteTask({
+          tasks: authoringTasks,
+          afterFieldId: run.fieldId,
+          answers: nextAnswers,
+          studioTaskStates,
+        });
+        if (next && next.fieldId !== run.fieldId) handleSelectField(next.fieldId);
+      } else {
+        const nextAnswers = { ...answersRef.current };
+        if (run.beforeAnswer) nextAnswers[key] = run.beforeAnswer;
+        else delete nextAnswers[key];
+        setAnswers(nextAnswers);
+        answersRef.current = nextAnswers;
+        if (action === "dismiss"
+            && !updated.suggestions.some((entry) => entry.status === "pending")) {
+          const next = nextIncompleteTask({
+            tasks: authoringTasks,
+            afterFieldId: run.fieldId,
+            answers: nextAnswers,
+            studioTaskStates,
+          });
+          if (next && next.fieldId !== run.fieldId) handleSelectField(next.fieldId);
+        }
+      }
+    } catch (caught) {
+      toast.error(caught instanceof Error ? caught.message : "AI 필드 작업을 완료하지 못했습니다.");
+    } finally {
+      setSuggestingLabels((current) => {
+        const next = new Set(current);
+        next.delete(key);
+        return next;
+      });
+    }
+  }
+
   function handleAskField(field: ConnectedDocumentField) {
     if (readOnlyPreview) {
       toast.info("읽기 전용 시뮬레이션에서는 AI 질문을 실행하지 않습니다.");
@@ -376,6 +544,7 @@ export function WorkspaceView({
     setSelectedFieldId(fieldId);
     setLocatingFieldId(null);
     setPanelMode("single");
+    if (integratedFieldEditor) void studioSurfaceRef.current?.focusField(fieldId);
   }
 
   function openStudio(fieldId?: string) {
@@ -416,6 +585,31 @@ export function WorkspaceView({
 
   const handleRhwpAnchorsChange = useCallback((_fieldIds: ReadonlySet<string>) => {
     setRhwpAnchorsReady(true);
+  }, []);
+
+  const handleFieldBindingsResolved = useCallback((resolutions: readonly RhwpExactFieldAnchorResolution[]) => {
+    setFieldBindingStatuses(new Map(resolutions.map((resolution) => [resolution.fieldId, resolution.status])));
+    fieldIdByTargetRef.current = new Map(resolutions.flatMap((resolution) => {
+      if (resolution.status !== "unique") return [];
+      return [[fieldSelectionTargetKey({
+        kind: "table_cell_text",
+        section: resolution.anchor.target.section,
+        parentPara: resolution.anchor.target.parentPara,
+        controlIndex: resolution.anchor.target.controlIndex,
+        cellIndex: resolution.anchor.target.cellIndex,
+        cellParagraph: resolution.anchor.target.cellParagraph,
+      }), resolution.fieldId]];
+    }));
+    setFieldBindingsResolved(true);
+  }, []);
+
+  const handleStudioFieldSelection = useCallback((target: StudioTableCellTextTargetV1 | null) => {
+    if (!target) return;
+    const fieldId = fieldIdByTargetRef.current.get(fieldSelectionTargetKey(target));
+    if (!fieldId) return;
+    setSelectedFieldId(fieldId);
+    setLocatingFieldId(null);
+    setPanelMode("single");
   }, []);
 
   const handleLocateField = useCallback((anchor: RhwpFieldAnchor) => {
@@ -518,14 +712,14 @@ export function WorkspaceView({
                 className="w-24"
                 aria-label="확인 완료 진행률"
               />
-              {progress.studio.total > 0 ? (
+              {!integratedFieldEditor && progress.studio.total > 0 ? (
                 <span className="hidden text-[11px] text-muted-foreground xl:inline">
                   빠른 작성 {progress.quick.confirmed}/{progress.quick.total} · 문서 편집 {progress.studio.confirmed}/{progress.studio.total}
                 </span>
               ) : null}
             </div>
           ) : null}
-          {canOpenStudio ? (
+          {canOpenStudio && !integratedFieldEditor ? (
             <ToggleGroup
               value={[authoringMode]}
               onValueChange={(value) => {
@@ -548,7 +742,7 @@ export function WorkspaceView({
               </ToggleGroupItem>
             </ToggleGroup>
           ) : null}
-          {data.ladder === "a" && authoringMode === "quick" ? (
+          {data.ladder === "a" && !integratedFieldEditor && authoringMode === "quick" ? (
             <ToggleGroup
               value={[panelMode]}
               onValueChange={(value) => {
@@ -567,7 +761,7 @@ export function WorkspaceView({
           {data.documents.length > 1 && data.activeDocumentKey ? (
             <Select
               value={data.activeDocumentKey}
-              disabled={pendingLabels.size > 0 || suggestingLabels.size > 0 || authoringMode === "studio"}
+              disabled={pendingLabels.size > 0 || suggestingLabels.size > 0 || integratedFieldEditor || authoringMode === "studio"}
               // Base UI Select 는 items 를 줘야 SelectValue 가 raw value(documentKey) 대신 label 을 렌더한다.
               items={data.documents.map((document) => ({ value: document.documentKey, label: document.label }))}
               onValueChange={(next) => {
@@ -611,7 +805,80 @@ export function WorkspaceView({
         </div>
       ) : null}
 
-      {studioSourceKey === currentStudioSourceKey && studioTransport ? (
+      {integratedFieldEditor && studioTransport ? (
+        <>
+          <div
+            data-field-aware-editor
+            className="grid min-h-0 flex-1 gap-4 overflow-auto p-3 xl:grid-cols-[minmax(0,1fr)_360px] xl:overflow-hidden xl:p-4"
+          >
+            <div className="flex min-h-[72dvh] min-w-0 xl:min-h-0">
+              <RhwpStudioSurface
+                key={currentStudioSourceKey}
+                ref={studioSurfaceRef}
+                transport={studioTransport}
+                answers={answers}
+                quickFields={quickFields}
+                connectedFields={data.connectedFields}
+                manualAnchors={manualAnchors}
+                duplicateLabels={duplicateSet}
+                workingDocument={workingDocument}
+                headMaterializedAnswers={data.headRevision?.materializedAnswers ?? EMPTY_MATERIALIZED_ANSWERS}
+                activeTask={taskByFieldId.get(selectedFieldId ?? "") ?? null}
+                documentAgentAvailable={false}
+                fieldEditorAgentAvailable={data.fieldEditorAgentAvailable}
+                presentation="field_aware"
+                onFieldBindingsResolved={handleFieldBindingsResolved}
+                onFieldSelectionChanged={handleStudioFieldSelection}
+                onSaved={handleStudioSaved}
+              />
+            </div>
+            <div className="hidden min-h-0 xl:block">
+              <FieldAgentRail
+                session={fieldAgentSession}
+                connectedFields={data.connectedFields}
+                run={selectedFieldId ? fieldAgentRuns.get(selectedFieldId) ?? null : null}
+                onSelectField={handleSelectField}
+                onRequestSuggestion={requestSuggestion}
+                onApplySuggestion={(run, suggestion) => void runFieldAgentAction("apply", run, suggestion)}
+                onUndoSuggestion={(run, suggestion) => void runFieldAgentAction("undo", run, suggestion)}
+                onDismissSuggestion={(run, suggestion) => void runFieldAgentAction("dismiss", run, suggestion)}
+              />
+            </div>
+          </div>
+          <div className="fixed inset-x-3 bottom-3 z-30 flex items-center gap-3 rounded-xl border bg-background/95 p-2.5 shadow-lg backdrop-blur xl:hidden">
+            <div className="min-w-0 flex-1 px-1">
+              <p className="text-[11px] font-medium text-muted-foreground">현재 필드</p>
+              <p className="truncate text-sm font-semibold">{fieldAgentSession.selected?.label ?? "작성 항목 선택"}</p>
+            </div>
+            <Button type="button" size="sm" onClick={() => setShowFieldAgent(true)}>
+              <WandSparkles data-icon="inline-start" aria-hidden />
+              AI 도우미
+            </Button>
+          </div>
+          <Sheet open={showFieldAgent} onOpenChange={setShowFieldAgent}>
+            <SheetContent className="flex w-full flex-col gap-0 p-3 sm:max-w-md xl:hidden">
+              <SheetTitle className="sr-only">AI 필드 도우미</SheetTitle>
+              <SheetDescription className="sr-only">
+                현재 문서의 필드를 선택하고 근거 있는 값을 제안받아 정확한 입력 칸에 반영합니다.
+              </SheetDescription>
+              <div className="min-h-0 flex-1 pt-8">
+                <FieldAgentRail
+                  session={fieldAgentSession}
+                  connectedFields={data.connectedFields}
+                  run={selectedFieldId ? fieldAgentRuns.get(selectedFieldId) ?? null : null}
+                  onSelectField={handleSelectField}
+                  onRequestSuggestion={requestSuggestion}
+                  onApplySuggestion={(run, suggestion) => void runFieldAgentAction("apply", run, suggestion)}
+                  onUndoSuggestion={(run, suggestion) => void runFieldAgentAction("undo", run, suggestion)}
+                  onDismissSuggestion={(run, suggestion) => void runFieldAgentAction("dismiss", run, suggestion)}
+                />
+              </div>
+            </SheetContent>
+          </Sheet>
+        </>
+      ) : null}
+
+      {!integratedFieldEditor && studioSourceKey === currentStudioSourceKey && studioTransport ? (
         <div className={authoringMode === "studio" ? "flex min-h-0 flex-1" : "hidden"}>
           <RhwpStudioSurface
             key={currentStudioSourceKey}
@@ -631,7 +898,7 @@ export function WorkspaceView({
         </div>
       ) : null}
 
-      {authoringMode === "studio" ? null : data.ladder === "c" ? (
+      {integratedFieldEditor || authoringMode === "studio" ? null : data.ladder === "c" ? (
         <div className="min-h-0 flex-1 overflow-auto">
           <div className="mx-auto flex w-full max-w-4xl flex-col gap-4 p-4 sm:p-6">
             {data.honestNotice ? (

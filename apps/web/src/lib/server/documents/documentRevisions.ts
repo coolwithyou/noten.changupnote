@@ -6,6 +6,12 @@ import { getCunoteDb } from "../db/client";
 import * as schema from "../db/schema";
 import { createR2ObjectStorageFromEnv, type R2ObjectStorage } from "../storage/r2ObjectStorage";
 import type { DraftSourceFile, DraftSourceFormat } from "./draftSourceFile";
+import {
+  deriveFilledFields,
+  normalizeAnswerLabel,
+  resolveFieldAnswers,
+  type DraftFieldAnswers,
+} from "./fieldAnswers";
 
 const STUDIO_SNAPSHOT_MAX_BYTES = 30 * 1024 * 1024;
 const STUDIO_SESSION_ID_MAX_LENGTH = 128;
@@ -24,6 +30,7 @@ export interface StudioSnapshotSaveInput {
   origin: StudioSnapshotOrigin;
   checkpointRequestId: string | null;
   agentSuggestionId?: string | null;
+  fieldAgentSuggestionId?: string | null;
   agentOperation?: "apply" | "undo" | null;
   operationVersion?: number | null;
   materializedAnswers: Record<string, string>;
@@ -190,11 +197,14 @@ export async function saveStudioSnapshot(
     );
   }
 
-  const fieldAnswersHash = hashFieldAnswers(draft.fieldAnswers ?? draft.filledFields);
   const saved = await db.transaction(async (tx) => {
     await tx.execute(sql`select set_config('app.current_user_id', ${input.access.userId}, true)`);
     const [lockedDraft] = await tx
-      .select({ id: schema.grantDocumentDrafts.id })
+      .select({
+        id: schema.grantDocumentDrafts.id,
+        fieldAnswers: schema.grantDocumentDrafts.fieldAnswers,
+        filledFields: schema.grantDocumentDrafts.filledFields,
+      })
       .from(schema.grantDocumentDrafts)
       .where(and(
         eq(schema.grantDocumentDrafts.id, input.draftId),
@@ -212,6 +222,7 @@ export async function saveStudioSnapshot(
         parentRevisionId: schema.grantDocumentRevisions.parentRevisionId,
         origin: schema.grantDocumentRevisions.origin,
         sha256: schema.grantDocumentRevisions.sha256,
+        materializedAnswers: schema.grantDocumentRevisions.materializedAnswers,
       })
       .from(schema.grantDocumentRevisionHeads)
       .innerJoin(
@@ -221,7 +232,7 @@ export async function saveStudioSnapshot(
       .where(eq(schema.grantDocumentRevisionHeads.draftId, input.draftId))
       .limit(1);
 
-    let transactionAgentAuthorization: AgentSnapshotAuthorization | null = null;
+    let transactionAgentAuthorization: AnyAgentSnapshotAuthorization | null = null;
     if (input.origin === "studio_agent_checkpoint") {
       const [existingCheckpoint] = await tx
         .select()
@@ -275,6 +286,18 @@ export async function saveStudioSnapshot(
     }
     assertExpectedHead(input.baseRevisionId, head?.revisionId ?? null);
 
+    const fieldProjection = transactionAgentAuthorization?.kind === "field"
+      ? buildFieldAgentProjection({
+          authorization: transactionAgentAuthorization,
+          currentAnswers: resolveFieldAnswers(lockedDraft),
+          currentMaterializedAnswers: head?.materializedAnswers ?? {},
+          revisionId,
+        })
+      : null;
+    const revisionFieldAnswers = fieldProjection?.fieldAnswers ?? resolveFieldAnswers(lockedDraft);
+    const revisionMaterializedAnswers = fieldProjection?.materializedAnswers ?? input.materializedAnswers;
+    const fieldAnswersHash = hashFieldAnswers(revisionFieldAnswers);
+
     const [revision] = await tx
       .insert(schema.grantDocumentRevisions)
       .values({
@@ -288,7 +311,7 @@ export async function saveStudioSnapshot(
         byteSize: input.body.byteLength,
         pageCount: input.pageCount,
         fieldAnswersHash,
-        materializedAnswers: input.materializedAnswers,
+        materializedAnswers: revisionMaterializedAnswers,
         verification: {
           ...input.verification,
           detectedFormat: input.format,
@@ -301,8 +324,18 @@ export async function saveStudioSnapshot(
         checkpointRequestId: input.checkpointRequestId,
         agentCommandId: transactionAgentAuthorization?.commandId ?? null,
         agentOperation: transactionAgentAuthorization?.operation ?? null,
-        agentRunId: transactionAgentAuthorization?.run.id ?? null,
-        agentSuggestionId: transactionAgentAuthorization?.suggestion.id ?? null,
+        agentRunId: transactionAgentAuthorization?.kind === "document"
+          ? transactionAgentAuthorization.run.id
+          : null,
+        agentSuggestionId: transactionAgentAuthorization?.kind === "document"
+          ? transactionAgentAuthorization.suggestion.id
+          : null,
+        fieldAgentRunId: transactionAgentAuthorization?.kind === "field"
+          ? transactionAgentAuthorization.run.id
+          : null,
+        fieldAgentSuggestionId: transactionAgentAuthorization?.kind === "field"
+          ? transactionAgentAuthorization.suggestion.id
+          : null,
         createdBy: input.access.userId,
       })
       .returning();
@@ -335,7 +368,7 @@ export async function saveStudioSnapshot(
       });
     }
 
-    if (transactionAgentAuthorization) {
+    if (transactionAgentAuthorization?.kind === "document") {
       const authorization = transactionAgentAuthorization;
       const operationValues = authorization.operation === "apply"
         ? {
@@ -389,13 +422,62 @@ export async function saveStudioSnapshot(
       }
     }
 
+    if (transactionAgentAuthorization?.kind === "field") {
+      const authorization = transactionAgentAuthorization;
+      const operationValues = authorization.operation === "apply"
+        ? {
+            status: "applied",
+            statusVersion: authorization.suggestion.statusVersion + 1,
+            operationState: "idle",
+            operationVersion: authorization.suggestion.operationVersion + 1,
+            operationStartedAt: null,
+            operationClientId: null,
+            failureCode: null,
+            appliedDocumentSha256: sha256,
+            appliedRevisionId: revision.id,
+            appliedAt: new Date(),
+            updatedAt: new Date(),
+          }
+        : {
+            status: "undone",
+            statusVersion: authorization.suggestion.statusVersion + 1,
+            operationState: "idle",
+            operationVersion: authorization.suggestion.operationVersion + 1,
+            operationStartedAt: null,
+            operationClientId: null,
+            failureCode: null,
+            undoneDocumentSha256: sha256,
+            undoneRevisionId: revision.id,
+            undoneAt: new Date(),
+            updatedAt: new Date(),
+          };
+      const [transitioned] = await tx.update(schema.grantDocumentFieldAgentSuggestions)
+        .set(operationValues)
+        .where(and(
+          eq(schema.grantDocumentFieldAgentSuggestions.id, authorization.suggestion.id),
+          eq(schema.grantDocumentFieldAgentSuggestions.statusVersion, authorization.suggestion.statusVersion),
+          eq(schema.grantDocumentFieldAgentSuggestions.operationVersion, authorization.suggestion.operationVersion),
+        ))
+        .returning({ id: schema.grantDocumentFieldAgentSuggestions.id });
+      if (!transitioned || !fieldProjection) throw revisionConflict(head?.revisionId ?? null);
+      await tx.update(schema.grantDocumentDrafts).set({
+        fieldAnswers: fieldProjection.fieldAnswers,
+        filledFields: deriveFilledFields(fieldProjection.fieldAnswers),
+        updatedAt: new Date(),
+      }).where(eq(schema.grantDocumentDrafts.id, input.draftId));
+    }
+
     await tx.insert(schema.grantDocumentDraftEvents).values({
       draftId: input.draftId,
       actorUserId: input.access.userId,
       event: transactionAgentAuthorization
-        ? transactionAgentAuthorization.operation === "apply"
-          ? "document_agent_suggestion_applied"
-          : "document_agent_suggestion_undone"
+        ? transactionAgentAuthorization.kind === "field"
+          ? transactionAgentAuthorization.operation === "apply"
+            ? "field_agent_suggestion_applied"
+            : "field_agent_suggestion_undone"
+          : transactionAgentAuthorization.operation === "apply"
+            ? "document_agent_suggestion_applied"
+            : "document_agent_suggestion_undone"
         : "studio_snapshot_saved",
       payload: {
         revisionId: revision.id,
@@ -651,7 +733,10 @@ function validateSnapshotInput(input: StudioSnapshotSaveInput): void {
     );
   }
   if (isAgentSnapshot(input)) {
-    if (!input.agentSuggestionId || !isUuid(input.agentSuggestionId)) {
+    const suggestionIds = [input.agentSuggestionId, input.fieldAgentSuggestionId].filter(
+      (value): value is string => typeof value === "string",
+    );
+    if (suggestionIds.length !== 1 || !isUuid(suggestionIds[0]!)) {
       throw new DocumentRevisionError("invalid_agent_suggestion", "AI 제안 식별자가 올바르지 않습니다.", 400);
     }
     if (
@@ -668,6 +753,7 @@ function validateSnapshotInput(input: StudioSnapshotSaveInput): void {
     }
   } else if (
     input.agentSuggestionId != null
+    || input.fieldAgentSuggestionId != null
     || input.agentOperation != null
     || input.operationVersion != null
   ) {
@@ -793,6 +879,7 @@ async function getRevisionById(revisionId: string) {
 }
 
 interface AgentSnapshotAuthorization {
+  kind: "document";
   operation: "apply" | "undo";
   commandId: string;
   run: typeof schema.grantDocumentAgentRuns.$inferSelect;
@@ -800,10 +887,20 @@ interface AgentSnapshotAuthorization {
   existingRevision: typeof schema.grantDocumentRevisions.$inferSelect | null;
 }
 
+interface FieldAgentSnapshotAuthorization {
+  kind: "field";
+  operation: "apply" | "undo";
+  commandId: string;
+  run: typeof schema.grantDocumentFieldAgentRuns.$inferSelect;
+  suggestion: typeof schema.grantDocumentFieldAgentSuggestions.$inferSelect;
+  existingRevision: typeof schema.grantDocumentRevisions.$inferSelect | null;
+}
+
+type AnyAgentSnapshotAuthorization = AgentSnapshotAuthorization | FieldAgentSnapshotAuthorization;
+
 type RevisionTx = Parameters<Parameters<ReturnType<typeof getCunoteDb>["transaction"]>[0]>[0];
 
 function isAgentSnapshot(input: StudioSnapshotSaveInput): input is StudioSnapshotSaveInput & {
-  agentSuggestionId: string;
   agentOperation: "apply" | "undo";
   operationVersion: number;
 } {
@@ -812,7 +909,6 @@ function isAgentSnapshot(input: StudioSnapshotSaveInput): input is StudioSnapsho
 
 async function authorizeAgentSnapshotPreupload(input: {
   input: StudioSnapshotSaveInput & {
-    agentSuggestionId: string;
     agentOperation: "apply" | "undo";
     operationVersion: number;
   };
@@ -823,10 +919,15 @@ async function authorizeAgentSnapshotPreupload(input: {
     origin: string;
     sha256: string;
   } | null;
-}): Promise<AgentSnapshotAuthorization> {
+}): Promise<AnyAgentSnapshotAuthorization> {
+  if (input.input.fieldAgentSuggestionId) return authorizeFieldAgentSnapshotPreupload(input);
+  if (!input.input.agentSuggestionId) {
+    throw new DocumentRevisionError("invalid_agent_suggestion", "AI 제안 식별자가 올바르지 않습니다.", 400);
+  }
+  const documentInput = { ...input.input, agentSuggestionId: input.input.agentSuggestionId };
   const db = getCunoteDb();
-  const joined = await loadAgentSnapshotRows(db, input.input);
-  const commandId = agentCommandId(input.input.agentSuggestionId, input.input.agentOperation);
+  const joined = await loadAgentSnapshotRows(db, documentInput);
+  const commandId = agentCommandId(documentInput.agentSuggestionId, documentInput.agentOperation);
   const [existingRevision] = await db
     .select()
     .from(schema.grantDocumentRevisions)
@@ -834,26 +935,25 @@ async function authorizeAgentSnapshotPreupload(input: {
     .limit(1);
   if (existingRevision) {
     assertExistingAgentCommandReplay({
-      request: input.input,
+      request: documentInput,
       sha256: input.sha256,
       currentHead: input.currentHead,
       existingRevision,
       ...joined,
     });
-    return { ...joined, operation: input.input.agentOperation, commandId, existingRevision };
+    return { kind: "document", ...joined, operation: input.input.agentOperation, commandId, existingRevision };
   }
   assertActiveAgentSnapshotAuthorization({
     request: input.input,
     currentHead: input.currentHead,
     ...joined,
   });
-  return { ...joined, operation: input.input.agentOperation, commandId, existingRevision: null };
+  return { kind: "document", ...joined, operation: input.input.agentOperation, commandId, existingRevision: null };
 }
 
 async function authorizeAgentSnapshotInTransaction(input: {
   tx: RevisionTx;
   input: StudioSnapshotSaveInput & {
-    agentSuggestionId: string;
     agentOperation: "apply" | "undo";
     operationVersion: number;
   };
@@ -864,7 +964,12 @@ async function authorizeAgentSnapshotInTransaction(input: {
     origin: string;
     sha256: string;
   } | null;
-}): Promise<AgentSnapshotAuthorization> {
+}): Promise<AnyAgentSnapshotAuthorization> {
+  if (input.input.fieldAgentSuggestionId) return authorizeFieldAgentSnapshotInTransaction(input);
+  if (!input.input.agentSuggestionId) {
+    throw new DocumentRevisionError("invalid_agent_suggestion", "AI 제안 식별자가 올바르지 않습니다.", 400);
+  }
+  const documentInput = { ...input.input, agentSuggestionId: input.input.agentSuggestionId };
   await input.tx.execute(sql`
     SELECT id FROM grant_document_agent_suggestions
     WHERE id = ${input.input.agentSuggestionId}
@@ -872,8 +977,8 @@ async function authorizeAgentSnapshotInTransaction(input: {
       AND created_by = ${input.input.access.userId}
     FOR UPDATE
   `);
-  const joined = await loadAgentSnapshotRows(input.tx, input.input);
-  const commandId = agentCommandId(input.input.agentSuggestionId, input.input.agentOperation);
+  const joined = await loadAgentSnapshotRows(input.tx, documentInput);
+  const commandId = agentCommandId(documentInput.agentSuggestionId, documentInput.agentOperation);
   const [existingRevision] = await input.tx
     .select()
     .from(schema.grantDocumentRevisions)
@@ -881,20 +986,168 @@ async function authorizeAgentSnapshotInTransaction(input: {
     .limit(1);
   if (existingRevision) {
     assertExistingAgentCommandReplay({
-      request: input.input,
+      request: documentInput,
       sha256: input.sha256,
       currentHead: input.currentHead,
       existingRevision,
       ...joined,
     });
-    return { ...joined, operation: input.input.agentOperation, commandId, existingRevision };
+    return { kind: "document", ...joined, operation: input.input.agentOperation, commandId, existingRevision };
   }
   assertActiveAgentSnapshotAuthorization({
     request: input.input,
     currentHead: input.currentHead,
     ...joined,
   });
-  return { ...joined, operation: input.input.agentOperation, commandId, existingRevision: null };
+  return { kind: "document", ...joined, operation: input.input.agentOperation, commandId, existingRevision: null };
+}
+
+async function authorizeFieldAgentSnapshotPreupload(input: {
+  input: StudioSnapshotSaveInput & {
+    agentOperation: "apply" | "undo";
+    operationVersion: number;
+  };
+  sha256: string;
+  currentHead: { revisionId: string; sha256: string } | null;
+}): Promise<FieldAgentSnapshotAuthorization> {
+  const suggestionId = input.input.fieldAgentSuggestionId;
+  if (!suggestionId) {
+    throw new DocumentRevisionError("invalid_field_agent_suggestion", "AI 필드 제안 식별자가 올바르지 않습니다.", 400);
+  }
+  const db = getCunoteDb();
+  const joined = await loadFieldAgentSnapshotRows(db, input.input, suggestionId);
+  const commandId = fieldAgentCommandId(suggestionId, input.input.agentOperation);
+  const [existingRevision] = await db.select().from(schema.grantDocumentRevisions)
+    .where(eq(schema.grantDocumentRevisions.agentCommandId, commandId)).limit(1);
+  if (existingRevision) {
+    assertExistingFieldAgentCommandReplay({
+      request: input.input,
+      sha256: input.sha256,
+      currentHead: input.currentHead,
+      existingRevision,
+      ...joined,
+    });
+    return { kind: "field", ...joined, operation: input.input.agentOperation, commandId, existingRevision };
+  }
+  assertActiveFieldAgentSnapshotAuthorization({ request: input.input, currentHead: input.currentHead, ...joined });
+  return { kind: "field", ...joined, operation: input.input.agentOperation, commandId, existingRevision: null };
+}
+
+async function authorizeFieldAgentSnapshotInTransaction(input: {
+  tx: RevisionTx;
+  input: StudioSnapshotSaveInput & {
+    agentOperation: "apply" | "undo";
+    operationVersion: number;
+  };
+  sha256: string;
+  currentHead: { revisionId: string; sha256: string } | null;
+}): Promise<FieldAgentSnapshotAuthorization> {
+  const suggestionId = input.input.fieldAgentSuggestionId;
+  if (!suggestionId) {
+    throw new DocumentRevisionError("invalid_field_agent_suggestion", "AI 필드 제안 식별자가 올바르지 않습니다.", 400);
+  }
+  await input.tx.execute(sql`
+    SELECT id FROM grant_document_field_agent_suggestions
+    WHERE id = ${suggestionId}
+      AND draft_id = ${input.input.draftId}
+      AND created_by = ${input.input.access.userId}
+    FOR UPDATE
+  `);
+  const joined = await loadFieldAgentSnapshotRows(input.tx, input.input, suggestionId);
+  const commandId = fieldAgentCommandId(suggestionId, input.input.agentOperation);
+  const [existingRevision] = await input.tx.select().from(schema.grantDocumentRevisions)
+    .where(eq(schema.grantDocumentRevisions.agentCommandId, commandId)).limit(1);
+  if (existingRevision) {
+    assertExistingFieldAgentCommandReplay({
+      request: input.input,
+      sha256: input.sha256,
+      currentHead: input.currentHead,
+      existingRevision,
+      ...joined,
+    });
+    return { kind: "field", ...joined, operation: input.input.agentOperation, commandId, existingRevision };
+  }
+  assertActiveFieldAgentSnapshotAuthorization({ request: input.input, currentHead: input.currentHead, ...joined });
+  return { kind: "field", ...joined, operation: input.input.agentOperation, commandId, existingRevision: null };
+}
+
+async function loadFieldAgentSnapshotRows(
+  db: Pick<ReturnType<typeof getCunoteDb>, "select">,
+  input: StudioSnapshotSaveInput,
+  suggestionId: string,
+): Promise<{
+  run: typeof schema.grantDocumentFieldAgentRuns.$inferSelect;
+  suggestion: typeof schema.grantDocumentFieldAgentSuggestions.$inferSelect;
+}> {
+  const [joined] = await db.select({
+    suggestion: schema.grantDocumentFieldAgentSuggestions,
+    run: schema.grantDocumentFieldAgentRuns,
+  }).from(schema.grantDocumentFieldAgentSuggestions)
+    .innerJoin(
+      schema.grantDocumentFieldAgentRuns,
+      eq(schema.grantDocumentFieldAgentSuggestions.runId, schema.grantDocumentFieldAgentRuns.id),
+    )
+    .where(and(
+      eq(schema.grantDocumentFieldAgentSuggestions.id, suggestionId),
+      eq(schema.grantDocumentFieldAgentSuggestions.draftId, input.draftId),
+      eq(schema.grantDocumentFieldAgentSuggestions.createdBy, input.access.userId),
+    )).limit(1);
+  if (!joined) {
+    throw new DocumentRevisionError("field_agent_suggestion_not_found", "AI 필드 제안을 찾지 못했습니다.", 404);
+  }
+  return joined;
+}
+
+function assertActiveFieldAgentSnapshotAuthorization(input: {
+  request: StudioSnapshotSaveInput & { agentOperation: "apply" | "undo"; operationVersion: number };
+  currentHead: { revisionId: string; sha256: string } | null;
+  run: typeof schema.grantDocumentFieldAgentRuns.$inferSelect;
+  suggestion: typeof schema.grantDocumentFieldAgentSuggestions.$inferSelect;
+}): void {
+  const { request, currentHead, run, suggestion } = input;
+  if (suggestion.operationVersion !== request.operationVersion) throw revisionConflict(currentHead?.revisionId ?? null);
+  if (request.agentOperation === "apply") {
+    if (
+      run.status !== "ready"
+      || suggestion.status !== "pending"
+      || suggestion.operationState !== "apply_saving"
+      || currentHead?.revisionId !== run.baseRevisionId
+      || currentHead.sha256 !== run.documentSha256
+    ) throw revisionConflict(currentHead?.revisionId ?? null);
+  } else if (
+    suggestion.status !== "applied"
+    || suggestion.operationState !== "undo_saving"
+    || currentHead?.revisionId !== suggestion.appliedRevisionId
+    || currentHead.sha256 !== suggestion.appliedDocumentSha256
+  ) {
+    throw revisionConflict(currentHead?.revisionId ?? null);
+  }
+}
+
+function assertExistingFieldAgentCommandReplay(input: {
+  request: StudioSnapshotSaveInput & { agentOperation: "apply" | "undo" };
+  sha256: string;
+  currentHead: { revisionId: string } | null;
+  run: typeof schema.grantDocumentFieldAgentRuns.$inferSelect;
+  suggestion: typeof schema.grantDocumentFieldAgentSuggestions.$inferSelect;
+  existingRevision: typeof schema.grantDocumentRevisions.$inferSelect;
+}): void {
+  const expectedParent = input.request.agentOperation === "apply"
+    ? input.run.baseRevisionId
+    : input.suggestion.appliedRevisionId;
+  const expectedOrigin = input.request.agentOperation === "apply" ? "studio_agent_apply" : "studio_agent_undo";
+  if (
+    input.currentHead?.revisionId === input.existingRevision.id
+    && input.existingRevision.draftId === input.request.draftId
+    && input.existingRevision.createdBy === input.request.access.userId
+    && input.existingRevision.parentRevisionId === expectedParent
+    && input.existingRevision.origin === expectedOrigin
+    && input.existingRevision.agentOperation === input.request.agentOperation
+    && input.existingRevision.fieldAgentRunId === input.run.id
+    && input.existingRevision.fieldAgentSuggestionId === input.suggestion.id
+    && input.existingRevision.sha256 === input.sha256
+  ) return;
+  throw revisionConflict(input.currentHead?.revisionId ?? null);
 }
 
 async function loadAgentSnapshotRows(
@@ -981,6 +1234,66 @@ function assertExistingAgentCommandReplay(input: {
 
 function agentCommandId(suggestionId: string, operation: "apply" | "undo"): string {
   return operation === "apply" ? suggestionId : `${suggestionId}:undo`;
+}
+
+function fieldAgentCommandId(suggestionId: string, operation: "apply" | "undo"): string {
+  return operation === "apply" ? `field:${suggestionId}` : `field:${suggestionId}:undo`;
+}
+
+function buildFieldAgentProjection(input: {
+  authorization: FieldAgentSnapshotAuthorization;
+  currentAnswers: DraftFieldAnswers;
+  currentMaterializedAnswers: Record<string, string>;
+  revisionId: string;
+}): { fieldAnswers: DraftFieldAnswers; materializedAnswers: Record<string, string> } {
+  const { authorization } = input;
+  const label = normalizeAnswerLabel(authorization.run.fieldLabel);
+  const current = input.currentAnswers[label];
+  const nextAnswers: DraftFieldAnswers = { ...input.currentAnswers };
+  const nextMaterialized = { ...input.currentMaterializedAnswers };
+  if (authorization.operation === "apply") {
+    const matchesBefore = stableJson(current ?? null) === stableJson(authorization.run.beforeAnswer ?? null);
+    const matchesSuggestion = current?.status === "suggested"
+      && current.value === authorization.suggestion.value
+      && (!current.fieldId || current.fieldId === authorization.run.fieldId);
+    if (!matchesBefore && !matchesSuggestion) {
+      throw new DocumentRevisionError(
+        "field_answer_conflict",
+        "제안 후 필드 답변이 변경되어 문서에 덮어쓰지 않았습니다.",
+        409,
+      );
+    }
+    nextAnswers[label] = {
+      value: authorization.suggestion.value,
+      status: "accepted",
+      source: "llm",
+      suggestedValue: authorization.suggestion.value,
+      basis: authorization.suggestion.rationale,
+      fieldId: authorization.run.fieldId,
+      materializedRevisionId: input.revisionId,
+      valueSha256: createHash("sha256").update(authorization.suggestion.value).digest("hex"),
+      updatedAt: new Date().toISOString(),
+      ...(current?.suggestionInput ? { suggestionInput: current.suggestionInput } : {}),
+    };
+    nextMaterialized[authorization.run.fieldId] = authorization.suggestion.value;
+  } else {
+    if (
+      current?.materializedRevisionId !== authorization.suggestion.appliedRevisionId
+      || current.value !== authorization.suggestion.value
+    ) {
+      throw new DocumentRevisionError(
+        "field_answer_conflict",
+        "적용 뒤 필드 답변이 변경되어 되돌리지 않았습니다.",
+        409,
+      );
+    }
+    if (authorization.run.beforeAnswer) nextAnswers[label] = authorization.run.beforeAnswer;
+    else delete nextAnswers[label];
+    const beforeText = authorization.run.beforeText.trim();
+    if (beforeText) nextMaterialized[authorization.run.fieldId] = beforeText;
+    else delete nextMaterialized[authorization.run.fieldId];
+  }
+  return { fieldAnswers: nextAnswers, materializedAnswers: nextMaterialized };
 }
 
 function assertCheckpointReplay(input: {

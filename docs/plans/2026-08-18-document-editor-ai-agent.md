@@ -1,5 +1,11 @@
 # 문서 직접 편집 AI 에이전트 실행 계획
 
+> **제품 방향 정정(2026-08-19):** 이 문서는 안전한 일반 본문 문단 개선 agent의 구현·운영 기록으로
+> 보존한다. `/grants/[grantId]/workspace`의 현재 제품 정본은
+> [`2026-08-19-field-aware-document-editor-agent.md`](./2026-08-19-field-aware-document-editor-agent.md)다.
+> 새 구현은 Studio 옆의 field-aware rail과 exact field 자동 입력을 우선하며, 이 문서의
+> quick-field 비종속/page-body candidate 결정은 주 흐름에 적용하지 않는다.
+
 - 작성일: 2026-08-18
 - 기준 브랜치: `codex/document-editor-ai-agent`
 - 기준 커밋: `ed87aaee604cf75817addedbc4d175f1ce0ad958`

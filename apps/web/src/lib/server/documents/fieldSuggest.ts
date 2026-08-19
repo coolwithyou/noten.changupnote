@@ -18,6 +18,7 @@
  *   7. 모델 CHAT_DRAFT_MODEL(기본 claude-sonnet-4-6, ADR-7), temperature 0.2(0~0.3), structured output.
  */
 import { generateObject, type ModelMessage } from "ai";
+import { createHash } from "node:crypto";
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
@@ -42,6 +43,7 @@ const MAX_LABELS = 10; // §7.4 labels ≤ 10개/호출.
 const MAX_BASIS_LENGTH = 400;
 const SUGGEST_MAX_OUTPUT_TOKENS = 4_000;
 const SUGGEST_TEMPERATURE = 0.2;
+const SUGGEST_TIMEOUT_MS = 45_000;
 
 export function fieldSuggestModel(): string {
   return process.env.CHAT_DRAFT_MODEL?.trim() || DEFAULT_DRAFT_MODEL;
@@ -116,6 +118,7 @@ export function buildSuggestInstruction(input: {
   currentValue?: string;
   sourceText?: string;
   userEvidenceText?: string;
+  alternativesPerLabel?: 1 | 2;
 }): string {
   const lines: string[] = [
     "[작성 요청]",
@@ -125,6 +128,13 @@ export function buildSuggestInstruction(input: {
     "항목:",
     ...input.labels.map((label, index) => `${index + 1}. ${label}`),
   ];
+  if (input.alternativesPerLabel === 2) {
+    lines.push(
+      "",
+      "각 항목마다 같은 사실 근거 안에서 표현 방향이 분명히 다른 대안을 최대 2개 제시합니다.",
+      "두 대안의 사실·수치·고유명사는 같아야 하며, 근거가 하나뿐이면 억지로 두 개를 만들지 않습니다.",
+    );
+  }
   if (input.mode === "regenerate" && input.currentValue && input.currentValue.trim()) {
     lines.push(
       "",
@@ -279,6 +289,14 @@ export interface FieldSuggestResult {
     basisKind?: "announcement" | "profile" | "user";
     suggestionInput?: string;
   }>;
+  alternatives?: Record<string, Array<{
+    value: string;
+    basis: string;
+    basisKind?: "announcement" | "profile" | "user";
+    suggestionInput?: string;
+  }>>;
+  modelVersion?: string;
+  groundingBindingSha256?: string;
 }
 
 /**
@@ -294,6 +312,10 @@ export async function generateFieldSuggestions(input: {
   sourceText?: string;
   /** 필드 대화에서 현재 사용자가 직접 제공한 사실. evidenceQuote 실재 검증 후에만 근거로 허용. */
   userEvidenceText?: string;
+  /** field-aware UI에서 한 필드당 사용자가 고를 수 있는 검증된 대안 수. */
+  alternativesPerLabel?: 1 | 2;
+  /** field-aware agent는 suggestion entity와 projection을 자기 DB transaction에서 함께 저장한다. */
+  persistProjection?: boolean;
 }): Promise<FieldSuggestResult> {
   if (!Array.isArray(input.labels) || input.labels.length === 0) {
     throw new FieldSuggestError("invalid_labels", "제안할 항목(labels)이 필요합니다.", 400);
@@ -339,6 +361,10 @@ export async function generateFieldSuggestions(input: {
     disableCitations: true,
   });
   const groundingCorpus = decodeGroundingCorpus(grounding.documents);
+  const groundingBindingSha256 = createHash("sha256").update(JSON.stringify({
+    documents: grounding.documents,
+    dynamicContext: grounding.dynamicContext,
+  })).digest("hex");
 
   const model = fieldSuggestModel();
   const anthropic = createAnthropic({ apiKey });
@@ -364,6 +390,7 @@ export async function generateFieldSuggestions(input: {
       ...(input.currentValue ? { currentValue: input.currentValue } : {}),
       ...(input.sourceText ? { sourceText: input.sourceText } : {}),
       ...(input.userEvidenceText ? { userEvidenceText: input.userEvidenceText } : {}),
+      ...(input.alternativesPerLabel ? { alternativesPerLabel: input.alternativesPerLabel } : {}),
     }),
   });
   // 파트는 FilePart(grounding 문서, citations:false·cacheControl providerOptions) + TextPart 로 UserContent
@@ -372,6 +399,8 @@ export async function generateFieldSuggestions(input: {
 
   let object: z.infer<typeof suggestionsSchema>;
   let usage: NormalizedChatUsage;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), SUGGEST_TIMEOUT_MS);
   try {
     const result = await generateObject({
       model: anthropic(model),
@@ -380,6 +409,8 @@ export async function generateFieldSuggestions(input: {
       messages,
       temperature: SUGGEST_TEMPERATURE,
       maxOutputTokens: SUGGEST_MAX_OUTPUT_TOKENS,
+      maxRetries: 0,
+      abortSignal: controller.signal,
     });
     object = result.object;
     usage = normalizeChatUsage(result.usage, result.providerMetadata);
@@ -401,6 +432,8 @@ export async function generateFieldSuggestions(input: {
       `필드 제안을 생성하지 못했습니다: ${error instanceof Error ? error.message : String(error)}`,
       502,
     );
+  } finally {
+    clearTimeout(timeout);
   }
 
   // provider usage를 idempotent event에서 종결하고 같은 transaction으로 일일 합산한다.
@@ -419,11 +452,17 @@ export async function generateFieldSuggestions(input: {
   }
 
   // 검증(basis 필수·실재 검증) → 요청 label 로 귀속.
-  const rawByLabel = new Map<string, RawSuggestion>();
+  const alternativesPerLabel = input.alternativesPerLabel === 2 ? 2 : 1;
+  const rawByLabel = new Map<string, RawSuggestion[]>();
   for (const raw of object.suggestions ?? []) {
     if (typeof raw?.label !== "string") continue;
     const key = normalizeAnswerLabel(raw.label);
-    if (key && !rawByLabel.has(key)) rawByLabel.set(key, raw);
+    if (!key) continue;
+    const current = rawByLabel.get(key) ?? [];
+    if (current.length < alternativesPerLabel) {
+      current.push(raw);
+      rawByLabel.set(key, current);
+    }
   }
   const verified: Record<string, {
     value: string;
@@ -431,22 +470,40 @@ export async function generateFieldSuggestions(input: {
     basisKind: "announcement" | "profile" | "user";
     suggestionInput?: string;
   }> = {};
+  const verifiedAlternatives: Record<string, Array<(typeof verified)[string]>> = {};
   const userEvidenceCorpus = [input.sourceText, input.userEvidenceText]
     .filter((value): value is string => Boolean(value?.trim()))
     .join("\n");
   for (const label of eligible) {
-    const raw = rawByLabel.get(label);
-    if (!raw) continue;
-    const ok = verifySuggestion(raw, groundingCorpus, userEvidenceCorpus);
-    if (ok) {
-      verified[label] = {
+    const alternatives: Array<(typeof verified)[string]> = [];
+    const seenValues = new Set<string>();
+    for (const raw of rawByLabel.get(label) ?? []) {
+      const ok = verifySuggestion(raw, groundingCorpus, userEvidenceCorpus);
+      if (!ok || seenValues.has(ok.value)) continue;
+      seenValues.add(ok.value);
+      alternatives.push({
         ...ok,
         ...(input.sourceText?.trim() ? { suggestionInput: input.sourceText } : {}),
-      };
+      });
+      if (alternatives.length >= alternativesPerLabel) break;
+    }
+    const first = alternatives[0];
+    if (first) {
+      verified[label] = first;
+      verifiedAlternatives[label] = alternatives;
     }
   }
 
   // 저장(suggested/llm, 컨펌 게이트 멱등) 후 저장된 fieldAnswers 에서 재구성(저장-반환 일치).
+  if (input.persistProjection === false) {
+    return {
+      suggestions: verified,
+      alternatives: verifiedAlternatives,
+      modelVersion: model,
+      groundingBindingSha256,
+    };
+  }
+
   const { fieldAnswers } = await applyLlmFieldSuggestions({
     draftId: input.draftId,
     access: input.access,
@@ -465,5 +522,5 @@ export async function generateFieldSuggestions(input: {
       };
     }
   }
-  return { suggestions };
+  return { suggestions, modelVersion: model, groundingBindingSha256 };
 }

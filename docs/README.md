@@ -31,7 +31,8 @@
 - [딥분석 실행 모드 제어 설계](./architecture/deep-analysis-execution-mode-control.md) — 운영 API 자동화와 로컬 구독 분석을 상호배제하는 `paused / production_api / local_subscription` 제어 정본
 - [딥분석 실행 모드 제어 상세 구현 계획](./plans/2026-08-05-deep-analysis-runtime-control.md) — DB 게이트, ops 스위치, 로컬 lease, 검증·배포 순서의 현재 실행 정본
 - [딥분석·Kordoc 분석 계층 전체 재구축 Runbook](./runbooks/deep-analysis-layer-rebuild.md) — 런칭 전 구버전 분석 projection을 백업·dry-run·해시 확인 후 fresh-start하는 실행 정본
-- [rhwp 필드 에이전트 워크스페이스 상세 구현 계획](./plans/2026-07-22-rhwp-field-agent-workspace.md) — 원본 HWP/HWPX 프리뷰, 빠른 작성↔rhwp Studio 전환, 필드 대화, 작업 리비전, 자기 검증 내보내기를 연결하는 현재 실행 정본
+- [필드 인식 문서 편집 AI 에이전트 실행 계획](./plans/2026-08-19-field-aware-document-editor-agent.md) — 완전한 rhwp Studio 옆에서 필드를 인식하고 근거 기반 제안·명시 선택·exact 자동 입력·revision 저장을 연결하는 현재 제품 정본
+- [rhwp 필드 에이전트 워크스페이스 상세 구현 계획](./plans/2026-07-22-rhwp-field-agent-workspace.md) — field anchor·Studio·revision 기반과 과거 빠른 작성↔Studio 전환 구현 기록
 - [매칭·자동채움 제품 연결 구현 핸드오프](./implementation/2026-07-14-매칭-자동채움-제품연결-구현-핸드오프.md) — 보존된 `08e7ba4` 기반에서 검증 반복을 줄이고 실제 `/matches`·web/app·answer/background 연결을 완성하는 새 세션 실행 정본
 
 ## 문서 작성 규칙

@@ -9,6 +9,7 @@ const profileQuestionMigrationPath = "db/migrations/0045_mushy_daimon_hellstrom.
 const documentRevisionMigrationPath = "db/migrations/0048_cool_nick_fury.sql";
 const documentAgentMigrationPath = "db/migrations/0071_sweet_monster_badoon.sql";
 const documentAgentIndexMigrationPath = "db/migrations/0072_rainy_george_stacy.sql";
+const fieldAgentMigrationPath = "db/migrations/0073_loose_spirit.sql";
 const journalPath = "db/migrations/meta/_journal.json";
 const schemaPath = "apps/web/src/lib/server/db/schema.ts";
 
@@ -20,6 +21,7 @@ const profileQuestionMigration = readFileSync(resolve(process.cwd(), profileQues
 const documentRevisionMigration = readFileSync(resolve(process.cwd(), documentRevisionMigrationPath), "utf8");
 const documentAgentMigration = readFileSync(resolve(process.cwd(), documentAgentMigrationPath), "utf8");
 const documentAgentIndexMigration = readFileSync(resolve(process.cwd(), documentAgentIndexMigrationPath), "utf8");
+const fieldAgentMigration = readFileSync(resolve(process.cwd(), fieldAgentMigrationPath), "utf8");
 const journal = readFileSync(resolve(process.cwd(), journalPath), "utf8");
 const schema = readFileSync(resolve(process.cwd(), schemaPath), "utf8");
 
@@ -192,6 +194,32 @@ if (!journal.includes('"tag": "0071_sweet_monster_badoon"')) {
 }
 if (!journal.includes('"tag": "0072_rainy_george_stacy"')) {
   errors.push(`${journalPath} is missing 0072_rainy_george_stacy`);
+}
+for (const table of [
+  "grant_document_field_agent_runs",
+  "grant_document_field_agent_suggestions",
+]) {
+  if (!fieldAgentMigration.includes(`ALTER TABLE "${table}" ENABLE ROW LEVEL SECURITY`)) {
+    errors.push(`${fieldAgentMigrationPath} is missing ${table} RLS enable`);
+  }
+  if (!fieldAgentMigration.includes(`ALTER TABLE "${table}" FORCE ROW LEVEL SECURITY`)) {
+    errors.push(`${fieldAgentMigrationPath} is missing ${table} RLS force`);
+  }
+}
+for (const policy of [
+  "grant_document_field_agent_runs_creator_select",
+  "grant_document_field_agent_runs_writer_insert",
+  "grant_document_field_agent_runs_writer_update",
+  "grant_document_field_agent_suggestions_creator_select",
+  "grant_document_field_agent_suggestions_writer_insert",
+  "grant_document_field_agent_suggestions_writer_update",
+]) {
+  if (!fieldAgentMigration.includes(`CREATE POLICY "${policy}"`)) {
+    errors.push(`${fieldAgentMigrationPath} is missing ${policy} policy`);
+  }
+}
+if (!journal.includes('"tag": "0073_loose_spirit"')) {
+  errors.push(`${journalPath} is missing 0073_loose_spirit`);
 }
 
 if (!journal.includes('"tag": "0003_rls_company_scope"')) {
