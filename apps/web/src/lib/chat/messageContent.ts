@@ -41,6 +41,8 @@ export type FieldAssistOutcome =
         value: string;
         basis: string;
         basisKind: "announcement" | "profile" | "user";
+        runId?: string;
+        suggestionId?: string;
       };
     };
 
@@ -109,6 +111,10 @@ export function parseFieldAssistOutcome(value: unknown): FieldAssistOutcome | nu
   const proposalValue = typeof proposal.value === "string" ? proposal.value.trim() : "";
   const basis = typeof proposal.basis === "string" ? proposal.basis.trim() : "";
   const basisKind = proposal.basisKind;
+  const runId = typeof proposal.runId === "string" && proposal.runId.trim() ? proposal.runId.trim() : undefined;
+  const suggestionId = typeof proposal.suggestionId === "string" && proposal.suggestionId.trim()
+    ? proposal.suggestionId.trim()
+    : undefined;
   if (
     !proposalValue
     || !basis
@@ -119,7 +125,13 @@ export function parseFieldAssistOutcome(value: unknown): FieldAssistOutcome | nu
     fieldId,
     label,
     guidance,
-    proposal: { value: proposalValue, basis, basisKind },
+    proposal: {
+      value: proposalValue,
+      basis,
+      basisKind,
+      ...(runId ? { runId } : {}),
+      ...(suggestionId ? { suggestionId } : {}),
+    },
   };
 }
 

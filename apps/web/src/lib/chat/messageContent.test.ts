@@ -6,10 +6,17 @@ const proposal = parseFieldAssistOutcome({
   fieldId: "field-1",
   label: "사업 개요",
   guidance: "한 문단으로 작성하세요.",
-  proposal: { value: "제안 값", basis: "사업자 정보", basisKind: "profile" },
+  proposal: {
+    value: "제안 값",
+    basis: "사업자 정보",
+    basisKind: "profile",
+    runId: "run-1",
+    suggestionId: "suggestion-1",
+  },
 });
 assert.equal(proposal?.status, "proposal");
 assert.equal(proposal?.label, "사업 개요");
+assert.equal(proposal?.status === "proposal" ? proposal.proposal.runId : null, "run-1");
 
 assert.equal(parseFieldAssistOutcome({
   status: "proposal",

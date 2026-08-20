@@ -106,10 +106,17 @@ type RhwpEditorInstance = import("@rhwp/editor").RhwpEditor;
 export interface RhwpStudioSurfaceHandle {
   saveAndReturn(): Promise<void>;
   focusField(fieldId: string): Promise<boolean>;
+  prepareFieldWritingSession(fieldId: string): Promise<PreparedFieldWritingSession>;
   requestFieldSuggestion(fieldId: string, sourceText?: string): Promise<FieldAgentRunDto>;
   applyFieldSuggestion(run: FieldAgentRunDto, suggestion: FieldAgentSuggestionDto): Promise<FieldAgentRunDto>;
   undoFieldSuggestion(run: FieldAgentRunDto, suggestion: FieldAgentSuggestionDto): Promise<FieldAgentRunDto>;
   dismissFieldSuggestion(run: FieldAgentRunDto, suggestion: FieldAgentSuggestionDto): Promise<FieldAgentRunDto>;
+}
+
+export interface PreparedFieldWritingSession {
+  fieldId: string;
+  baseRevisionId: string;
+  target: StudioFieldTargetV1;
 }
 
 type StudioState =
@@ -1179,67 +1186,88 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
     return run;
   }, [transport]);
 
-  const requestFieldSuggestion = useCallback(async (
+  const checkpointFieldWritingSession = useCallback(async (
     fieldId: string,
-    sourceText?: string,
-  ): Promise<FieldAgentRunDto> => {
+  ): Promise<PreparedFieldWritingSession> => {
     if (transport.mode !== "persistent" || !fieldAgentTransactionRef.current) {
       throw new Error("현재 Studio에서는 AI 필드 명령을 사용할 수 없습니다.");
     }
     const prepared = preparedRef.current;
     if (!prepared) throw new Error("현재 Studio 작업본을 찾지 못했습니다.");
+    const current = await readCurrentFieldDocument();
+    const resolution = current.resolutions.find((entry) => entry.fieldId === fieldId);
+    if (!resolution || resolution.status !== "unique") {
+      throw new Error("현재 revision에서 이 필드의 입력 셀을 하나로 확정하지 못했습니다.");
+    }
+    const target = resolution.target;
+    fieldTargetsRef.current.set(fieldId, target);
+    onFieldBindingsResolvedRef.current?.(current.resolutions);
+    const changeSeq = latestChangeSeqRef.current ?? legacySaveSeqRef.current + 1;
+    const checkpoint = await persistStudioSnapshot({
+      draftId: transport.draftId,
+      bytes: current.bytes,
+      filename: prepared.filename,
+      format: prepared.format,
+      pageCount: current.pageCount,
+      sessionId: studioSessionIdRef.current!,
+      baseRevisionId: prepared.revisionId,
+      documentEpoch: documentEpochRef.current,
+      changeSeq,
+      origin: "studio_agent_checkpoint",
+      checkpointRequestId: crypto.randomUUID(),
+      materializedAnswers: prepared.materializedAnswers,
+      verification: {
+        client: "rhwp-core-reopen",
+        verified: true,
+        purpose: "field_agent_checkpoint",
+        documentSha256: current.documentSha256,
+        fieldId,
+      },
+    });
+    await acceptPersistedAgentSnapshot({
+      bytes: current.bytes,
+      revisionId: checkpoint.revisionId,
+      savedAt: checkpoint.savedAt,
+      changeSeq,
+    });
+    return { fieldId, baseRevisionId: checkpoint.revisionId, target };
+  }, [acceptPersistedAgentSnapshot, readCurrentFieldDocument, transport]);
+
+  const prepareFieldWritingSession = useCallback(async (
+    fieldId: string,
+  ): Promise<PreparedFieldWritingSession> => {
     setFieldAgentBusy(true);
     try {
       beginAgentMutation();
-      const current = await readCurrentFieldDocument();
-      const resolution = current.resolutions.find((entry) => entry.fieldId === fieldId);
-      if (!resolution || resolution.status !== "unique") {
-        throw new Error("현재 revision에서 이 필드의 입력 셀을 하나로 확정하지 못했습니다.");
-      }
-      const target = resolution.target;
-      fieldTargetsRef.current.set(fieldId, target);
-      onFieldBindingsResolvedRef.current?.(current.resolutions);
-      const changeSeq = latestChangeSeqRef.current ?? legacySaveSeqRef.current + 1;
-      const checkpoint = await persistStudioSnapshot({
-        draftId: transport.draftId,
-        bytes: current.bytes,
-        filename: prepared.filename,
-        format: prepared.format,
-        pageCount: current.pageCount,
-        sessionId: studioSessionIdRef.current!,
-        baseRevisionId: prepared.revisionId,
-        documentEpoch: documentEpochRef.current,
-        changeSeq,
-        origin: "studio_agent_checkpoint",
-        checkpointRequestId: crypto.randomUUID(),
-        materializedAnswers: prepared.materializedAnswers,
-        verification: {
-          client: "rhwp-core-reopen",
-          verified: true,
-          purpose: "field_agent_checkpoint",
-          documentSha256: current.documentSha256,
-          fieldId,
-        },
-      });
-      await acceptPersistedAgentSnapshot({
-        bytes: current.bytes,
-        revisionId: checkpoint.revisionId,
-        savedAt: checkpoint.savedAt,
-        changeSeq,
-      });
+      return await checkpointFieldWritingSession(fieldId);
+    } finally {
+      finishAgentMutation();
+      setFieldAgentBusy(false);
+    }
+  }, [beginAgentMutation, checkpointFieldWritingSession, finishAgentMutation]);
+
+  const requestFieldSuggestion = useCallback(async (
+    fieldId: string,
+    sourceText?: string,
+  ): Promise<FieldAgentRunDto> => {
+    if (transport.mode !== "persistent") throw new Error("서버 문서 초안이 아닙니다.");
+    setFieldAgentBusy(true);
+    try {
+      beginAgentMutation();
+      const session = await checkpointFieldWritingSession(fieldId);
       return await requestFieldAgentRun({
         draftId: transport.draftId,
         fieldId,
         clientRequestId: crypto.randomUUID(),
-        baseRevisionId: checkpoint.revisionId,
-        target,
+        baseRevisionId: session.baseRevisionId,
+        target: session.target,
         ...(sourceText?.trim() ? { sourceText: sourceText.trim() } : {}),
       });
     } finally {
       finishAgentMutation();
       setFieldAgentBusy(false);
     }
-  }, [acceptPersistedAgentSnapshot, beginAgentMutation, finishAgentMutation, readCurrentFieldDocument, transport]);
+  }, [beginAgentMutation, checkpointFieldWritingSession, finishAgentMutation, transport]);
 
   const applyFieldSuggestion = useCallback(async (
     run: FieldAgentRunDto,
@@ -1485,6 +1513,7 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
   useImperativeHandle(ref, () => ({
     saveAndReturn,
     focusField,
+    prepareFieldWritingSession,
     requestFieldSuggestion,
     applyFieldSuggestion,
     undoFieldSuggestion,
@@ -1493,6 +1522,7 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
     applyFieldSuggestion,
     dismissFieldSuggestion,
     focusField,
+    prepareFieldWritingSession,
     requestFieldSuggestion,
     saveAndReturn,
     undoFieldSuggestion,

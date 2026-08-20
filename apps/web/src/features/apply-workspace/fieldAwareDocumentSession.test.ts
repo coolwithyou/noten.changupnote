@@ -23,6 +23,13 @@ const table: ConnectedDocumentField = {
   label: "경력사항",
   fieldType: "table",
 };
+const longText: ConnectedDocumentField = {
+  ...atomic,
+  fieldId: "field-introduction",
+  fieldKey: "introduction",
+  label: "자기소개",
+  fieldType: "long_text",
+};
 const choice: ConnectedDocumentField = {
   ...atomic,
   fieldId: "field-founder-type",
@@ -30,7 +37,7 @@ const choice: ConnectedDocumentField = {
   label: "창업자 유형",
   sourceSpan: "□ 예비창업자 □ 폐업 후 재창업자",
 };
-const tasks = buildDocumentAuthoringTasks([atomic, table, choice]);
+const tasks = buildDocumentAuthoringTasks([atomic, table, choice, longText]);
 
 const ready = buildFieldAwareDocumentSession({
   tasks,
@@ -40,10 +47,17 @@ const ready = buildFieldAwareDocumentSession({
     [atomic.fieldId, "unique"],
     [table.fieldId, "unique"],
     [choice.fieldId, "unique"],
+    [longText.fieldId, "unique"],
+  ]),
+  bindingTargets: new Map([
+    [atomic.fieldId, { kind: "table_cell_text", section: 0, parentPara: 1, controlIndex: 0, cellIndex: 1, cellParagraph: 0 }],
+    [table.fieldId, { kind: "table_cell_text", section: 0, parentPara: 1, controlIndex: 0, cellIndex: 2, cellParagraph: 0 }],
+    [choice.fieldId, { kind: "table_cell_text", section: 0, parentPara: 1, controlIndex: 0, cellIndex: 3, cellParagraph: 0 }],
+    [longText.fieldId, { kind: "table_cell_region", section: 0, parentPara: 1, controlIndex: 0, cellIndex: 4 }],
   ]),
   bindingsResolved: true,
   fieldEditorAgentAvailable: true,
-  suggestableLabels: new Set([atomic.label, table.label, choice.label]),
+  suggestableLabels: new Set([atomic.label, table.label, choice.label, longText.label]),
   suggestingLabels: new Set(),
 });
 assert.equal(ready.selected?.fieldId, atomic.fieldId);
@@ -51,13 +65,17 @@ assert.equal(ready.selected?.assistAvailability, "ready");
 assert.equal(ready.selected?.canRequestSuggestion, true);
 assert.equal(ready.fields[1]?.assistAvailability, "unsupported_kind");
 assert.equal(ready.fields[2]?.assistAvailability, "ready");
-assert.equal(ready.boundCount, 3);
+assert.equal(ready.fields[3]?.assistAvailability, "ready");
+assert.equal(ready.boundCount, 4);
 
 const flagOff = buildFieldAwareDocumentSession({
   tasks: [tasks[0]!],
   answers: {},
   selectedFieldId: null,
   bindingStatuses: new Map([[atomic.fieldId, "unique"]]),
+  bindingTargets: new Map([[atomic.fieldId, {
+    kind: "table_cell_text", section: 0, parentPara: 1, controlIndex: 0, cellIndex: 1, cellParagraph: 0,
+  }]]),
   bindingsResolved: true,
   fieldEditorAgentAvailable: false,
   suggestableLabels: new Set([atomic.label]),
@@ -71,6 +89,7 @@ const unresolved = buildFieldAwareDocumentSession({
   answers: {},
   selectedFieldId: null,
   bindingStatuses: new Map(),
+  bindingTargets: new Map(),
   bindingsResolved: false,
   fieldEditorAgentAvailable: true,
   suggestableLabels: new Set([atomic.label]),
@@ -86,14 +105,21 @@ assert.equal(fieldSelectionTargetKey({
   controlIndex: 1,
   cellIndex: 3,
   cellParagraph: 0,
-}), "table_cell_text:0:4:1:3:0");
-assert.notEqual(
+}), "table_cell:0:4:1:3");
+assert.equal(
   fieldSelectionTargetKey({
     kind: "table_cell_text", section: 0, parentPara: 4,
     controlIndex: 1, cellIndex: 3, cellParagraph: 1,
   }),
-  "table_cell_text:0:4:1:3:0",
+  "table_cell:0:4:1:3",
 );
+assert.equal(fieldSelectionTargetKey({
+  kind: "table_cell_region",
+  section: 0,
+  parentPara: 4,
+  controlIndex: 1,
+  cellIndex: 3,
+}), "table_cell:0:4:1:3");
 assert.equal(fieldSelectionTargetKey({
   kind: "form_text",
   section: 0,

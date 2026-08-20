@@ -49,17 +49,26 @@ export function resolveStudioFieldBindings(
   return tableResolutions.map((table, index) => {
     if (table.status === "unique") {
       const target = table.anchor.target;
+      const longText = normalizeFieldType(fields[index]?.fieldType) === "long_text";
       return {
         fieldId: table.fieldId,
         status: "unique",
-        target: {
-          kind: "table_cell_text",
-          section: target.section,
-          parentPara: target.parentPara,
-          controlIndex: target.controlIndex,
-          cellIndex: target.cellIndex,
-          cellParagraph: target.cellParagraph,
-        },
+        target: longText
+          ? {
+              kind: "table_cell_region",
+              section: target.section,
+              parentPara: target.parentPara,
+              controlIndex: target.controlIndex,
+              cellIndex: target.cellIndex,
+            }
+          : {
+              kind: "table_cell_text",
+              section: target.section,
+              parentPara: target.parentPara,
+              controlIndex: target.controlIndex,
+              cellIndex: target.cellIndex,
+              cellParagraph: target.cellParagraph,
+            },
         candidateCount: 1,
       };
     }
@@ -112,6 +121,10 @@ function isSupportedRootFormField(entry: FormFieldEntry): boolean {
 
 function normalizeName(value: string): string {
   return value.normalize("NFKC").trim();
+}
+
+function normalizeFieldType(value: string | undefined): string {
+  return value?.normalize("NFKC").trim().toLocaleLowerCase("en-US") ?? "";
 }
 
 function targetKey(target: StudioFormTextTargetV1): string {

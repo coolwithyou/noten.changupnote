@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { ArrowRight, CheckCircle2, Circle, CircleDot, MapPinCheck, RotateCcw, Search, Sparkles, TriangleAlert, X } from "lucide-react";
+import { ArrowRight, CheckCircle2, Circle, CircleDot, MapPinCheck, MessageSquare, RotateCcw, Search, Sparkles, TriangleAlert, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
@@ -20,6 +20,7 @@ export function FieldAgentRail({
   run,
   onSelectField,
   onRequestSuggestion,
+  onStartConversation,
   onApplySuggestion,
   onUndoSuggestion,
   onDismissSuggestion,
@@ -29,6 +30,7 @@ export function FieldAgentRail({
   run: FieldAgentRunDto | null;
   onSelectField: (fieldId: string) => void;
   onRequestSuggestion: (field: ConnectedDocumentField, sourceText: string) => void;
+  onStartConversation: (field: ConnectedDocumentField) => void;
   onApplySuggestion: (run: FieldAgentRunDto, suggestion: FieldAgentSuggestionDto) => void;
   onUndoSuggestion: (run: FieldAgentRunDto, suggestion: FieldAgentSuggestionDto) => void;
   onDismissSuggestion: (run: FieldAgentRunDto, suggestion: FieldAgentSuggestionDto) => void;
@@ -221,15 +223,26 @@ export function FieldAgentRail({
                   </div>
                 ))}
                 {session.selected.canRequestSuggestion && selectedSource ? (
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant={suggestions.some((suggestion) => suggestion.status === "pending") ? "outline" : "default"}
-                    onClick={() => onRequestSuggestion(selectedSource, sourceText)}
-                  >
-                    <Sparkles data-icon="inline-start" aria-hidden />
-                    {suggestions.length > 0 ? "새 제안받기" : "이 필드 값 제안받기"}
-                  </Button>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={suggestions.some((suggestion) => suggestion.status === "pending") ? "outline" : "default"}
+                      onClick={() => onRequestSuggestion(selectedSource, sourceText)}
+                    >
+                      <Sparkles data-icon="inline-start" aria-hidden />
+                      {suggestions.length > 0 ? "새 제안받기" : "제안받기"}
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => onStartConversation(selectedSource)}
+                    >
+                      <MessageSquare data-icon="inline-start" aria-hidden />
+                      대화로 작성
+                    </Button>
+                  </div>
                 ) : session.selected.isSuggesting ? (
                   <Button type="button" size="sm" disabled>
                     <Spinner data-icon="inline-start" />

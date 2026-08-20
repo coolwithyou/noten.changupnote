@@ -43,12 +43,11 @@ export function fieldSelectionTargetKey(target: StudioFieldTargetV1): string {
     return [target.kind, target.section, target.paragraph, target.fieldId].join(":");
   }
   return [
-    target.kind,
+    "table_cell",
     target.section,
     target.parentPara,
     target.controlIndex,
     target.cellIndex,
-    target.cellParagraph,
   ].join(":");
 }
 
@@ -61,6 +60,7 @@ export function buildFieldAwareDocumentSession(input: {
   answers: DraftFieldAnswers;
   selectedFieldId: string | null;
   bindingStatuses: ReadonlyMap<string, Exclude<FieldBindingStatus, "resolving">>;
+  bindingTargets: ReadonlyMap<string, StudioFieldTargetV1>;
   bindingsResolved: boolean;
   fieldEditorAgentAvailable: boolean;
   suggestableLabels: ReadonlySet<string>;
@@ -79,6 +79,7 @@ export function buildFieldAwareDocumentSession(input: {
       fieldEditorAgentAvailable: input.fieldEditorAgentAvailable,
       task,
       bindingStatus,
+      bindingTarget: input.bindingTargets.get(task.fieldId) ?? null,
       suggestable: input.suggestableLabels.has(task.label),
     });
     const isSuggesting = input.suggestingLabels.has(key);
@@ -110,13 +111,19 @@ function resolveAssistAvailability(input: {
   fieldEditorAgentAvailable: boolean;
   task: DocumentAuthoringTask;
   bindingStatus: FieldBindingStatus;
+  bindingTarget: StudioFieldTargetV1 | null;
   suggestable: boolean;
 }): FieldAssistAvailability {
   if (!input.fieldEditorAgentAvailable) return "rollout_off";
-  if (input.task.kind !== "atomic_text" && input.task.kind !== "choice") return "unsupported_kind";
+  if (input.task.kind !== "atomic_text"
+      && input.task.kind !== "choice"
+      && input.task.kind !== "assisted_longform") return "unsupported_kind";
   if (input.bindingStatus === "resolving") return "binding_resolving";
   if (input.bindingStatus === "missing") return "binding_missing";
   if (input.bindingStatus === "ambiguous") return "binding_ambiguous";
+  if (input.task.kind === "assisted_longform" && input.bindingTarget?.kind !== "table_cell_region") {
+    return "unsupported_kind";
+  }
   if (!input.suggestable) return "not_suggestable";
   return "ready";
 }

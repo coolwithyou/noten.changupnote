@@ -4,6 +4,7 @@ import {
   resolveStudioDocumentAgentProtocol,
   resolveStudioFieldNavigationProtocol,
   resolveStudioFieldSelectionProtocol,
+  studioApplyFieldCommandSchema,
   studioDocumentStateSchema,
   studioTextCommandReceiptSchema,
   type StudioDocumentAgentEvidenceDocument,
@@ -133,11 +134,36 @@ const formFieldTarget = {
   fieldId: 41,
 };
 assert.deepEqual(await fieldProtocol.focusFieldTarget(formFieldTarget), { focused: true, page: 2 });
-assert.deepEqual(fieldCalls, [fieldTarget, formFieldTarget]);
+const regionTarget = {
+  kind: "table_cell_region" as const,
+  section: 0,
+  parentPara: 4,
+  controlIndex: 1,
+  cellIndex: 3,
+};
+assert.deepEqual(await fieldProtocol.focusFieldTarget(regionTarget), { focused: true, page: 2 });
+assert.deepEqual(fieldCalls, [fieldTarget, formFieldTarget, regionTarget]);
 assert.equal(resolveStudioFieldNavigationProtocol({ focusTarget: async () => ({ focused: true, page: 1 }) }), null);
 await assert.rejects(
   () => fieldProtocol.focusFieldTarget({ ...fieldTarget, cellIndex: -1 }),
   /too_small|greater than or equal to 0/u,
+);
+const fieldCommand = {
+  schemaVersion: 1 as const,
+  commandId: "field-region-1",
+  expectedDocumentEpoch: 1,
+  expectedChangeSeq: 0,
+  expectedDocumentSha256: "a".repeat(64),
+  target: regionTarget,
+  expectedBeforeSha256: "b".repeat(64),
+  expectedFormatSha256: "c".repeat(64),
+  expectedAdjacentContextSha256: "d".repeat(64),
+  replacement: "첫 문단\n둘째 문단",
+};
+assert.deepEqual(studioApplyFieldCommandSchema.parse(fieldCommand), fieldCommand);
+assert.throws(
+  () => studioApplyFieldCommandSchema.parse({ ...fieldCommand, target: fieldTarget }),
+  /줄바꿈/u,
 );
 await assert.rejects(
   () => fieldProtocol.focusFieldTarget({ ...formFieldTarget, fieldId: -1 }),

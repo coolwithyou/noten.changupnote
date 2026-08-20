@@ -103,6 +103,7 @@ export function WorkspaceView({
   const [fieldBindingStatuses, setFieldBindingStatuses] = useState<Map<string, "unique" | "missing" | "ambiguous">>(
     () => new Map(),
   );
+  const [fieldBindingTargets, setFieldBindingTargets] = useState<Map<string, StudioFieldTargetV1>>(() => new Map());
   const [fieldAgentRuns, setFieldAgentRuns] = useState<Map<string, FieldAgentRunDto>>(() => new Map());
   const studioSurfaceRef = useRef<RhwpStudioSurfaceHandle | null>(null);
   const fieldIdByTargetRef = useRef<Map<string, string>>(new Map());
@@ -156,6 +157,7 @@ export function WorkspaceView({
     setWorkingDocument(null);
     setFieldBindingsResolved(false);
     setFieldBindingStatuses(new Map());
+    setFieldBindingTargets(new Map());
     setFieldAgentRuns(new Map());
   }, [currentStudioSourceKey]);
 
@@ -261,6 +263,7 @@ export function WorkspaceView({
     answers,
     selectedFieldId,
     bindingStatuses: fieldBindingStatuses,
+    bindingTargets: fieldBindingTargets,
     bindingsResolved: fieldBindingsResolved,
     fieldEditorAgentAvailable: data.fieldEditorAgentAvailable,
     suggestableLabels: suggestableSet,
@@ -270,6 +273,7 @@ export function WorkspaceView({
     authoringTasks,
     data.fieldEditorAgentAvailable,
     fieldBindingStatuses,
+    fieldBindingTargets,
     fieldBindingsResolved,
     selectedFieldId,
     suggestableSet,
@@ -531,13 +535,38 @@ export function WorkspaceView({
     }
   }
 
-  function handleAskField(field: ConnectedDocumentField) {
+  async function handleAskField(field: ConnectedDocumentField) {
     if (readOnlyPreview) {
       toast.info("읽기 전용 시뮬레이션에서는 AI 질문을 실행하지 않습니다.");
       return;
     }
-    chat.askField({ label: field.label, section: field.section, fieldId: field.fieldId });
+    if (chat.isBusy) {
+      toast.info("현재 답변이 끝난 뒤 새 필드 대화를 시작해 주세요.");
+      return;
+    }
+    setSelectedFieldId(field.fieldId);
     setShowChat(true);
+    try {
+      const fieldAgent = integratedFieldEditor
+        ? await studioSurfaceRef.current?.prepareFieldWritingSession(field.fieldId)
+        : null;
+      if (integratedFieldEditor && !fieldAgent) {
+        throw new Error("문서 편집기가 아직 준비되지 않았습니다.");
+      }
+      chat.askField({
+        label: field.label,
+        section: field.section,
+        fieldId: field.fieldId,
+        ...(fieldAgent ? {
+          fieldAgent: {
+            baseRevisionId: fieldAgent.baseRevisionId,
+            target: fieldAgent.target,
+          },
+        } : {}),
+      });
+    } catch (caught) {
+      toast.error(caught instanceof Error ? caught.message : "필드 대화를 시작하지 못했습니다.");
+    }
   }
 
   function handleSelectField(fieldId: string) {
@@ -589,6 +618,9 @@ export function WorkspaceView({
 
   const handleFieldBindingsResolved = useCallback((resolutions: readonly StudioFieldBindingResolution[]) => {
     setFieldBindingStatuses(new Map(resolutions.map((resolution) => [resolution.fieldId, resolution.status])));
+    setFieldBindingTargets(new Map(resolutions.flatMap((resolution) => (
+      resolution.status === "unique" ? [[resolution.fieldId, resolution.target] as const] : []
+    ))));
     fieldIdByTargetRef.current = new Map(resolutions.flatMap((resolution) => {
       if (resolution.status !== "unique") return [];
       return [[fieldSelectionTargetKey(resolution.target), resolution.fieldId]];
@@ -832,6 +864,7 @@ export function WorkspaceView({
                 run={selectedFieldId ? fieldAgentRuns.get(selectedFieldId) ?? null : null}
                 onSelectField={handleSelectField}
                 onRequestSuggestion={requestSuggestion}
+                onStartConversation={(field) => void handleAskField(field)}
                 onApplySuggestion={(run, suggestion) => void runFieldAgentAction("apply", run, suggestion)}
                 onUndoSuggestion={(run, suggestion) => void runFieldAgentAction("undo", run, suggestion)}
                 onDismissSuggestion={(run, suggestion) => void runFieldAgentAction("dismiss", run, suggestion)}
@@ -861,6 +894,7 @@ export function WorkspaceView({
                   run={selectedFieldId ? fieldAgentRuns.get(selectedFieldId) ?? null : null}
                   onSelectField={handleSelectField}
                   onRequestSuggestion={requestSuggestion}
+                  onStartConversation={(field) => void handleAskField(field)}
                   onApplySuggestion={(run, suggestion) => void runFieldAgentAction("apply", run, suggestion)}
                   onUndoSuggestion={(run, suggestion) => void runFieldAgentAction("undo", run, suggestion)}
                   onDismissSuggestion={(run, suggestion) => void runFieldAgentAction("dismiss", run, suggestion)}
@@ -938,7 +972,28 @@ export function WorkspaceView({
                 greeting={greeting}
                 variant="front"
                 institutionContact={institutionContact}
-                onApplyFieldProposal={({ label, value }) => {
+                onApplyFieldProposal={({ fieldId, label, value, runId, suggestionId }) => {
+                  if (integratedFieldEditor) {
+                    if (!data.draftId || !runId || !suggestionId) {
+                      toast.error("현재 문서 revision에 결속된 제안이 아닙니다. 필드 대화를 다시 시작해 주세요.");
+                      return;
+                    }
+                    void fetchFieldAgentRuns(data.draftId)
+                      .then((runs) => {
+                        const run = runs.find((entry) => entry.id === runId && entry.fieldId === fieldId);
+                        const suggestion = run?.suggestions.find((entry) => entry.id === suggestionId);
+                        if (!run || !suggestion || suggestion.value !== value) {
+                          throw new Error("대화에서 만든 제안을 현재 문서 revision에서 찾지 못했습니다.");
+                        }
+                        setFieldAgentRuns((current) => new Map(current).set(run.fieldId, run));
+                        setShowChat(false);
+                        return runFieldAgentAction("apply", run, suggestion);
+                      })
+                      .catch((caught) => {
+                        toast.error(caught instanceof Error ? caught.message : "대화 제안을 문서에 반영하지 못했습니다.");
+                      });
+                    return;
+                  }
                   void patchAnswer(label, { value, status: "accepted" });
                 }}
               />

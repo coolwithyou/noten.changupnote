@@ -39,11 +39,24 @@ import {
   type GrantChatFailure,
 } from "./chatRequestState";
 import { contactPhoneHref, type InstitutionContact } from "./workspacePresentation";
+import type { StudioFieldTargetV1 } from "@/lib/rhwp/studioDocumentAgentProtocol";
 
 export interface ChatFieldPrompt {
   label: string;
   section?: string | null;
   fieldId?: string | null;
+  fieldAgent?: {
+    baseRevisionId: string;
+    target: StudioFieldTargetV1;
+  };
+}
+
+export interface ChatFieldProposalApplyInput {
+  fieldId: string;
+  label: string;
+  value: string;
+  runId?: string;
+  suggestionId?: string;
 }
 
 interface UiChatMessageLike {
@@ -109,6 +122,12 @@ export function useGrantChat(input: { grantId: string; draftId?: string | null }
                 label: fieldPromptForTurn.label,
                 ...(fieldPromptForTurn.section ? { section: fieldPromptForTurn.section } : {}),
                 ...(fieldPromptForTurn.fieldId ? { fieldId: fieldPromptForTurn.fieldId } : {}),
+                ...(fieldPromptForTurn.fieldAgent ? {
+                  fieldAgent: {
+                    ...fieldPromptForTurn.fieldAgent,
+                    clientRequestId: crypto.randomUUID(),
+                  },
+                } : {}),
               }
             : undefined;
           return {
@@ -221,7 +240,7 @@ export function ChatPanelView({
   variant?: "dock" | "front";
   institutionContact?: InstitutionContact | null;
   onClose?: () => void;
-  onApplyFieldProposal?: (input: { label: string; value: string }) => void;
+  onApplyFieldProposal?: (input: ChatFieldProposalApplyInput) => void;
 }) {
   const { messages, isBusy, errorMessage, canRetry, input, setInput, submit, sendText, retry } = controller;
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -243,6 +262,11 @@ export function ChatPanelView({
       <div className="flex items-center gap-2 text-sm font-medium">
         <MessageSquare className="text-muted-foreground" aria-hidden />
         이 공고에 대해 물어보기
+        {controller.activeField ? (
+          <Badge variant="secondary" className="max-w-44 truncate">
+            {controller.activeField.label} 작성 중
+          </Badge>
+        ) : null}
         {onClose ? (
           <Button type="button" size="icon-sm" variant="ghost" onClick={onClose} aria-label="채팅 닫기" className="ml-auto">
             <X />
@@ -306,7 +330,9 @@ export function ChatPanelView({
               submit();
             }
           }}
-          placeholder="공고 내용·자격·마감·작성 요령을 물어보세요"
+          placeholder={controller.activeField
+            ? `${controller.activeField.label}에 반영할 사실이나 수정 방향을 적어 주세요`
+            : "공고 내용·자격·마감·작성 요령을 물어보세요"}
           aria-label="채팅 입력"
           rows={variant === "front" ? 3 : 2}
           disabled={isBusy}
@@ -380,7 +406,7 @@ function AssistantBubble({
   onAskQuestion,
 }: {
   content: ChatMessageContent;
-  onApplyFieldProposal?: (input: { label: string; value: string }) => void;
+  onApplyFieldProposal?: (input: ChatFieldProposalApplyInput) => void;
   onAskQuestion?: (question: string) => void;
 }) {
   const hasCitations = (content.citations?.length ?? 0) > 0;
@@ -437,7 +463,7 @@ function FieldAssistCard({
   onAskQuestion,
 }: {
   outcome: FieldAssistOutcome;
-  onApply?: (input: { label: string; value: string }) => void;
+  onApply?: (input: ChatFieldProposalApplyInput) => void;
   onAskQuestion?: (question: string) => void;
 }) {
   return (
@@ -459,11 +485,17 @@ function FieldAssistCard({
             <Button
               type="button"
               size="sm"
-              onClick={() => onApply?.({ label: outcome.label, value: outcome.proposal.value })}
+              onClick={() => onApply?.({
+                fieldId: outcome.fieldId,
+                label: outcome.label,
+                value: outcome.proposal.value,
+                ...(outcome.proposal.runId ? { runId: outcome.proposal.runId } : {}),
+                ...(outcome.proposal.suggestionId ? { suggestionId: outcome.proposal.suggestionId } : {}),
+              })}
               disabled={!onApply}
             >
               <CheckCircle2 data-icon="inline-start" aria-hidden />
-              이 값으로 채우기
+              {outcome.label}에 적용하기
             </Button>
           </>
         ) : null}

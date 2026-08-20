@@ -17,6 +17,7 @@ import {
   streamText,
   type UIMessage,
 } from "ai";
+import { z } from "zod";
 import { requireCompanyAccess } from "@/lib/server/auth/companyGuard";
 import { webActionError } from "@/lib/server/auth/webActionError";
 import { getCunoteDb } from "@/lib/server/db/client";
@@ -28,6 +29,7 @@ import {
 import { assertChatBudget, normalizeChatUsage } from "@/lib/server/chat/budget";
 import { buildGrantGrounding } from "@/lib/server/chat/grounding";
 import { buildFieldAssistOutcome } from "@/lib/server/chat/fieldAssist";
+import { studioFieldTargetSchema, type StudioFieldTargetV1 } from "@/lib/rhwp/studioDocumentAgentProtocol";
 import {
   buildGrantModelMessages,
   ChatSessionError,
@@ -53,7 +55,18 @@ interface ChatFieldContext {
   label: string;
   section?: string;
   fieldId?: string;
+  fieldAgent?: {
+    clientRequestId: string;
+    baseRevisionId: string;
+    target: StudioFieldTargetV1;
+  };
 }
+
+const chatFieldAgentContextSchema = z.strictObject({
+  clientRequestId: z.string().uuid(),
+  baseRevisionId: z.string().uuid(),
+  target: studioFieldTargetSchema,
+});
 
 interface ParsedChatBody {
   sessionId: string | null;
@@ -266,6 +279,19 @@ function parseChatBody(body: unknown): ParsedChatBody {
       }
       if (typeof fc.fieldId === "string" && fc.fieldId.trim().length > 0) {
         fieldContext.fieldId = fc.fieldId.trim();
+      }
+      if (fc.fieldAgent !== undefined) {
+        const fieldAgent = chatFieldAgentContextSchema.safeParse(fc.fieldAgent);
+        if (!fieldAgent.success) {
+          throw new ChatSessionError("invalid_field_agent_context", "필드 문서 기준 정보가 올바르지 않습니다.", 400);
+        }
+        if (!draftId) {
+          throw new ChatSessionError("invalid_field_agent_context", "draftId가 필요합니다.", 400);
+        }
+        if (!fieldContext.fieldId) {
+          throw new ChatSessionError("invalid_field_agent_context", "fieldId가 필요합니다.", 400);
+        }
+        fieldContext.fieldAgent = fieldAgent.data;
       }
       parsed.fieldContext = fieldContext;
     }

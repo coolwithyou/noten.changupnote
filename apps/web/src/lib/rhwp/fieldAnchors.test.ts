@@ -10,6 +10,7 @@ import {
   resolveRhwpFieldAnchorsExact,
   type RhwpAnchorDocument,
 } from "./fieldAnchors";
+import { resolveStudioFieldBindings } from "./studioFieldBindings";
 
 assert.deepEqual(
   extractFieldOptions("checkbox", "□ 예비창업자 □ 폐업 후 재창업자"),
@@ -126,6 +127,28 @@ const exactUnique = resolveRhwpFieldAnchorsExact(document, [{
 }]);
 assert.equal(exactUnique[0]?.status, "unique");
 assert.equal(exactUnique[0]?.candidateCount, 1);
+assert.deepEqual(resolveStudioFieldBindings(
+  { ...document, getFieldList: () => "[]" },
+  [{
+    fieldId: "introduction",
+    label,
+    fieldType: "long_text",
+    sourceSpan: "□ 예비창업자 □ 폐업 후 재창업자",
+    position: { page: 1, bbox: [0.1, 0.29, 0.8, 0.07] },
+    options,
+  }],
+), [{
+  fieldId: "introduction",
+  status: "unique",
+  target: {
+    kind: "table_cell_region",
+    section: 0,
+    parentPara: 2,
+    controlIndex: 0,
+    cellIndex: 13,
+  },
+  candidateCount: 1,
+}]);
 assert.deepEqual(
   resolveRhwpFieldAnchorsExact(document, [{ fieldId: "missing", label: "없는 라벨", fieldType: "text" }]),
   [{ fieldId: "missing", status: "missing", candidateCount: 0 }],

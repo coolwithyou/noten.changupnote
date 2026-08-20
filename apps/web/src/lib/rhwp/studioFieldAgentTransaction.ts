@@ -7,6 +7,7 @@ import {
   type StudioFieldCommandReceiptV1,
   type StudioFieldTargetV1,
   type StudioFormTextTargetV1,
+  type StudioTableCellRegionTargetV1,
   type StudioTableCellTextTargetV1,
 } from "./studioDocumentAgentProtocol";
 
@@ -300,6 +301,9 @@ export async function collectStudioFieldEvidence(
     if (!Number.isSafeInteger(dimensions.cellCount) || target.cellIndex >= dimensions.cellCount) {
       throw new Error("exact field table cell을 찾지 못했습니다.");
     }
+    if (target.kind === "table_cell_region") {
+      return await collectStudioTableCellRegionEvidence(document, target, dimensions);
+    }
     const length = document.getCellParagraphLength(
       target.section,
       target.parentPara,
@@ -358,6 +362,89 @@ export async function collectStudioFieldEvidence(
   } finally {
     document.free();
   }
+}
+
+async function collectStudioTableCellRegionEvidence(
+  document: InstanceType<RhwpModule["HwpDocument"]>,
+  target: StudioTableCellRegionTargetV1,
+  dimensions: { rowCount: number; colCount: number; cellCount: number },
+): Promise<FieldEvidence> {
+  const paragraphCount = document.getCellParagraphCount(
+    target.section,
+    target.parentPara,
+    target.controlIndex,
+    target.cellIndex,
+  );
+  if (!Number.isSafeInteger(paragraphCount) || paragraphCount < 1) {
+    throw new Error("exact 장문 field table cell을 찾지 못했습니다.");
+  }
+  const paragraphs: string[] = [];
+  let charShapeId: number | null = null;
+  let paraShapeId: number | null = null;
+  for (let cellParagraph = 0; cellParagraph < paragraphCount; cellParagraph += 1) {
+    const length = document.getCellParagraphLength(
+      target.section,
+      target.parentPara,
+      target.controlIndex,
+      target.cellIndex,
+      cellParagraph,
+    );
+    const text = length > 0 ? document.getTextInCell(
+      target.section,
+      target.parentPara,
+      target.controlIndex,
+      target.cellIndex,
+      cellParagraph,
+      0,
+      length,
+    ) : "";
+    paragraphs.push(text);
+    const paragraphParaShapeId = readId(document.getCellParaPropertiesAt(
+      target.section,
+      target.parentPara,
+      target.controlIndex,
+      target.cellIndex,
+      cellParagraph,
+    ), "paraShapeId");
+    const paragraphCharShapeIds: number[] = [];
+    for (let offset = 0; offset < Math.max(length, 1); offset += 1) {
+      paragraphCharShapeIds.push(readId(document.getCellCharPropertiesAt(
+        target.section,
+        target.parentPara,
+        target.controlIndex,
+        target.cellIndex,
+        cellParagraph,
+        offset,
+      ), "charShapeId"));
+    }
+    const paragraphCharShapeId = paragraphCharShapeIds[0]!;
+    if (!paragraphCharShapeIds.every((id) => id === paragraphCharShapeId)
+        || (charShapeId !== null && charShapeId !== paragraphCharShapeId)
+        || (paraShapeId !== null && paraShapeId !== paragraphParaShapeId)) {
+      throw new Error("장문 셀은 모든 문단의 글자·문단 서식이 같을 때만 자동 입력할 수 있습니다.");
+    }
+    charShapeId ??= paragraphCharShapeId;
+    paraShapeId ??= paragraphParaShapeId;
+  }
+  const text = paragraphs.join("\n");
+  const cellProperties = JSON.parse(document.getCellOwnProperties(
+    target.section,
+    target.parentPara,
+    target.controlIndex,
+    target.cellIndex,
+  )) as unknown;
+  return {
+    text,
+    textSha256: await sha256Hex(text),
+    formatSha256: await sha256Hex(stableJson({
+      schemaVersion: 1,
+      kind: "table_cell_region",
+      charShape: { kind: "uniform", id: charShapeId },
+      paraShapeId,
+      cellProperties,
+    })),
+    adjacentContextSha256: await fieldNonTargetManifest(document, target, dimensions),
+  };
 }
 
 interface StudioFormFieldEntry {
@@ -553,7 +640,7 @@ function parseFormFields(document: InstanceType<RhwpModule["HwpDocument"]>): Stu
 
 async function fieldNonTargetManifest(
   document: InstanceType<RhwpModule["HwpDocument"]>,
-  target: StudioTableCellTextTargetV1,
+  target: StudioTableCellTextTargetV1 | StudioTableCellRegionTargetV1,
   dimensions: { rowCount: number; colCount: number; cellCount: number },
 ): Promise<string> {
   const cells: Array<Record<string, unknown>> = [];
@@ -566,7 +653,10 @@ async function fieldNonTargetManifest(
     );
     const paragraphs: Array<Record<string, unknown>> = [];
     for (let cellParagraph = 0; cellParagraph < paragraphCount; cellParagraph += 1) {
-      if (cellIndex === target.cellIndex && cellParagraph === target.cellParagraph) continue;
+      if (cellIndex === target.cellIndex && (
+        target.kind === "table_cell_region"
+        || cellParagraph === target.cellParagraph
+      )) continue;
       const length = document.getCellParagraphLength(
         target.section,
         target.parentPara,
@@ -617,7 +707,9 @@ async function fieldNonTargetManifest(
         target.controlIndex,
         cellIndex,
       )) as unknown,
-      paragraphCount,
+      ...(cellIndex === target.cellIndex && target.kind === "table_cell_region"
+        ? { targetRegion: true }
+        : { paragraphCount }),
       paragraphs,
     });
   }
@@ -675,7 +767,7 @@ function assertApplyReceipt(
     || receipt.formatSha256 !== input.binding.formatSha256
     || receipt.adjacentContextSha256 !== input.binding.adjacentContextSha256
     || receipt.pageCountBefore !== state.pageCount
-    || receipt.pageCountAfter !== state.pageCount
+    || (input.binding.target.kind !== "table_cell_region" && receipt.pageCountAfter !== state.pageCount)
     || !sameTarget(receipt.target, input.binding.target)
   ) throw new Error("Studio field apply receipt가 승인된 exact binding과 다릅니다.");
 }
@@ -690,6 +782,11 @@ function sameTarget(left: StudioFieldTargetV1, right: StudioFieldTargetV1): bool
       && left.controlIndex === right.controlIndex
       && left.cellIndex === right.cellIndex
       && left.cellParagraph === right.cellParagraph;
+  }
+  if (left.kind === "table_cell_region" && right.kind === "table_cell_region") {
+    return left.parentPara === right.parentPara
+      && left.controlIndex === right.controlIndex
+      && left.cellIndex === right.cellIndex;
   }
   return false;
 }

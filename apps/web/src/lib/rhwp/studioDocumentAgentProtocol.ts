@@ -29,6 +29,14 @@ export const studioTableCellTextTargetSchema = z.strictObject({
   cellParagraph: nonnegativeSafeInteger,
 });
 
+export const studioTableCellRegionTargetSchema = z.strictObject({
+  kind: z.literal("table_cell_region"),
+  section: nonnegativeSafeInteger,
+  parentPara: nonnegativeSafeInteger,
+  controlIndex: nonnegativeSafeInteger,
+  cellIndex: nonnegativeSafeInteger,
+});
+
 export const studioFormTextTargetSchema = z.strictObject({
   kind: z.literal("form_text"),
   section: nonnegativeSafeInteger,
@@ -38,6 +46,7 @@ export const studioFormTextTargetSchema = z.strictObject({
 
 export const studioFieldTargetSchema = z.discriminatedUnion("kind", [
   studioTableCellTextTargetSchema,
+  studioTableCellRegionTargetSchema,
   studioFormTextTargetSchema,
 ]);
 
@@ -110,10 +119,14 @@ export const studioApplyFieldCommandSchema = z.strictObject({
   expectedBeforeSha256: sha256Schema,
   expectedFormatSha256: sha256Schema,
   expectedAdjacentContextSha256: sha256Schema,
-  replacement: z.string().max(4_000).refine(
-    (value) => !/[\u0000-\u001f\u007f]/u.test(value),
-    "atomic field replacement에 control 문자나 줄바꿈을 넣을 수 없습니다.",
-  ),
+  replacement: z.string().max(4_000),
+}).superRefine((command, context) => {
+  if (/[\u0000-\u0009\u000b-\u001f\u007f]/u.test(command.replacement)) {
+    context.addIssue({ code: "custom", path: ["replacement"], message: "field replacement에 control 문자를 넣을 수 없습니다." });
+  }
+  if (command.target.kind !== "table_cell_region" && /\n/u.test(command.replacement)) {
+    context.addIssue({ code: "custom", path: ["replacement"], message: "atomic field replacement에는 줄바꿈을 넣을 수 없습니다." });
+  }
 });
 
 export const studioRevertFieldCommandSchema = studioRevertTextCommandSchema;
@@ -177,6 +190,7 @@ export const studioDocumentChangedEventSchema = z.strictObject({
 
 export type StudioBodyParagraphTargetV1 = z.infer<typeof studioBodyParagraphTargetSchema>;
 export type StudioTableCellTextTargetV1 = z.infer<typeof studioTableCellTextTargetSchema>;
+export type StudioTableCellRegionTargetV1 = z.infer<typeof studioTableCellRegionTargetSchema>;
 export type StudioFormTextTargetV1 = z.infer<typeof studioFormTextTargetSchema>;
 export type StudioFieldTargetV1 = z.infer<typeof studioFieldTargetSchema>;
 export type StudioDocumentStateV1 = z.infer<typeof studioDocumentStateSchema>;

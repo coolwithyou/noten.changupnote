@@ -75,10 +75,6 @@ export async function rebuildFieldAgentAuthority(input: {
   const field = fields.find((entry) => entry.fieldId === input.fieldId);
   if (!field) throw new FieldAgentAuthorityError("field_not_found", "현재 문서의 필드를 찾지 못했습니다.", 404);
   const options = extractFieldOptions(field.fieldType, field.sourceSpan);
-  if (!isSupportedField(field.fieldType, options) || !isLlmSuggestableLabel(field.label)) {
-    throw new FieldAgentAuthorityError("field_unsupported", "이 필드는 현재 자동 입력 대상이 아닙니다.", 409);
-  }
-
   const rhwp = await loadDocumentAgentCore();
   const document = new rhwp.HwpDocument(revision.body);
   let target: StudioFieldTargetV1;
@@ -97,6 +93,9 @@ export async function rebuildFieldAgentAuthority(input: {
     target = resolution.target;
   } finally {
     document.free();
+  }
+  if (!isSupportedField(field.fieldType, options, target) || !isLlmSuggestableLabel(field.label)) {
+    throw new FieldAgentAuthorityError("field_unsupported", "이 필드는 현재 자동 입력 대상이 아닙니다.", 409);
   }
   if (!sameTarget(target, input.requestedTarget)) {
     throw new FieldAgentAuthorityError("field_binding_mismatch", "요청한 필드 위치가 서버 binding과 다릅니다.", 409);
@@ -143,10 +142,15 @@ export async function rebuildFieldAgentAuthority(input: {
   };
 }
 
-function isSupportedField(fieldType: string, options: readonly string[]): boolean {
+function isSupportedField(
+  fieldType: string,
+  options: readonly string[],
+  target: StudioFieldTargetV1,
+): boolean {
   if (options.length > 0) return true;
   const normalized = fieldType.trim().toLocaleLowerCase("en-US");
-  return !["file", "table", "checkbox", "radio", "select", "long_text"].includes(normalized);
+  if (normalized === "long_text") return target.kind === "table_cell_region";
+  return !["file", "table", "checkbox", "radio", "select"].includes(normalized);
 }
 
 function sameTarget(left: StudioFieldTargetV1, right: StudioFieldTargetV1): boolean {
@@ -159,6 +163,11 @@ function sameTarget(left: StudioFieldTargetV1, right: StudioFieldTargetV1): bool
       && left.controlIndex === right.controlIndex
       && left.cellIndex === right.cellIndex
       && left.cellParagraph === right.cellParagraph;
+  }
+  if (left.kind === "table_cell_region" && right.kind === "table_cell_region") {
+    return left.parentPara === right.parentPara
+      && left.controlIndex === right.controlIndex
+      && left.cellIndex === right.cellIndex;
   }
   return false;
 }
