@@ -18,3 +18,16 @@ export function classifyApplicationFieldMap(parserVersions: readonly string[]): 
   if (automated.length !== parserVersions.length) return "protected";
   return automated.every(isCurrentApplicationFieldParserVersion) ? "current_automated" : "stale_automated";
 }
+
+/**
+ * field-agent 감사 이력이 field ID를 참조하므로 자동 파서 업그레이드는 기존 key를 삭제할 수 없다.
+ * 기존 key를 모두 보존하는 additive revision만 제자리 갱신하고, 제거·이름변경 revision은 별도
+ * migration 없이는 fail-closed한다.
+ */
+export function isAdditiveApplicationFieldMapUpgrade(
+  existingFieldKeys: readonly string[],
+  nextFieldKeys: readonly string[],
+): boolean {
+  const next = new Set(nextFieldKeys);
+  return existingFieldKeys.every((fieldKey) => next.has(fieldKey));
+}

@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { and, eq, like, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import type { CandidateKind, CandidateSet, ReconciledField } from "@cunote/core";
 import type { GrantSource } from "@cunote/contracts";
 import {
@@ -16,9 +16,9 @@ import * as schema from "../db/schema";
 import type { R2ObjectStorage } from "../storage/r2ObjectStorage";
 import { buildReconciledApplicationFields } from "./applicationFieldAnalysis";
 import {
-  APPLICATION_FIELD_PARSER_PREFIX,
   APPLICATION_FIELD_PARSER_VERSION,
   classifyApplicationFieldMap,
+  isAdditiveApplicationFieldMapUpgrade,
 } from "./applicationFieldVersion";
 import {
   APPLICATION_PRECOMPUTE_ENGINE,
@@ -291,7 +291,10 @@ export async function applyPreparedGrantApplicationPrecompute(input: {
     }
     if (item.fields.length === 0) throw new Error(`materialize 가능한 필드가 0건입니다: ${item.surfaceId}`);
     const mapRows = await input.db
-      .select({ parserVersion: schema.grantDocumentFields.parserVersion })
+      .select({
+        parserVersion: schema.grantDocumentFields.parserVersion,
+        fieldKey: schema.grantDocumentFields.fieldKey,
+      })
       .from(schema.grantDocumentFields)
       .where(eq(schema.grantDocumentFields.surfaceId, item.surfaceId));
     const mapState = classifyApplicationFieldMap(mapRows.map((row) => row.parserVersion));
@@ -308,14 +311,17 @@ export async function applyPreparedGrantApplicationPrecompute(input: {
       result.fields += mapRows.length;
       continue;
     }
-    if (mapState !== "empty") {
-      await input.db
-        .delete(schema.grantDocumentFields)
-        .where(and(
-          eq(schema.grantDocumentFields.surfaceId, item.surfaceId),
-          like(schema.grantDocumentFields.parserVersion, `${APPLICATION_FIELD_PARSER_PREFIX}%`),
-        ));
+    if (
+      mapState === "stale_automated"
+      && !isAdditiveApplicationFieldMapUpgrade(
+        mapRows.map((row) => row.fieldKey),
+        item.fields.map((field) => field.fieldKey),
+      )
+    ) {
+      throw new Error(`field-agent 이력이 연결된 non-additive 자동 필드맵 업그레이드입니다: ${item.surfaceId}`);
     }
+    // field-agent 감사 이력이 field ID를 참조하므로 자동 재물질화도 기존 key의 행을 보존한다.
+    // applyReconciledFields가 (surfaceId, fieldKey) 기준으로 갱신하고 신규 key만 추가한다.
     const applied = await applyReconciledFields({
       db: input.db,
       surfaceId: item.surfaceId,

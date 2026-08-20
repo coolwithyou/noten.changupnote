@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { and, eq, like, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import type { DocumentFieldType } from "@cunote/contracts";
 import type { ReconciledField } from "@cunote/core";
 import type { RoundtripParsedDocument } from "@/lib/server/analysis-lab/application-roundtrip/contract";
@@ -10,9 +10,9 @@ import { analyzeRoundtripDocument } from "../analysis-lab/application-roundtrip/
 import { likelyApplicationRole, normalizeRoundtripLabel } from "../analysis-lab/application-roundtrip/core";
 import { applyReconciledFields } from "./applyReconciledFields";
 import {
-  APPLICATION_FIELD_PARSER_PREFIX,
   APPLICATION_FIELD_PARSER_VERSION,
   classifyApplicationFieldMap,
+  isAdditiveApplicationFieldMapUpgrade,
   isAutomatedApplicationFieldParserVersion,
 } from "./applicationFieldVersion";
 import { loadDraftSourceFile } from "./draftSourceFile";
@@ -182,14 +182,23 @@ export async function ensureDraftApplicationFields(input: {
         409,
       );
     }
-    if (latestMap.parserVersions.length > 0 && latestMap.parserVersions.every(isAutomatedApplicationFieldParserVersion)) {
-      await tx
-        .delete(schema.grantDocumentFields)
-        .where(and(
-          eq(schema.grantDocumentFields.surfaceId, surface.id),
-          like(schema.grantDocumentFields.parserVersion, `${APPLICATION_FIELD_PARSER_PREFIX}%`),
-        ));
+    if (
+      latestMap.parserVersions.length > 0
+      && latestMap.parserVersions.every(isAutomatedApplicationFieldParserVersion)
+      && !isAdditiveApplicationFieldMapUpgrade(
+        latestMap.fieldKeys,
+        fields.map((field) => field.fieldKey),
+      )
+    ) {
+      throw new ApplicationFieldAnalysisError(
+        "application_field_map_non_additive_upgrade",
+        "기존 AI 제안 이력이 연결된 필드를 제거하거나 이름을 바꾸는 자동 업그레이드는 별도 migration이 필요합니다.",
+        409,
+      );
     }
+    // field-agent run/suggestion 이 grant_document_fields.id 를 감사 이력으로 참조한다.
+    // 자동 맵 업그레이드도 행을 전부 지우지 않고 (surfaceId, fieldKey) 제자리 갱신으로 ID를 보존한다.
+    // 이번 parser revision은 기존 자동 맵의 additive superset이며 신규 key만 insert한다.
     const applied = await applyReconciledFields({
       db: tx as unknown as CunoteDbSession,
       surfaceId: surface.id,
@@ -357,12 +366,18 @@ function shouldReuseExistingFieldMap(status: string, parserVersions: string[]): 
 async function loadSurfaceFieldMapState(
   db: Pick<CunoteDbSession, "select">,
   surfaceId: string,
-): Promise<{ parserVersions: string[] }> {
+): Promise<{ parserVersions: string[]; fieldKeys: string[] }> {
   const rows = await db
-    .select({ parserVersion: schema.grantDocumentFields.parserVersion })
+    .select({
+      parserVersion: schema.grantDocumentFields.parserVersion,
+      fieldKey: schema.grantDocumentFields.fieldKey,
+    })
     .from(schema.grantDocumentFields)
     .where(eq(schema.grantDocumentFields.surfaceId, surfaceId));
-  return { parserVersions: rows.map((row) => row.parserVersion) };
+  return {
+    parserVersions: rows.map((row) => row.parserVersion),
+    fieldKeys: rows.map((row) => row.fieldKey),
+  };
 }
 
 function coverageConfidence(status: RoundtripParsedDocument["fieldCoverage"]["status"]): number {
