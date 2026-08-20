@@ -41,6 +41,13 @@ const PROFILE_SECRET = "프로필전용문구_ZZPROFILE";
 const FIELD_SECRET = "필드전용문구_ZZFIELD";
 const MARKDOWN_SECRET = "공고본문문구_ZZBODY";
 
+check("⓪ 필드 작성 모드에서는 확인된 사실 기반 초안 협업을 허용", () => {
+  const system = buildChatSystemPrompt();
+  assert.ok(system.includes("작성 협업 모드"), "필드 작성 모드 규칙 누락");
+  assert.ok(system.includes("지원서 문구 작성 자체를 이유로 거절하지 않습니다"), "작성 거절 방지 규칙 누락");
+  assert.ok(system.includes("필요한 사실을 질문합니다"), "사실 부족 시 질문 규칙 누락");
+});
+
 // ① 가변 정보는 캐시 prefix(system·documents)에 절대 없고 dynamicContext/fieldContextBlock 에만.
 check("① 가변 정보(lesson·프로필)는 system·documents 에 미포함, dynamicContext 에만", () => {
   const grounding = assembleGrounding({
