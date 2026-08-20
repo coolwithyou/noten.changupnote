@@ -7,6 +7,7 @@ import {
   generateRoundtripSampleValue,
   assessRoundtripInputField,
   inferRoundtripInputKind,
+  isNarrativeInstructionPlaceholder,
 } from "./core";
 
 assert.equal(VERSION, "4.2.3", "왕복 실험은 검증된 Kordoc 4.2.3을 사용해야 한다");
@@ -107,8 +108,27 @@ assert.equal(assessRoundtripInputField({ label: "2026년    월     일", type: 
 assert.equal(assessRoundtripInputField({ label: "대표자명", type: "text", row: 2 }).recommended, true);
 assert.equal(assessRoundtripInputField({ label: "회사소개*", type: "text", row: 1, required: true }).recommended, true);
 assert.equal(assessRoundtripInputField({ label: "기업소개", type: "text", row: 3 }).recommended, true);
+assert.equal(assessRoundtripInputField({ label: "자기소개", type: "text", row: 3 }).recommended, true);
 assert.equal(assessRoundtripInputField({ label: "혁신성*", type: "text", row: 4, required: true }).recommended, true);
 assert.equal(inferRoundtripInputKind("회사소개*", "text"), "textarea");
+assert.equal(inferRoundtripInputKind("창업동기 및 신청사유(*)", "text"), "textarea");
+assert.equal(
+  isNarrativeInstructionPlaceholder(
+    "자기소개",
+    "※ 자유롭게 기술하되, 성장과정과 학교생활 및 전공분야가 나타나도록 작성",
+  ),
+  true,
+);
+assert.equal(
+  isNarrativeInstructionPlaceholder("자기소개", "저는 데이터 분석 경험을 바탕으로 창업했습니다."),
+  false,
+  "사용자가 이미 작성한 자기소개를 안내문으로 오인하면 안 된다",
+);
+assert.equal(
+  isNarrativeInstructionPlaceholder("개인정보 동의", "※ 내용을 확인한 뒤 동의 여부를 선택"),
+  false,
+  "서술형 라벨이 아닌 고정 안내문은 자동 입력 대상으로 승격하지 않는다",
+);
 
 assert.deepEqual(
   generateRoundtripSampleValue({ label: "사업자등록번호", type: "idnum" }),

@@ -1,4 +1,4 @@
-export const APPLICATION_FIELD_PARSER_VERSION = "kordoc-rhwp-application-fields-v2";
+export const APPLICATION_FIELD_PARSER_VERSION = "kordoc-rhwp-application-fields-v3";
 export const APPLICATION_FIELD_PARSER_PREFIX = "kordoc-rhwp-application-fields-";
 
 export function isAutomatedApplicationFieldParserVersion(value: string): boolean {

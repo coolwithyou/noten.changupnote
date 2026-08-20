@@ -25,7 +25,14 @@ const document: RoundtripParsedDocument = {
     field({ id: "company", label: "기업명", required: true }),
     field({ id: "company-duplicate", label: "기업명", row: 2 }),
     field({ id: "vendor", label: "홍보물 제작기업 기업명", row: 3 }),
-    field({ id: "rejected", label: "접수번호", recommendedInput: false, row: 4 }),
+    field({
+      id: "self-intro",
+      label: "자기소개",
+      row: 4,
+      inputKind: "textarea",
+      originalValue: "※ 성장과정과 전공분야가 나타나도록 작성",
+    }),
+    field({ id: "rejected", label: "접수번호", recommendedInput: false, row: 5 }),
   ],
   choiceGroups: [{
     groupId: "choice-1",
@@ -39,21 +46,21 @@ const document: RoundtripParsedDocument = {
     ],
     location: { sectionIndex: 0, tableIndex: 1, row: 0, col: 0, pageNumber: null },
   }],
-  emptyFieldCount: 4,
-  recommendedInputFieldCount: 3,
+  emptyFieldCount: 5,
+  recommendedInputFieldCount: 4,
   recommendedChoiceGroupCount: 1,
   fieldPlanning: {
     status: "skipped",
     model: null,
     durationMs: 0,
-    candidateCount: 4,
-    acceptedCount: 3,
+    candidateCount: 5,
+    acceptedCount: 4,
     rejectedCount: 1,
     warning: null,
   },
   fieldCoverage: {
     status: "complete",
-    rawEmptyCandidateCount: 4,
+    rawEmptyCandidateCount: 5,
     acceptedInputCount: 3,
     unresolvedCandidateCount: 0,
     structuralWarningCount: 0,
@@ -67,11 +74,12 @@ const document: RoundtripParsedDocument = {
 
 const fields = buildReconciledApplicationFields(document);
 
-assert.equal(fields.length, 4, "추천 입력 3건과 HWP 객관식 1건만 반영해야 한다");
+assert.equal(fields.length, 5, "추천 입력 4건과 HWP 객관식 1건만 반영해야 한다");
 assert.deepEqual(fields.map((item) => item.fieldKey), [
   "company_name",
   "company_name-2",
   "홍보물_제작기업_기업명",
+  "자기소개",
   "신청_분야",
 ]);
 
@@ -86,7 +94,12 @@ const vendor = fields[2]!;
 assert.equal(vendor.mappedCompanyField, null, "외주·수행기관 기업명은 신청 기업명으로 자동 채우면 안 된다");
 assert.equal(vendor.fillStrategy, "ask_user");
 
-const choice = fields[3]!;
+const selfIntro = fields[3]!;
+assert.equal(selfIntro.fieldType, "long_text");
+assert.equal(selfIntro.fillStrategy, "ask_user");
+assert.equal(selfIntro.sourceSpan, "※ 성장과정과 전공분야가 나타나도록 작성");
+
+const choice = fields[4]!;
 assert.equal(choice.fieldType, "checkbox");
 assert.equal(choice.fillStrategy, "ask_user");
 assert.equal(choice.sourceSpan, "□ 홍보 브로슈어 □ 홍보 동영상");
@@ -102,13 +115,15 @@ function field(input: {
   required?: boolean;
   recommendedInput?: boolean;
   row?: number;
+  inputKind?: RoundtripFieldCandidate["inputKind"];
+  originalValue?: string;
 }): RoundtripFieldCandidate {
   return {
     fieldInstanceId: input.id,
     label: input.label,
     displayLabel: input.label,
     normalizedLabel: input.label.replaceAll(" ", ""),
-    originalValue: "",
+    originalValue: input.originalValue ?? "",
     type: "text",
     required: input.required ?? false,
     empty: true,
@@ -118,9 +133,9 @@ function field(input: {
     sampleValue: "샘플",
     sampleReason: "테스트",
     source: "kordoc-form",
-    inputKind: "text",
+    inputKind: input.inputKind ?? "text",
     writeOperation: "kordoc_field",
-    helperText: null,
+    helperText: input.originalValue ?? null,
     unit: null,
     options: [],
     analysisSource: "heuristic",
