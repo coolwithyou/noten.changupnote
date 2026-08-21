@@ -9,6 +9,7 @@ interface Fixture {
   serializationNonce: string;
   value: string;
   charShapeId: number;
+  cellBorder: string;
 }
 
 const encoder = new TextEncoder();
@@ -31,15 +32,30 @@ class FakeDocument {
   getCharPropertiesAt() { return JSON.stringify({ charShapeId: 7 }); }
   getFieldList() { return "[]"; }
   getPageControlLayout() {
-    return JSON.stringify({ controls: [{ type: "table", secIdx: 0, paraIdx: 0, controlIdx: 0 }] });
+    return JSON.stringify({ controls: [
+      { type: "table", secIdx: 0, paraIdx: 0, controlIdx: 0, stableIndex: [0, 0, 0] },
+      {
+        type: "table",
+        secIdx: 0,
+        paraIdx: 0,
+        controlIdx: 0,
+        stableIndex: [0, 0, 0, 0, 0, 0, 0, 0, 0],
+      },
+    ] });
+  }
+  getPageTextLayout() {
+    return JSON.stringify({ runs: [{
+      parentParaIdx: 0,
+      cellPath: [
+        { controlIndex: 0, cellIndex: 0, cellParaIndex: 0 },
+        { controlIndex: 0, cellIndex: 0, cellParaIndex: 0 },
+      ],
+    }] });
   }
   getTableDimensions() { return JSON.stringify({ rowCount: 1, colCount: 1, cellCount: 1 }); }
-  getCellParagraphCount() { return 1; }
-  getCellParagraphLength() { return Array.from(this.fixture.value).length; }
-  getTextInCell() { return this.fixture.value; }
-  getCellCharPropertiesAt() { return JSON.stringify({ charShapeId: this.fixture.charShapeId, textColor: "#000000" }); }
-  getCellParaPropertiesAt() { return JSON.stringify({ paraShapeId: 9, align: "left" }); }
-  getCellOwnProperties() { return JSON.stringify({ borderFillId: 2 }); }
+  exportControlHtml() {
+    return `<table><td style="border:${this.fixture.cellBorder}"><span data-shape="${this.fixture.charShapeId}">${this.fixture.value}</span><table><td>중첩 값</td></table></td></table>`;
+  }
   free() {}
 }
 
@@ -47,10 +63,11 @@ function documentFor(fixture: Fixture): RhwpDocument {
   return new FakeDocument(encoder.encode(JSON.stringify(fixture))) as unknown as RhwpDocument;
 }
 
-const original = documentFor({ serializationNonce: "first", value: "같은 내용", charShapeId: 7 });
-const reserialized = documentFor({ serializationNonce: "second", value: "같은 내용", charShapeId: 7 });
-const edited = documentFor({ serializationNonce: "third", value: "바뀐 내용", charShapeId: 7 });
-const restyled = documentFor({ serializationNonce: "fourth", value: "같은 내용", charShapeId: 8 });
+const original = documentFor({ serializationNonce: "first", value: "같은 내용", charShapeId: 7, cellBorder: "solid" });
+const reserialized = documentFor({ serializationNonce: "second", value: "같은 내용", charShapeId: 7, cellBorder: "solid" });
+const edited = documentFor({ serializationNonce: "third", value: "바뀐 내용", charShapeId: 7, cellBorder: "solid" });
+const restyled = documentFor({ serializationNonce: "fourth", value: "같은 내용", charShapeId: 8, cellBorder: "solid" });
+const cellRestyled = documentFor({ serializationNonce: "fifth", value: "같은 내용", charShapeId: 7, cellBorder: "dashed" });
 
 const originalSha = await studioFieldDocumentSemanticSha256(original);
 assert.equal(await studioFieldDocumentSemanticSha256(reserialized), originalSha,
@@ -59,6 +76,8 @@ assert.notEqual(await studioFieldDocumentSemanticSha256(edited), originalSha,
   "표 셀 값 변경은 의미 SHA에서 감지해야 한다");
 assert.notEqual(await studioFieldDocumentSemanticSha256(restyled), originalSha,
   "표 셀 서식 변경은 의미 SHA에서 감지해야 한다");
+assert.notEqual(await studioFieldDocumentSemanticSha256(cellRestyled), originalSha,
+  "표 셀 테두리 변경은 의미 SHA에서 감지해야 한다");
 
 assert.equal(matchesStudioFieldDocumentPreimage({
   currentDocumentSha256: "same-bytes",
