@@ -14,6 +14,9 @@ const CHOICE_MARKER_PATTERN = /[□■☐☑☒✓]/g;
 const SELECTED_MARKERS = new Set(["■", "☑", "☒", "✓"]);
 const INSTRUCTION_PATTERN = /(○|체크|선택).{0,20}(표시|기재)|(?:보유|해당).{0,30}(○|체크).{0,10}표시/;
 const NARRATIVE_ACTION_PATTERN = /(서술|제시|작성|기재|설명|명시|기술)/;
+const NARRATIVE_TABLE_LABEL_PATTERN = /(내용|고객|대상|사례|차별|수익|성장|시장|계획|전략|일정|소개|동기|사유|요약|개요|목표|효과)/;
+const STRUCTURED_NARRATIVE_PATTERN = /(<[^>]*(?:일정|예시)|추진내용\s*\/|산출근거)/;
+const NON_FIELD_NARRATIVE_PATTERN = /(개인정보|고유식별정보|수집.?이용|제공받는 자|보유.?이용기간|동의함|동의하지 않음)/;
 const CONTEXTUAL_FIELD_LIMIT = 240;
 
 export function extractContextualRoundtripFields(
@@ -43,6 +46,8 @@ function extractTableContextualFields(
   sourceSha256: string,
   fields: RoundtripFieldCandidate[],
 ): void {
+  extractAdjacentNarrativeFields(table, blockIndex, pageNumber, sourceSha256, fields);
+  extractStackedNarrativeFields(table, blockIndex, pageNumber, sourceSha256, fields);
   table.cells.forEach((row, rowIndex) => {
     row.forEach((cell, colIndex) => {
       const text = cell.text.trim();
@@ -173,6 +178,101 @@ function extractTableContextualFields(
       }
     });
   });
+}
+
+/** 두 열 표의 왼쪽 라벨과 오른쪽 장문 입력 셀을 구조 후보로 보강한다. */
+function extractAdjacentNarrativeFields(
+  table: IRTable,
+  blockIndex: number,
+  pageNumber: number | null,
+  sourceSha256: string,
+  fields: RoundtripFieldCandidate[],
+): void {
+  table.cells.forEach((row, rowIndex) => {
+    if (row.length !== 2) return;
+    const label = row[0]?.text.trim() ?? "";
+    const value = row[1]?.text.trim() ?? "";
+    if (!isSafeNarrativeTableLabel(label) || /^[□■☐☑☒✓※]/u.test(label)) return;
+    if (value && !NARRATIVE_ACTION_PATTERN.test(value)) return;
+    if (STRUCTURED_NARRATIVE_PATTERN.test(value)) return;
+    fields.push(createContextualField({
+      sourceSha256,
+      blockIndex,
+      row: rowIndex,
+      col: 1,
+      pageNumber,
+      label,
+      originalValue: value,
+      inputKind: "textarea",
+      writeOperation: "replace_span",
+      helperText: value || `${label} 내용을 작성합니다.`,
+      unit: null,
+      options: [],
+      expectedText: value,
+      textStart: value ? row[1]!.text.indexOf(value) : 0,
+      sampleValue: sampleNarrativeValue(label),
+      sampleReason: "왼쪽 라벨에 결속된 장문 입력 셀 샘플",
+      signals: ["2열 표의 장문 라벨", value ? "오른쪽 작성 안내문" : "오른쪽 빈 입력 셀"],
+      confidence: 0.97,
+    }));
+  });
+}
+
+/** `□ 섹션 제목` 다음 행 전체가 안내문/입력칸인 세로형 사업계획 표를 보강한다. */
+function extractStackedNarrativeFields(
+  table: IRTable,
+  blockIndex: number,
+  pageNumber: number | null,
+  sourceSha256: string,
+  fields: RoundtripFieldCandidate[],
+): void {
+  for (let rowIndex = 0; rowIndex + 1 < table.cells.length; rowIndex += 1) {
+    if (!rowHasSingleContentCell(table.cells[rowIndex]!)
+        || !rowHasSingleContentCell(table.cells[rowIndex + 1]!)) continue;
+    const headerCell = table.cells[rowIndex]?.[0];
+    const valueCell = table.cells[rowIndex + 1]?.[0];
+    const header = headerCell?.text.trim() ?? "";
+    const value = valueCell?.text.trim() ?? "";
+    const match = header.match(/^[□■☐☑☒✓]\s*(.+)$/u);
+    if (!match || !value || !(/^※/u.test(value) || NARRATIVE_ACTION_PATTERN.test(value))) continue;
+    if (STRUCTURED_NARRATIVE_PATTERN.test(value)) continue;
+    const label = match[1]!.trim();
+    if (!isSafeNarrativeTableLabel(label)) continue;
+    fields.push(createContextualField({
+      sourceSha256,
+      blockIndex,
+      row: rowIndex + 1,
+      col: 0,
+      pageNumber,
+      label,
+      originalValue: value,
+      inputKind: "textarea",
+      writeOperation: "replace_span",
+      helperText: value,
+      unit: null,
+      options: [],
+      expectedText: value,
+      textStart: valueCell!.text.indexOf(value),
+      sampleValue: sampleNarrativeValue(label),
+      sampleReason: "제목 아래 장문 입력 셀 샘플",
+      signals: ["섹션 제목 바로 아래 입력 셀", "작성 안내문"],
+      confidence: 0.97,
+    }));
+  }
+}
+
+function rowHasSingleContentCell(row: readonly IRCell[]): boolean {
+  return row.length > 0 && row.slice(1).every((cell) => cell.text.trim().length === 0);
+}
+
+/** 법률 고지문이나 합쳐진 거대 셀을 장문 작성 라벨로 승격하지 않는다. */
+function isSafeNarrativeTableLabel(label: string): boolean {
+  const normalized = normalizeRoundtripLabel(label);
+  return normalized.length >= 2
+    && normalized.length <= 32
+    && label.length <= 60
+    && NARRATIVE_TABLE_LABEL_PATTERN.test(normalized)
+    && !NON_FIELD_NARRATIVE_PATTERN.test(normalized);
 }
 
 /**

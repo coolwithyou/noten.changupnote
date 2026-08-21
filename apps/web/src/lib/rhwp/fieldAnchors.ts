@@ -51,6 +51,8 @@ interface SearchHit {
   sec: number;
   length: number;
   charOffset?: number;
+  /** 페이지 레이아웃에서 셀 전체를 합친 값이 라벨과 정확히 같은 경우. */
+  wholeCellExact?: boolean;
   cellContext?: {
     parentPara: number;
     ctrlIdx: number;
@@ -323,13 +325,16 @@ function normalizedLayoutHits(
           || typeof run.parentParaIdx !== "number"
           || typeof run.controlIdx !== "number"
           || typeof run.cellIdx !== "number") continue;
-        const key = `${run.secIdx}:${run.parentParaIdx}:${run.controlIdx}:${run.cellIdx}:${run.cellParaIdx ?? 0}`;
+        // 여러 줄 라벨은 한 셀 안의 여러 cell paragraph로 나뉜다. paragraph까지 key에
+        // 넣으면 "창업 및 / 사업운영계획 / 요약" 같은 라벨을 영원히 찾지 못한다.
+        const key = `${run.secIdx}:${run.parentParaIdx}:${run.controlIdx}:${run.cellIdx}`;
         const runs = groupedRuns.get(key) ?? [];
         runs.push(run);
         groupedRuns.set(key, runs);
       }
       cellRunCache.set(pageIndex, [...groupedRuns.values()].map((runs) => (
-        runs.sort((a, b) => (a.charStart ?? 0) - (b.charStart ?? 0))
+        runs.sort((a, b) => (a.cellParaIdx ?? 0) - (b.cellParaIdx ?? 0)
+          || (a.charStart ?? 0) - (b.charStart ?? 0))
       )));
     }
     for (const runs of cellRunCache.get(pageIndex) ?? []) {
@@ -340,6 +345,7 @@ function normalizedLayoutHits(
         sec: first.secIdx,
         length: cellText.length,
         charOffset: first.charStart ?? 0,
+        wholeCellExact: true,
         cellContext: {
           parentPara: first.parentParaIdx!,
           ctrlIdx: first.controlIdx!,
@@ -374,9 +380,23 @@ function rowOverlaps(a: CellBox, b: CellBox): boolean {
 
 function targetCellForLabel(labelCell: CellBox, cells: readonly CellBox[]): CellBox | null {
   const labelEnd = labelCell.col + (labelCell.colSpan ?? 1);
-  return cells
+  const right = cells
     .filter((cell) => cell.pageIndex === labelCell.pageIndex && rowOverlaps(labelCell, cell) && cell.col >= labelEnd)
-    .sort((a, b) => a.col - b.col || a.cellIdx - b.cellIdx)[0] ?? null;
+    .sort((a, b) => a.col - b.col || a.cellIdx - b.cellIdx)[0];
+  if (right) return right;
+
+  // 일부 사업계획서는 "□ 창업 계획" 제목 행 바로 아래 한 칸 전체를 입력 영역으로 쓴다.
+  // 같은 열 범위에서 가장 가까운 아래 셀만 허용해 옆/아래를 임의 추정하지 않는다.
+  const labelRowEnd = labelCell.row + (labelCell.rowSpan ?? 1);
+  const below = cells
+    .filter((cell) => {
+      if (cell.pageIndex !== labelCell.pageIndex || cell.row < labelRowEnd) return false;
+      const cellEnd = cell.col + (cell.colSpan ?? 1);
+      return cell.col < labelEnd && labelCell.col < cellEnd;
+    })
+    .sort((a, b) => a.row - b.row || Math.abs(a.col - labelCell.col) - Math.abs(b.col - labelCell.col)
+      || a.cellIdx - b.cellIdx)[0];
+  return below ?? null;
 }
 
 function candidateDistance(box: NormalizedBox, hint: NormalizedBox | null): number {
@@ -403,6 +423,7 @@ interface Candidate {
   anchor: RhwpFieldAnchor;
   score: number;
   key: string;
+  wholeCellExact: boolean;
 }
 
 export type RhwpExactFieldAnchorResolution =
@@ -429,8 +450,10 @@ function enumerateFieldCandidates(
   field: RhwpFieldDescriptor,
   context: ResolverContext,
 ): Candidate[] {
-  const hintPage = parsePositionPage(field.position);
   const hintBox = parsePositionBbox(field.position);
+  // KorDoc이 pageNumber를 제공하지 못한 HWPX는 모든 block을 1쪽으로 접는다. 좌표가 없는
+  // page-only 값은 exact 힌트가 아니므로 전체 문서를 탐색한다.
+  const hintPage = hintBox ? parsePositionPage(field.position) : null;
   const pageInfoAt = (pageIndex: number): PageInfo | null => {
     if (!context.pageInfoCache.has(pageIndex)) {
       context.pageInfoCache.set(pageIndex, parsePageInfo(document.getPageInfo(pageIndex)));
@@ -445,7 +468,8 @@ function enumerateFieldCandidates(
     ];
     for (const hit of hits) {
       const cellContext = hit.cellContext;
-      if (!cellContext || normalizedText(variant).length === 0 || hit.length < variant.length) continue;
+      if (!cellContext || normalizedText(variant).length === 0
+          || (!hit.wholeCellExact && hit.length < variant.length)) continue;
       const tableKey = `${hit.sec}:${cellContext.parentPara}:${cellContext.ctrlIdx}:${hintPage ?? "all"}`;
       if (!context.tableCache.has(tableKey)) {
         context.tableCache.set(tableKey, parseArray<CellBox>(document.getTableCellBboxes(
@@ -458,7 +482,11 @@ function enumerateFieldCandidates(
       const cells = context.tableCache.get(tableKey) ?? [];
       const labelCell = cells.find((cell) => cell.cellIdx === cellContext.cellIdx);
       if (!labelCell) continue;
-      const targetCell = targetCellForLabel(labelCell, cells);
+      // `(예정지)※해당시 주소 기재`처럼 값 셀 자체에 placeholder가 들어 있는 경우에는
+      // 오른쪽/아래 셀을 추측하지 않고 exact하게 그 셀 자체를 입력 대상으로 삼는다.
+      const targetCell = isSelfTargetingPlaceholder(field.label)
+        ? labelCell
+        : targetCellForLabel(labelCell, cells);
       if (!targetCell) continue;
       const pageInfo = pageInfoAt(targetCell.pageIndex);
       if (!pageInfo) continue;
@@ -488,9 +516,13 @@ function enumerateFieldCandidates(
       };
       const key = `${hit.sec}:${cellContext.parentPara}:${cellContext.ctrlIdx}:${targetCell.cellIdx}:${targetCell.pageIndex}`;
       const pageBonus = hintPage === anchor.page ? 100 : 0;
-      const score = 1_000 - variantIndex * 100 + pageBonus - candidateDistance(box, hintBox) * 100;
+      const exactCellBonus = hit.wholeCellExact ? 50 : 0;
+      const score = 1_000 - variantIndex * 100 + pageBonus + exactCellBonus
+        - candidateDistance(box, hintBox) * 100;
       const previous = candidates.get(key);
-      if (!previous || previous.score < score) candidates.set(key, { anchor, score, key });
+      if (!previous || previous.score < score) {
+        candidates.set(key, { anchor, score, key, wholeCellExact: hit.wholeCellExact === true });
+      }
     }
   }
   return [...candidates.values()].sort((a, b) => b.score - a.score);
@@ -548,7 +580,7 @@ export function resolveRhwpFieldAnchors(
   const context = createResolverContext();
   const resolved: RhwpFieldAnchor[] = [];
   for (const field of fields) {
-    const hintPage = parsePositionPage(field.position);
+    const hintPage = parsePositionBbox(field.position) ? parsePositionPage(field.position) : null;
     const ranked = enumerateFieldCandidates(document, field, context);
     if (ranked.length === 0) continue;
     // 위치 힌트도 없고 동률에 가까운 후보가 둘이면 잘못 고르지 않는다.
@@ -572,8 +604,11 @@ export function resolveRhwpFieldAnchorsExact(
 ): RhwpExactFieldAnchorResolution[] {
   const context = createResolverContext();
   return fields.map((field) => {
+    const ranked = enumerateFieldCandidates(document, field, context);
+    const exactCellCandidates = ranked.filter((candidate) => candidate.wholeCellExact);
+    const authoritative = exactCellCandidates.length > 0 ? exactCellCandidates : ranked;
     const structural = new Map<string, RhwpFieldAnchor>();
-    for (const candidate of enumerateFieldCandidates(document, field, context)) {
+    for (const candidate of authoritative) {
       const target = candidate.anchor.target;
       const key = [
         target.section,
@@ -585,6 +620,27 @@ export function resolveRhwpFieldAnchorsExact(
       if (!structural.has(key)) structural.set(key, candidate.anchor);
     }
     if (structural.size === 0) return { fieldId: field.fieldId, status: "missing", candidateCount: 0 };
+    const occurrence = exactStructuralOccurrence(field);
+    if (structural.size > 1 && occurrence !== null) {
+      const ordered = [...structural.values()].sort((left, right) => {
+        const a = left.target;
+        const b = right.target;
+        return a.section - b.section
+          || a.parentPara - b.parentPara
+          || a.controlIndex - b.controlIndex
+          || (a.labelCellIndex ?? -1) - (b.labelCellIndex ?? -1)
+          || a.cellIndex - b.cellIndex;
+      });
+      const anchor = ordered[occurrence];
+      if (anchor) {
+        return {
+          fieldId: field.fieldId,
+          status: "unique",
+          anchor: { ...anchor, appearance: cellAppearance(document, field, anchor.target) },
+          candidateCount: 1,
+        };
+      }
+    }
     if (structural.size > 1) {
       return { fieldId: field.fieldId, status: "ambiguous", candidateCount: structural.size };
     }
@@ -596,6 +652,24 @@ export function resolveRhwpFieldAnchorsExact(
       candidateCount: 1,
     };
   });
+}
+
+/** KorDoc source SHA에 결속해 저장한 동일 라벨의 문서 순번만 exact tie-break에 사용한다. */
+function exactStructuralOccurrence(field: RhwpFieldDescriptor): number | null {
+  const position = field.position;
+  if (!position) return null;
+  const occurrence = position.occurrence;
+  const normalizedLabel = position.normalizedLabel;
+  if (!Number.isSafeInteger(occurrence) || (occurrence as number) < 0) return null;
+  if (typeof normalizedLabel !== "string"
+      || normalizedText(normalizedLabel) !== normalizedText(field.label)) return null;
+  return occurrence as number;
+}
+
+/** 라벨 셀이 아니라 값 셀 안에 직접 놓인 좁은 괄호형 작성 안내만 허용한다. */
+function isSelfTargetingPlaceholder(label: string): boolean {
+  const compact = label.replace(/\s+/g, " ").trim();
+  return /^\([^)]{2,40}\).{0,40}(?:기재|작성|입력)$/u.test(compact);
 }
 
 /** 사용자가 rhwp 페이지에서 직접 누른 표 셀을 세션용 정확 앵커로 변환한다. */

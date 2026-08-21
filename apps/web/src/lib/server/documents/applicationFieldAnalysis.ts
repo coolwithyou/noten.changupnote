@@ -236,9 +236,17 @@ export function buildReconciledApplicationFields(document: RoundtripParsedDocume
       fillStrategy: fillPlan.fillStrategy,
       confidence,
       tier: confidence >= 0.8 ? "high" : confidence >= 0.55 ? "medium" : "low",
-      position: candidate.location.pageNumber
-        ? { page: candidate.location.pageNumber, bbox: null }
-        : null,
+      // pageNumber만 저장하면 페이지 메타가 없는 HWPX에서 모든 필드가 1쪽으로 접힌다.
+      // source SHA에 결속된 구조 순번도 함께 저장해 동명 라벨을 임의 선택하지 않고 exact하게 푼다.
+      position: {
+        page: candidate.location.pageNumber ?? null,
+        bbox: null,
+        blockIndex: candidate.location.blockIndex,
+        row: candidate.location.row,
+        col: candidate.location.col,
+        occurrence: candidate.location.occurrence,
+        normalizedLabel: candidate.normalizedLabel,
+      },
       visualEvidence: {
         source: "kordoc-rhwp",
         location: candidate.location,

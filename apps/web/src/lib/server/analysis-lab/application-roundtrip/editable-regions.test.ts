@@ -71,6 +71,95 @@ assert.match(editedTable.cells[1]![3]!.text, /\[참고\] 분류표 참조$/);
 assert.match(edited[2]!.text!, /^AI 문서 자동화 기술/);
 assert.match(edited[2]!.text!, /\(정량 지표\)/);
 
+const narrativeTableBlocks: IRBlock[] = [{
+  type: "table",
+  pageNumber: 3,
+  table: {
+    rows: 5,
+    cols: 2,
+    hasHeader: false,
+    cells: [
+      row("□ 창업아이템 소개", ""),
+      row("주요 내용", "※ 아이템의 용도와 기능을 구체적으로 기재"),
+      row("주 고객\n및\n이용 대상", ""),
+      row("유사창업사례\n및\n차별성", "※ 경쟁업체 분석 및 차별화 포인트를 명확히 기재"),
+      row("수익성\n및\n성장가능성", ""),
+    ],
+  },
+}];
+const narrativeTableFields = extractContextualRoundtripFields(narrativeTableBlocks, "c".repeat(64));
+assert.deepEqual(narrativeTableFields.map((field) => field.label), [
+  "주요 내용",
+  "주 고객\n및\n이용 대상",
+  "유사창업사례\n및\n차별성",
+  "수익성\n및\n성장가능성",
+]);
+assert.ok(narrativeTableFields.every((field) => field.location.target?.kind === "table_cell"));
+assert.ok(narrativeTableFields.every((field) => field.inputKind === "textarea"));
+
+const stackedNarrativeBlocks: IRBlock[] = [{
+  type: "table",
+  pageNumber: 4,
+  table: {
+    rows: 8,
+    cols: 1,
+    hasHeader: false,
+    cells: [
+      row("□ 창업 계획"),
+      row("※ 창업일정 및 형태, 창업 이후의 중장기 계획 등을 구체적으로 서술"),
+      row("□ 운영 계획"),
+      row("※ 자금조달 방안, 인력, 기타 점포 운영 계획 등"),
+      row("□ 홍보 및 판매전략"),
+      row("※ 예상 제품 단가와 홍보 및 판매전략을 기술"),
+      row("□ 향후 사업추진 일정"),
+      row("※ 세부일정을 기술\n<사업추진일정(예시)>\n추진내용 / 5월 / 6월"),
+    ],
+  },
+}];
+const stackedNarrativeFields = extractContextualRoundtripFields(stackedNarrativeBlocks, "d".repeat(64));
+assert.deepEqual(stackedNarrativeFields.map((field) => field.label), [
+  "창업 계획",
+  "운영 계획",
+  "홍보 및 판매전략",
+]);
+assert.equal(stackedNarrativeFields.some((field) => field.label === "향후 사업추진 일정"), false,
+  "구조형 일정표를 장문 텍스트로 덮어쓰지 않는다");
+
+const mergedHeaderNarrativeBlocks: IRBlock[] = [{
+  type: "table",
+  pageNumber: 3,
+  table: {
+    rows: 2,
+    cols: 2,
+    hasHeader: false,
+    cells: [
+      row("□ 시장조사 결과", ""),
+      row("※ 주요 목표시장과 예상 매출 규모를 조사하여 서술", ""),
+    ],
+  },
+}];
+assert.deepEqual(
+  extractContextualRoundtripFields(mergedHeaderNarrativeBlocks, "f".repeat(64)).map((field) => field.label),
+  ["시장조사 결과"],
+  "병합 행이 빈 보조 셀로 표현돼도 제목 아래 장문 셀을 인식한다",
+);
+
+const consentNoticeBlocks: IRBlock[] = [{
+  type: "table",
+  pageNumber: 8,
+  table: {
+    rows: 1,
+    cols: 2,
+    hasHeader: false,
+    cells: [row(
+      "개인정보 수집·이용 목적 및 보유기간에 동의함 또는 동의하지 않음을 선택합니다.",
+      "",
+    )],
+  },
+}];
+assert.deepEqual(extractContextualRoundtripFields(consentNoticeBlocks, "e".repeat(64)), [],
+  "개인정보 동의 고지문을 장문 작성 필드로 승격하지 않는다");
+
 const relocationPledgeText = [
   "경기 권역 내 주소지 이전 확약서",
   "1. 기업정보",

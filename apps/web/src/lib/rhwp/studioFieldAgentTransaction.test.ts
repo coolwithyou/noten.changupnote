@@ -6,6 +6,7 @@ import type {
   StudioFieldAgentProtocol,
   StudioFieldCommandReceiptV1,
   StudioRevertFieldCommandV1,
+  StudioTableCellRegionTargetV1,
   StudioTableCellTextTargetV1,
 } from "./studioDocumentAgentProtocol";
 import {
@@ -189,5 +190,75 @@ await assert.rejects(
   }),
   /적용 revision과 현재 Studio 문서가 달라/,
 );
+
+type RegionParagraphFixture = { text: string; charShapeIds: number[]; paraShapeId: number };
+type RegionFixture = { cells: RegionParagraphFixture[][] };
+
+class FakeRegionDocument {
+  private readonly fixture: RegionFixture;
+  constructor(bytes: Uint8Array) { this.fixture = JSON.parse(decoder.decode(bytes)) as RegionFixture; }
+  getTableDimensions() { return JSON.stringify({ rowCount: 1, colCount: 2, cellCount: 2 }); }
+  getCellParagraphCount(_s: number, _p: number, _c: number, cell: number) {
+    return this.fixture.cells[cell]!.length;
+  }
+  getCellParagraphLength(_s: number, _p: number, _c: number, cell: number, paragraph: number) {
+    return Array.from(this.fixture.cells[cell]![paragraph]!.text).length;
+  }
+  getTextInCell(
+    _s: number,
+    _p: number,
+    _c: number,
+    cell: number,
+    paragraph: number,
+    offset: number,
+    count: number,
+  ) {
+    return Array.from(this.fixture.cells[cell]![paragraph]!.text).slice(offset, offset + count).join("");
+  }
+  getCellCharPropertiesAt(
+    _s: number,
+    _p: number,
+    _c: number,
+    cell: number,
+    paragraph: number,
+    offset: number,
+  ) {
+    const ids = this.fixture.cells[cell]![paragraph]!.charShapeIds;
+    return JSON.stringify({ charShapeId: ids[Math.min(offset, ids.length - 1)] ?? 1 });
+  }
+  getCellParaPropertiesAt(_s: number, _p: number, _c: number, cell: number, paragraph: number) {
+    return JSON.stringify({ paraShapeId: this.fixture.cells[cell]![paragraph]!.paraShapeId });
+  }
+  getCellOwnProperties(_s: number, _p: number, _c: number, cell: number) {
+    return JSON.stringify({ cell, borderFillId: 2 });
+  }
+  free() {}
+}
+
+const regionTarget: StudioTableCellRegionTargetV1 = {
+  kind: "table_cell_region",
+  section: 0,
+  parentPara: 0,
+  controlIndex: 0,
+  cellIndex: 1,
+};
+const mixedRegionBytes = encoder.encode(JSON.stringify({ cells: [
+  [{ text: "항목", charShapeIds: [7, 7], paraShapeId: 9 }],
+  [
+    { text: "※ 안내", charShapeIds: [37, 37, 40, 40], paraShapeId: 0 },
+    { text: "본문 계획", charShapeIds: [40, 40, 40, 40, 40], paraShapeId: 35 },
+  ],
+] } satisfies RegionFixture));
+const canonicalRegionBytes = encoder.encode(JSON.stringify({ cells: [
+  [{ text: "항목", charShapeIds: [7, 7], paraShapeId: 9 }],
+  [{ text: "검증된 사업계획", charShapeIds: Array(8).fill(40), paraShapeId: 0 }],
+] } satisfies RegionFixture));
+const regionRhwp = { HwpDocument: FakeRegionDocument } as unknown as RhwpModule;
+const mixedRegionEvidence = await collectStudioFieldEvidence(regionRhwp, mixedRegionBytes, regionTarget);
+const canonicalRegionEvidence = await collectStudioFieldEvidence(regionRhwp, canonicalRegionBytes, regionTarget);
+assert.equal(mixedRegionEvidence.text, "※ 안내\n본문 계획");
+assert.equal(mixedRegionEvidence.formatSha256, canonicalRegionEvidence.formatSha256,
+  "혼합 안내문과 적용 본문은 같은 canonical replacement 서식 계약을 공유한다");
+assert.equal(mixedRegionEvidence.adjacentContextSha256, canonicalRegionEvidence.adjacentContextSha256);
 
 console.log("rhwp Studio field command transaction tests passed");

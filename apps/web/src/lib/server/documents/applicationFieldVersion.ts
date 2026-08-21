@@ -1,4 +1,6 @@
-export const APPLICATION_FIELD_PARSER_VERSION = "kordoc-rhwp-application-fields-v3";
+// v4는 로컬 dev hot-reload 중간 산출물(35필드)이 exact 운영 surface에 선반영됐다.
+// 최종 37필드 분석을 반드시 재실행하도록 새 immutable parser revision을 사용한다.
+export const APPLICATION_FIELD_PARSER_VERSION = "kordoc-rhwp-application-fields-v5";
 export const APPLICATION_FIELD_PARSER_PREFIX = "kordoc-rhwp-application-fields-";
 
 export function isAutomatedApplicationFieldParserVersion(value: string): boolean {

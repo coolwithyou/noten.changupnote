@@ -379,8 +379,8 @@ async function collectStudioTableCellRegionEvidence(
     throw new Error("exact 장문 field table cell을 찾지 못했습니다.");
   }
   const paragraphs: string[] = [];
-  let charShapeId: number | null = null;
-  let paraShapeId: number | null = null;
+  const allCharShapeIds: number[] = [];
+  const paraShapeIds: number[] = [];
   for (let cellParagraph = 0; cellParagraph < paragraphCount; cellParagraph += 1) {
     const length = document.getCellParagraphLength(
       target.section,
@@ -417,15 +417,11 @@ async function collectStudioTableCellRegionEvidence(
         offset,
       ), "charShapeId"));
     }
-    const paragraphCharShapeId = paragraphCharShapeIds[0]!;
-    if (!paragraphCharShapeIds.every((id) => id === paragraphCharShapeId)
-        || (charShapeId !== null && charShapeId !== paragraphCharShapeId)
-        || (paraShapeId !== null && paraShapeId !== paragraphParaShapeId)) {
-      throw new Error("장문 셀은 모든 문단의 글자·문단 서식이 같을 때만 자동 입력할 수 있습니다.");
-    }
-    charShapeId ??= paragraphCharShapeId;
-    paraShapeId ??= paragraphParaShapeId;
+    allCharShapeIds.push(...paragraphCharShapeIds);
+    paraShapeIds.push(paragraphParaShapeId);
   }
+  const charShapeId = dominantId(allCharShapeIds, "장문 셀 글자 서식");
+  const paraShapeId = dominantId(paraShapeIds, "장문 셀 문단 서식");
   const text = paragraphs.join("\n");
   const cellProperties = JSON.parse(document.getCellOwnProperties(
     target.section,
@@ -439,12 +435,28 @@ async function collectStudioTableCellRegionEvidence(
     formatSha256: await sha256Hex(stableJson({
       schemaVersion: 1,
       kind: "table_cell_region",
-      charShape: { kind: "uniform", id: charShapeId },
+      charShape: { kind: "canonical", id: charShapeId },
       paraShapeId,
       cellProperties,
     })),
     adjacentContextSha256: await fieldNonTargetManifest(document, target, dimensions),
   };
+}
+
+function dominantId(ids: readonly number[], label: string): number {
+  if (ids.length === 0) throw new Error(`${label}을 확인하지 못했습니다.`);
+  const counts = new Map<number, number>();
+  let selected = ids[0]!;
+  let selectedCount = 0;
+  for (const id of ids) {
+    const count = (counts.get(id) ?? 0) + 1;
+    counts.set(id, count);
+    if (count > selectedCount) {
+      selected = id;
+      selectedCount = count;
+    }
+  }
+  return selected;
 }
 
 interface StudioFormFieldEntry {

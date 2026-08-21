@@ -57,7 +57,16 @@ export interface ReconciledField {
   /** 확정 신뢰도 티어 (디버그·정렬용). */
   tier: "high" | "medium" | "low";
   /** 좌표. layout 근거가 있으면 { page, bbox }, 없으면 null. */
-  position: { page: number | null; bbox: BBox | null } | null;
+  position: {
+    page: number | null;
+    bbox: BBox | null;
+    /** source SHA에 결속된 문서 구조 위치. 동명 라벨 exact tie-break에만 사용한다. */
+    blockIndex?: number;
+    row?: number;
+    col?: number;
+    occurrence?: number;
+    normalizedLabel?: string;
+  } | null;
   visualEvidence: Record<string, unknown> | null;
   textEvidence: Record<string, unknown> | null;
   reviewRequired: boolean;
