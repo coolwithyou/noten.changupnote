@@ -240,7 +240,7 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
       setState({
         status: "loading",
         message: presentation === "field_aware"
-          ? "현재 revision과 필드 입력 위치를 확인하고 있어요."
+          ? "현재 문서와 입력할 위치를 확인하고 있어요."
           : "확정한 빠른 작성 값을 원본 문서에 반영하고 있어요.",
       });
       const prepared = await prepareRhwpWorkingDocument({
@@ -272,7 +272,7 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
         fieldTargetsRef.current = new Map();
         onFieldBindingsResolvedRef.current?.([]);
       }
-      setState({ status: "loading", message: "자가 호스팅 rhwp Studio를 불러오고 있어요." });
+      setState({ status: "loading", message: "문서 편집 화면을 불러오고 있어요." });
       const { createEditor } = await import("@rhwp/editor");
       const container = containerRef.current;
       if (!container) throw new Error("문서 편집 화면을 준비하지 못했습니다.");
@@ -286,7 +286,7 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
         if (editorAttempt > 0) {
           setState({
             status: "loading",
-            message: "편집기 연결이 지연되어 새 연결로 다시 준비하고 있어요.",
+            message: "문서 편집 화면을 여는 데 시간이 걸려 다시 준비하고 있어요.",
           });
         }
         container.replaceChildren();
@@ -306,7 +306,7 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
           attemptState.editor = candidate;
           setState({
             status: "loading",
-            message: "문서 편집기를 준비하고 있습니다.",
+            message: "문서 내용을 편집 화면에 펼치고 있어요.",
             allowEditorInteraction: false,
           });
           const loadResult = await loadEditorFileWithoutDialogs(
@@ -1345,7 +1345,9 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
         materializedAnswers,
       });
       toast.success(`'${run.fieldLabel}' 값을 문서의 정확한 입력 칸에 반영했습니다.`);
-      return await refreshFieldRun(run.id);
+      const refreshed = await refreshFieldRun(run.id);
+      await focusField(run.fieldId);
+      return refreshed;
     } catch (error) {
       if (applied) {
         try {
@@ -1400,7 +1402,7 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
       finishAgentMutation(keepLocked);
       setFieldAgentBusy(false);
     }
-  }, [acceptPersistedAgentSnapshot, beginAgentMutation, finishAgentMutation, readCurrentFieldDocument, refreshFieldRun, transport]);
+  }, [acceptPersistedAgentSnapshot, beginAgentMutation, finishAgentMutation, focusField, readCurrentFieldDocument, refreshFieldRun, transport]);
 
   const undoFieldSuggestion = useCallback(async (
     run: FieldAgentRunDto,
@@ -1677,7 +1679,7 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
             {presentation === "field_aware" ? "필드 값" : "빠른 작성 값"} {state.skipped.length.toLocaleString("ko-KR")}개는 자동 반영하지 않았어요.
           </AlertTitle>
           <AlertDescription>
-            Studio에서 직접 확인해 주세요: {state.skipped.map((entry) => entry.label).join(", ")}
+            문서에서 직접 확인해 주세요: {state.skipped.map((entry) => entry.label).join(", ")}
           </AlertDescription>
         </Alert>
       ) : null}
@@ -1708,7 +1710,7 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
             {state.pageCount.toLocaleString("ko-KR")}쪽 열림
           </div>
         ) : null}
-        <div ref={containerRef} className="h-full min-h-[68dvh] w-full" aria-label="rhwp 문서 직접 편집기" />
+        <div ref={containerRef} className="h-full min-h-[68dvh] w-full" aria-label="문서 직접 편집기" />
       </div>
 
       {presentation === "standalone" && agentCapabilityReady && transport.mode === "persistent" && state.status === "ready" ? (

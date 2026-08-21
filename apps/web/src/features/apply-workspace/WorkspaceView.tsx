@@ -501,13 +501,8 @@ export function WorkspaceView({
         };
         setAnswers(nextAnswers);
         answersRef.current = nextAnswers;
-        const next = nextIncompleteTask({
-          tasks: authoringTasks,
-          afterFieldId: run.fieldId,
-          answers: nextAnswers,
-          studioTaskStates,
-        });
-        if (next && next.fieldId !== run.fieldId) handleSelectField(next.fieldId);
+        // 적용 직후에는 방금 쓴 값과 커서를 그대로 보여 준다. 다음 필드 이동은 사용자가
+        // 레일 하단의 "다음 미완료"를 눌렀을 때만 수행한다.
       } else {
         const nextAnswers = { ...answersRef.current };
         if (run.beforeAnswer) nextAnswers[key] = run.beforeAnswer;

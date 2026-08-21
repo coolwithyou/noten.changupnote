@@ -1,14 +1,15 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { ArrowRight, CheckCircle2, Circle, CircleDot, MapPinCheck, MessageSquare, RotateCcw, Search, Sparkles, TriangleAlert, X } from "lucide-react";
+import { ArrowRight, CheckCircle2, Circle, CircleDot, List, MapPinCheck, MessageSquare, RotateCcw, Search, Sparkles, TriangleAlert, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Separator } from "@/components/ui/separator";
 import { Spinner } from "@/components/ui/spinner";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Input } from "@/components/ui/input";
 import type { ConnectedDocumentField } from "@/lib/server/documents/documentFieldLink";
 import type { FieldAgentRunDto, FieldAgentSuggestionDto } from "@/lib/server/documents/fieldAgentRuns";
@@ -38,6 +39,7 @@ export function FieldAgentRail({
   const [sourceText, setSourceText] = useState("");
   const [fieldQuery, setFieldQuery] = useState("");
   const [fieldFilter, setFieldFilter] = useState<"all" | "incomplete" | "attention">("all");
+  const [activeSection, setActiveSection] = useState<"assist" | "index">("assist");
   const selectedSource = session.selected
     ? connectedFields.find((field) => field.fieldId === session.selected?.fieldId) ?? null
     : null;
@@ -61,7 +63,13 @@ export function FieldAgentRail({
 
   useEffect(() => {
     setSourceText("");
+    setActiveSection("assist");
   }, [session.selected?.fieldId]);
+
+  const selectIndexedField = (fieldId: string) => {
+    onSelectField(fieldId);
+    setActiveSection("assist");
+  };
 
   return (
     <aside className="flex h-full min-h-0 max-h-full flex-col overflow-hidden" aria-label="AI 필드 도우미">
@@ -79,71 +87,26 @@ export function FieldAgentRail({
           </CardDescription>
         </CardHeader>
 
-        <CardContent className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden">
-          <div className="shrink-0 space-y-2">
-            <div className="relative">
-              <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
-              <Input
-                value={fieldQuery}
-                onChange={(event) => setFieldQuery(event.target.value)}
-                className="pl-9"
-                placeholder="필드 검색"
-                aria-label="필드 검색"
-              />
-            </div>
-            <div className="flex flex-wrap gap-1" aria-label="필드 상태 필터">
-              {([
-                ["all", "전체"],
-                ["incomplete", "미완료"],
-                ["attention", "확인 필요"],
-              ] as const).map(([value, label]) => (
-                <Button
-                  key={value}
-                  type="button"
-                  size="sm"
-                  variant={fieldFilter === value ? "secondary" : "ghost"}
-                  className="h-7 px-2.5 text-xs"
-                  aria-pressed={fieldFilter === value}
-                  onClick={() => setFieldFilter(value)}
-                >
-                  {label}
-                </Button>
-              ))}
-            </div>
-          </div>
-          <ScrollArea className="max-h-48 shrink-0 lg:max-h-56">
-            <div className="flex flex-col gap-1 pr-3">
-              {visibleFields.length > 0 ? visibleFields.map((field) => (
-                <Button
-                  key={field.fieldId}
-                  type="button"
-                  data-field-item
-                  variant={field.isSelected ? "secondary" : "ghost"}
-                  className="h-auto min-w-0 justify-start gap-2 px-3 py-2.5 text-left"
-                  onClick={() => onSelectField(field.fieldId)}
-                  onKeyDown={handleFieldListKeyDown}
-                  aria-pressed={field.isSelected}
-                >
-                  <FieldStateIcon field={field} />
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm font-semibold">{field.label}</span>
-                    <span className="block truncate text-xs font-normal text-muted-foreground">
-                      {field.section ?? "신청서"} · {bindingLabel(field.bindingStatus)}
-                    </span>
-                  </span>
-                </Button>
-              )) : (
-                <p className="py-6 text-center text-sm text-muted-foreground">
-                  {session.fields.length > 0 ? "조건에 맞는 필드가 없습니다." : "연결된 작성 항목이 없습니다."}
-                </p>
-              )}
-            </div>
-          </ScrollArea>
+        <CardContent className="flex min-h-0 flex-1 flex-col overflow-hidden">
+          <Tabs
+            value={activeSection}
+            onValueChange={(value) => setActiveSection(value as "assist" | "index")}
+            className="min-h-0 flex-1 overflow-hidden"
+          >
+            <TabsList className="grid w-full shrink-0 grid-cols-2" aria-label="AI 필드 도우미 메뉴">
+              <TabsTrigger value="assist">
+                <Sparkles data-icon="inline-start" aria-hidden />
+                작성 도우미
+              </TabsTrigger>
+              <TabsTrigger value="index">
+                <List data-icon="inline-start" aria-hidden />
+                필드 목록
+              </TabsTrigger>
+            </TabsList>
 
-          {session.selected ? (
-            <>
-              <Separator />
-              <ScrollArea className="min-h-0 flex-1 overscroll-contain">
+            <TabsContent value="assist" className="min-h-0 overflow-hidden">
+              {session.selected ? (
+                <ScrollArea className="h-full min-h-0 overscroll-contain">
                 <div className="flex flex-col gap-3 pr-3 pb-2">
                 <div className="flex flex-wrap items-center gap-2">
                   <h2 className="text-base font-semibold">{session.selected.label}</h2>
@@ -251,13 +214,84 @@ export function FieldAgentRail({
                   </Button>
                 ) : null}
                 </div>
-              </ScrollArea>
-            </>
-          ) : null}
+                </ScrollArea>
+              ) : (
+                <p className="py-6 text-center text-sm text-muted-foreground">작성할 필드를 선택해 주세요.</p>
+              )}
+            </TabsContent>
+
+            <TabsContent value="index" className="min-h-0 overflow-hidden">
+              <div className="flex h-full min-h-0 flex-col gap-3">
+                <div className="flex shrink-0 flex-col gap-2">
+                  <div className="relative">
+                    <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
+                    <Input
+                      value={fieldQuery}
+                      onChange={(event) => setFieldQuery(event.target.value)}
+                      className="pl-9"
+                      placeholder="필드 검색"
+                      aria-label="필드 검색"
+                    />
+                  </div>
+                  <ToggleGroup
+                    value={[fieldFilter]}
+                    onValueChange={(value) => {
+                      const nextFilter = value[0];
+                      if (nextFilter) setFieldFilter(nextFilter as typeof fieldFilter);
+                    }}
+                    size="sm"
+                    aria-label="필드 상태 필터"
+                  >
+                    {([
+                      ["all", "전체"],
+                      ["incomplete", "미완료"],
+                      ["attention", "확인 필요"],
+                    ] as const).map(([value, label]) => (
+                      <ToggleGroupItem
+                        key={value}
+                        value={value}
+                        aria-label={label}
+                      >
+                        {label}
+                      </ToggleGroupItem>
+                    ))}
+                  </ToggleGroup>
+                </div>
+                <ScrollArea className="min-h-0 flex-1 overscroll-contain">
+                  <div className="flex flex-col gap-1 pr-3">
+                    {visibleFields.length > 0 ? visibleFields.map((field) => (
+                      <Button
+                        key={field.fieldId}
+                        type="button"
+                        data-field-item
+                        variant={field.isSelected ? "secondary" : "ghost"}
+                        className="h-auto min-w-0 justify-start gap-2 px-3 py-2.5 text-left"
+                        onClick={() => selectIndexedField(field.fieldId)}
+                        onKeyDown={handleFieldListKeyDown}
+                        aria-pressed={field.isSelected}
+                      >
+                        <FieldStateIcon field={field} />
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-sm font-semibold">{field.label}</span>
+                          <span className="block truncate text-xs font-normal text-muted-foreground">
+                            {field.section ?? "신청서"} · {bindingLabel(field.bindingStatus)}
+                          </span>
+                        </span>
+                      </Button>
+                    )) : (
+                      <p className="py-6 text-center text-sm text-muted-foreground">
+                        {session.fields.length > 0 ? "조건에 맞는 필드가 없습니다." : "연결된 작성 항목이 없습니다."}
+                      </p>
+                    )}
+                  </div>
+                </ScrollArea>
+              </div>
+            </TabsContent>
+          </Tabs>
         </CardContent>
 
         <CardFooter className="flex shrink-0 items-center justify-between gap-3 text-xs text-muted-foreground">
-          <span>exact Studio 필드에만 값을 적용합니다.</span>
+          <span>현재 선택한 문서 입력 칸에만 값을 적용합니다.</span>
           <Button
             type="button"
             size="sm"
@@ -329,13 +363,13 @@ function bindingLabel(status: FieldAwareSessionItem["bindingStatus"]): string {
 function assistDescription(status: FieldAwareSessionItem["assistAvailability"]): string {
   switch (status) {
     case "ready":
-      return "이 필드는 현재 문서의 한 입력 셀에 정확히 결속되어 AI 제안을 요청할 수 있습니다. 선택형은 원래 보기 중 하나만 제안합니다.";
+      return "현재 선택한 입력 칸을 확인했어요. AI 제안을 요청할 수 있으며, 선택형은 원래 보기 중 하나만 제안합니다.";
     case "rollout_off":
       return "AI 필드 제안은 현재 내부 rollout 범위에서만 사용할 수 있습니다. 문서 직접 편집은 계속 가능합니다.";
     case "binding_resolving":
-      return "현재 revision에서 정확한 입력 셀을 확인하고 있습니다.";
+      return "현재 문서에서 정확한 입력 칸을 확인하고 있습니다.";
     case "binding_missing":
-      return "현재 revision에서 한 개의 입력 셀을 확정하지 못해 자동 제안을 열지 않았습니다.";
+      return "현재 문서에서 한 개의 입력 칸을 확정하지 못해 자동 제안을 열지 않았습니다.";
     case "binding_ambiguous":
       return "같은 항목 후보가 여러 곳이라 임의로 고르지 않았습니다. 문서에서 직접 작성해 주세요.";
     case "unsupported_kind":

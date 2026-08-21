@@ -140,21 +140,22 @@ assert.equal(html.includes("HWPX 다운로드"), false, "상시 하단 다운로
 // 상단 바 back 링크는 "공고 요약"으로 노출된다.
 assert.ok(html.includes("공고 요약"), "상단 바에 '공고 요약' 링크가 있어야 합니다.");
 assert.ok(
-  html.includes("rhwp 문서 직접 편집기") && html.includes("AI 필드 도우미"),
-  "지원 가능한 persistent draft는 RHWP Studio와 AI 필드 레일을 동시에 보여야 합니다.",
+  html.includes("문서 직접 편집기") && html.includes("AI 필드 도우미"),
+  "지원 가능한 persistent draft는 문서 편집기와 AI 필드 레일을 동시에 보여야 합니다.",
 );
 assert.ok(html.includes("data-field-aware-editor"), "통합 편집 세션 식별자가 있어야 합니다.");
 assert.ok(html.includes("AI 도우미"), "작은 화면에서 필드 레일을 여는 고정 진입점이 있어야 합니다.");
 assert.ok(
-  html.includes("relative overflow-hidden max-h-48"),
-  "필드 목록 ScrollArea는 제안 카드와 겹치지 않도록 내용을 클리핑해야 합니다.",
+  html.includes("작성 도우미") && html.includes("필드 목록"),
+  "필드 인덱스는 작성 도우미와 분리된 메뉴로 제공해야 합니다.",
 );
+assert.equal(html.includes("max-h-48"), false, "필드 인덱스가 작성 도우미 공간을 상시 차지하면 안 됩니다.");
 assert.ok(
   html.includes("flex h-full min-h-0 max-h-full flex-col overflow-hidden"),
   "AI 필드 레일은 부모 높이를 넘지 않고 내부 스크롤 영역을 유지해야 합니다.",
 );
 assert.ok(
-  html.includes("min-h-0 flex-1 overscroll-contain"),
+  html.includes("h-full min-h-0 overscroll-contain"),
   "긴 AI 제안은 레일 내부 ScrollArea에서 독립적으로 스크롤돼야 합니다.",
 );
 assert.equal(html.includes('aria-label="문서 작성 방식"'), false, "통합 편집 화면에 quick/studio 주 모드 토글이 있으면 안 됩니다.");
