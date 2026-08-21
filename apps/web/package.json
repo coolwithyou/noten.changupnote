@@ -22,6 +22,7 @@
     "@cunote/core": "workspace:*",
     "@rhwp/core": "0.8.4",
     "@rhwp/editor": "file:vendor/rhwp-editor-0.8.5.tgz",
+    "@shadcn/react": "^0.3.0",
     "ai": "7.0.19",
     "bcryptjs": "^3.0.3",
     "class-variance-authority": "^0.7.1",

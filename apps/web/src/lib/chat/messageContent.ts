@@ -160,13 +160,20 @@ export function sourceDocumentToCitation(part: UiMessageSourceDocumentPart): Cha
 export function uiMessagePartsToContent(parts: readonly UiMessagePartLike[]): ChatMessageContent {
   let text = "";
   const citations: ChatCitation[] = [];
+  const citationTexts = new Set<string>();
   let contentFieldAssist: FieldAssistOutcome | null = null;
   for (const part of parts) {
     if (part.type === "text" && typeof (part as UiMessageTextPart).text === "string") {
       text += (part as UiMessageTextPart).text;
     } else if (part.type === "source-document") {
       const citation = sourceDocumentToCitation(part as UiMessageSourceDocumentPart);
-      if (citation) citations.push(citation);
+      if (citation) {
+        const citationKey = citation.citedText.replace(/\s+/g, " ").trim();
+        if (!citationTexts.has(citationKey)) {
+          citationTexts.add(citationKey);
+          citations.push(citation);
+        }
+      }
     } else if (part.type === "data-fieldAssist") {
       const parsed = parseFieldAssistOutcome((part as { data?: unknown }).data);
       if (parsed) contentFieldAssist = parsed;

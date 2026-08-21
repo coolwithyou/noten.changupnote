@@ -48,4 +48,17 @@ assert.equal(content.citations?.length, 1);
 assert.equal(content.fieldAssist?.status, "needs_input");
 assert.equal(content.generalNotice, undefined);
 
+const deduplicatedCitations = uiMessagePartsToContent([
+  {
+    type: "source-document",
+    providerMetadata: { anthropic: { citedText: "창업아이템 소개 및 시장조사 결과" } },
+  },
+  {
+    type: "source-document",
+    providerMetadata: { anthropic: { citedText: "창업아이템  소개 및\n시장조사 결과" } },
+  },
+]);
+assert.equal(deduplicatedCitations.citations?.length, 1);
+assert.equal(deduplicatedCitations.generalNotice, undefined);
+
 console.log("chat message content field-assist tests passed");

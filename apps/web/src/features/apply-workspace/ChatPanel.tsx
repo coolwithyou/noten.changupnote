@@ -17,11 +17,21 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
-import { CheckCircle2, ExternalLink, Loader2, Mail, MessageSquare, Phone, Quote, Send, Sparkles, X } from "lucide-react";
+import { CheckCircle2, ExternalLink, Loader2, Mail, MessageSquare, Phone, Quote, Send, Sparkles, Square, X } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
+import { Bubble, BubbleContent } from "@/components/ui/bubble";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Message, MessageContent } from "@/components/ui/message";
+import {
+  MessageScroller,
+  MessageScrollerButton,
+  MessageScrollerContent,
+  MessageScrollerItem,
+  MessageScrollerProvider,
+  MessageScrollerViewport,
+} from "@/components/ui/message-scroller";
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -40,6 +50,7 @@ import {
 } from "./chatRequestState";
 import { contactPhoneHref, type InstitutionContact } from "./workspacePresentation";
 import type { StudioFieldTargetV1 } from "@/lib/rhwp/studioDocumentAgentProtocol";
+import { ChatMessageMarkdown } from "./ChatMessageMarkdown";
 
 export interface ChatFieldPrompt {
   label: string;
@@ -76,6 +87,7 @@ export interface GrantChatController {
   sendText: (text: string) => void;
   askField: (field: ChatFieldPrompt) => void;
   activeField: ChatFieldPrompt | null;
+  cancel: () => void;
   retry: () => void;
 }
 
@@ -144,6 +156,9 @@ export function useGrantChat(input: { grantId: string; draftId?: string | null }
 
   const { messages, sendMessage, regenerate, stop, status, error } = useChat({
     transport,
+    // AI SDK는 기본적으로 스트림 chunk마다 렌더한다. 짧은 간격으로 묶어 Markdown 재파싱과
+    // 레이아웃 측정을 줄이되, 타이핑처럼 보이는 응답성은 유지한다.
+    throttle: 50,
     onFinish: ({ isAbort, isError }) => {
       if (!isAbort && !isError) setFailure(null);
     },
@@ -209,6 +224,16 @@ export function useGrantChat(input: { grantId: string; draftId?: string | null }
     void regenerate();
   }, [isBusy, messages.length, regenerate]);
 
+  const cancel = useCallback(() => {
+    if (!isBusy) return;
+    // 서버는 사용량 기록을 위해 upstream 생성을 완주하므로, 사용자가 보지 않은 assistant turn과
+    // 다음 질문이 섞이지 않도록 취소한 클라이언트는 새 세션에서 이어간다.
+    sessionIdRef.current = null;
+    pendingFieldContextRef.current = activeFieldContextRef.current;
+    setFailure(null);
+    void stop();
+  }, [isBusy, stop]);
+
   const errorMessage = failure ? grantChatFailureMessage(failure) : null;
 
   return {
@@ -222,6 +247,7 @@ export function useGrantChat(input: { grantId: string; draftId?: string | null }
     sendText,
     askField,
     activeField,
+    cancel,
     retry,
   };
 }
@@ -242,15 +268,13 @@ export function ChatPanelView({
   onClose?: () => void;
   onApplyFieldProposal?: (input: ChatFieldProposalApplyInput) => void;
 }) {
-  const { messages, isBusy, errorMessage, canRetry, input, setInput, submit, sendText, retry } = controller;
-  const scrollRef = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
-  }, [messages]);
-
-  const showTypingIndicator =
-    isBusy && (messages.length === 0 || messages[messages.length - 1]?.role !== "assistant");
+  const { messages, isBusy, errorMessage, canRetry, input, setInput, submit, sendText, cancel, retry } = controller;
+  const lastMessage = messages[messages.length - 1];
+  const showTypingIndicator = isBusy && (
+    !lastMessage
+    || lastMessage.role !== "assistant"
+    || lastMessageText(lastMessage).trim().length === 0
+  );
 
   return (
     <div
@@ -274,45 +298,62 @@ export function ChatPanelView({
         ) : null}
       </div>
 
-      <div
-        ref={scrollRef}
-        className={cn(
-          "flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto pr-1",
-          variant === "front" ? "max-h-[28rem]" : "max-h-72",
-        )}
-      >
-        <AssistantBubble content={greeting} />
-        {messages.map((message) => {
-          const content = uiMessagePartsToContent((message.parts ?? []) as UiMessagePartLike[]);
-          if (message.role === "user") {
-            return <UserBubble key={message.id} text={content.text} />;
-          }
-            return (
-              <AssistantBubble
-                key={message.id}
-                content={content}
-                {...(onApplyFieldProposal ? { onApplyFieldProposal } : {})}
-                onAskQuestion={sendText}
-              />
-            );
-        })}
-        {showTypingIndicator ? (
-          <div className="flex items-center gap-2 text-xs text-muted-foreground" role="status">
-            <Loader2 className="size-3.5 animate-spin" aria-hidden />
-            답변을 작성하고 있어요…
-          </div>
-        ) : null}
-        {errorMessage ? (
-          <Alert variant="destructive">
-            <AlertDescription className="flex flex-col items-start gap-2">
-              {errorMessage}
-              <Button type="button" size="xs" variant="outline" disabled={!canRetry} onClick={retry}>
-                같은 질문 다시 요청
-              </Button>
-            </AlertDescription>
-          </Alert>
-        ) : null}
-      </div>
+      <MessageScrollerProvider autoScroll>
+        <MessageScroller
+          className={cn(
+            "w-full flex-none",
+            variant === "front" ? "h-[45dvh] min-h-56 max-h-[28rem]" : "h-72",
+          )}
+        >
+          <MessageScrollerViewport aria-label="공고 대화 내역">
+            <MessageScrollerContent className="gap-3 pr-1" aria-live="polite" aria-relevant="additions text">
+              <MessageScrollerItem messageId="grant-chat-greeting">
+                <AssistantBubble content={greeting} />
+              </MessageScrollerItem>
+              {messages.map((message) => {
+                const content = uiMessagePartsToContent((message.parts ?? []) as UiMessagePartLike[]);
+                if (message.role === "user") {
+                  return (
+                    <MessageScrollerItem key={message.id} messageId={message.id} scrollAnchor>
+                      <UserBubble text={content.text} />
+                    </MessageScrollerItem>
+                  );
+                }
+                return (
+                  <MessageScrollerItem key={message.id} messageId={message.id}>
+                    <AssistantBubble
+                      content={content}
+                      {...(onApplyFieldProposal ? { onApplyFieldProposal } : {})}
+                      onAskQuestion={sendText}
+                    />
+                  </MessageScrollerItem>
+                );
+              })}
+              {showTypingIndicator ? (
+                <MessageScrollerItem messageId="grant-chat-typing">
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground" role="status">
+                    <Loader2 className="animate-spin" aria-hidden />
+                    답변을 작성하고 있어요…
+                  </div>
+                </MessageScrollerItem>
+              ) : null}
+              {errorMessage ? (
+                <MessageScrollerItem messageId="grant-chat-error">
+                  <Alert variant="destructive">
+                    <AlertDescription className="flex flex-col items-start gap-2">
+                      {errorMessage}
+                      <Button type="button" size="xs" variant="outline" disabled={!canRetry} onClick={retry}>
+                        같은 질문 다시 요청
+                      </Button>
+                    </AlertDescription>
+                  </Alert>
+                </MessageScrollerItem>
+              ) : null}
+            </MessageScrollerContent>
+          </MessageScrollerViewport>
+          <MessageScrollerButton />
+        </MessageScroller>
+      </MessageScrollerProvider>
 
       <form
         onSubmit={(event) => {
@@ -338,9 +379,15 @@ export function ChatPanelView({
           disabled={isBusy}
           className="min-h-0 flex-1 resize-none"
         />
-        <Button type="submit" size="icon" disabled={isBusy || input.trim().length === 0} aria-label="보내기">
-          {isBusy ? <Loader2 className="animate-spin" aria-hidden /> : <Send aria-hidden />}
-        </Button>
+        {isBusy ? (
+          <Button type="button" size="icon" variant="outline" onClick={cancel} aria-label="답변 생성 중단">
+            <Square aria-hidden />
+          </Button>
+        ) : (
+          <Button type="submit" size="icon" disabled={input.trim().length === 0} aria-label="보내기">
+            <Send aria-hidden />
+          </Button>
+        )}
       </form>
 
       {institutionContact ? (
@@ -392,11 +439,13 @@ function InstitutionContactCard({ contact }: { contact: InstitutionContact }) {
 function UserBubble({ text }: { text: string }) {
   if (!text.trim()) return null;
   return (
-    <div className="flex justify-end">
-      <div className="max-w-[85%] whitespace-pre-wrap break-words rounded-[var(--radius-lg)] bg-primary px-3 py-2 text-sm text-primary-foreground">
-        {text}
-      </div>
-    </div>
+    <Message align="end">
+      <MessageContent>
+        <Bubble align="end" className="max-w-[85%]">
+          <BubbleContent className="whitespace-pre-wrap">{text}</BubbleContent>
+        </Bubble>
+      </MessageContent>
+    </Message>
   );
 }
 
@@ -410,50 +459,53 @@ function AssistantBubble({
   onAskQuestion?: (question: string) => void;
 }) {
   const hasCitations = (content.citations?.length ?? 0) > 0;
-  const isGeneralNotice = content.generalNotice === true && !hasCitations;
+  const hasText = content.text.trim().length > 0;
+  const isGeneralNotice = hasText && content.generalNotice === true && !hasCitations;
   return (
-    <div className="flex flex-col gap-1.5">
-      <div
-        className={cn(
-          "max-w-[92%] whitespace-pre-wrap break-words rounded-[var(--radius-lg)] px-3 py-2 text-sm",
-          isGeneralNotice
-            ? "border border-dashed border-border bg-muted/40 text-muted-foreground"
-            : "border bg-background text-foreground",
-        )}
-      >
-        {isGeneralNotice ? (
-          <span className="mb-1 block text-xs font-medium text-muted-foreground">일반 안내</span>
+    <Message align="start">
+      <MessageContent className="gap-1.5">
+        {hasText ? (
+          <Bubble variant={isGeneralNotice ? "muted" : "outline"} className="max-w-[92%]">
+            <BubbleContent className={cn(isGeneralNotice && "border-dashed text-muted-foreground")}>
+              {isGeneralNotice ? (
+                <span className="mb-1 block text-xs font-medium text-muted-foreground">일반 안내</span>
+              ) : null}
+              <ChatMessageMarkdown>{content.text}</ChatMessageMarkdown>
+            </BubbleContent>
+          </Bubble>
         ) : null}
-        {content.text || (isGeneralNotice ? "" : "…")}
-      </div>
-      {hasCitations ? (
-        <div className="flex flex-wrap gap-1">
-          {content.citations!.map((citation, index) => (
-            <Tooltip key={`${index}-${citation.citedText.slice(0, 8)}`}>
-              <TooltipTrigger
-                render={
-                  <Badge
-                    variant="outline"
-                    className="max-w-full gap-1 border-sky-500/40 bg-sky-500/10 text-sky-700 dark:text-sky-400"
-                  />
-                }
-              >
-                <Quote className="size-3 shrink-0" aria-hidden />
-                <span className="truncate">{citation.citedText}</span>
-              </TooltipTrigger>
-              <TooltipContent>{citation.citedText}</TooltipContent>
-            </Tooltip>
-          ))}
-        </div>
-      ) : null}
-      {content.fieldAssist ? (
-        <FieldAssistCard
-          outcome={content.fieldAssist}
-          {...(onApplyFieldProposal ? { onApply: onApplyFieldProposal } : {})}
-          {...(onAskQuestion ? { onAskQuestion } : {})}
-        />
-      ) : null}
-    </div>
+        {hasCitations ? (
+          <div className="flex flex-wrap gap-1">
+            {content.citations!.map((citation, index) => (
+              <Tooltip key={`${index}-${citation.citedText}`}>
+                <TooltipTrigger
+                  render={
+                    <Badge
+                      variant="outline"
+                      render={<button type="button" />}
+                      className="min-w-0 max-w-full border-sky-500/40 bg-sky-500/10 text-sky-700 dark:text-sky-400"
+                    />
+                  }
+                >
+                  <Quote data-icon="inline-start" aria-hidden />
+                  <span className="min-w-0 truncate">{citation.citedText}</span>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="max-w-60 items-start px-2.5 py-2 leading-5">
+                  <span className="line-clamp-4 text-pretty break-words">{citation.citedText}</span>
+                </TooltipContent>
+              </Tooltip>
+            ))}
+          </div>
+        ) : null}
+        {content.fieldAssist ? (
+          <FieldAssistCard
+            outcome={content.fieldAssist}
+            {...(onApplyFieldProposal ? { onApply: onApplyFieldProposal } : {})}
+            {...(onAskQuestion ? { onAskQuestion } : {})}
+          />
+        ) : null}
+      </MessageContent>
+    </Message>
   );
 }
 
