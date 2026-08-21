@@ -257,6 +257,7 @@ export function ChatPanelView({
   controller,
   greeting,
   variant = "dock",
+  fillAvailableHeight = false,
   institutionContact,
   onClose,
   onApplyFieldProposal,
@@ -264,6 +265,7 @@ export function ChatPanelView({
   controller: GrantChatController;
   greeting: ChatMessageContent;
   variant?: "dock" | "front";
+  fillAvailableHeight?: boolean;
   institutionContact?: InstitutionContact | null;
   onClose?: () => void;
   onApplyFieldProposal?: (input: ChatFieldProposalApplyInput) => void;
@@ -280,7 +282,11 @@ export function ChatPanelView({
     <div
       className={cn(
         "flex flex-col gap-3 rounded-[var(--radius-xl)] border bg-card p-4",
-        variant === "front" ? "min-h-96" : "min-h-0 shrink-0",
+        fillAvailableHeight
+          ? "min-h-0 flex-1"
+          : variant === "front"
+            ? "min-h-96"
+            : "min-h-0 shrink-0",
       )}
     >
       <div className="flex items-center gap-2 text-sm font-medium">
@@ -301,8 +307,12 @@ export function ChatPanelView({
       <MessageScrollerProvider autoScroll>
         <MessageScroller
           className={cn(
-            "w-full flex-none",
-            variant === "front" ? "h-[45dvh] min-h-56 max-h-[28rem]" : "h-72",
+            "w-full",
+            fillAvailableHeight
+              ? "min-h-56 flex-1"
+              : variant === "front"
+                ? "h-[45dvh] min-h-56 max-h-[28rem] flex-none"
+                : "h-72 flex-none",
           )}
         >
           <MessageScrollerViewport aria-label="공고 대화 내역">
