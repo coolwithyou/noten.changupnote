@@ -207,6 +207,25 @@ export function verifySuggestion(
   return { value, basis: basis.slice(0, MAX_BASIS_LENGTH), basisKind: raw.basisKind };
 }
 
+/**
+ * HWP 표 라벨의 줄바꿈과 모델이 반환한 한 줄 라벨만 동치로 본다.
+ * 같은 정규화 라벨이 둘 이상이면 임의 귀속하지 않고 null로 닫는다.
+ */
+export function resolveRequestedSuggestionLabel(
+  requestedLabels: readonly string[],
+  rawLabel: string,
+): string | null {
+  const normalizedRaw = normalizeAnswerLabel(rawLabel);
+  if (!normalizedRaw) return null;
+  const exact = requestedLabels.filter((label) => normalizeAnswerLabel(label) === normalizedRaw);
+  if (exact.length === 1) return exact[0]!;
+  if (exact.length > 1) return null;
+  const whitespaceKey = (value: string) => normalizeAnswerLabel(value).replace(/\s+/gu, " ");
+  const canonical = whitespaceKey(normalizedRaw);
+  const matches = requestedLabels.filter((label) => whitespaceKey(label) === canonical);
+  return matches.length === 1 ? matches[0]! : null;
+}
+
 // ── 입력 label 정제(≤10, 중복 제거, manual 제외) ────────────────────────
 export function sanitizeSuggestLabels(labels: string[]): {
   eligible: string[];
@@ -472,12 +491,12 @@ export async function generateFieldSuggestions(input: {
   const rawByLabel = new Map<string, RawSuggestion[]>();
   for (const raw of object.suggestions ?? []) {
     if (typeof raw?.label !== "string") continue;
-    const key = normalizeAnswerLabel(raw.label);
-    if (!key) continue;
-    const current = rawByLabel.get(key) ?? [];
+    const requestedLabel = resolveRequestedSuggestionLabel(eligible, raw.label);
+    if (!requestedLabel) continue;
+    const current = rawByLabel.get(requestedLabel) ?? [];
     if (current.length < alternativesPerLabel) {
       current.push(raw);
-      rawByLabel.set(key, current);
+      rawByLabel.set(requestedLabel, current);
     }
   }
   const verified: Record<string, {

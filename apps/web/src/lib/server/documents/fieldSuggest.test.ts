@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import { normalizeWs } from "../knowledge/extraction";
-import { buildSuggestInstruction, verifySuggestion } from "./fieldSuggest";
+import {
+  buildSuggestInstruction,
+  resolveRequestedSuggestionLabel,
+  verifySuggestion,
+} from "./fieldSuggest";
 
 const sourceText = "저희는 소상공인의 반복적인 정산 업무를 줄이는 서비스를 운영하고 있습니다.";
 
@@ -56,5 +60,16 @@ const inventedEvidence = verifySuggestion(
   normalizeWs(sourceText),
 );
 assert.equal(inventedEvidence, null, "사용자 원문에 없는 근거를 인용한 보강안은 폐기해야 합니다.");
+
+assert.equal(
+  resolveRequestedSuggestionLabel(["주 고객\n및\n이용 대상"], "주 고객 및 이용 대상"),
+  "주 고객\n및\n이용 대상",
+  "문서 줄바꿈 라벨과 모델의 한 줄 라벨을 같은 exact 요청으로 귀속해야 합니다.",
+);
+assert.equal(
+  resolveRequestedSuggestionLabel(["주 고객 및 이용 대상", "주 고객\n및\n이용 대상"], "주 고객  및 이용 대상"),
+  null,
+  "공백 정규화 후 후보가 둘이면 임의 귀속하면 안 됩니다.",
+);
 
 console.log("field suggestion source-text contract tests passed");
