@@ -80,7 +80,7 @@ export function FieldAgentRail({
 
   return (
     <aside className="flex h-full min-h-0 max-h-full flex-col overflow-hidden" aria-label="AI 필드 도우미">
-      <Card className="h-full min-h-0 max-h-full overflow-hidden">
+      <Card variant="workspace" className="h-full min-h-0 max-h-full overflow-hidden">
         <CardHeader className="shrink-0 border-b">
           <div className="flex items-center justify-between gap-3">
             <CardTitle>AI 필드 도우미</CardTitle>

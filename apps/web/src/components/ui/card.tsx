@@ -9,7 +9,7 @@ function Card({
   ...props
 }: React.ComponentProps<"div"> & {
   size?: "default" | "sm"
-  variant?: "default" | "admin"
+  variant?: "default" | "admin" | "workspace"
 }) {
   return (
     <div
@@ -17,7 +17,7 @@ function Card({
       data-size={size}
       data-variant={variant}
       className={cn(
-        "group/card flex flex-col gap-(--card-spacing) overflow-hidden rounded-xl bg-card py-(--card-spacing) text-sm text-card-foreground ring-1 ring-foreground/10 [--card-spacing:--spacing(4)] has-data-[slot=card-footer]:pb-0 has-[>img:first-child]:pt-0 data-[size=sm]:[--card-spacing:--spacing(3)] data-[size=sm]:has-data-[slot=card-footer]:pb-0 data-[variant=admin]:gap-0 data-[variant=admin]:rounded-lg data-[variant=admin]:py-0 data-[variant=admin]:shadow-xs data-[variant=admin]:ring-border data-[variant=admin]:[--card-spacing:--spacing(3)] *:[img:first-child]:rounded-t-xl *:[img:last-child]:rounded-b-xl",
+        "group/card flex flex-col gap-(--card-spacing) overflow-hidden rounded-xl bg-card py-(--card-spacing) text-sm text-card-foreground ring-1 ring-foreground/10 [--card-spacing:--spacing(4)] has-data-[slot=card-footer]:pb-0 has-[>img:first-child]:pt-0 data-[size=sm]:[--card-spacing:--spacing(3)] data-[size=sm]:has-data-[slot=card-footer]:pb-0 data-[variant=admin]:gap-0 data-[variant=admin]:rounded-lg data-[variant=admin]:py-0 data-[variant=admin]:shadow-xs data-[variant=admin]:ring-border data-[variant=admin]:[--card-spacing:--spacing(3)] data-[variant=workspace]:border-[1.5px] data-[variant=workspace]:border-input data-[variant=workspace]:ring-0 data-[variant=workspace]:shadow-[var(--shadow-standard)] *:[img:first-child]:rounded-t-xl *:[img:last-child]:rounded-b-xl",
         className
       )}
       {...props}

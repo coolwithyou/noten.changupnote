@@ -1725,7 +1725,7 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
         </Alert>
       ) : null}
 
-      <div className="relative min-h-[68dvh] flex-1 overflow-hidden rounded-[var(--radius-xl)] border bg-card shadow-[var(--shadow-standard)]">
+      <div className="relative min-h-[68dvh] flex-1 overflow-hidden rounded-[var(--radius-xl)] border-[1.5px] border-input bg-card shadow-[var(--shadow-standard)]">
         {state.status === "loading" && state.allowEditorInteraction ? (
           <div className="pointer-events-none absolute top-3 left-1/2 z-10 w-[min(92%,42rem)] -translate-x-1/2 rounded-[var(--radius-lg)] border border-warning-strong/30 bg-card/95 px-3 py-2 text-center text-xs text-muted-foreground shadow-[var(--shadow-subtle)] backdrop-blur-sm">
             {state.message}
