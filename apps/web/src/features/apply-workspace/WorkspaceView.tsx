@@ -8,7 +8,7 @@
  * 어휘는 화면에 노출하지 않는다.
  *
  * 상단 바(재정의 §2-①): ← 공고 요약 / 공고명 / M/N 확인 완료(단일 축) / 하나씩·전체 목록 토글 /
- *   문서 Select(2개 이상일 때만). 채팅은 패널 대체가 아니라 Sheet 오버레이(§2-④) — 닫으면 루프가
+ *   문서 Select(2개 이상일 때만). 채팅은 패널 대체가 아니라 Dialog 오버레이(§2-④) — 닫으면 루프가
  *   그 자리에 그대로 있다. 하단 상시 바는 제거(§2-⑤).
  *
  * 사다리(서버 개념, 화면 비노출):
@@ -23,6 +23,7 @@ import { ChevronLeft, FilePenLine, WandSparkles } from "lucide-react";
 import { toast } from "sonner";
 import type { ActionResult } from "@cunote/contracts";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Progress } from "@/components/ui/progress";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
@@ -958,15 +959,15 @@ export function WorkspaceView({
         </div>
       )}
 
-      {/* 채팅 Sheet 오버레이(§2-④) — 닫으면 확인 루프가 그 자리에 그대로 있다. 진입점(💬)은 (a) 확인 카드뿐. */}
+      {/* 1:1 채팅 Dialog 오버레이(§2-④) — 닫으면 확인 루프가 그 자리에 그대로 있다. */}
       {data.ladder === "a" && !readOnlyPreview ? (
-        <Sheet open={showChat} onOpenChange={setShowChat}>
-          <SheetContent className="flex w-full flex-col gap-0 p-3 sm:max-w-md">
-            <SheetTitle className="sr-only">이 공고에 대해 물어보기</SheetTitle>
-            <SheetDescription className="sr-only">
+        <Dialog open={showChat} onOpenChange={setShowChat}>
+          <DialogContent className="flex max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] flex-col gap-0 overflow-hidden p-3 sm:max-w-2xl">
+            <DialogTitle className="sr-only">이 공고에 대해 물어보기</DialogTitle>
+            <DialogDescription className="sr-only">
               공고 내용·자격·마감·작성 요령을 채팅으로 물어볼 수 있어요.
-            </SheetDescription>
-            <div className="flex min-h-0 flex-1 flex-col overflow-hidden pt-6">
+            </DialogDescription>
+            <div className="min-h-0 overflow-y-auto pt-6 sm:pt-2">
               <ChatPanelView
                 controller={chat}
                 greeting={greeting}
@@ -998,8 +999,8 @@ export function WorkspaceView({
                 }}
               />
             </div>
-          </SheetContent>
-        </Sheet>
+          </DialogContent>
+        </Dialog>
       ) : null}
 
       {data.pollConversion ? <ConversionPollTrigger grantId={grantId} /> : null}
