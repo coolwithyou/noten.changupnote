@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { CheckCircle2, ContactRound, TriangleAlert } from "lucide-react";
+import { CheckCircle2, ContactRound, Search, TriangleAlert } from "lucide-react";
 import { toast } from "sonner";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -23,6 +23,12 @@ import {
   FieldSet,
 } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupButton,
+  InputGroupInput,
+} from "@/components/ui/input-group";
 import { Spinner } from "@/components/ui/spinner";
 import type { ConnectedDocumentField } from "@/lib/server/documents/documentFieldLink";
 import {
@@ -35,6 +41,13 @@ import {
   fetchApplicationAutofillProfile,
   updateApplicationAutofillProfile,
 } from "@/lib/documents/applicationProfileAutofillApi";
+import {
+  loadKakaoPostcode,
+  openKakaoPostcode,
+  type SelectedPostalAddress,
+} from "@/lib/postcode/kakaoPostcode";
+
+type PostcodeStatus = "idle" | "loading" | "ready" | "error";
 
 export interface ApplicationProfileAutofillDialogProps {
   draftId: string;
@@ -61,6 +74,7 @@ export function ApplicationProfileAutofillDialog({
   const [profile, setProfile] = useState<ApplicationAutofillProfile | null>(null);
   const [form, setForm] = useState<ApplicationAutofillProfileInput | null>(null);
   const [bindings, setBindings] = useState<ApplicationAutofillFieldBinding[]>([]);
+  const [postcodeStatus, setPostcodeStatus] = useState<PostcodeStatus>("idle");
 
   useEffect(() => {
     if (!open) return;
@@ -85,6 +99,23 @@ export function ApplicationProfileAutofillDialog({
     };
   }, [draftId, inspectBindings, open]);
 
+  useEffect(() => {
+    if (!open) {
+      setPostcodeStatus("idle");
+      return;
+    }
+    let disposed = false;
+    setPostcodeStatus("loading");
+    void loadKakaoPostcode().then(() => {
+      if (!disposed) setPostcodeStatus("ready");
+    }).catch(() => {
+      if (!disposed) setPostcodeStatus("error");
+    });
+    return () => {
+      disposed = true;
+    };
+  }, [open]);
+
   const editableProfile = useMemo(() => (
     profile && form ? fromInput(form, profile.company.businessNumberVerified, profile.updatedAt) : null
   ), [form, profile]);
@@ -108,6 +139,56 @@ export function ApplicationProfileAutofillDialog({
       ...current,
       company: { ...current.company, [key]: value },
     } : current);
+  };
+
+  const preparePostcode = () => {
+    if (postcodeStatus === "loading") return;
+    setPostcodeStatus("loading");
+    void loadKakaoPostcode().then(() => {
+      setPostcodeStatus("ready");
+      toast.success("주소 검색을 준비했습니다. 주소 찾기를 다시 눌러 주세요.");
+    }).catch(() => {
+      setPostcodeStatus("error");
+      toast.error("주소 검색을 준비하지 못했습니다. 잠시 후 다시 시도해 주세요.");
+    });
+  };
+
+  const selectAddress = (target: "personal" | "company") => {
+    if (postcodeStatus !== "ready") {
+      preparePostcode();
+      return;
+    }
+    try {
+      openKakaoPostcode({
+        onComplete: (selected) => applySelectedAddress(target, selected),
+        onError: () => {
+          setPostcodeStatus("error");
+          toast.error("선택한 주소 정보를 확인하지 못했습니다. 다시 검색해 주세요.");
+        },
+      });
+    } catch {
+      setPostcodeStatus("error");
+      toast.error("주소 검색창을 열지 못했습니다. 다시 시도해 주세요.");
+    }
+  };
+
+  const applySelectedAddress = (
+    target: "personal" | "company",
+    selected: SelectedPostalAddress,
+  ) => {
+    setForm((current) => current ? {
+      ...current,
+      [target]: {
+        ...current[target],
+        postalCode: selected.postalCode,
+        addressLine1: selected.address,
+        addressLine2: "",
+      },
+    } : current);
+    const detailInputId = target === "personal"
+      ? "autofill-personal-address-detail"
+      : "autofill-company-address-detail";
+    requestAnimationFrame(() => document.getElementById(detailInputId)?.focus());
   };
 
   const submit = async () => {
@@ -193,9 +274,19 @@ export function ApplicationProfileAutofillDialog({
                     <ProfileField label="성명" value={form.personal.fullName} onChange={(value) => updatePersonal("fullName", value)} autoComplete="name" />
                     <ProfileField label="신청용 이메일" value={form.personal.applicationEmail} onChange={(value) => updatePersonal("applicationEmail", value)} type="email" autoComplete="email" />
                     <ProfileField label="휴대전화" value={form.personal.phone} onChange={(value) => updatePersonal("phone", value)} type="tel" autoComplete="tel" />
-                    <ProfileField label="우편번호" value={form.personal.postalCode} onChange={(value) => updatePersonal("postalCode", value)} autoComplete="postal-code" />
-                    <ProfileField label="주소" value={form.personal.addressLine1} onChange={(value) => updatePersonal("addressLine1", value)} autoComplete="street-address" className="sm:col-span-2" />
-                    <ProfileField label="상세 주소" value={form.personal.addressLine2} onChange={(value) => updatePersonal("addressLine2", value)} autoComplete="address-line2" className="sm:col-span-2" />
+                    <ProfileAddressFields
+                      postalLabel="우편번호"
+                      addressLabel="주소"
+                      detailLabel="상세 주소"
+                      idPrefix="autofill-personal-address"
+                      postalCode={form.personal.postalCode}
+                      addressLine1={form.personal.addressLine1}
+                      addressLine2={form.personal.addressLine2}
+                      postcodeStatus={postcodeStatus}
+                      onSearch={() => selectAddress("personal")}
+                      onDetailChange={(value) => updatePersonal("addressLine2", value)}
+                      detailAutoComplete="address-line2"
+                    />
                   </FieldGroup>
                 </FieldSet>
 
@@ -226,9 +317,19 @@ export function ApplicationProfileAutofillDialog({
                     </Field>
                     <ProfileField label="회사 이메일" value={form.company.applicationEmail} onChange={(value) => updateCompany("applicationEmail", value)} type="email" autoComplete="off" />
                     <ProfileField label="회사 전화번호" value={form.company.phone} onChange={(value) => updateCompany("phone", value)} type="tel" autoComplete="off" />
-                    <ProfileField label="회사 우편번호" value={form.company.postalCode} onChange={(value) => updateCompany("postalCode", value)} autoComplete="off" />
-                    <ProfileField label="사업장 주소" value={form.company.addressLine1} onChange={(value) => updateCompany("addressLine1", value)} autoComplete="off" className="sm:col-span-2" />
-                    <ProfileField label="사업장 상세 주소" value={form.company.addressLine2} onChange={(value) => updateCompany("addressLine2", value)} autoComplete="off" className="sm:col-span-2" />
+                    <ProfileAddressFields
+                      postalLabel="회사 우편번호"
+                      addressLabel="사업장 주소"
+                      detailLabel="사업장 상세 주소"
+                      idPrefix="autofill-company-address"
+                      postalCode={form.company.postalCode}
+                      addressLine1={form.company.addressLine1}
+                      addressLine2={form.company.addressLine2}
+                      postcodeStatus={postcodeStatus}
+                      onSearch={() => selectAddress("company")}
+                      onDetailChange={(value) => updateCompany("addressLine2", value)}
+                      detailAutoComplete="off"
+                    />
                   </FieldGroup>
                 </FieldSet>
 
@@ -276,6 +377,7 @@ export function ApplicationProfileAutofillDialog({
 }
 
 function ProfileField({
+  id: providedId,
   label,
   value,
   onChange,
@@ -283,6 +385,7 @@ function ProfileField({
   autoComplete,
   className,
 }: {
+  id?: string;
   label: string;
   value: string | null;
   onChange: (value: string) => void;
@@ -290,7 +393,7 @@ function ProfileField({
   autoComplete: string;
   className?: string;
 }) {
-  const id = `autofill-${label.replace(/[^0-9a-z가-힣]+/giu, "-")}`;
+  const id = providedId ?? `autofill-${label.replace(/[^0-9a-z가-힣]+/giu, "-")}`;
   return (
     <Field className={className}>
       <FieldLabel htmlFor={id}>{label}</FieldLabel>
@@ -302,6 +405,78 @@ function ProfileField({
         autoComplete={autoComplete}
       />
     </Field>
+  );
+}
+
+function ProfileAddressFields({
+  postalLabel,
+  addressLabel,
+  detailLabel,
+  idPrefix,
+  postalCode,
+  addressLine1,
+  addressLine2,
+  postcodeStatus,
+  onSearch,
+  onDetailChange,
+  detailAutoComplete,
+}: {
+  postalLabel: string;
+  addressLabel: string;
+  detailLabel: string;
+  idPrefix: string;
+  postalCode: string | null;
+  addressLine1: string | null;
+  addressLine2: string | null;
+  postcodeStatus: PostcodeStatus;
+  onSearch: () => void;
+  onDetailChange: (value: string) => void;
+  detailAutoComplete: string;
+}) {
+  const preparing = postcodeStatus === "loading" || postcodeStatus === "idle";
+  const retry = postcodeStatus === "error";
+  const postalId = `${idPrefix}-postal-code`;
+  const addressId = `${idPrefix}-base`;
+  const detailId = `${idPrefix}-detail`;
+
+  return (
+    <>
+      <Field>
+        <FieldLabel htmlFor={postalId}>{postalLabel}</FieldLabel>
+        <InputGroup>
+          <InputGroupInput
+            id={postalId}
+            value={postalCode ?? ""}
+            placeholder="주소 찾기로 입력"
+            readOnly
+            autoComplete="postal-code"
+          />
+          <InputGroupAddon align="inline-end">
+            <InputGroupButton onClick={onSearch} disabled={preparing} aria-label={`${addressLabel} 찾기`}>
+              {preparing ? <Spinner data-icon="inline-start" /> : <Search data-icon="inline-start" aria-hidden />}
+              {retry ? "다시 준비" : "주소 찾기"}
+            </InputGroupButton>
+          </InputGroupAddon>
+        </InputGroup>
+        <FieldDescription>
+          {retry
+            ? "카카오 주소 검색을 준비하지 못했습니다. 다시 준비를 눌러 주세요."
+            : "카카오 주소 검색에서 우편번호와 기본 주소를 선택합니다."}
+        </FieldDescription>
+      </Field>
+      <Field className="sm:col-span-2">
+        <FieldLabel htmlFor={addressId}>{addressLabel}</FieldLabel>
+        <Input id={addressId} value={addressLine1 ?? ""} readOnly autoComplete="street-address" />
+      </Field>
+      <ProfileField
+        id={detailId}
+        label={detailLabel}
+        value={addressLine2}
+        onChange={onDetailChange}
+        autoComplete={detailAutoComplete}
+        className="sm:col-span-2"
+      />
+    </>
   );
 }
 

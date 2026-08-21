@@ -6,6 +6,7 @@ import {
   resolveApplicationProfileKey,
   type ApplicationAutofillProfile,
 } from "./applicationProfileAutofill";
+import { selectKakaoPostalAddress } from "@/lib/postcode/kakaoPostcode";
 
 const profile: ApplicationAutofillProfile = {
   personal: {
@@ -45,6 +46,43 @@ assert.equal(resolveApplicationProfileKey(field({ fieldKey: "resident", label: "
 
 assert.equal(applicationProfileValue(profile, "company_business_number"), "123-45-67891");
 assert.equal(applicationProfileValue(profile, "applicant_address"), "서울특별시 강남구 테헤란로 1 101호");
+
+assert.deepEqual(selectKakaoPostalAddress({
+  zonecode: "06236",
+  address: "서울 강남구 테헤란로 1",
+  userSelectedType: "R",
+  roadAddress: "서울 강남구 테헤란로 1",
+  jibunAddress: "서울 강남구 역삼동 1",
+  bname: "역삼동",
+  buildingName: "창업빌딩",
+  apartment: "Y",
+}), {
+  postalCode: "06236",
+  address: "서울 강남구 테헤란로 1 (역삼동, 창업빌딩)",
+});
+assert.deepEqual(selectKakaoPostalAddress({
+  zonecode: "12345",
+  address: "강원 철원군 갈말읍 1",
+  userSelectedType: "J",
+  roadAddress: "",
+  jibunAddress: "강원 철원군 갈말읍 1",
+  bname: "갈말읍",
+  buildingName: "",
+  apartment: "N",
+}), {
+  postalCode: "12345",
+  address: "강원 철원군 갈말읍 1",
+});
+assert.equal(selectKakaoPostalAddress({
+  zonecode: "",
+  address: "",
+  userSelectedType: "R",
+  roadAddress: "",
+  jibunAddress: "",
+  bname: "",
+  buildingName: "",
+  apartment: "N",
+}), null);
 
 const fields = [
   field({ fieldId: "company", fieldKey: "company_name", label: "기업명", mappedCompanyField: "name" }),
