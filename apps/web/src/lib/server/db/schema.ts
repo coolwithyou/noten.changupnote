@@ -2322,6 +2322,7 @@ export const grantDocumentFieldAgentRuns = pgTable("grant_document_field_agent_r
     { onDelete: "restrict" },
   ),
   documentSha256: text("document_sha256").notNull(),
+  documentSemanticSha256: text("document_semantic_sha256"),
   fieldBindingSha256: text("field_binding_sha256").notNull(),
   target: jsonb("target").$type<Record<string, unknown>>().notNull(),
   beforeText: text("before_text").notNull(),
@@ -2353,6 +2354,7 @@ export const grantDocumentFieldAgentRuns = pgTable("grant_document_field_agent_r
     AND ${table.statusVersion} >= 0
     AND char_length(${table.requestBindingSha256}) = 64
     AND char_length(${table.documentSha256}) = 64
+    AND (${table.documentSemanticSha256} IS NULL OR char_length(${table.documentSemanticSha256}) = 64)
     AND char_length(${table.fieldBindingSha256}) = 64
     AND char_length(${table.beforeTextSha256}) = 64
     AND char_length(${table.formatSha256}) = 64

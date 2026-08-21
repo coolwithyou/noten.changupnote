@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { and, desc, eq, ne, sql } from "drizzle-orm";
+import { and, eq, ne, sql } from "drizzle-orm";
 import type {
   StudioFieldRestoreFormatV1,
   StudioFieldTargetV1,
@@ -53,6 +53,7 @@ export interface FieldAgentRunDto {
   statusVersion: number;
   baseRevisionId: string;
   documentSha256: string;
+  documentSemanticSha256: string | null;
   fieldBindingSha256: string;
   target: StudioFieldTargetV1;
   beforeText: string;
@@ -132,6 +133,7 @@ export async function requestFieldAgentSuggestions(input: {
       requestBindingSha256,
       baseRevisionId: authority.revision.revisionId,
       documentSha256: authority.revision.sha256,
+      documentSemanticSha256: authority.documentSemanticSha256,
       fieldBindingSha256: authority.fieldBindingSha256,
       target: authority.target,
       beforeText: authority.evidence.text,
@@ -324,7 +326,9 @@ export async function transitionFieldAgentSuggestion(input: {
       case "abandon_apply":
         assertState(suggestion.status === "pending" && suggestion.operationState === "apply_saving", "field_abandon_apply_not_allowed");
         assertHead(head, run.baseRevisionId);
-        values = { ...idleOperation(suggestion, input.failureCode ?? "apply_rolled_back", now), status: "stale", statusVersion: suggestion.statusVersion + 1 };
+        // 적용 전 검증 실패 또는 exact rollback이 끝난 경우 제안 자체는 여전히 유효할 수 있다.
+        // 사용자가 다시 시도하거나 다른 대안을 고를 수 있도록 pending을 보존한다.
+        values = { ...idleOperation(suggestion, input.failureCode ?? "apply_rolled_back", now), status: "pending" };
         break;
       case "abandon_undo":
         assertState(suggestion.status === "applied" && suggestion.operationState === "undo_saving", "field_abandon_undo_not_allowed");
@@ -352,7 +356,22 @@ export async function transitionFieldAgentSuggestion(input: {
         eq(schema.grantDocumentFieldAgentSuggestions.operationState, "idle"),
       ));
     }
-    if (input.action === "dismiss" || input.action === "abandon_apply") {
+    if (input.action === "abandon_apply") {
+      // start_apply가 같은 run의 다른 pending 대안을 stale로 잠갔다. 적용이 확정되지
+      // 않았으므로 그 선택 집합만 다시 pending으로 복구한다. 다른 run은 건드리지 않는다.
+      await tx.update(schema.grantDocumentFieldAgentSuggestions).set({
+        status: "pending",
+        statusVersion: sql`${schema.grantDocumentFieldAgentSuggestions.statusVersion} + 1`,
+        failureCode: input.failureCode ?? "apply_rolled_back",
+        updatedAt: now,
+      }).where(and(
+        eq(schema.grantDocumentFieldAgentSuggestions.runId, run.id),
+        ne(schema.grantDocumentFieldAgentSuggestions.id, suggestion.id),
+        eq(schema.grantDocumentFieldAgentSuggestions.status, "stale"),
+        eq(schema.grantDocumentFieldAgentSuggestions.operationState, "idle"),
+      ));
+    }
+    if (input.action === "dismiss") {
       const [lockedDraft] = await tx.select({
         fieldAnswers: schema.grantDocumentDrafts.fieldAnswers,
         filledFields: schema.grantDocumentDrafts.filledFields,
@@ -391,10 +410,17 @@ export async function loadRecentFieldAgentRuns(input: {
 }): Promise<FieldAgentRunDto[]> {
   const db = getCunoteDb();
   return withCunoteDbUser(db, input.access.userId, async (tx) => {
-    const runs = await tx.select().from(schema.grantDocumentFieldAgentRuns).where(and(
-      eq(schema.grantDocumentFieldAgentRuns.draftId, input.draftId),
-      eq(schema.grantDocumentFieldAgentRuns.createdBy, input.access.userId),
-    )).orderBy(desc(schema.grantDocumentFieldAgentRuns.createdAt)).limit(20);
+    const runs = await tx.execute<{ id: string }>(sql`
+      SELECT recent.id
+      FROM (
+        SELECT DISTINCT ON (field_id) id, created_at
+        FROM grant_document_field_agent_runs
+        WHERE draft_id = ${input.draftId}
+          AND created_by = ${input.access.userId}
+        ORDER BY field_id, created_at DESC
+      ) recent
+      ORDER BY recent.created_at DESC
+    `);
     return Promise.all(runs.map((run) => loadFieldAgentRunDto(run.id, input.access)));
   });
 }
@@ -419,6 +445,7 @@ async function loadFieldAgentRunDto(runId: string, access: CompanyAccess): Promi
       statusVersion: run.statusVersion,
       baseRevisionId: run.baseRevisionId,
       documentSha256: run.documentSha256,
+      documentSemanticSha256: run.documentSemanticSha256,
       fieldBindingSha256: run.fieldBindingSha256,
       target: run.target as unknown as StudioFieldTargetV1,
       beforeText: run.beforeText,

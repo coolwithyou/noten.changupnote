@@ -149,6 +149,14 @@ assert.ok(
   html.includes("relative overflow-hidden max-h-48"),
   "필드 목록 ScrollArea는 제안 카드와 겹치지 않도록 내용을 클리핑해야 합니다.",
 );
+assert.ok(
+  html.includes("flex h-full min-h-0 max-h-full flex-col overflow-hidden"),
+  "AI 필드 레일은 부모 높이를 넘지 않고 내부 스크롤 영역을 유지해야 합니다.",
+);
+assert.ok(
+  html.includes("min-h-0 flex-1 overscroll-contain"),
+  "긴 AI 제안은 레일 내부 ScrollArea에서 독립적으로 스크롤돼야 합니다.",
+);
 assert.equal(html.includes('aria-label="문서 작성 방식"'), false, "통합 편집 화면에 quick/studio 주 모드 토글이 있으면 안 됩니다.");
 assert.equal(html.includes("AI 작성 제안"), false, "일반 본문 문단 에이전트가 필드 에이전트 주 CTA로 노출되면 안 됩니다.");
 

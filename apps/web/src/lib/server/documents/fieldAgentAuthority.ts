@@ -7,6 +7,7 @@ import { loadDocumentAgentCore } from "../rhwp/documentAgentCore";
 import { answerKey } from "@/features/apply-workspace/fieldAnswerState";
 import { buildChoiceCellReplacement, extractFieldOptions } from "@/lib/documents/fieldOptions";
 import { collectStudioFieldEvidence } from "@/lib/rhwp/studioFieldAgentTransaction";
+import { studioFieldDocumentSemanticSha256 } from "@/lib/rhwp/studioFieldDocumentManifest";
 import { resolveStudioFieldBindings } from "@/lib/rhwp/studioFieldBindings";
 import type { StudioFieldTargetV1 } from "@/lib/rhwp/studioDocumentAgentProtocol";
 import { isLlmSuggestableLabel } from "./fieldSuggest";
@@ -101,6 +102,7 @@ export async function rebuildFieldAgentAuthority(input: {
     throw new FieldAgentAuthorityError("field_binding_mismatch", "요청한 필드 위치가 서버 binding과 다릅니다.", 409);
   }
   const evidence = await collectStudioFieldEvidence(rhwp, revision.body, target);
+  const documentSemanticSha256 = await semanticSha256(rhwp, revision.body);
   if (options.length > 0) {
     try {
       for (const option of options) {
@@ -124,6 +126,7 @@ export async function rebuildFieldAgentAuthority(input: {
     fieldId: field.fieldId,
     revisionId: revision.revisionId,
     documentSha256: revision.sha256,
+    documentSemanticSha256,
     target,
     beforeTextSha256: evidence.textSha256,
     formatSha256: evidence.formatSha256,
@@ -140,7 +143,20 @@ export async function rebuildFieldAgentAuthority(input: {
     beforeAnswer: beforeAnswer ?? null,
     options,
     fieldBindingSha256,
+    documentSemanticSha256,
   };
+}
+
+async function semanticSha256(
+  rhwp: Awaited<ReturnType<typeof loadDocumentAgentCore>>,
+  bytes: Uint8Array,
+): Promise<string> {
+  const document = new rhwp.HwpDocument(bytes);
+  try {
+    return await studioFieldDocumentSemanticSha256(document);
+  } finally {
+    document.free();
+  }
 }
 
 function isSupportedField(

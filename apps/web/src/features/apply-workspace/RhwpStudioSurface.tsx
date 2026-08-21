@@ -58,6 +58,10 @@ import {
   type StudioFieldAgentTransaction,
 } from "@/lib/rhwp/studioFieldAgentTransaction";
 import {
+  matchesStudioFieldDocumentPreimage,
+  studioFieldDocumentSemanticSha256,
+} from "@/lib/rhwp/studioFieldDocumentManifest";
+import {
   exportVerifiedEditorDocument,
   loadEditorFileWithoutDialogs,
   notifyEditorSaved,
@@ -743,6 +747,7 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
       return {
         bytes,
         documentSha256,
+        documentSemanticSha256: await studioFieldDocumentSemanticSha256(document),
         resolutions: resolveStudioFieldBindings(document, connectedFields),
         pageCount: document.pageCount(),
       };
@@ -1293,8 +1298,13 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
         operationClientId,
       });
       const current = await readCurrentFieldDocument();
-      if (current.documentSha256 !== run.documentSha256) {
-        throw new Error("제안 기준 revision 뒤 문서가 변경되었습니다. 필드 제안을 다시 받아 주세요.");
+      if (!matchesStudioFieldDocumentPreimage({
+        currentDocumentSha256: current.documentSha256,
+        currentSemanticSha256: current.documentSemanticSha256,
+        expectedDocumentSha256: run.documentSha256,
+        expectedSemanticSha256: run.documentSemanticSha256,
+      })) {
+        throw new Error("제안 기준 revision 뒤 문서 내용 또는 서식이 변경되었습니다. 필드 제안을 다시 받아 주세요.");
       }
       applied = await transaction.apply({
         bytes: current.bytes,

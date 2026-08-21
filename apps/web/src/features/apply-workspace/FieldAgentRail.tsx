@@ -64,9 +64,9 @@ export function FieldAgentRail({
   }, [session.selected?.fieldId]);
 
   return (
-    <aside className="min-h-0" aria-label="AI 필드 도우미">
-      <Card className="h-full min-h-0">
-        <CardHeader className="border-b">
+    <aside className="flex h-full min-h-0 max-h-full flex-col overflow-hidden" aria-label="AI 필드 도우미">
+      <Card className="h-full min-h-0 max-h-full overflow-hidden">
+        <CardHeader className="shrink-0 border-b">
           <div className="flex items-center justify-between gap-3">
             <CardTitle>AI 필드 도우미</CardTitle>
             <Badge variant="outline">
@@ -79,8 +79,8 @@ export function FieldAgentRail({
           </CardDescription>
         </CardHeader>
 
-        <CardContent className="flex min-h-0 flex-1 flex-col gap-4">
-          <div className="space-y-2">
+        <CardContent className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden">
+          <div className="shrink-0 space-y-2">
             <div className="relative">
               <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
               <Input
@@ -143,7 +143,8 @@ export function FieldAgentRail({
           {session.selected ? (
             <>
               <Separator />
-              <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-auto">
+              <ScrollArea className="min-h-0 flex-1 overscroll-contain">
+                <div className="flex flex-col gap-3 pr-3 pb-2">
                 <div className="flex flex-wrap items-center gap-2">
                   <h2 className="text-base font-semibold">{session.selected.label}</h2>
                   {session.selected.required ? <Badge variant="secondary">필수</Badge> : null}
@@ -249,12 +250,13 @@ export function FieldAgentRail({
                     필드 제안 생성 중…
                   </Button>
                 ) : null}
-              </div>
+                </div>
+              </ScrollArea>
             </>
           ) : null}
         </CardContent>
 
-        <CardFooter className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
+        <CardFooter className="flex shrink-0 items-center justify-between gap-3 text-xs text-muted-foreground">
           <span>exact Studio 필드에만 값을 적용합니다.</span>
           <Button
             type="button"

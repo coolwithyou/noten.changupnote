@@ -526,6 +526,17 @@ export function WorkspaceView({
         }
       }
     } catch (caught) {
+      if (data.draftId) {
+        try {
+          const refreshedRuns = await fetchFieldAgentRuns(data.draftId);
+          const refreshed = refreshedRuns.find((entry) => entry.fieldId === run.fieldId);
+          if (refreshed) {
+            setFieldAgentRuns((current) => new Map(current).set(run.fieldId, refreshed));
+          }
+        } catch {
+          // 적용 실패 안내가 제안 이력 재조회 실패에 가려지지 않게 한다.
+        }
+      }
       toast.error(caught instanceof Error ? caught.message : "AI 필드 작업을 완료하지 못했습니다.");
     } finally {
       setSuggestingLabels((current) => {
@@ -858,7 +869,7 @@ export function WorkspaceView({
                 onSaved={handleStudioSaved}
               />
             </div>
-            <div className="hidden min-h-0 xl:block">
+            <div className="hidden h-full min-h-0 overflow-hidden xl:block">
               <FieldAgentRail
                 session={fieldAgentSession}
                 connectedFields={data.connectedFields}
@@ -888,7 +899,7 @@ export function WorkspaceView({
               <SheetDescription className="sr-only">
                 현재 문서의 필드를 선택하고 근거 있는 값을 제안받아 정확한 입력 칸에 반영합니다.
               </SheetDescription>
-              <div className="min-h-0 flex-1 pt-8">
+              <div className="h-full min-h-0 flex-1 overflow-hidden pt-8">
                 <FieldAgentRail
                   session={fieldAgentSession}
                   connectedFields={data.connectedFields}
