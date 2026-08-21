@@ -71,7 +71,8 @@ const fieldAwareHtml = renderToStaticMarkup(
     onSaved={() => undefined}
   />,
 );
-assert.ok(fieldAwareHtml.includes("문서 편집"), "통합 화면은 Studio를 주 편집 표면으로 표시해야 합니다.");
+assert.equal(fieldAwareHtml.includes("지금 저장"), false, "통합 화면의 저장 버튼은 AI 사이드바로 이동해야 합니다.");
+assert.equal(fieldAwareHtml.includes("편집본 다운로드"), false, "통합 화면의 다운로드 버튼은 AI 사이드바로 이동해야 합니다.");
 assert.equal(fieldAwareHtml.includes("AI 작성 제안"), false, "일반 문단 에이전트를 필드 에이전트 CTA로 노출하면 안 됩니다.");
 assert.equal(fieldAwareHtml.includes("저장하고 빠른 작성으로"), false, "통합 화면은 quick-first 복귀 동작을 제공하면 안 됩니다.");
 

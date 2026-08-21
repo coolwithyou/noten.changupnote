@@ -149,6 +149,10 @@ assert.ok(
   html.includes("작성 도우미") && html.includes("필드 목록"),
   "필드 인덱스는 작성 도우미와 분리된 메뉴로 제공해야 합니다.",
 );
+assert.ok(
+  html.includes("지금 저장") && html.includes("편집본 다운로드"),
+  "통합 편집 화면의 문서 저장 동작은 AI 사이드바에서 제공해야 합니다.",
+);
 assert.equal(html.includes("max-h-48"), false, "필드 인덱스가 작성 도우미 공간을 상시 차지하면 안 됩니다.");
 assert.ok(
   html.includes("flex h-full min-h-0 max-h-full flex-col overflow-hidden"),
@@ -160,6 +164,24 @@ assert.ok(
 );
 assert.equal(html.includes('aria-label="문서 작성 방식"'), false, "통합 편집 화면에 quick/studio 주 모드 토글이 있으면 안 됩니다.");
 assert.equal(html.includes("AI 작성 제안"), false, "일반 본문 문단 에이전트가 필드 에이전트 주 CTA로 노출되면 안 됩니다.");
+
+const integratedNoticeHtml = renderToStaticMarkup(
+  <AppRouterContext.Provider value={router}>
+    <WorkspaceView
+      data={{
+        ...data,
+        honestNotice: "빠른 작성에는 위치를 안전하게 확정한 항목만 표시합니다.",
+      }}
+      greeting={{ text: "지원서 작성을 도와드릴게요.", generalNotice: true }}
+      institutionContact={null}
+    />
+  </AppRouterContext.Provider>,
+);
+assert.equal(
+  integratedNoticeHtml.includes("빠른 작성에는 위치를 안전하게 확정한 항목만 표시합니다."),
+  false,
+  "통합 문서 편집 화면에는 폐기한 빠른 작성 안내를 노출하면 안 됩니다.",
+);
 
 // current terminal 선분석은 무한 재분석처럼 보이지 않고 직접 편집으로 이어져야 한다.
 const reviewRequiredHtml = renderToStaticMarkup(

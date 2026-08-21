@@ -44,6 +44,7 @@ import type { FieldAgentRunDto, FieldAgentSuggestionDto } from "@/lib/server/doc
 import { fetchFieldAgentRuns } from "@/lib/rhwp/fieldAgentApi";
 import type { StudioFieldTargetV1 } from "@/lib/rhwp/studioDocumentAgentProtocol";
 import type { StudioFieldBindingResolution } from "@/lib/rhwp/studioFieldBindings";
+import { initialStudioSaveState } from "@/lib/rhwp/studioSaveState";
 import type { ConnectedDocumentField } from "@/lib/server/documents/documentFieldLink";
 import type { WorkspaceData } from "@/lib/server/documents/workspaceData";
 import type { ChatMessageContent } from "@/lib/chat/messageContent";
@@ -64,7 +65,11 @@ import {
 import { FieldPanel, type WorkspacePanelMode } from "./FieldPanel";
 import { FieldAgentRail } from "./FieldAgentRail";
 import { buildFieldAwareDocumentSession, fieldSelectionTargetKey } from "./fieldAwareDocumentSession";
-import { RhwpStudioSurface, type RhwpStudioSurfaceHandle } from "./RhwpStudioSurface";
+import {
+  RhwpStudioSurface,
+  type RhwpStudioDocumentActionState,
+  type RhwpStudioSurfaceHandle,
+} from "./RhwpStudioSurface";
 import { workspaceFieldState, type InstitutionContact } from "./workspacePresentation";
 
 const EMPTY_MATERIALIZED_ANSWERS: Record<string, string> = {};
@@ -99,6 +104,13 @@ export function WorkspaceView({
   const [studioSourceKey, setStudioSourceKey] = useState<string | null>(null);
   const [studioTaskStates, setStudioTaskStates] = useState<StudioTaskStates>({});
   const [workingDocument, setWorkingDocument] = useState<RhwpWorkingDocument | null>(null);
+  const [studioDocumentActions, setStudioDocumentActions] = useState<RhwpStudioDocumentActionState>({
+    saveState: initialStudioSaveState,
+    saving: false,
+    downloading: false,
+    canSave: false,
+    canDownload: false,
+  });
   const [workingPreviewUrl, setWorkingPreviewUrl] = useState<string | null>(null);
   const [fieldBindingsResolved, setFieldBindingsResolved] = useState(false);
   const [fieldBindingStatuses, setFieldBindingStatuses] = useState<Map<string, "unique" | "missing" | "ambiguous">>(
@@ -156,11 +168,26 @@ export function WorkspaceView({
     setStudioSourceKey(null);
     setStudioTaskStates({});
     setWorkingDocument(null);
+    setStudioDocumentActions({
+      saveState: initialStudioSaveState,
+      saving: false,
+      downloading: false,
+      canSave: false,
+      canDownload: false,
+    });
     setFieldBindingsResolved(false);
     setFieldBindingStatuses(new Map());
     setFieldBindingTargets(new Map());
     setFieldAgentRuns(new Map());
   }, [currentStudioSourceKey]);
+
+  const saveCurrentDocument = useCallback(() => {
+    void studioSurfaceRef.current?.saveCurrent();
+  }, []);
+
+  const downloadCurrentDocument = useCallback(() => {
+    void studioSurfaceRef.current?.downloadCurrentCopy();
+  }, []);
 
   useEffect(() => {
     if (!integratedFieldEditor || !data.fieldEditorAgentAvailable || !data.draftId) return;
@@ -831,7 +858,7 @@ export function WorkspaceView({
         </div>
       ) : null}
 
-      {authoringMode !== "studio" && data.ladder !== "c" && data.honestNotice ? (
+      {!integratedFieldEditor && authoringMode !== "studio" && data.ladder !== "c" && data.honestNotice ? (
         <div className="mx-3 mt-3 rounded-[var(--radius-lg)] border border-amber-500/30 bg-amber-500/[0.06] px-4 py-3 text-sm text-amber-800 dark:text-amber-300 lg:mx-4">
           {data.honestNotice}
         </div>
@@ -859,6 +886,7 @@ export function WorkspaceView({
                 documentAgentAvailable={false}
                 fieldEditorAgentAvailable={data.fieldEditorAgentAvailable}
                 presentation="field_aware"
+                onDocumentActionStateChanged={setStudioDocumentActions}
                 onFieldBindingsResolved={handleFieldBindingsResolved}
                 onFieldSelectionChanged={handleStudioFieldSelection}
                 onSaved={handleStudioSaved}
@@ -875,6 +903,11 @@ export function WorkspaceView({
                 onApplySuggestion={(run, suggestion) => void runFieldAgentAction("apply", run, suggestion)}
                 onUndoSuggestion={(run, suggestion) => void runFieldAgentAction("undo", run, suggestion)}
                 onDismissSuggestion={(run, suggestion) => void runFieldAgentAction("dismiss", run, suggestion)}
+                documentActions={{
+                  ...studioDocumentActions,
+                  onSave: saveCurrentDocument,
+                  onDownload: downloadCurrentDocument,
+                }}
               />
             </div>
           </div>
@@ -905,6 +938,11 @@ export function WorkspaceView({
                   onApplySuggestion={(run, suggestion) => void runFieldAgentAction("apply", run, suggestion)}
                   onUndoSuggestion={(run, suggestion) => void runFieldAgentAction("undo", run, suggestion)}
                   onDismissSuggestion={(run, suggestion) => void runFieldAgentAction("dismiss", run, suggestion)}
+                  documentActions={{
+                    ...studioDocumentActions,
+                    onSave: saveCurrentDocument,
+                    onDownload: downloadCurrentDocument,
+                  }}
                 />
               </div>
             </SheetContent>

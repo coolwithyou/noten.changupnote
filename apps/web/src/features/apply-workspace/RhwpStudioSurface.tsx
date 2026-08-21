@@ -71,6 +71,7 @@ import {
   initialStudioSaveState,
   isStudioSaveInFlight,
   reduceStudioSaveState,
+  type StudioSaveState,
 } from "@/lib/rhwp/studioSaveState";
 import { resolveRhwpStudioSaveProtocol, type RhwpStudioSaveProtocol } from "@/lib/rhwp/studioSaveProtocol";
 import {
@@ -109,12 +110,22 @@ type RhwpEditorInstance = import("@rhwp/editor").RhwpEditor;
 
 export interface RhwpStudioSurfaceHandle {
   saveAndReturn(): Promise<void>;
+  saveCurrent(): Promise<void>;
+  downloadCurrentCopy(): Promise<void>;
   focusField(fieldId: string): Promise<boolean>;
   prepareFieldWritingSession(fieldId: string): Promise<PreparedFieldWritingSession>;
   requestFieldSuggestion(fieldId: string, sourceText?: string): Promise<FieldAgentRunDto>;
   applyFieldSuggestion(run: FieldAgentRunDto, suggestion: FieldAgentSuggestionDto): Promise<FieldAgentRunDto>;
   undoFieldSuggestion(run: FieldAgentRunDto, suggestion: FieldAgentSuggestionDto): Promise<FieldAgentRunDto>;
   dismissFieldSuggestion(run: FieldAgentRunDto, suggestion: FieldAgentSuggestionDto): Promise<FieldAgentRunDto>;
+}
+
+export interface RhwpStudioDocumentActionState {
+  saveState: StudioSaveState;
+  saving: boolean;
+  downloading: boolean;
+  canSave: boolean;
+  canDownload: boolean;
 }
 
 export interface PreparedFieldWritingSession {
@@ -143,6 +154,7 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
   documentAgentAvailable?: boolean;
   fieldEditorAgentAvailable?: boolean;
   presentation?: "standalone" | "field_aware";
+  onDocumentActionStateChanged?: (state: RhwpStudioDocumentActionState) => void;
   onFieldBindingsResolved?: (resolutions: readonly StudioFieldBindingResolution[]) => void;
   onFieldSelectionChanged?: (target: StudioFieldTargetV1 | null) => void;
   onSaved: (
@@ -163,6 +175,7 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
   documentAgentAvailable = false,
   fieldEditorAgentAvailable = false,
   presentation = "standalone",
+  onDocumentActionStateChanged,
   onFieldBindingsResolved,
   onFieldSelectionChanged,
   onSaved,
@@ -628,6 +641,10 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
 
   const saveAndReturn = useCallback(async () => {
     await save("return");
+  }, [save]);
+
+  const saveCurrent = useCallback(async () => {
+    await save("stay");
   }, [save]);
 
   const focusField = useCallback(async (fieldId: string): Promise<boolean> => {
@@ -1525,6 +1542,8 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
 
   useImperativeHandle(ref, () => ({
     saveAndReturn,
+    saveCurrent,
+    downloadCurrentCopy,
     focusField,
     prepareFieldWritingSession,
     requestFieldSuggestion,
@@ -1534,28 +1553,51 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
   }), [
     applyFieldSuggestion,
     dismissFieldSuggestion,
+    downloadCurrentCopy,
     focusField,
     prepareFieldWritingSession,
     requestFieldSuggestion,
     saveAndReturn,
+    saveCurrent,
     undoFieldSuggestion,
   ]);
 
   const saving = isStudioSaveInFlight(saveState);
   const agentBusy = fieldAgentBusy
     || ["scanning", "checkpointing", "generating", "applying", "undoing"].includes(agentState.phase);
+  const documentActionsBlocked = agentBusy || Boolean(agentHardLock);
+
+  useEffect(() => {
+    if (presentation !== "field_aware") return;
+    onDocumentActionStateChanged?.({
+      saveState,
+      saving,
+      downloading: downloadBusy,
+      canSave: state.status === "ready" && !saving && !documentActionsBlocked,
+      canDownload: state.status === "ready" && !saving && !downloadBusy && !documentActionsBlocked,
+    });
+  }, [
+    documentActionsBlocked,
+    downloadBusy,
+    onDocumentActionStateChanged,
+    presentation,
+    saveState,
+    saving,
+    state.status,
+  ]);
 
   return (
     <div className={cn(
       "flex min-h-0 flex-1 flex-col gap-3",
       presentation === "standalone" ? "p-3 lg:p-4" : "p-0",
     )}>
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-[var(--radius-xl)] border border-studio/30 bg-card px-4 py-3">
+      {presentation === "standalone" ? (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-[var(--radius-xl)] border border-studio/30 bg-card px-4 py-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant="outline" className="border-studio/35 bg-studio-soft text-studio">
               <FilePenLine data-icon="inline-start" aria-hidden />
-              {presentation === "field_aware" ? "문서 편집" : "문서 직접 편집"}
+              문서 직접 편집
             </Badge>
             {activeTask ? <strong className="truncate text-sm">현재 과제: {activeTask.label}</strong> : null}
           </div>
@@ -1567,7 +1609,7 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
           <StudioSaveIndicator state={saveState} className="mt-1" />
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2">
-          {presentation === "standalone" && agentCapabilityReady && transport.mode === "persistent" ? (
+          {agentCapabilityReady && transport.mode === "persistent" ? (
             <Button
               type="button"
               variant="outline"
@@ -1604,22 +1646,21 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
               : <Download data-icon="inline-start" aria-hidden />}
             {downloadBusy ? "내보내는 중…" : "편집본 다운로드"}
           </Button>
-          {presentation === "standalone" ? (
-            <Button
-              type="button"
-              onClick={() => void saveAndReturn()}
-              disabled={state.status !== "ready" || saving || agentBusy || Boolean(agentHardLock)}
-            >
-              {saving
-                ? <Spinner data-icon="inline-start" />
-                : <ArrowLeft data-icon="inline-start" aria-hidden />}
-              {saving
-                ? localPreview ? "이 탭에 반영 중…" : "서버에 저장 중…"
-                : localPreview ? "반영하고 빠른 작성으로" : "저장하고 빠른 작성으로"}
-            </Button>
-          ) : null}
+          <Button
+            type="button"
+            onClick={() => void saveAndReturn()}
+            disabled={state.status !== "ready" || saving || agentBusy || Boolean(agentHardLock)}
+          >
+            {saving
+              ? <Spinner data-icon="inline-start" />
+              : <ArrowLeft data-icon="inline-start" aria-hidden />}
+            {saving
+              ? localPreview ? "이 탭에 반영 중…" : "서버에 저장 중…"
+              : localPreview ? "반영하고 빠른 작성으로" : "저장하고 빠른 작성으로"}
+          </Button>
         </div>
-      </div>
+        </div>
+      ) : null}
 
       {state.status === "error" ? (
         <Alert variant="destructive">

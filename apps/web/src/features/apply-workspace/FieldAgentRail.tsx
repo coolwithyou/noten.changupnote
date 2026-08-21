@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { ArrowRight, CheckCircle2, Circle, CircleDot, List, MapPinCheck, MessageSquare, RotateCcw, Search, Sparkles, TriangleAlert, X } from "lucide-react";
+import { ArrowRight, CheckCircle2, Circle, CircleDot, Download, List, MapPinCheck, MessageSquare, RotateCcw, Save, Search, Sparkles, TriangleAlert, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
@@ -14,6 +14,8 @@ import { Input } from "@/components/ui/input";
 import type { ConnectedDocumentField } from "@/lib/server/documents/documentFieldLink";
 import type { FieldAgentRunDto, FieldAgentSuggestionDto } from "@/lib/server/documents/fieldAgentRuns";
 import type { FieldAwareDocumentSessionView, FieldAwareSessionItem } from "./fieldAwareDocumentSession";
+import type { RhwpStudioDocumentActionState } from "./RhwpStudioSurface";
+import { StudioSaveIndicator } from "./StudioSaveIndicator";
 
 export function FieldAgentRail({
   session,
@@ -25,6 +27,7 @@ export function FieldAgentRail({
   onApplySuggestion,
   onUndoSuggestion,
   onDismissSuggestion,
+  documentActions,
 }: {
   session: FieldAwareDocumentSessionView;
   connectedFields: readonly ConnectedDocumentField[];
@@ -35,6 +38,10 @@ export function FieldAgentRail({
   onApplySuggestion: (run: FieldAgentRunDto, suggestion: FieldAgentSuggestionDto) => void;
   onUndoSuggestion: (run: FieldAgentRunDto, suggestion: FieldAgentSuggestionDto) => void;
   onDismissSuggestion: (run: FieldAgentRunDto, suggestion: FieldAgentSuggestionDto) => void;
+  documentActions?: RhwpStudioDocumentActionState & {
+    onSave: () => void;
+    onDownload: () => void;
+  };
 }) {
   const [sourceText, setSourceText] = useState("");
   const [fieldQuery, setFieldQuery] = useState("");
@@ -85,6 +92,37 @@ export function FieldAgentRail({
           <CardDescription>
             문서의 실제 입력 칸을 기준으로 값을 확인하고 제안합니다.
           </CardDescription>
+          {documentActions ? (
+            <div className="flex flex-col gap-2 pt-1">
+              <div className="grid grid-cols-2 gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={documentActions.onSave}
+                  disabled={!documentActions.canSave}
+                >
+                  {documentActions.saving
+                    ? <Spinner data-icon="inline-start" />
+                    : <Save data-icon="inline-start" aria-hidden />}
+                  {documentActions.saving ? "저장 중…" : "지금 저장"}
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={documentActions.onDownload}
+                  disabled={!documentActions.canDownload}
+                >
+                  {documentActions.downloading
+                    ? <Spinner data-icon="inline-start" />
+                    : <Download data-icon="inline-start" aria-hidden />}
+                  {documentActions.downloading ? "내보내는 중…" : "편집본 다운로드"}
+                </Button>
+              </div>
+              <StudioSaveIndicator state={documentActions.saveState} />
+            </div>
+          ) : null}
         </CardHeader>
 
         <CardContent className="flex min-h-0 flex-1 flex-col overflow-hidden">
