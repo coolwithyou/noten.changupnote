@@ -26,6 +26,7 @@
 
 ## 현재 구현 핸드오프
 
+- [지원서 작성 워크스페이스 디자인 핸드오프](./design/2026-08-21-apply-workspace-design-handoff/) — 데스크톱·모바일 화면 7종과 필드 도우미, 큰 대화 모달, Markdown 스트리밍, exact 필드 적용의 디자인 기능 가이드
 - [딥분석과 공고 첨부파일 선분석 운영 가이드](./guides/deep-analysis-and-application-precompute-operations.md) — 공고 수집부터 22축 매칭·Kordoc 빠른 작성까지의 실제 트리거, 산출물, 실패 경계와 운영 화면
 - [반복형 구독 분석 에이전트 운용법](./explainers/구독모델로-딥분석-돌리는-법.md#3-2-반복형-분석-에이전트-권장-사용법) — 신규 모집 공고 선정부터 딥분석·Kordoc·독립 검수·감사·원인별 보정을 한 명령으로 반복 실행
 - [딥분석 실행 모드 제어 설계](./architecture/deep-analysis-execution-mode-control.md) — 운영 API 자동화와 로컬 구독 분석을 상호배제하는 `paused / production_api / local_subscription` 제어 정본
