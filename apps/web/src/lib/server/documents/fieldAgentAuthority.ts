@@ -127,6 +127,7 @@ export async function rebuildFieldAgentAuthority(input: {
     target,
     beforeTextSha256: evidence.textSha256,
     formatSha256: evidence.formatSha256,
+    restoreFormat: evidence.restoreFormat,
     adjacentContextSha256: evidence.adjacentContextSha256,
     options,
   }));

@@ -1433,6 +1433,7 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
               formatSha256: run.formatSha256,
               adjacentContextSha256: run.adjacentContextSha256,
             },
+            ...(run.restoreFormat ? { restoreFormat: run.restoreFormat } : {}),
           },
         } : {}),
       });

@@ -161,6 +161,29 @@ const fieldCommand = {
   replacement: "첫 문단\n둘째 문단",
 };
 assert.deepEqual(studioApplyFieldCommandSchema.parse(fieldCommand), fieldCommand);
+const restoreFieldCommand = {
+  ...fieldCommand,
+  commandId: "field-region-1:undo",
+  replacement: "※ 안내문",
+  replacementStyle: "restore-exact" as const,
+  replacementFormat: {
+    kind: "table_cell_region" as const,
+    paragraphs: [{
+      length: Array.from("※ 안내문").length,
+      charShapeIds: Array(Array.from("※ 안내문").length).fill(37),
+      paraShapeId: 35,
+    }],
+  },
+  expectedReplacementFormatSha256: "e".repeat(64),
+};
+assert.deepEqual(studioApplyFieldCommandSchema.parse(restoreFieldCommand), restoreFieldCommand);
+assert.throws(
+  () => studioApplyFieldCommandSchema.parse({
+    ...restoreFieldCommand,
+    replacementFormat: { ...restoreFieldCommand.replacementFormat, paragraphs: [] },
+  }),
+  /too_small|at least 1/u,
+);
 assert.throws(
   () => studioApplyFieldCommandSchema.parse({ ...fieldCommand, target: fieldTarget }),
   /줄바꿈/u,

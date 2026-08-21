@@ -5,6 +5,7 @@ import {
   studioRevertFieldCommandSchema,
   type StudioFieldAgentProtocol,
   type StudioFieldCommandReceiptV1,
+  type StudioFieldRestoreFormatV1,
   type StudioFieldTargetV1,
   type StudioFormTextTargetV1,
   type StudioTableCellRegionTargetV1,
@@ -44,6 +45,7 @@ export interface StudioFieldAgentTransaction {
       appliedDocumentSha256: string;
       appliedText: string;
       binding: FieldCommandBindingV1;
+      restoreFormat?: StudioFieldRestoreFormatV1;
     };
   }): Promise<StudioFieldCommandResult>;
 }
@@ -97,6 +99,7 @@ export function createStudioFieldAgentTransaction(input: {
         expectedFormatSha256: commandInput.binding.formatSha256,
         expectedAdjacentContextSha256: commandInput.binding.adjacentContextSha256,
         replacement: commandInput.replacement,
+        replacementStyle: "actual-input",
       });
       let receipt: StudioFieldCommandReceiptV1;
       try {
@@ -115,7 +118,6 @@ export function createStudioFieldAgentTransaction(input: {
           format: commandInput.format,
           target: commandInput.binding.target,
           expectedText: commandInput.replacement,
-          expectedFormatSha256: commandInput.binding.formatSha256,
           expectedAdjacentContextSha256: commandInput.binding.adjacentContextSha256,
           receipt,
           beforeDocumentSha256,
@@ -146,17 +148,22 @@ export function createStudioFieldAgentTransaction(input: {
           beforeDocumentSha256 !== recovery.appliedDocumentSha256
           || await sha256Hex(recovery.appliedText) !== commandInput.expectedAfterTextSha256
         ) throw new Error("저장된 필드 적용 revision과 현재 Studio 문서가 달라 Undo를 차단했습니다.");
+        const beforeEvidence = await collectStudioFieldEvidence(
+          input.rhwp,
+          commandInput.bytes,
+          recovery.binding.target,
+        );
         const appliedBinding: FieldCommandBindingV1 = {
           ...recovery.binding,
           beforeText: recovery.appliedText,
           beforeTextSha256: commandInput.expectedAfterTextSha256,
+          formatSha256: beforeEvidence.formatSha256,
         };
-        const beforeEvidence = await collectStudioFieldEvidence(
-          input.rhwp,
-          commandInput.bytes,
-          appliedBinding.target,
-        );
         assertBinding(appliedBinding, beforeEvidence);
+        const needsExactFormatRestore = beforeEvidence.formatSha256 !== recovery.binding.formatSha256;
+        if (needsExactFormatRestore && !recovery.restoreFormat) {
+          throw new Error("저장된 원래 필드 서식이 없어 exact Undo를 차단했습니다.");
+        }
         const state = await input.protocol.getDocumentState();
         if (state.format !== commandInput.format || state.documentSha256 !== beforeDocumentSha256) {
           throw new Error("Studio field Undo 기준 문서가 현재 검증 바이트와 다릅니다.");
@@ -177,6 +184,11 @@ export function createStudioFieldAgentTransaction(input: {
           expectedFormatSha256: appliedBinding.formatSha256,
           expectedAdjacentContextSha256: appliedBinding.adjacentContextSha256,
           replacement: recovery.binding.beforeText,
+          replacementStyle: needsExactFormatRestore ? "restore-exact" : "preserve",
+          ...(needsExactFormatRestore ? {
+            replacementFormat: recovery.restoreFormat,
+            expectedReplacementFormatSha256: recovery.binding.formatSha256,
+          } : {}),
         });
         let receipt: StudioFieldCommandReceiptV1;
         try {
@@ -250,7 +262,7 @@ async function verifyCommittedFieldMutation(input: {
   format: RhwpDocumentFormat;
   target: StudioFieldTargetV1;
   expectedText: string;
-  expectedFormatSha256: string;
+  expectedFormatSha256?: string;
   expectedAdjacentContextSha256: string;
   receipt: StudioFieldCommandReceiptV1;
   beforeDocumentSha256: string;
@@ -264,7 +276,7 @@ async function verifyCommittedFieldMutation(input: {
   if (
     evidence.text !== input.expectedText
     || evidence.textSha256 !== input.receipt.afterTextSha256
-    || evidence.formatSha256 !== input.expectedFormatSha256
+    || evidence.formatSha256 !== (input.expectedFormatSha256 ?? input.receipt.formatSha256)
     || evidence.adjacentContextSha256 !== input.expectedAdjacentContextSha256
   ) throw new Error("Studio field export/reopen postcondition이 승인된 값과 다릅니다.");
   return {
@@ -281,6 +293,7 @@ interface FieldEvidence {
   textSha256: string;
   formatSha256: string;
   adjacentContextSha256: string;
+  restoreFormat: StudioFieldRestoreFormatV1;
 }
 
 export async function collectStudioFieldEvidence(
@@ -358,6 +371,11 @@ export async function collectStudioFieldEvidence(
         cellProperties,
       })),
       adjacentContextSha256: await fieldNonTargetManifest(document, target, dimensions),
+      restoreFormat: {
+        kind: "table_cell_text",
+        charShapeIds,
+        paraShapeId,
+      },
     };
   } finally {
     document.free();
@@ -381,6 +399,11 @@ async function collectStudioTableCellRegionEvidence(
   const paragraphs: string[] = [];
   const allCharShapeIds: number[] = [];
   const paraShapeIds: number[] = [];
+  const restoreParagraphs: Array<{
+    length: number;
+    charShapeIds: number[];
+    paraShapeId: number;
+  }> = [];
   for (let cellParagraph = 0; cellParagraph < paragraphCount; cellParagraph += 1) {
     const length = document.getCellParagraphLength(
       target.section,
@@ -419,6 +442,11 @@ async function collectStudioTableCellRegionEvidence(
     }
     allCharShapeIds.push(...paragraphCharShapeIds);
     paraShapeIds.push(paragraphParaShapeId);
+    restoreParagraphs.push({
+      length,
+      charShapeIds: paragraphCharShapeIds,
+      paraShapeId: paragraphParaShapeId,
+    });
   }
   const charShapeId = dominantId(allCharShapeIds, "장문 셀 글자 서식");
   const paraShapeId = dominantId(paraShapeIds, "장문 셀 문단 서식");
@@ -440,6 +468,7 @@ async function collectStudioTableCellRegionEvidence(
       cellProperties,
     })),
     adjacentContextSha256: await fieldNonTargetManifest(document, target, dimensions),
+    restoreFormat: { kind: "table_cell_region", paragraphs: restoreParagraphs },
   };
 }
 
@@ -541,6 +570,12 @@ async function collectStudioFormTextEvidence(
       },
     })),
     adjacentContextSha256: await formNonTargetManifest(document, target, field, fields),
+    restoreFormat: {
+      kind: "form_text",
+      charShapeIds,
+      paraShapeId,
+      styleId,
+    },
   };
 }
 
@@ -776,7 +811,6 @@ function assertApplyReceipt(
     || receipt.beforeChangeSeq !== state.changeSeq
     || receipt.beforeDocumentSha256 !== state.documentSha256
     || receipt.beforeTextSha256 !== input.binding.beforeTextSha256
-    || receipt.formatSha256 !== input.binding.formatSha256
     || receipt.adjacentContextSha256 !== input.binding.adjacentContextSha256
     || receipt.pageCountBefore !== state.pageCount
     || (input.binding.target.kind !== "table_cell_region" && receipt.pageCountAfter !== state.pageCount)

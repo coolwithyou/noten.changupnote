@@ -25,18 +25,22 @@ const target: StudioTableCellTextTargetV1 = {
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
-function encode(cells: string[]): Uint8Array {
-  return encoder.encode(JSON.stringify(cells));
+type FlatFixture = { cells: string[]; charShapeIds: number[] };
+
+function encode(cells: string[], charShapeId = 7): Uint8Array {
+  return encoder.encode(JSON.stringify({ cells, charShapeIds: cells.map(() => charShapeId) } satisfies FlatFixture));
 }
 
 class FakeDocument {
-  private readonly cells: string[];
-  constructor(bytes: Uint8Array) { this.cells = JSON.parse(decoder.decode(bytes)) as string[]; }
+  private readonly fixture: FlatFixture;
+  constructor(bytes: Uint8Array) { this.fixture = JSON.parse(decoder.decode(bytes)) as FlatFixture; }
   getTableDimensions() { return JSON.stringify({ rowCount: 1, colCount: 2, cellCount: 2 }); }
   getCellParagraphCount() { return 1; }
-  getCellParagraphLength(_s: number, _p: number, _c: number, cell: number) { return this.cells[cell]!.length; }
-  getTextInCell(_s: number, _p: number, _c: number, cell: number) { return this.cells[cell]!; }
-  getCellCharPropertiesAt() { return JSON.stringify({ charShapeId: 7 }); }
+  getCellParagraphLength(_s: number, _p: number, _c: number, cell: number) { return this.fixture.cells[cell]!.length; }
+  getTextInCell(_s: number, _p: number, _c: number, cell: number) { return this.fixture.cells[cell]!; }
+  getCellCharPropertiesAt(_s: number, _p: number, _c: number, cell: number) {
+    return JSON.stringify({ charShapeId: this.fixture.charShapeIds[cell] });
+  }
   getCellParaPropertiesAt() { return JSON.stringify({ paraShapeId: 9 }); }
   getCellOwnProperties(_s: number, _p: number, _c: number, cell: number) {
     return JSON.stringify({ cell, borderFillId: 2 });
@@ -93,9 +97,15 @@ const protocol: StudioFieldAgentProtocol = {
   },
   async applyFieldCommand(command: StudioApplyFieldCommandV1) {
     const before = current;
-    const cells = JSON.parse(decoder.decode(before)) as string[];
-    cells[target.cellIndex] = command.replacement;
-    current = encode(cells);
+    const fixture = JSON.parse(decoder.decode(before)) as FlatFixture;
+    fixture.cells[target.cellIndex] = command.replacement;
+    const restoredCharShapeId = command.replacementFormat?.kind === "table_cell_text"
+      ? command.replacementFormat.charShapeIds[0]
+      : undefined;
+    fixture.charShapeIds[target.cellIndex] = command.replacementStyle === "actual-input"
+      ? 8
+      : restoredCharShapeId ?? fixture.charShapeIds[target.cellIndex]!;
+    current = encoder.encode(JSON.stringify(fixture));
     journal.set(command.commandId, { before, after: current });
     return receipt({ commandId: command.commandId, operation: "apply", before, after: current });
   },
@@ -129,7 +139,8 @@ const applied = await transaction.apply({
   },
   replacement: "주식회사 노튼",
 });
-assert.equal((JSON.parse(decoder.decode(applied.bytes)) as string[])[1], "주식회사 노튼");
+assert.equal((JSON.parse(decoder.decode(applied.bytes)) as FlatFixture).cells[1], "주식회사 노튼");
+assert.notEqual(applied.receipt.formatSha256, beforeEvidence.formatSha256);
 const reverted = await transaction.revert({
   bytes: applied.bytes,
   format: "hwp",
@@ -164,6 +175,7 @@ const recovered = await reloadedTransaction.revert({
       formatSha256: beforeEvidence.formatSha256,
       adjacentContextSha256: beforeEvidence.adjacentContextSha256,
     },
+    restoreFormat: beforeEvidence.restoreFormat,
   },
 });
 assert.deepEqual(recovered.bytes, original);

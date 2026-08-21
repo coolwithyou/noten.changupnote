@@ -50,6 +50,30 @@ export const studioFieldTargetSchema = z.discriminatedUnion("kind", [
   studioFormTextTargetSchema,
 ]);
 
+const studioRestoreCharShapeIdsSchema = z.array(nonnegativeSafeInteger).min(1).max(4_000);
+
+export const studioFieldRestoreFormatSchema = z.discriminatedUnion("kind", [
+  z.strictObject({
+    kind: z.literal("table_cell_text"),
+    charShapeIds: studioRestoreCharShapeIdsSchema,
+    paraShapeId: nonnegativeSafeInteger,
+  }),
+  z.strictObject({
+    kind: z.literal("table_cell_region"),
+    paragraphs: z.array(z.strictObject({
+      length: nonnegativeSafeInteger.max(4_000),
+      charShapeIds: studioRestoreCharShapeIdsSchema,
+      paraShapeId: nonnegativeSafeInteger,
+    })).min(1).max(100),
+  }),
+  z.strictObject({
+    kind: z.literal("form_text"),
+    charShapeIds: studioRestoreCharShapeIdsSchema,
+    paraShapeId: nonnegativeSafeInteger,
+    styleId: nonnegativeSafeInteger,
+  }),
+]);
+
 export const studioDocumentStateSchema = z.strictObject({
   schemaVersion: z.literal(1),
   format: z.enum(["hwp", "hwpx"]),
@@ -120,12 +144,38 @@ export const studioApplyFieldCommandSchema = z.strictObject({
   expectedFormatSha256: sha256Schema,
   expectedAdjacentContextSha256: sha256Schema,
   replacement: z.string().max(4_000),
+  replacementStyle: z.enum(["actual-input", "preserve", "restore-exact"]).optional(),
+  replacementFormat: studioFieldRestoreFormatSchema.optional(),
+  expectedReplacementFormatSha256: sha256Schema.optional(),
 }).superRefine((command, context) => {
   if (/[\u0000-\u0009\u000b-\u001f\u007f]/u.test(command.replacement)) {
     context.addIssue({ code: "custom", path: ["replacement"], message: "field replacement에 control 문자를 넣을 수 없습니다." });
   }
   if (command.target.kind !== "table_cell_region" && /\n/u.test(command.replacement)) {
     context.addIssue({ code: "custom", path: ["replacement"], message: "atomic field replacement에는 줄바꿈을 넣을 수 없습니다." });
+  }
+  if (command.replacementStyle === "restore-exact") {
+    if (!command.replacementFormat || !command.expectedReplacementFormatSha256) {
+      context.addIssue({ code: "custom", path: ["replacementFormat"], message: "exact 복원 서식이 필요합니다." });
+      return;
+    }
+    if (command.replacementFormat.kind !== command.target.kind) {
+      context.addIssue({ code: "custom", path: ["replacementFormat", "kind"], message: "target kind와 같아야 합니다." });
+      return;
+    }
+    const lengths = command.target.kind === "table_cell_region"
+      ? command.replacement.split("\n").map(part => Array.from(part).length)
+      : [Array.from(command.replacement).length];
+    const formats = command.replacementFormat.kind === "table_cell_region"
+      ? command.replacementFormat.paragraphs
+      : [{ length: lengths[0]!, charShapeIds: command.replacementFormat.charShapeIds }];
+    if (formats.length !== lengths.length || formats.some((format, index) =>
+      format.length !== lengths[index]
+      || format.charShapeIds.length !== Math.max(lengths[index]!, 1))) {
+      context.addIssue({ code: "custom", path: ["replacementFormat"], message: "replacement 길이와 같아야 합니다." });
+    }
+  } else if (command.replacementFormat || command.expectedReplacementFormatSha256) {
+    context.addIssue({ code: "custom", path: ["replacementFormat"], message: "restore-exact 명령에서만 사용할 수 있습니다." });
   }
 });
 
@@ -193,6 +243,7 @@ export type StudioTableCellTextTargetV1 = z.infer<typeof studioTableCellTextTarg
 export type StudioTableCellRegionTargetV1 = z.infer<typeof studioTableCellRegionTargetSchema>;
 export type StudioFormTextTargetV1 = z.infer<typeof studioFormTextTargetSchema>;
 export type StudioFieldTargetV1 = z.infer<typeof studioFieldTargetSchema>;
+export type StudioFieldRestoreFormatV1 = z.infer<typeof studioFieldRestoreFormatSchema>;
 export type StudioDocumentStateV1 = z.infer<typeof studioDocumentStateSchema>;
 export type StudioSelectionContextV1 = z.infer<typeof studioSelectionContextSchema>;
 export type StudioFieldSelectionContextV1 = z.infer<typeof studioFieldSelectionContextSchema>;

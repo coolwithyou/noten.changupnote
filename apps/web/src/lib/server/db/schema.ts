@@ -20,6 +20,7 @@ import {
 } from "drizzle-orm/pg-core";
 import type { DraftFieldAnswer } from "../documents/fieldAnswers";
 import type { ChatMessageContent } from "../../chat/messageContent";
+import type { StudioFieldRestoreFormatV1 } from "../../rhwp/studioDocumentAgentProtocol";
 
 export const companyKindEnum = pgEnum("company_kind", ["active", "preliminary"]);
 export const companyRoleEnum = pgEnum("company_role", ["owner", "admin", "member", "viewer"]);
@@ -2326,6 +2327,7 @@ export const grantDocumentFieldAgentRuns = pgTable("grant_document_field_agent_r
   beforeText: text("before_text").notNull(),
   beforeTextSha256: text("before_text_sha256").notNull(),
   formatSha256: text("format_sha256").notNull(),
+  restoreFormat: jsonb("restore_format").$type<StudioFieldRestoreFormatV1>(),
   adjacentContextSha256: text("adjacent_context_sha256").notNull(),
   beforeAnswer: jsonb("before_answer").$type<DraftFieldAnswer>(),
   modelVersion: text("model_version").notNull(),

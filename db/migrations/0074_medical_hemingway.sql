@@ -1,0 +1,1 @@
+ALTER TABLE "grant_document_field_agent_runs" ADD COLUMN "restore_format" jsonb;
