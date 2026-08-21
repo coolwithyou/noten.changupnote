@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { and, eq, ne, sql } from "drizzle-orm";
+import type { FieldAssistReadiness } from "@/lib/chat/messageContent";
 import type {
   StudioFieldRestoreFormatV1,
   StudioFieldTargetV1,
@@ -18,7 +19,7 @@ import {
 import { rebuildFieldAgentAuthority } from "./fieldAgentAuthority";
 import { fieldSuggestModel, generateFieldSuggestions } from "./fieldSuggest";
 
-const PROMPT_VERSION = "field-agent-v2";
+const PROMPT_VERSION = "field-agent-v3";
 
 export class FieldAgentRunError extends Error {
   constructor(readonly code: string, message: string, readonly status = 400) {
@@ -65,6 +66,7 @@ export interface FieldAgentRunDto {
   modelVersion: string;
   promptVersion: string;
   failureCode: string | null;
+  readiness?: FieldAssistReadiness & { missingInformation: string[] };
   suggestions: FieldAgentSuggestionDto[];
 }
 
@@ -75,6 +77,7 @@ export async function requestFieldAgentSuggestions(input: {
   baseRevisionId: string;
   target: StudioFieldTargetV1;
   sourceText?: string;
+  userEvidenceText?: string;
   access: CompanyAccess;
 }): Promise<FieldAgentRunDto> {
   if (!isFieldEditorAgentFeatureEnabled()) {
@@ -107,6 +110,7 @@ export async function requestFieldAgentSuggestions(input: {
     modelVersion,
     promptVersion: PROMPT_VERSION,
     sourceText: input.sourceText?.trim() || null,
+    userEvidenceText: input.userEvidenceText?.trim() || null,
   }));
   const existing = await findRunByClientRequest(input.draftId, input.clientRequestId, input.access);
   if (existing) {
@@ -157,6 +161,7 @@ export async function requestFieldAgentSuggestions(input: {
   });
   if (!run) throw new FieldAgentRunError("field_agent_run_create_failed", "필드 제안 실행을 만들지 못했습니다.", 500);
 
+  let generatedReadiness: FieldAgentRunDto["readiness"];
   try {
     const generated = await generateFieldSuggestions({
       draftId: input.draftId,
@@ -165,12 +170,14 @@ export async function requestFieldAgentSuggestions(input: {
       mode: authority.beforeAnswer?.value ? "regenerate" : "generate",
       ...(authority.beforeAnswer?.value ? { currentValue: authority.beforeAnswer.value } : {}),
       ...(input.sourceText?.trim() ? { sourceText: input.sourceText.trim() } : {}),
+      ...(input.userEvidenceText?.trim() ? { userEvidenceText: input.userEvidenceText.trim() } : {}),
       alternativesPerLabel: 2,
       ...(authority.options.length > 0
         ? { allowedValuesByLabel: { [authority.field.label]: authority.options } }
         : {}),
       persistProjection: false,
     });
+    generatedReadiness = generated.readiness?.[authority.field.label];
     const suggestion = generated.suggestions[authority.field.label];
     const alternatives = generated.alternatives?.[authority.field.label]
       ?? (suggestion ? [suggestion] : []);
@@ -265,7 +272,8 @@ export async function requestFieldAgentSuggestions(input: {
     });
     throw error;
   }
-  return loadFieldAgentRunDto(run.id, input.access);
+  const completed = await loadFieldAgentRunDto(run.id, input.access);
+  return generatedReadiness ? { ...completed, readiness: generatedReadiness } : completed;
 }
 
 export type FieldAgentSuggestionAction = "start_apply" | "authorize_undo" | "dismiss" | "abandon_apply" | "abandon_undo";

@@ -18,18 +18,28 @@ export interface ChatCitation {
   endChar?: number;
 }
 
+export const FIELD_ASSIST_APPLY_THRESHOLD = 85;
+
+export interface FieldAssistReadiness {
+  score: number;
+  threshold: number;
+  canApply: boolean;
+}
+
 export type FieldAssistOutcome =
   | {
       status: "guidance";
       fieldId: string;
       label: string;
       guidance: string;
+      readiness: FieldAssistReadiness;
     }
   | {
       status: "needs_input";
       fieldId: string;
       label: string;
       guidance: string;
+      readiness: FieldAssistReadiness;
       questions: string[];
     }
   | {
@@ -37,6 +47,7 @@ export type FieldAssistOutcome =
       fieldId: string;
       label: string;
       guidance: string;
+      readiness: FieldAssistReadiness;
       proposal: {
         value: string;
         basis: string;
@@ -95,7 +106,8 @@ export function parseFieldAssistOutcome(value: unknown): FieldAssistOutcome | nu
   const label = typeof record.label === "string" ? record.label.trim() : "";
   const guidance = typeof record.guidance === "string" ? record.guidance.trim() : "";
   if (!fieldId || !label || !guidance) return null;
-  if (status === "guidance") return { status, fieldId, label, guidance };
+  const readiness = parseFieldAssistReadiness(record.readiness, status);
+  if (status === "guidance") return { status, fieldId, label, guidance, readiness };
   if (status === "needs_input") {
     if (!Array.isArray(record.questions)) return null;
     const questions = record.questions
@@ -104,7 +116,7 @@ export function parseFieldAssistOutcome(value: unknown): FieldAssistOutcome | nu
       .filter(Boolean)
       .slice(0, 2);
     if (questions.length === 0) return null;
-    return { status, fieldId, label, guidance, questions };
+    return { status, fieldId, label, guidance, readiness, questions };
   }
   if (status !== "proposal" || !record.proposal || typeof record.proposal !== "object") return null;
   const proposal = record.proposal as Record<string, unknown>;
@@ -125,6 +137,7 @@ export function parseFieldAssistOutcome(value: unknown): FieldAssistOutcome | nu
     fieldId,
     label,
     guidance,
+    readiness,
     proposal: {
       value: proposalValue,
       basis,
@@ -132,6 +145,20 @@ export function parseFieldAssistOutcome(value: unknown): FieldAssistOutcome | nu
       ...(runId ? { runId } : {}),
       ...(suggestionId ? { suggestionId } : {}),
     },
+  };
+}
+
+function parseFieldAssistReadiness(value: unknown, status: unknown): FieldAssistReadiness {
+  const record = value && typeof value === "object" ? value as Record<string, unknown> : null;
+  const fallbackScore = status === "proposal" ? 90 : status === "needs_input" ? 40 : 0;
+  const rawScore = typeof record?.score === "number" && Number.isFinite(record.score)
+    ? record.score
+    : fallbackScore;
+  const score = Math.max(0, Math.min(100, Math.round(rawScore)));
+  return {
+    score,
+    threshold: FIELD_ASSIST_APPLY_THRESHOLD,
+    canApply: status === "proposal" && score >= FIELD_ASSIST_APPLY_THRESHOLD,
   };
 }
 

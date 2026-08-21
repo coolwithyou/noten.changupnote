@@ -22,6 +22,7 @@ import { requireCompanyAccess } from "@/lib/server/auth/companyGuard";
 import { webActionError } from "@/lib/server/auth/webActionError";
 import { getCunoteDb } from "@/lib/server/db/client";
 import {
+  FIELD_ASSIST_APPLY_THRESHOLD,
   uiMessagePartsToContent,
   type FieldAssistOutcome,
   type UiMessagePartLike,
@@ -55,6 +56,7 @@ interface ChatFieldContext {
   label: string;
   section?: string;
   fieldId?: string;
+  evidenceText?: string;
   fieldAgent?: {
     clientRequestId: string;
     baseRevisionId: string;
@@ -165,6 +167,11 @@ export async function POST(request: Request) {
           fieldId: body.fieldContext?.fieldId ?? `label:${body.fieldContext?.label ?? "field"}`,
           label: body.fieldContext?.label ?? "작성 항목",
           guidance: "지금은 추천 값을 안전하게 만들지 못했습니다. 아래 답변을 참고해 직접 입력해 주세요.",
+          readiness: {
+            score: 0,
+            threshold: FIELD_ASSIST_APPLY_THRESHOLD,
+            canApply: false,
+          },
         };
       });
       const stream = createUIMessageStream<GrantChatUIMessage>({
@@ -279,6 +286,9 @@ function parseChatBody(body: unknown): ParsedChatBody {
       }
       if (typeof fc.fieldId === "string" && fc.fieldId.trim().length > 0) {
         fieldContext.fieldId = fc.fieldId.trim();
+      }
+      if (typeof fc.evidenceText === "string" && fc.evidenceText.trim().length > 0) {
+        fieldContext.evidenceText = fc.evidenceText.trim().slice(0, MESSAGE_MAX_LENGTH);
       }
       if (fc.fieldAgent !== undefined) {
         const fieldAgent = chatFieldAgentContextSchema.safeParse(fc.fieldAgent);

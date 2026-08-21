@@ -1030,12 +1030,12 @@ export function WorkspaceView({
       {/* 1:1 채팅 Dialog 오버레이(§2-④) — 닫으면 확인 루프가 그 자리에 그대로 있다. */}
       {data.ladder === "a" && !readOnlyPreview ? (
         <Dialog open={showChat} onOpenChange={setShowChat}>
-          <DialogContent className="flex h-[calc(100dvh-2rem)] w-[calc(100vw-2rem)] max-w-[calc(100vw-2rem)] flex-col gap-0 overflow-hidden p-3 sm:h-[calc(100dvh-3rem)] sm:w-[calc(100vw-3rem)] sm:max-w-7xl">
+          <DialogContent className="flex h-[calc(100dvh-2rem)] w-[calc(100vw-2rem)] max-w-[calc(100vw-2rem)] flex-col gap-0 overflow-hidden p-4 sm:h-[calc(100dvh-3rem)] sm:w-[calc(100vw-3rem)] sm:max-w-7xl sm:p-5">
             <DialogTitle className="sr-only">이 공고에 대해 물어보기</DialogTitle>
             <DialogDescription className="sr-only">
               공고 내용·자격·마감·작성 요령을 채팅으로 물어볼 수 있어요.
             </DialogDescription>
-            <div className="flex min-h-0 flex-1 flex-col overflow-y-auto pt-6 sm:pt-2">
+            <div className="flex min-h-0 flex-1 flex-col overflow-y-auto pt-7 sm:pt-3">
               <ChatPanelView
                 controller={chat}
                 greeting={greeting}

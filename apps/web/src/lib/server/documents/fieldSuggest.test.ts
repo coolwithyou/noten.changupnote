@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { normalizeWs } from "../knowledge/extraction";
 import {
   buildSuggestInstruction,
+  finalizeFieldSuggestReadiness,
   resolveRequestedSuggestionLabel,
   verifySuggestion,
 } from "./fieldSuggest";
@@ -21,6 +22,32 @@ assert.ok(instruction.includes("사실·수치·고유명사·의미를 유지")
 assert.ok(instruction.includes("원문에 없는 회사 사실을 추가하지 마세요"));
 assert.ok(instruction.includes("표현 방향이 분명히 다른 대안을 최대 2개"));
 assert.ok(instruction.includes("억지로 두 개를 만들지 않습니다"));
+assert.ok(instruction.includes("요청받은 모든 항목을 assessments에 한 번씩 포함"));
+assert.ok(instruction.includes("85% 미만인 항목은 suggestions에 포함하지 않습니다"));
+assert.ok(instruction.includes("성명·주소처럼 단순 사실을 묻는 항목에 경험·성과를 요구하지 않습니다"));
+
+assert.deepEqual(
+  finalizeFieldSuggestReadiness({
+    score: 92,
+    missingInformation: [],
+    hasVerifiedSuggestion: true,
+  }),
+  { score: 90, threshold: 85, canApply: true, missingInformation: [] },
+);
+assert.deepEqual(
+  finalizeFieldSuggestReadiness({
+    score: 95,
+    missingInformation: ["확인할 수 있는 매출 근거가 있나요?"],
+    hasVerifiedSuggestion: false,
+  }),
+  {
+    score: 80,
+    threshold: 85,
+    canApply: false,
+    missingInformation: ["확인할 수 있는 매출 근거가 있나요?"],
+  },
+  "검증된 초안이 없으면 모델 점수가 높아도 문서 반영 게이트를 열면 안 됩니다.",
+);
 
 const choiceInstruction = buildSuggestInstruction({
   labels: ["창업자 유형"],

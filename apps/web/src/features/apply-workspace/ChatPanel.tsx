@@ -17,7 +17,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
-import { CheckCircle2, ExternalLink, Loader2, Mail, MessageSquare, Phone, Quote, Send, Sparkles, Square, X } from "lucide-react";
+import { CheckCircle2, CircleHelp, ExternalLink, Loader2, Mail, MessageSquare, Phone, Quote, Send, Sparkles, Square, X } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Bubble, BubbleContent } from "@/components/ui/bubble";
@@ -32,6 +32,7 @@ import {
   MessageScrollerProvider,
   MessageScrollerViewport,
 } from "@/components/ui/message-scroller";
+import { Progress, ProgressLabel, ProgressValue } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -84,7 +85,6 @@ export interface GrantChatController {
   input: string;
   setInput: (value: string) => void;
   submit: () => void;
-  sendText: (text: string) => void;
   askField: (field: ChatFieldPrompt) => void;
   activeField: ChatFieldPrompt | null;
   cancel: () => void;
@@ -102,12 +102,25 @@ function lastMessageText(message: UiChatMessageLike | undefined): string {
     .join("");
 }
 
+function initialFieldQuestion(label: string): string {
+  return `'${label}' 항목은 어떤 내용을 어떻게 작성해야 하나요? 공고 기준으로 알려주세요.`;
+}
+
+export function collectFieldEvidence(current: readonly string[], text: string, label: string): string[] {
+  const normalized = text.trim();
+  if (!normalized || normalized === initialFieldQuestion(label) || current.includes(normalized)) {
+    return [...current];
+  }
+  return [...current, normalized].slice(-6);
+}
+
 /** WorkspaceView 에서 단 한 번 호출하는 채팅 컨트롤러 훅(단일 세션). */
 export function useGrantChat(input: { grantId: string; draftId?: string | null }): GrantChatController {
   const { grantId, draftId } = input;
   const sessionIdRef = useRef<string | null>(null);
   const pendingFieldContextRef = useRef<ChatFieldPrompt | null>(null);
   const activeFieldContextRef = useRef<ChatFieldPrompt | null>(null);
+  const fieldEvidenceRef = useRef<Map<string, string[]>>(new Map());
   const [inputValue, setInputValue] = useState("");
   const [activeField, setActiveField] = useState<ChatFieldPrompt | null>(null);
   const [failure, setFailure] = useState<GrantChatFailure | null>(null);
@@ -126,14 +139,25 @@ export function useGrantChat(input: { grantId: string; draftId?: string | null }
         // §7.2 바디: 단일 message + sessionId + context(서버가 히스토리를 보유).
         prepareSendMessagesRequest: ({ messages }) => {
           const last = messages[messages.length - 1] as UiChatMessageLike | undefined;
+          const text = lastMessageText(last).trim();
           const fieldPromptForTurn = pendingFieldContextRef.current ?? activeFieldContextRef.current;
           pendingFieldContextRef.current = null; // per-메시지 소비.
           if (fieldPromptForTurn) activeFieldContextRef.current = fieldPromptForTurn;
+          let evidenceText: string | undefined;
+          if (fieldPromptForTurn) {
+            const fieldKey = fieldPromptForTurn.fieldId?.trim() || `label:${fieldPromptForTurn.label}`;
+            const currentEvidence = fieldEvidenceRef.current.get(fieldKey) ?? [];
+            const nextEvidence = collectFieldEvidence(currentEvidence, text, fieldPromptForTurn.label);
+            fieldEvidenceRef.current.set(fieldKey, nextEvidence);
+            const combined = nextEvidence.join("\n").trim().slice(0, 4_000);
+            if (combined) evidenceText = combined;
+          }
           const fieldContext = fieldPromptForTurn
             ? {
                 label: fieldPromptForTurn.label,
                 ...(fieldPromptForTurn.section ? { section: fieldPromptForTurn.section } : {}),
                 ...(fieldPromptForTurn.fieldId ? { fieldId: fieldPromptForTurn.fieldId } : {}),
+                ...(evidenceText ? { evidenceText } : {}),
                 ...(fieldPromptForTurn.fieldAgent ? {
                   fieldAgent: {
                     ...fieldPromptForTurn.fieldAgent,
@@ -146,7 +170,7 @@ export function useGrantChat(input: { grantId: string; draftId?: string | null }
             body: {
               sessionId: sessionIdRef.current,
               context: { type: "grant", grantId, ...(draftId ? { draftId } : {}) },
-              message: { text: lastMessageText(last), ...(fieldContext ? { fieldContext } : {}) },
+              message: { text, ...(fieldContext ? { fieldContext } : {}) },
             },
           };
         },
@@ -193,14 +217,6 @@ export function useGrantChat(input: { grantId: string; draftId?: string | null }
     void sendMessage({ text });
   }, [inputValue, isBusy, sendMessage]);
 
-  const sendText = useCallback((text: string) => {
-    const normalized = text.trim();
-    if (!normalized || isBusy) return;
-    setFailure(null);
-    setInputValue("");
-    void sendMessage({ text: normalized });
-  }, [isBusy, sendMessage]);
-
   const askField = useCallback(
     (field: ChatFieldPrompt) => {
       if (isBusy) return;
@@ -208,7 +224,7 @@ export function useGrantChat(input: { grantId: string; draftId?: string | null }
       pendingFieldContextRef.current = field;
       activeFieldContextRef.current = field;
       setActiveField(field);
-      const question = `'${field.label}' 항목은 어떤 내용을 어떻게 작성해야 하나요? 공고 기준으로 알려주세요.`;
+      const question = initialFieldQuestion(field.label);
       void sendMessage({ text: question });
     },
     [isBusy, sendMessage],
@@ -244,7 +260,6 @@ export function useGrantChat(input: { grantId: string; draftId?: string | null }
     input: inputValue,
     setInput: setInputValue,
     submit,
-    sendText,
     askField,
     activeField,
     cancel,
@@ -270,18 +285,29 @@ export function ChatPanelView({
   onClose?: () => void;
   onApplyFieldProposal?: (input: ChatFieldProposalApplyInput) => void;
 }) {
-  const { messages, isBusy, errorMessage, canRetry, input, setInput, submit, sendText, cancel, retry } = controller;
+  const { messages, isBusy, errorMessage, canRetry, input, setInput, submit, cancel, retry } = controller;
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const [answeringFieldQuestion, setAnsweringFieldQuestion] = useState(false);
   const lastMessage = messages[messages.length - 1];
   const showTypingIndicator = isBusy && (
     !lastMessage
     || lastMessage.role !== "assistant"
     || lastMessageText(lastMessage).trim().length === 0
   );
+  const submitFromComposer = useCallback(() => {
+    if (!input.trim() || isBusy) return;
+    setAnsweringFieldQuestion(false);
+    submit();
+  }, [input, isBusy, submit]);
+  const focusFieldAnswer = useCallback(() => {
+    setAnsweringFieldQuestion(true);
+    requestAnimationFrame(() => textareaRef.current?.focus());
+  }, []);
 
   return (
     <div
       className={cn(
-        "flex flex-col gap-3 rounded-[var(--radius-xl)] border bg-card p-4",
+        "flex flex-col gap-4 rounded-[var(--radius-xl)] border bg-card p-5 sm:gap-5 sm:p-6",
         fillAvailableHeight
           ? "min-h-0 flex-1"
           : variant === "front"
@@ -289,7 +315,7 @@ export function ChatPanelView({
             : "min-h-0 shrink-0",
       )}
     >
-      <div className="flex items-center gap-2 text-sm font-medium">
+      <div className="flex min-h-10 items-center gap-2.5 text-sm font-medium">
         <MessageSquare className="text-muted-foreground" aria-hidden />
         이 공고에 대해 물어보기
         {controller.activeField ? (
@@ -316,7 +342,7 @@ export function ChatPanelView({
           )}
         >
           <MessageScrollerViewport aria-label="공고 대화 내역">
-            <MessageScrollerContent className="gap-3 pr-1" aria-live="polite" aria-relevant="additions text">
+            <MessageScrollerContent className="gap-5 pr-1" aria-live="polite" aria-relevant="additions text">
               <MessageScrollerItem messageId="grant-chat-greeting">
                 <AssistantBubble content={greeting} />
               </MessageScrollerItem>
@@ -334,7 +360,7 @@ export function ChatPanelView({
                     <AssistantBubble
                       content={content}
                       {...(onApplyFieldProposal ? { onApplyFieldProposal } : {})}
-                      onAskQuestion={sendText}
+                      onRequestAnswer={focusFieldAnswer}
                     />
                   </MessageScrollerItem>
                 );
@@ -368,33 +394,44 @@ export function ChatPanelView({
       <form
         onSubmit={(event) => {
           event.preventDefault();
-          submit();
+          submitFromComposer();
         }}
-        className="flex items-end gap-2"
+        className="flex items-end gap-3 border-t pt-4"
       >
-        <Textarea
-          value={input}
-          onChange={(event) => setInput(event.currentTarget.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter" && !event.shiftKey) {
-              event.preventDefault();
-              submit();
-            }
-          }}
-          placeholder={controller.activeField
-            ? `${controller.activeField.label}에 반영할 사실이나 수정 방향을 적어 주세요`
-            : "공고 내용·자격·마감·작성 요령을 물어보세요"}
-          aria-label="채팅 입력"
-          rows={variant === "front" ? 3 : 2}
-          disabled={isBusy}
-          className="min-h-0 flex-1 resize-none"
-        />
+        <div className="flex min-w-0 flex-1 flex-col gap-2">
+          {answeringFieldQuestion ? (
+            <p className="text-xs font-medium text-primary" id="field-answer-mode">
+              AI가 요청한 정보를 입력하고 있어요. 작성한 내용만 전송됩니다.
+            </p>
+          ) : null}
+          <Textarea
+            ref={textareaRef}
+            value={input}
+            onChange={(event) => setInput(event.currentTarget.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && !event.shiftKey) {
+                event.preventDefault();
+                submitFromComposer();
+              }
+            }}
+            placeholder={answeringFieldQuestion
+              ? "위 질문에 대한 실제 사실을 적어 주세요"
+              : controller.activeField
+                ? `${controller.activeField.label}에 반영할 사실이나 수정 방향을 적어 주세요`
+                : "공고 내용·자격·마감·작성 요령을 물어보세요"}
+            aria-label="채팅 입력"
+            aria-describedby={answeringFieldQuestion ? "field-answer-mode" : undefined}
+            rows={variant === "front" ? 3 : 2}
+            disabled={isBusy}
+            className="min-h-24 flex-1 resize-none"
+          />
+        </div>
         {isBusy ? (
-          <Button type="button" size="icon" variant="outline" onClick={cancel} aria-label="답변 생성 중단">
+          <Button type="button" size="icon" variant="outline" onClick={cancel} aria-label="답변 생성 중단" className="size-12">
             <Square aria-hidden />
           </Button>
         ) : (
-          <Button type="submit" size="icon" disabled={input.trim().length === 0} aria-label="보내기">
+          <Button type="submit" size="icon" disabled={input.trim().length === 0} aria-label="보내기" className="size-12">
             <Send aria-hidden />
           </Button>
         )}
@@ -451,8 +488,8 @@ function UserBubble({ text }: { text: string }) {
   return (
     <Message align="end">
       <MessageContent>
-        <Bubble align="end" className="max-w-[85%]">
-          <BubbleContent className="whitespace-pre-wrap">{text}</BubbleContent>
+        <Bubble align="end" className="max-w-[min(85%,48rem)]">
+          <BubbleContent className="px-4 py-3 whitespace-pre-wrap">{text}</BubbleContent>
         </Bubble>
       </MessageContent>
     </Message>
@@ -462,11 +499,11 @@ function UserBubble({ text }: { text: string }) {
 function AssistantBubble({
   content,
   onApplyFieldProposal,
-  onAskQuestion,
+  onRequestAnswer,
 }: {
   content: ChatMessageContent;
   onApplyFieldProposal?: (input: ChatFieldProposalApplyInput) => void;
-  onAskQuestion?: (question: string) => void;
+  onRequestAnswer?: () => void;
 }) {
   const hasCitations = (content.citations?.length ?? 0) > 0;
   const hasText = content.text.trim().length > 0;
@@ -475,8 +512,8 @@ function AssistantBubble({
     <Message align="start">
       <MessageContent className="gap-1.5">
         {hasText ? (
-          <Bubble variant={isGeneralNotice ? "muted" : "outline"} className="max-w-[92%]">
-            <BubbleContent className={cn(isGeneralNotice && "border-dashed text-muted-foreground")}>
+          <Bubble variant={isGeneralNotice ? "muted" : "outline"} className="max-w-[min(92%,48rem)]">
+            <BubbleContent className={cn("px-4 py-3 leading-6", isGeneralNotice && "border-dashed text-muted-foreground")}>
               {isGeneralNotice ? (
                 <span className="mb-1 block text-xs font-medium text-muted-foreground">일반 안내</span>
               ) : null}
@@ -493,7 +530,7 @@ function AssistantBubble({
                     <Badge
                       variant="outline"
                       render={<button type="button" />}
-                      className="min-w-0 max-w-full border-sky-500/40 bg-sky-500/10 text-sky-700 dark:text-sky-400"
+                      className="h-8 min-w-0 max-w-[min(32rem,100%)] border-sky-500/40 bg-sky-500/10 px-3 text-sky-700 dark:text-sky-400"
                     />
                   }
                 >
@@ -511,7 +548,7 @@ function AssistantBubble({
           <FieldAssistCard
             outcome={content.fieldAssist}
             {...(onApplyFieldProposal ? { onApply: onApplyFieldProposal } : {})}
-            {...(onAskQuestion ? { onAskQuestion } : {})}
+            {...(onRequestAnswer ? { onRequestAnswer } : {})}
           />
         ) : null}
       </MessageContent>
@@ -519,63 +556,78 @@ function AssistantBubble({
   );
 }
 
-function FieldAssistCard({
+export function FieldAssistCard({
   outcome,
   onApply,
-  onAskQuestion,
+  onRequestAnswer,
 }: {
   outcome: FieldAssistOutcome;
   onApply?: (input: ChatFieldProposalApplyInput) => void;
-  onAskQuestion?: (question: string) => void;
+  onRequestAnswer?: () => void;
 }) {
+  const readiness = outcome.readiness;
   return (
-    <Card size="sm" className="max-w-[92%] border-primary/20 bg-primary/[0.04]">
+    <Card size="sm" className="w-full max-w-2xl border-primary/20 bg-primary/[0.04] [--card-spacing:--spacing(4)] sm:[--card-spacing:--spacing(5)]">
       <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-sm">
-          <Sparkles className="size-4 text-primary" aria-hidden />
-          {outcome.label} 작성 도우미
+        <CardTitle className="flex flex-wrap items-center gap-2 text-base">
+          <Sparkles className="text-primary" data-icon="inline-start" aria-hidden />
+          {outcome.label} 문서 반영 준비도
+          <Badge variant={readiness.canApply ? "default" : "secondary"} className="ml-auto">
+            {readiness.canApply ? "반영 가능" : "정보 수집 중"}
+          </Badge>
         </CardTitle>
-        <CardDescription>{outcome.guidance}</CardDescription>
+        <CardDescription className="text-sm leading-6">{outcome.guidance}</CardDescription>
       </CardHeader>
-      <CardContent className="grid gap-2">
+      <CardContent className="grid gap-4">
+        <Progress
+          value={readiness.score}
+          aria-label={`${outcome.label} 문서 반영 준비도`}
+          className="[&_[data-slot=progress-track]]:h-2"
+        >
+          <ProgressLabel>현재 준비도</ProgressLabel>
+          <ProgressValue>{() => `${readiness.score}%`}</ProgressValue>
+        </Progress>
+        <p className="text-xs leading-5 text-muted-foreground">
+          {readiness.threshold}% 이상이 되면 검증된 초안을 문서에 반영할 수 있어요.
+        </p>
         {outcome.status === "proposal" ? (
           <>
-            <div className="rounded-[var(--radius-lg)] border bg-background px-3 py-2 text-sm whitespace-pre-wrap">
+            <div className="rounded-[var(--radius-lg)] border bg-background px-4 py-3 text-sm leading-6 whitespace-pre-wrap">
               {outcome.proposal.value}
             </div>
-            <p className="text-xs text-muted-foreground">근거: {outcome.proposal.basis}</p>
-            <Button
-              type="button"
-              size="sm"
-              onClick={() => onApply?.({
-                fieldId: outcome.fieldId,
-                label: outcome.label,
-                value: outcome.proposal.value,
-                ...(outcome.proposal.runId ? { runId: outcome.proposal.runId } : {}),
-                ...(outcome.proposal.suggestionId ? { suggestionId: outcome.proposal.suggestionId } : {}),
-              })}
-              disabled={!onApply}
-            >
-              <CheckCircle2 data-icon="inline-start" aria-hidden />
-              {outcome.label}에 적용하기
-            </Button>
+            <p className="text-xs leading-5 text-muted-foreground">근거: {outcome.proposal.basis}</p>
+            {readiness.canApply ? (
+              <Button
+                type="button"
+                onClick={() => onApply?.({
+                  fieldId: outcome.fieldId,
+                  label: outcome.label,
+                  value: outcome.proposal.value,
+                  ...(outcome.proposal.runId ? { runId: outcome.proposal.runId } : {}),
+                  ...(outcome.proposal.suggestionId ? { suggestionId: outcome.proposal.suggestionId } : {}),
+                })}
+                disabled={!onApply}
+              >
+                <CheckCircle2 data-icon="inline-start" aria-hidden />
+                {outcome.label}에 적용하기
+              </Button>
+            ) : null}
           </>
         ) : null}
         {outcome.status === "needs_input" ? (
-          <div className="flex flex-col gap-2">
-            {outcome.questions.map((question) => (
-              <Button
-                key={question}
-                type="button"
-                variant="outline"
-                size="sm"
-                className="h-auto justify-start whitespace-normal text-left"
-                onClick={() => onAskQuestion?.(question)}
-                disabled={!onAskQuestion}
-              >
-                {question}
-              </Button>
-            ))}
+          <div className="flex flex-col gap-3">
+            <p className="text-sm font-semibold">AI가 더 확인해야 할 내용</p>
+            <ul className="grid gap-2" aria-label="추가로 필요한 정보">
+              {outcome.questions.map((question) => (
+                <li key={question} className="flex min-h-12 items-start gap-2.5 rounded-[var(--radius-lg)] border bg-background px-4 py-3 text-sm leading-6">
+                  <CircleHelp className="mt-0.5 size-4 shrink-0 text-primary" aria-hidden />
+                  <span>{question}</span>
+                </li>
+              ))}
+            </ul>
+            <Button type="button" variant="outline" onClick={onRequestAnswer} disabled={!onRequestAnswer}>
+              답변 입력하기
+            </Button>
           </div>
         ) : null}
       </CardContent>

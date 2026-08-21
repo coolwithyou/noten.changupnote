@@ -1,5 +1,9 @@
 import type { CompanyAccess } from "@/lib/server/auth/companyGuard";
-import type { FieldAssistOutcome } from "@/lib/chat/messageContent";
+import {
+  FIELD_ASSIST_APPLY_THRESHOLD,
+  type FieldAssistOutcome,
+  type FieldAssistReadiness,
+} from "@/lib/chat/messageContent";
 import { generateFieldSuggestions } from "@/lib/server/documents/fieldSuggest";
 import { requestFieldAgentSuggestions } from "@/lib/server/documents/fieldAgentRuns";
 import { getGrantDocumentDraft } from "@/lib/server/documents/grantDocumentDrafts";
@@ -18,6 +22,7 @@ export async function buildFieldAssistOutcome(input: {
     fieldId?: string;
     label: string;
     section?: string;
+    evidenceText?: string;
     fieldAgent?: {
       clientRequestId: string;
       baseRevisionId: string;
@@ -30,6 +35,8 @@ export async function buildFieldAssistOutcome(input: {
   if (draft.grantId !== input.grantId) {
     throw new ChatSessionError("draft_grant_mismatch", "현재 공고와 지원서가 일치하지 않습니다.", 404);
   }
+  const evidenceText = input.field.evidenceText?.trim()
+    || (!isInitialFieldQuestion(input.userMessage, input.field.label) ? input.userMessage.trim() : "");
   if (input.field.fieldId && input.field.fieldAgent) {
     const run = await requestFieldAgentSuggestions({
       draftId: input.draftId,
@@ -38,17 +45,17 @@ export async function buildFieldAssistOutcome(input: {
       baseRevisionId: input.field.fieldAgent.baseRevisionId,
       target: input.field.fieldAgent.target,
       access: input.access,
-      ...(!isInitialFieldQuestion(input.userMessage, input.field.label)
-        ? { sourceText: input.userMessage }
-        : {}),
+      ...(evidenceText ? { userEvidenceText: evidenceText } : {}),
     });
     const suggestion = run.suggestions.find((entry) => entry.status === "pending");
-    if (suggestion) {
+    const readiness = resolveReadiness(run.readiness, Boolean(suggestion), Boolean(evidenceText));
+    if (suggestion && readiness.canApply) {
       return {
         status: "proposal",
         fieldId: run.fieldId,
         label: run.fieldLabel,
         guidance: "현재 문서 revision과 정확한 입력 칸에 결속된 초안입니다. 적용하면 왼쪽 문서에 바로 반영됩니다.",
+        readiness,
         proposal: {
           value: suggestion.value,
           basis: suggestion.rationale,
@@ -62,11 +69,9 @@ export async function buildFieldAssistOutcome(input: {
       status: "needs_input",
       fieldId: run.fieldId,
       label: run.fieldLabel,
-      guidance: "현재 문서와 확인 가능한 근거만으로는 이 칸의 값을 안전하게 확정할 수 없습니다.",
-      questions: [
-        `'${run.fieldLabel}'에 넣을 실제 경험이나 성과를 알려주세요.`,
-        "수치, 기간, 본인의 역할 중 확인 가능한 내용이 있나요?",
-      ],
+      guidance: `AI가 현재 근거를 검토한 결과, 문서 반영 기준인 ${FIELD_ASSIST_APPLY_THRESHOLD}%에 아직 도달하지 않았습니다.`,
+      readiness,
+      questions: readinessQuestions(run.readiness, run.fieldLabel),
     };
   }
   const result = await generateFieldSuggestions({
@@ -74,18 +79,19 @@ export async function buildFieldAssistOutcome(input: {
     access: input.access,
     labels: [input.field.label],
     mode: "generate",
-    ...(!isInitialFieldQuestion(input.userMessage, input.field.label)
-      ? { userEvidenceText: input.userMessage }
-      : {}),
+    ...(evidenceText ? { userEvidenceText: evidenceText } : {}),
   });
   const suggestion = result.suggestions[input.field.label];
   const fieldId = input.field.fieldId?.trim() || `label:${input.field.label}`;
-  if (suggestion) {
+  const modelReadiness = result.readiness?.[input.field.label];
+  const readiness = resolveReadiness(modelReadiness, Boolean(suggestion), Boolean(evidenceText));
+  if (suggestion && readiness.canApply) {
     return {
       status: "proposal",
       fieldId,
       label: input.field.label,
       guidance: "공고와 저장된 회사 정보를 근거로 만든 초안입니다. 사실과 표현을 확인한 뒤 반영해 주세요.",
+      readiness,
       proposal: {
         value: suggestion.value,
         basis: suggestion.basis,
@@ -97,12 +103,37 @@ export async function buildFieldAssistOutcome(input: {
     status: "needs_input",
     fieldId,
     label: input.field.label,
-    guidance: "공고와 저장된 회사 정보만으로는 이 칸의 값을 안전하게 확정할 수 없습니다.",
-    questions: [
-      `'${input.field.label}'에 넣을 회사의 실제 사실이나 수치를 알려주세요.`,
-      "어느 기준 시점과 단위로 작성해야 하는지도 알고 있나요?",
-    ],
+    guidance: `AI가 현재 근거를 검토한 결과, 문서 반영 기준인 ${FIELD_ASSIST_APPLY_THRESHOLD}%에 아직 도달하지 않았습니다.`,
+    readiness,
+    questions: readinessQuestions(modelReadiness, input.field.label),
   };
+}
+
+function resolveReadiness(
+  modelReadiness: (FieldAssistReadiness & { missingInformation?: string[] }) | undefined,
+  hasProposal: boolean,
+  hasUserEvidence: boolean,
+): FieldAssistReadiness {
+  const score = modelReadiness?.score ?? (hasProposal ? 90 : hasUserEvidence ? 70 : 40);
+  const canApply = hasProposal && score >= FIELD_ASSIST_APPLY_THRESHOLD;
+  return {
+    score: canApply ? Math.max(score, FIELD_ASSIST_APPLY_THRESHOLD) : Math.min(score, FIELD_ASSIST_APPLY_THRESHOLD - 5),
+    threshold: FIELD_ASSIST_APPLY_THRESHOLD,
+    canApply,
+  };
+}
+
+function readinessQuestions(
+  readiness: (FieldAssistReadiness & { missingInformation?: string[] }) | undefined,
+  label: string,
+): string[] {
+  const questions = readiness?.missingInformation
+    ?.map((question) => question.trim())
+    .filter(Boolean)
+    .slice(0, 2);
+  return questions?.length
+    ? questions
+    : [`'${label}'에 넣을 정확한 사실을 알려주세요.`];
 }
 
 function evidenceBasisKind(
