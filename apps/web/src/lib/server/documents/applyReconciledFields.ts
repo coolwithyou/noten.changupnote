@@ -38,6 +38,16 @@ export interface ApplyReconciledFieldsInput {
   defaults?: { documentCategory?: string; documentName?: string };
 }
 
+/**
+ * Reconciler가 source SHA에 결속한 구조 위치를 DB JSONB에 손실 없이 보존한다.
+ * page/bbox만 남기면 동일 라벨의 occurrence tie-break가 사라져 다시 ambiguous가 된다.
+ */
+export function serializeReconciledFieldPosition(
+  position: ReconciledField["position"],
+): Record<string, unknown> | null {
+  return position ? { ...position } : null;
+}
+
 interface SurfaceContext {
   grantId: string;
   source: string;
@@ -87,9 +97,7 @@ export async function applyReconciledFields(
   for (const field of fields) {
     const documentCategory = field.documentCategory ?? input.defaults?.documentCategory ?? "other";
     const documentName = field.documentName ?? input.defaults?.documentName ?? ctx.title;
-    const position = field.position
-      ? ({ page: field.position.page, bbox: field.position.bbox } as Record<string, unknown>)
-      : null;
+    const position = serializeReconciledFieldPosition(field.position);
 
     const values = {
       grantId: ctx.grantId,

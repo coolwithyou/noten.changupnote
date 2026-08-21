@@ -3,6 +3,7 @@ import type {
   RoundtripFieldCandidate,
   RoundtripParsedDocument,
 } from "@/lib/server/analysis-lab/application-roundtrip/contract";
+import { serializeReconciledFieldPosition } from "./applyReconciledFields";
 import { buildReconciledApplicationFields } from "./applicationFieldAnalysis";
 
 const document: RoundtripParsedDocument = {
@@ -89,6 +90,20 @@ assert.equal(company.fillStrategy, "copy");
 assert.equal(company.required, true);
 assert.equal(company.documentCategory, "application_form");
 assert.equal(company.documentName, "지원신청서.hwp");
+assert.deepEqual(company.position, {
+  page: 1,
+  bbox: null,
+  blockIndex: 1,
+  row: 1,
+  col: 1,
+  occurrence: 1,
+  normalizedLabel: "기업명",
+});
+assert.deepEqual(
+  serializeReconciledFieldPosition(company.position),
+  company.position,
+  "DB 저장 경계에서 동일 라벨 exact tie-break 구조 위치를 보존해야 한다",
+);
 
 const vendor = fields[2]!;
 assert.equal(vendor.mappedCompanyField, null, "외주·수행기관 기업명은 신청 기업명으로 자동 채우면 안 된다");
