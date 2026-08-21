@@ -913,6 +913,10 @@ const accountExport = await fetchJson<{
   schema?: string;
   user?: { id?: string; email?: string | null; name?: string | null };
   workspace?: { currentCompany?: { id?: string } };
+  applicationProfile?: {
+    personal?: { applicationEmail?: string | null };
+    company?: { businessNumber?: string | null };
+  };
   legal?: {
     termsVersion?: string;
     privacyVersion?: string;
@@ -949,6 +953,7 @@ expect(accountExport.headers.get("content-disposition")?.includes("attachment") 
 expect(accountExport.body.schema === "cunote.account_export.v1", "web account export schema");
 expect(Boolean(accountExport.body.user?.id), "web account export user id");
 expect(accountExport.body.workspace?.currentCompany?.id === webCompanyId, "web account export company id");
+expect(Boolean(accountExport.body.applicationProfile), "web account export application profile");
 expect(typeof accountExport.body.legal?.termsVersion === "string", "web account export legal terms version");
 expect(typeof accountExport.body.legal?.privacyVersion === "string", "web account export legal privacy version");
 expect(typeof accountExport.body.legal?.privacyOfficerName === "string", "web account export legal privacy officer");

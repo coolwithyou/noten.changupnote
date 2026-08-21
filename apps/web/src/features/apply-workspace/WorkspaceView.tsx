@@ -189,6 +189,18 @@ export function WorkspaceView({
     void studioSurfaceRef.current?.downloadCurrentCopy();
   }, []);
 
+  const inspectProfileAutofillBindings = useCallback(() => {
+    const surface = studioSurfaceRef.current;
+    if (!surface) return Promise.reject(new Error("문서 편집 화면이 준비되지 않았습니다."));
+    return surface.inspectProfileAutofill();
+  }, []);
+
+  const applyProfileAutofillEntries = useCallback((entries: readonly { fieldId: string; value: string }[]) => {
+    const surface = studioSurfaceRef.current;
+    if (!surface) return Promise.reject(new Error("문서 편집 화면이 준비되지 않았습니다."));
+    return surface.applyProfileAutofill(entries);
+  }, []);
+
   useEffect(() => {
     if (!integratedFieldEditor || !data.fieldEditorAgentAvailable || !data.draftId) return;
     let disposed = false;
@@ -908,6 +920,12 @@ export function WorkspaceView({
                   onSave: saveCurrentDocument,
                   onDownload: downloadCurrentDocument,
                 }}
+                profileAutofill={data.draftId ? {
+                  draftId: data.draftId,
+                  disabled: !studioDocumentActions.canSave,
+                  inspectBindings: inspectProfileAutofillBindings,
+                  applyEntries: applyProfileAutofillEntries,
+                } : undefined}
               />
             </div>
           </div>
@@ -943,6 +961,12 @@ export function WorkspaceView({
                     onSave: saveCurrentDocument,
                     onDownload: downloadCurrentDocument,
                   }}
+                  profileAutofill={data.draftId ? {
+                    draftId: data.draftId,
+                    disabled: !studioDocumentActions.canSave,
+                    inspectBindings: inspectProfileAutofillBindings,
+                    applyEntries: applyProfileAutofillEntries,
+                  } : undefined}
                 />
               </div>
             </SheetContent>

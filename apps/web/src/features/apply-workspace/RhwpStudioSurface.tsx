@@ -45,6 +45,7 @@ import {
   resolveStudioFieldAgentProtocol,
   resolveStudioFieldNavigationProtocol,
   resolveStudioFieldSelectionProtocol,
+  type StudioFieldAgentProtocol,
   type StudioFieldNavigationProtocol,
   type StudioFieldTargetV1,
 } from "@/lib/rhwp/studioDocumentAgentProtocol";
@@ -53,10 +54,16 @@ import {
   type StudioFieldBindingResolution,
 } from "@/lib/rhwp/studioFieldBindings";
 import {
+  collectStudioFieldEvidenceBatch,
   createStudioFieldAgentTransaction,
   StudioFieldAgentMutationVerificationError,
   type StudioFieldAgentTransaction,
 } from "@/lib/rhwp/studioFieldAgentTransaction";
+import {
+  createStudioProfileAutofillTransaction,
+  StudioProfileAutofillTransactionError,
+  type StudioProfileAutofillBatchResult,
+} from "@/lib/rhwp/studioProfileAutofillTransaction";
 import {
   matchesStudioFieldDocumentPreimage,
   studioFieldDocumentSemanticSha256,
@@ -91,6 +98,7 @@ import {
   type RhwpWorkingDocumentTransport,
 } from "@/lib/rhwp/workingDocument";
 import type { DocumentAuthoringTask } from "./documentAuthoring";
+import type { ApplicationAutofillFieldBinding } from "@/lib/documents/applicationProfileAutofill";
 import type {
   DocumentAgentRunDto,
   DocumentAgentSuggestionDto,
@@ -118,6 +126,11 @@ export interface RhwpStudioSurfaceHandle {
   applyFieldSuggestion(run: FieldAgentRunDto, suggestion: FieldAgentSuggestionDto): Promise<FieldAgentRunDto>;
   undoFieldSuggestion(run: FieldAgentRunDto, suggestion: FieldAgentSuggestionDto): Promise<FieldAgentRunDto>;
   dismissFieldSuggestion(run: FieldAgentRunDto, suggestion: FieldAgentSuggestionDto): Promise<FieldAgentRunDto>;
+  inspectProfileAutofill(): Promise<ApplicationAutofillFieldBinding[]>;
+  applyProfileAutofill(entries: readonly { fieldId: string; value: string }[]): Promise<{
+    appliedCount: number;
+    fieldIds: string[];
+  }>;
 }
 
 export interface RhwpStudioDocumentActionState {
@@ -195,6 +208,7 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
   const saveProtocolRef = useRef<RhwpStudioSaveProtocol | null>(null);
   const agentTransactionRef = useRef<StudioCommandDocumentAgentTransaction | null>(null);
   const fieldAgentTransactionRef = useRef<StudioFieldAgentTransaction | null>(null);
+  const fieldAgentProtocolRef = useRef<StudioFieldAgentProtocol | null>(null);
   const fieldNavigationProtocolRef = useRef<StudioFieldNavigationProtocol | null>(null);
   const fieldTargetsRef = useRef<Map<string, StudioFieldTargetV1>>(new Map());
   const agentCandidatesRef = useRef<DocumentEditCandidate[]>([]);
@@ -387,6 +401,9 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
         setAgentCapabilityReady(false);
       }
       const fieldAgentProtocol = resolveStudioFieldAgentProtocol(editor);
+      fieldAgentProtocolRef.current = presentation === "field_aware" && transport.mode === "persistent"
+        ? fieldAgentProtocol
+        : null;
       if (
         fieldEditorAgentAvailable
         && presentation === "field_aware"
@@ -436,6 +453,7 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
       saveProtocolRef.current = null;
       agentTransactionRef.current = null;
       fieldAgentTransactionRef.current = null;
+      fieldAgentProtocolRef.current = null;
       fieldNavigationProtocolRef.current = null;
       fieldTargetsRef.current = new Map();
       agentCandidatesRef.current = [];
@@ -1540,6 +1558,197 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
     }
   }, [refreshFieldRun, transport]);
 
+  const inspectProfileAutofill = useCallback(async (): Promise<ApplicationAutofillFieldBinding[]> => {
+    let locked = false;
+    setFieldAgentBusy(true);
+    try {
+      beginAgentMutation();
+      locked = true;
+      const current = await readCurrentFieldDocument();
+      onFieldBindingsResolvedRef.current?.(current.resolutions);
+      const rhwp = await loadRhwp();
+      const bindings: ApplicationAutofillFieldBinding[] = [];
+      const uniqueResolutions = current.resolutions.filter((resolution) => resolution.status === "unique");
+      const evidence = await collectStudioFieldEvidenceBatch(
+        rhwp,
+        current.bytes,
+        uniqueResolutions.map((resolution) => resolution.target),
+      );
+      const evidenceByFieldId = new Map(uniqueResolutions.map((resolution, index) => [
+        resolution.fieldId,
+        evidence[index] ?? null,
+      ]));
+      for (const resolution of current.resolutions) {
+        if (resolution.status !== "unique") {
+          bindings.push({ fieldId: resolution.fieldId, status: resolution.status });
+          continue;
+        }
+        const fieldEvidence = evidenceByFieldId.get(resolution.fieldId);
+        if (fieldEvidence) {
+          bindings.push({
+            fieldId: resolution.fieldId,
+            status: "unique",
+            beforeText: fieldEvidence.text,
+          });
+        } else {
+          bindings.push({ fieldId: resolution.fieldId, status: "missing" });
+        }
+      }
+      return bindings;
+    } finally {
+      if (locked) finishAgentMutation();
+      setFieldAgentBusy(false);
+    }
+  }, [beginAgentMutation, finishAgentMutation, readCurrentFieldDocument]);
+
+  const applyProfileAutofill = useCallback(async (
+    entries: readonly { fieldId: string; value: string }[],
+  ): Promise<{ appliedCount: number; fieldIds: string[] }> => {
+    if (transport.mode !== "persistent") throw new Error("서버에 저장되는 문서 초안이 아닙니다.");
+    if (entries.length === 0) return { appliedCount: 0, fieldIds: [] };
+    if (entries.length > 100) throw new Error("한 번에 입력할 수 있는 등록정보 필드 수를 초과했습니다.");
+    const prepared = preparedRef.current;
+    const editor = editorRef.current;
+    const protocol = fieldAgentProtocolRef.current;
+    if (!prepared || !editor || !protocol) {
+      throw new Error("현재 문서에서 등록정보 일괄 입력을 실행할 수 없습니다.");
+    }
+
+    let locked = false;
+    let keepLocked = false;
+    let batchResult: StudioProfileAutofillBatchResult | null = null;
+    setFieldAgentBusy(true);
+    try {
+      beginAgentMutation();
+      locked = true;
+      const current = await readCurrentFieldDocument();
+      const fieldById = new Map(connectedFields.map((field) => [field.fieldId, field]));
+      const resolutionById = new Map(current.resolutions.map((resolution) => [resolution.fieldId, resolution]));
+      const requestedIds = new Set<string>();
+      const batchEntries = entries.map((entry) => {
+        if (requestedIds.has(entry.fieldId)) throw new Error("일괄 입력 대상 fieldId가 중복되었습니다.");
+        requestedIds.add(entry.fieldId);
+        const field = fieldById.get(entry.fieldId);
+        const resolution = resolutionById.get(entry.fieldId);
+        if (!field || !resolution || resolution.status !== "unique") {
+          throw new Error("현재 revision에서 모든 일괄 입력 위치를 하나씩 확정하지 못했습니다.");
+        }
+        return {
+          fieldId: field.fieldId,
+          label: field.label,
+          sourceSpan: field.sourceSpan ?? null,
+          target: resolution.target,
+          value: entry.value,
+        };
+      });
+
+      const rhwp = await loadRhwp();
+      const transaction = createStudioProfileAutofillTransaction({
+        rhwp,
+        protocol,
+        exportCurrentBytes: (format) => exportVerifiedEditorDocument(editor, format),
+      });
+      try {
+        batchResult = await transaction.apply({
+          bytes: current.bytes,
+          format: prepared.format,
+          entries: batchEntries,
+        });
+      } catch (error) {
+        if (error instanceof StudioProfileAutofillTransactionError) {
+          if (error.mutationUncertain) {
+            keepLocked = true;
+            throw new Error("일괄 입력 결과를 검증하지 못해 편집을 잠갔습니다. 최신 문서를 다시 불러와 주세요.");
+          }
+          if (error.partial && error.partial.applied.length > 0) {
+            try {
+              await transaction.revert(error.partial);
+              await notifyEditorSaved(editor);
+            } catch (rollbackError) {
+              keepLocked = true;
+              throw new Error(`일괄 입력 복구를 확정하지 못해 편집을 잠갔습니다: ${errorMessage(rollbackError, "복구 실패")}`);
+            }
+            throw new Error(`${error.message} 앞서 입력한 값은 원상 복구했습니다.`);
+          }
+        }
+        throw error;
+      }
+
+      const lastApplied = batchResult.applied.at(-1);
+      if (!lastApplied) return { appliedCount: 0, fieldIds: [] };
+      const materializedAnswers = { ...prepared.materializedAnswers };
+      for (const entry of batchResult.applied) materializedAnswers[entry.fieldId] = entry.value;
+
+      let persisted: Awaited<ReturnType<typeof persistStudioSnapshot>>;
+      try {
+        persisted = await persistStudioSnapshot({
+          draftId: transport.draftId,
+          bytes: batchResult.bytes,
+          filename: prepared.filename,
+          format: prepared.format,
+          pageCount: lastApplied.result.receipt.pageCountAfter,
+          sessionId: studioSessionIdRef.current!,
+          baseRevisionId: prepared.revisionId,
+          documentEpoch: lastApplied.result.receipt.documentEpoch,
+          changeSeq: lastApplied.result.receipt.afterChangeSeq,
+          origin: "studio_manual",
+          materializedAnswers,
+          verification: {
+            client: "rhwp-core-reopen",
+            verified: true,
+            purpose: "application_profile_autofill",
+            beforeDocumentSha256: current.documentSha256,
+            afterDocumentSha256: lastApplied.result.afterDocumentSha256,
+            fields: batchResult.applied.map((entry) => ({
+              fieldId: entry.fieldId,
+              beforeTextSha256: entry.binding.beforeTextSha256,
+              afterTextSha256: entry.result.receipt.afterTextSha256,
+            })),
+          },
+        });
+      } catch (error) {
+        try {
+          await transaction.revert(batchResult);
+          await notifyEditorSaved(editor);
+        } catch (rollbackError) {
+          keepLocked = true;
+          throw new Error(`등록정보 입력 저장과 원상 복구를 확정하지 못해 편집을 잠갔습니다: ${errorMessage(rollbackError, "복구 실패")}`);
+        }
+        throw new Error(`${errorMessage(error, "등록정보를 입력한 문서를 저장하지 못했습니다.")} 문서 변경은 원상 복구했습니다.`);
+      }
+
+      try {
+        await acceptPersistedAgentSnapshot({
+          bytes: batchResult.bytes,
+          revisionId: persisted.revisionId,
+          savedAt: persisted.savedAt,
+          changeSeq: lastApplied.result.receipt.afterChangeSeq,
+          materializedAnswers,
+        });
+      } catch (error) {
+        keepLocked = true;
+        throw new Error(`서버 저장 뒤 현재 편집 상태를 확정하지 못해 편집을 잠갔습니다: ${errorMessage(error, "상태 반영 실패")}`);
+      }
+      onFieldBindingsResolvedRef.current?.(current.resolutions);
+      await focusField(lastApplied.fieldId);
+      return {
+        appliedCount: batchResult.applied.length,
+        fieldIds: batchResult.applied.map((entry) => entry.fieldId),
+      };
+    } finally {
+      if (locked) finishAgentMutation(keepLocked);
+      setFieldAgentBusy(false);
+    }
+  }, [
+    acceptPersistedAgentSnapshot,
+    beginAgentMutation,
+    connectedFields,
+    finishAgentMutation,
+    focusField,
+    readCurrentFieldDocument,
+    transport,
+  ]);
+
   useImperativeHandle(ref, () => ({
     saveAndReturn,
     saveCurrent,
@@ -1550,11 +1759,15 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
     applyFieldSuggestion,
     undoFieldSuggestion,
     dismissFieldSuggestion,
+    inspectProfileAutofill,
+    applyProfileAutofill,
   }), [
+    applyProfileAutofill,
     applyFieldSuggestion,
     dismissFieldSuggestion,
     downloadCurrentCopy,
     focusField,
+    inspectProfileAutofill,
     prepareFieldWritingSession,
     requestFieldSuggestion,
     saveAndReturn,

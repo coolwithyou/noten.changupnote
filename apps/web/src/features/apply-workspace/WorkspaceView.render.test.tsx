@@ -153,6 +153,10 @@ assert.ok(
   html.includes("지금 저장") && html.includes("편집본 다운로드"),
   "통합 편집 화면의 문서 저장 동작은 AI 사이드바에서 제공해야 합니다.",
 );
+assert.ok(
+  html.includes("등록정보로 일괄 채우기"),
+  "persistent 문서 사이드바에서 등록정보 일괄 입력 진입점을 제공해야 합니다.",
+);
 assert.equal(html.includes("max-h-48"), false, "필드 인덱스가 작성 도우미 공간을 상시 차지하면 안 됩니다.");
 assert.ok(
   html.includes("flex h-full min-h-0 max-h-full flex-col overflow-hidden"),

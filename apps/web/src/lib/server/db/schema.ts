@@ -302,6 +302,41 @@ export const userCompany = pgTable("user_company", {
   companyIdx: index("user_company_company_id_idx").on(table.companyId),
 }));
 
+/**
+ * 신청서에 반복 입력하는 개인 연락처 정본.
+ * 로그인 이메일(users.email)과 신청서에 기재할 이메일은 용도가 달라 별도 보관한다.
+ */
+export const userApplicationProfiles = pgTable("user_application_profiles", {
+  userId: uuid("user_id").primaryKey().references(() => users.id, { onDelete: "cascade" }),
+  fullName: text("full_name"),
+  applicationEmail: text("application_email"),
+  phone: text("phone"),
+  postalCode: text("postal_code"),
+  addressLine1: text("address_line1"),
+  addressLine2: text("address_line2"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+/**
+ * 신청서에 반복 입력하는 회사 연락처 정본.
+ * 매칭 조건(company_profiles) 및 법적 기본정보(companies.name/biz_no)와 분리한다.
+ */
+export const companyApplicationProfiles = pgTable("company_application_profiles", {
+  companyId: uuid("company_id").primaryKey().references(() => companies.id, { onDelete: "cascade" }),
+  representativeName: text("representative_name"),
+  applicationEmail: text("application_email"),
+  phone: text("phone"),
+  postalCode: text("postal_code"),
+  addressLine1: text("address_line1"),
+  addressLine2: text("address_line2"),
+  updatedBy: uuid("updated_by").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  updatedByIdx: index("company_application_profiles_updated_by_idx").on(table.updatedBy),
+}));
+
 export const teamInvitations = pgTable("team_invitations", {
   id: uuid("id").defaultRandom().primaryKey(),
   companyId: uuid("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),

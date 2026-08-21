@@ -9,6 +9,8 @@ export const REQUIRED_TABLES = [
   "notification_receipts",
   "companies",
   "user_company",
+  "user_application_profiles",
+  "company_application_profiles",
   "team_invitations",
   "team_role_change_events",
   "billing_subscriptions",
@@ -60,6 +62,8 @@ export const REQUIRED_TABLES = [
 export const RLS_TABLES = [
   "companies",
   "user_company",
+  "user_application_profiles",
+  "company_application_profiles",
   "team_invitations",
   "team_role_change_events",
   "billing_tax_documents",

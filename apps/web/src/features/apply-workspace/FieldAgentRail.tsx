@@ -16,6 +16,8 @@ import type { FieldAgentRunDto, FieldAgentSuggestionDto } from "@/lib/server/doc
 import type { FieldAwareDocumentSessionView, FieldAwareSessionItem } from "./fieldAwareDocumentSession";
 import type { RhwpStudioDocumentActionState } from "./RhwpStudioSurface";
 import { StudioSaveIndicator } from "./StudioSaveIndicator";
+import { ApplicationProfileAutofillDialog } from "./ApplicationProfileAutofillDialog";
+import type { ApplicationAutofillFieldBinding } from "@/lib/documents/applicationProfileAutofill";
 
 export function FieldAgentRail({
   session,
@@ -28,6 +30,7 @@ export function FieldAgentRail({
   onUndoSuggestion,
   onDismissSuggestion,
   documentActions,
+  profileAutofill,
 }: {
   session: FieldAwareDocumentSessionView;
   connectedFields: readonly ConnectedDocumentField[];
@@ -42,6 +45,15 @@ export function FieldAgentRail({
     onSave: () => void;
     onDownload: () => void;
   };
+  profileAutofill?: {
+    draftId: string;
+    disabled?: boolean | undefined;
+    inspectBindings: () => Promise<ApplicationAutofillFieldBinding[]>;
+    applyEntries: (entries: readonly { fieldId: string; value: string }[]) => Promise<{
+      appliedCount: number;
+      fieldIds: string[];
+    }>;
+  } | undefined;
 }) {
   const [sourceText, setSourceText] = useState("");
   const [fieldQuery, setFieldQuery] = useState("");
@@ -122,6 +134,15 @@ export function FieldAgentRail({
               </div>
               <StudioSaveIndicator state={documentActions.saveState} />
             </div>
+          ) : null}
+          {profileAutofill ? (
+            <ApplicationProfileAutofillDialog
+              draftId={profileAutofill.draftId}
+              fields={connectedFields}
+              disabled={profileAutofill.disabled}
+              inspectBindings={profileAutofill.inspectBindings}
+              applyEntries={profileAutofill.applyEntries}
+            />
           ) : null}
         </CardHeader>
 

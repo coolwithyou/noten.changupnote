@@ -288,7 +288,7 @@ async function verifyCommittedFieldMutation(input: {
   };
 }
 
-interface FieldEvidence {
+export interface FieldEvidence {
   text: string;
   textSha256: string;
   formatSha256: string;
@@ -303,83 +303,112 @@ export async function collectStudioFieldEvidence(
 ): Promise<FieldEvidence> {
   const document = new rhwp.HwpDocument(bytes);
   try {
-    if (target.kind === "form_text") {
-      return await collectStudioFormTextEvidence(document, target);
-    }
-    const dimensions = JSON.parse(document.getTableDimensions(
-      target.section,
-      target.parentPara,
-      target.controlIndex,
-    )) as { rowCount: number; colCount: number; cellCount: number };
-    if (!Number.isSafeInteger(dimensions.cellCount) || target.cellIndex >= dimensions.cellCount) {
-      throw new Error("exact field table cell을 찾지 못했습니다.");
-    }
-    if (target.kind === "table_cell_region") {
-      return await collectStudioTableCellRegionEvidence(document, target, dimensions);
-    }
-    const length = document.getCellParagraphLength(
-      target.section,
-      target.parentPara,
-      target.controlIndex,
-      target.cellIndex,
-      target.cellParagraph,
-    );
-    const text = length > 0 ? document.getTextInCell(
-      target.section,
-      target.parentPara,
-      target.controlIndex,
-      target.cellIndex,
-      target.cellParagraph,
-      0,
-      length,
-    ) : "";
-    const charShapeIds: number[] = [];
-    for (let offset = 0; offset < Math.max(length, 1); offset += 1) {
-      charShapeIds.push(readId(document.getCellCharPropertiesAt(
-        target.section,
-        target.parentPara,
-        target.controlIndex,
-        target.cellIndex,
-        target.cellParagraph,
-        offset,
-      ), "charShapeId"));
-    }
-    const paraShapeId = readId(document.getCellParaPropertiesAt(
-      target.section,
-      target.parentPara,
-      target.controlIndex,
-      target.cellIndex,
-      target.cellParagraph,
-    ), "paraShapeId");
-    const cellProperties = JSON.parse(document.getCellOwnProperties(
-      target.section,
-      target.parentPara,
-      target.controlIndex,
-      target.cellIndex,
-    )) as unknown;
-    const charShapeId = charShapeIds[0];
-    const charShape = charShapeIds.every((id) => id === charShapeId)
-      ? { kind: "uniform", id: charShapeId }
-      : { kind: "runs", ids: charShapeIds };
-    return {
-      text,
-      textSha256: await sha256Hex(text),
-      formatSha256: await sha256Hex(stableJson({
-        schemaVersion: 1,
-        charShape,
-        paraShapeId,
-        cellProperties,
-      })),
-      adjacentContextSha256: await fieldNonTargetManifest(document, target, dimensions),
-      restoreFormat: {
-        kind: "table_cell_text",
-        charShapeIds,
-        paraShapeId,
-      },
-    };
+    return await collectStudioFieldEvidenceFromDocument(document, target);
   } finally {
     document.free();
   }
+}
+
+/** 같은 revision의 여러 target을 한 번만 reopen하여 사이드바 점검 비용을 제한한다. */
+export async function collectStudioFieldEvidenceBatch(
+  rhwp: RhwpModule,
+  bytes: Uint8Array,
+  targets: readonly StudioFieldTargetV1[],
+): Promise<Array<FieldEvidence | null>> {
+  const document = new rhwp.HwpDocument(bytes);
+  try {
+    const results: Array<FieldEvidence | null> = [];
+    for (const target of targets) {
+      try {
+        results.push(await collectStudioFieldEvidenceFromDocument(document, target));
+      } catch {
+        results.push(null);
+      }
+    }
+    return results;
+  } finally {
+    document.free();
+  }
+}
+
+async function collectStudioFieldEvidenceFromDocument(
+  document: InstanceType<RhwpModule["HwpDocument"]>,
+  target: StudioFieldTargetV1,
+): Promise<FieldEvidence> {
+  if (target.kind === "form_text") {
+    return await collectStudioFormTextEvidence(document, target);
+  }
+  const dimensions = JSON.parse(document.getTableDimensions(
+    target.section,
+    target.parentPara,
+    target.controlIndex,
+  )) as { rowCount: number; colCount: number; cellCount: number };
+  if (!Number.isSafeInteger(dimensions.cellCount) || target.cellIndex >= dimensions.cellCount) {
+    throw new Error("exact field table cell을 찾지 못했습니다.");
+  }
+  if (target.kind === "table_cell_region") {
+    return await collectStudioTableCellRegionEvidence(document, target, dimensions);
+  }
+  const length = document.getCellParagraphLength(
+    target.section,
+    target.parentPara,
+    target.controlIndex,
+    target.cellIndex,
+    target.cellParagraph,
+  );
+  const text = length > 0 ? document.getTextInCell(
+    target.section,
+    target.parentPara,
+    target.controlIndex,
+    target.cellIndex,
+    target.cellParagraph,
+    0,
+    length,
+  ) : "";
+  const charShapeIds: number[] = [];
+  for (let offset = 0; offset < Math.max(length, 1); offset += 1) {
+    charShapeIds.push(readId(document.getCellCharPropertiesAt(
+      target.section,
+      target.parentPara,
+      target.controlIndex,
+      target.cellIndex,
+      target.cellParagraph,
+      offset,
+    ), "charShapeId"));
+  }
+  const paraShapeId = readId(document.getCellParaPropertiesAt(
+    target.section,
+    target.parentPara,
+    target.controlIndex,
+    target.cellIndex,
+    target.cellParagraph,
+  ), "paraShapeId");
+  const cellProperties = JSON.parse(document.getCellOwnProperties(
+    target.section,
+    target.parentPara,
+    target.controlIndex,
+    target.cellIndex,
+  )) as unknown;
+  const charShapeId = charShapeIds[0];
+  const charShape = charShapeIds.every((id) => id === charShapeId)
+    ? { kind: "uniform", id: charShapeId }
+    : { kind: "runs", ids: charShapeIds };
+  return {
+    text,
+    textSha256: await sha256Hex(text),
+    formatSha256: await sha256Hex(stableJson({
+      schemaVersion: 1,
+      charShape,
+      paraShapeId,
+      cellProperties,
+    })),
+    adjacentContextSha256: await fieldNonTargetManifest(document, target, dimensions),
+    restoreFormat: {
+      kind: "table_cell_text",
+      charShapeIds,
+      paraShapeId,
+    },
+  };
 }
 
 async function collectStudioTableCellRegionEvidence(

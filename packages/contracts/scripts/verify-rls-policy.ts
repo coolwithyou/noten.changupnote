@@ -10,6 +10,7 @@ const documentRevisionMigrationPath = "db/migrations/0048_cool_nick_fury.sql";
 const documentAgentMigrationPath = "db/migrations/0071_sweet_monster_badoon.sql";
 const documentAgentIndexMigrationPath = "db/migrations/0072_rainy_george_stacy.sql";
 const fieldAgentMigrationPath = "db/migrations/0073_loose_spirit.sql";
+const applicationProfileMigrationPath = "db/migrations/0076_complete_zuras.sql";
 const journalPath = "db/migrations/meta/_journal.json";
 const schemaPath = "apps/web/src/lib/server/db/schema.ts";
 
@@ -22,6 +23,7 @@ const documentRevisionMigration = readFileSync(resolve(process.cwd(), documentRe
 const documentAgentMigration = readFileSync(resolve(process.cwd(), documentAgentMigrationPath), "utf8");
 const documentAgentIndexMigration = readFileSync(resolve(process.cwd(), documentAgentIndexMigrationPath), "utf8");
 const fieldAgentMigration = readFileSync(resolve(process.cwd(), fieldAgentMigrationPath), "utf8");
+const applicationProfileMigration = readFileSync(resolve(process.cwd(), applicationProfileMigrationPath), "utf8");
 const journal = readFileSync(resolve(process.cwd(), journalPath), "utf8");
 const schema = readFileSync(resolve(process.cwd(), schemaPath), "utf8");
 
@@ -85,6 +87,29 @@ const requiredPolicies = [
 ];
 
 const errors: string[] = [];
+
+for (const pattern of [
+  `ALTER TABLE "user_application_profiles" ENABLE ROW LEVEL SECURITY`,
+  `ALTER TABLE "user_application_profiles" FORCE ROW LEVEL SECURITY`,
+  `ALTER TABLE "company_application_profiles" ENABLE ROW LEVEL SECURITY`,
+  `ALTER TABLE "company_application_profiles" FORCE ROW LEVEL SECURITY`,
+  `CREATE POLICY "user_application_profiles_self"`,
+  `CREATE POLICY "company_application_profiles_member_select"`,
+  `CREATE POLICY "company_application_profiles_writer_write"`,
+  `SECURITY DEFINER`,
+  `SET search_path = ''`,
+  `"app_private"."is_current_company_member"`,
+  `"app_private"."can_current_user_write_company"`,
+  `DROP POLICY IF EXISTS "companies_member_select"`,
+  `DROP POLICY IF EXISTS "companies_writer_update"`,
+]) {
+  if (!applicationProfileMigration.includes(pattern)) {
+    errors.push(`${applicationProfileMigrationPath} is missing ${pattern}`);
+  }
+}
+if (!journal.includes('"tag": "0076_complete_zuras"')) {
+  errors.push(`${journalPath} is missing 0076_complete_zuras`);
+}
 
 for (const table of protectedTables) {
   requirePattern(`ALTER TABLE "${table}" ENABLE ROW LEVEL SECURITY`, `${table} RLS enable`);

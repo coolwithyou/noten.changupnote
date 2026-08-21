@@ -2,6 +2,7 @@ import type { ConsentRecordDto, NotificationSettingsDto } from "@cunote/contract
 import { eq } from "drizzle-orm";
 import type { CompanyAccess } from "@/lib/server/auth/companyGuard";
 import type { WebSession } from "@/lib/server/auth/session";
+import type { ApplicationAutofillProfile } from "@/lib/documents/applicationProfileAutofill";
 import { getAppPreferencesStore } from "@/lib/server/appApi/preferencesStore";
 import { getConsentStore } from "@/lib/server/consents/consentStore";
 import { getCunoteDb } from "@/lib/server/db/client";
@@ -28,6 +29,7 @@ import {
 } from "@/lib/server/billing/taxDocuments";
 import type { BillingSubscriptionSnapshot } from "@/lib/server/billing/subscription";
 import { sanitizeDownloadFilename } from "@/lib/server/documents/downloadHeaders";
+import { loadApplicationAutofillProfile } from "@/lib/server/documents/applicationAutofillProfile";
 import { getLegalConfig } from "@/lib/server/legal/legalConfig";
 import { loadNotificationCenter } from "@/lib/server/notifications/notificationCenter";
 import { listAccountSupportTickets, type AccountSupportTicketItem } from "@/lib/server/support/supportTicketMessages";
@@ -53,6 +55,7 @@ export interface AccountDataExport {
     mode: CompanyAccess["mode"];
   };
   workspace: WorkspaceOverview;
+  applicationProfile: ApplicationAutofillProfile;
   consents: ConsentRecordDto[];
   notificationSettings: NotificationSettingsDto;
   notificationCenter: NotificationCenterResult;
@@ -126,6 +129,7 @@ export async function buildAccountDataExport(input: {
     deletionRequests,
     userProfile,
     legalAcceptance,
+    applicationProfile,
   ] = await Promise.all([
     loadWorkspaceOverview(input),
     getConsentStore().listCompanyConsents(input.access.companyId, input.access.userId),
@@ -140,6 +144,7 @@ export async function buildAccountDataExport(input: {
     listAccountDeletionRequestHistory({ access: input.access, session: input.session, limit: 10 }),
     loadUserExportProfile(input.access.userId),
     loadUserLegalAcceptance(input.access.userId),
+    loadApplicationAutofillProfile(input.access),
   ]);
   const legal = getLegalConfig();
   const exportData: AccountDataExport = {
@@ -157,6 +162,7 @@ export async function buildAccountDataExport(input: {
       mode: input.access.mode,
     },
     workspace,
+    applicationProfile,
     consents,
     notificationSettings,
     notificationCenter,
