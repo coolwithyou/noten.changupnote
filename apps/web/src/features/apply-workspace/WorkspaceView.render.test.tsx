@@ -167,6 +167,11 @@ assert.ok(
   "AI 필드 레일은 작업공간 전용 카드 경계를 사용해야 합니다.",
 );
 assert.ok(
+  html.includes("data-[variant=workspace]:border data-[variant=workspace]:border-border")
+    && html.includes("data-[variant=workspace]:shadow-none"),
+  "AI 필드 레일은 배경이 비치거나 두꺼워 보이지 않는 단일 테두리를 사용해야 합니다.",
+);
+assert.ok(
   html.includes("border-[1.5px] border-input"),
   "문서 편집기는 작업공간 카드와 같은 명확한 경계를 사용해야 합니다.",
 );
