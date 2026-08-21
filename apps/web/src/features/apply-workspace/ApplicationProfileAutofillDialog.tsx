@@ -443,7 +443,7 @@ function ProfileAddressFields({
     <>
       <Field>
         <FieldLabel htmlFor={postalId}>{postalLabel}</FieldLabel>
-        <InputGroup>
+        <InputGroup className="h-12">
           <InputGroupInput
             id={postalId}
             value={postalCode ?? ""}
