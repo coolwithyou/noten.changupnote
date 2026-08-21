@@ -1461,7 +1461,7 @@ packages:
     resolution: {integrity: sha512-/b3nPHwt26pdxpbHVaaW7ob/RefrOF+ltOj8T6OLjaCLxP2hCNhMc+gt9jQ/Uj1V9Ck+P/h/oIUrhOXTRSFG8A==}
 
   '@rhwp/editor@file:apps/web/vendor/rhwp-editor-0.8.5.tgz':
-    resolution: {integrity: sha512-q0vShSVMLVH5n/i/PwVWBMZ1CBmOaHpyWa/8EfrqcqkX/G7nqQge14mOVWTUGwbj7FAgHehT7tPOwk5prfCtgg==, tarball: file:apps/web/vendor/rhwp-editor-0.8.5.tgz}
+    resolution: {integrity: sha512-iH3kNNOTyt7eC2oYj9K5A+GKSpmkMYhOgbUariu6abZf0KZmpp0/+MOycwmRFex6Dhq4HoKFW44e5XbWBQci3g==, tarball: file:apps/web/vendor/rhwp-editor-0.8.5.tgz}
     version: 0.8.5
     engines: {node: '>=18.0.0'}
 

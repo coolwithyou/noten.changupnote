@@ -9,7 +9,7 @@ const EXPECTED_VERSION = "0.8.5";
 const EXPECTED_CORE_NAME = "@rhwp/core";
 const EXPECTED_CORE_VERSION = "0.8.4";
 const VENDOR_SPEC = "file:vendor/rhwp-editor-0.8.5.tgz";
-const VENDOR_SHA256 = "6d9b6b2ea8637380c80b88f46949a4ecb043fd9a227cf758302619c998864158";
+const VENDOR_SHA256 = "a20522377d6a632fb045eb8e35538856e224db582feea10f603f5aef3209f5ba";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const webPackage = JSON.parse(readFileSync(join(repositoryRoot, "apps/web/package.json"), "utf8"));
@@ -62,6 +62,16 @@ const packedPackage = JSON.parse(execFileSync(
 ));
 assert(packedPackage.name === EXPECTED_NAME, `vendor package name 불일치: ${packedPackage.name}`);
 assert(packedPackage.version === EXPECTED_VERSION, `vendor package version 불일치: ${packedPackage.version}`);
+const documentAgentContract = execFileSync(
+  "tar",
+  ["-xOzf", tarballPath, "package/document-agent-contract.js"],
+  { encoding: "utf8" },
+);
+assert(
+  documentAgentContract.includes("command.replacementStyle")
+    && documentAgentContract.includes("'actual-input'"),
+  "vendor SDK가 실제 입력 서식 field command 계약을 포함해야 합니다.",
+);
 assert(lockfile.includes(`specifier: ${VENDOR_SPEC}`), "vendor exact specifier가 lockfile에 없습니다.");
 assert(lockfile.includes(`integrity: sha512-${sha512}`), "vendor tarball integrity가 lockfile과 다릅니다.");
 
