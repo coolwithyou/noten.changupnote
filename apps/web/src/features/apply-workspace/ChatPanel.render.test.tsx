@@ -2,10 +2,40 @@ import assert from "node:assert/strict";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { FieldAssistOutcome } from "@/lib/chat/messageContent";
+import type { GrantChatController } from "./ChatPanel";
 
 (globalThis as typeof globalThis & { React: typeof React }).React = React;
 
-const { FieldAssistCard, collectFieldEvidence } = await import("./ChatPanel");
+const { ChatPanelView, FieldAssistCard, collectFieldEvidence } = await import("./ChatPanel");
+
+const composerController: GrantChatController = {
+  messages: [],
+  isBusy: false,
+  errorMessage: null,
+  canRetry: false,
+  input: "",
+  setInput: () => {},
+  submit: () => {},
+  askField: () => {},
+  activeField: null,
+  cancel: () => {},
+  retry: () => {},
+};
+const composerHtml = renderToStaticMarkup(
+  <ChatPanelView
+    controller={composerController}
+    greeting={{ text: "지원서 작성을 도와드릴게요." }}
+  />,
+);
+assert.ok(
+  composerHtml.includes("flex min-w-0 items-stretch gap-3"),
+  "입력창과 전송 버튼은 같은 stretch 행에 있어야 합니다.",
+);
+assert.match(
+  composerHtml,
+  /aria-label="보내기"[^>]*class="[^"]*h-auto[^"]*w-12[^"]*self-stretch/,
+  "전송 버튼 높이는 고정값이 아니라 입력창 높이를 따라야 합니다.",
+);
 
 assert.deepEqual(
   collectFieldEvidence([], "'성 명' 항목은 어떤 내용을 어떻게 작성해야 하나요? 공고 기준으로 알려주세요.", "성 명"),

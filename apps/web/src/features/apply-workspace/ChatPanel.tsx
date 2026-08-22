@@ -396,14 +396,14 @@ export function ChatPanelView({
           event.preventDefault();
           submitFromComposer();
         }}
-        className="flex items-end gap-3 border-t pt-4"
+        className="flex flex-col gap-2 border-t pt-4"
       >
-        <div className="flex min-w-0 flex-1 flex-col gap-2">
-          {answeringFieldQuestion ? (
-            <p className="text-xs font-medium text-primary" id="field-answer-mode">
-              AI가 요청한 정보를 입력하고 있어요. 작성한 내용만 전송됩니다.
-            </p>
-          ) : null}
+        {answeringFieldQuestion ? (
+          <p className="text-xs font-medium text-primary" id="field-answer-mode">
+            AI가 요청한 정보를 입력하고 있어요. 작성한 내용만 전송됩니다.
+          </p>
+        ) : null}
+        <div className="flex min-w-0 items-stretch gap-3">
           <Textarea
             ref={textareaRef}
             value={input}
@@ -425,16 +425,29 @@ export function ChatPanelView({
             disabled={isBusy}
             className="min-h-24 flex-1 resize-none"
           />
+          {isBusy ? (
+            <Button
+              type="button"
+              size="icon"
+              variant="outline"
+              onClick={cancel}
+              aria-label="답변 생성 중단"
+              className="h-auto w-12 self-stretch"
+            >
+              <Square aria-hidden />
+            </Button>
+          ) : (
+            <Button
+              type="submit"
+              size="icon"
+              disabled={input.trim().length === 0}
+              aria-label="보내기"
+              className="h-auto w-12 self-stretch"
+            >
+              <Send aria-hidden />
+            </Button>
+          )}
         </div>
-        {isBusy ? (
-          <Button type="button" size="icon" variant="outline" onClick={cancel} aria-label="답변 생성 중단" className="size-12">
-            <Square aria-hidden />
-          </Button>
-        ) : (
-          <Button type="submit" size="icon" disabled={input.trim().length === 0} aria-label="보내기" className="size-12">
-            <Send aria-hidden />
-          </Button>
-        )}
       </form>
 
       {institutionContact ? (
