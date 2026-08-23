@@ -17,6 +17,7 @@ import type { FieldAwareDocumentSessionView, FieldAwareSessionItem } from "./fie
 import type { RhwpStudioDocumentActionState } from "./RhwpStudioSurface";
 import { StudioSaveIndicator } from "./StudioSaveIndicator";
 import { ApplicationProfileAutofillDialog } from "./ApplicationProfileAutofillDialog";
+import { ScheduleTableDialog, type ScheduleTableDialogProps } from "./ScheduleTableDialog";
 import type { ApplicationAutofillFieldBinding } from "@/lib/documents/applicationProfileAutofill";
 
 export function FieldAgentRail({
@@ -31,6 +32,7 @@ export function FieldAgentRail({
   onDismissSuggestion,
   documentActions,
   profileAutofill,
+  scheduleTable,
 }: {
   session: FieldAwareDocumentSessionView;
   connectedFields: readonly ConnectedDocumentField[];
@@ -54,6 +56,7 @@ export function FieldAgentRail({
       fieldIds: string[];
     }>;
   } | undefined;
+  scheduleTable?: ScheduleTableDialogProps | undefined;
 }) {
   const [sourceText, setSourceText] = useState("");
   const [fieldQuery, setFieldQuery] = useState("");
@@ -144,6 +147,7 @@ export function FieldAgentRail({
               applyEntries={profileAutofill.applyEntries}
             />
           ) : null}
+          {scheduleTable ? <ScheduleTableDialog {...scheduleTable} /> : null}
         </CardHeader>
 
         <CardContent className="flex min-h-0 flex-1 flex-col overflow-hidden">

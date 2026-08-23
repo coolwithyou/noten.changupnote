@@ -69,6 +69,7 @@ import {
   studioFieldDocumentSemanticSha256,
 } from "@/lib/rhwp/studioFieldDocumentManifest";
 import {
+  applyEmbeddedRhwpStudioPresentation,
   exportVerifiedEditorDocument,
   loadEditorFileWithoutDialogs,
   notifyEditorSaved,
@@ -89,6 +90,13 @@ import {
   withStudioInitializationTimeout,
 } from "@/lib/rhwp/studioInitialization";
 import { persistStudioSnapshot, StudioSnapshotPersistenceError } from "@/lib/rhwp/studioSnapshots";
+import {
+  applyScheduleTablePlan,
+  inspectScheduleTableDocument,
+  type ScheduleTableInspection,
+  type ScheduleTableTarget,
+} from "@/lib/rhwp/scheduleTable";
+import type { ScheduleTablePlan } from "@/lib/rhwp/scheduleTableContract";
 import { commitStudioSnapshot } from "@/lib/rhwp/studioTransport";
 import { cn } from "@/lib/utils";
 import {
@@ -131,6 +139,12 @@ export interface RhwpStudioSurfaceHandle {
     appliedCount: number;
     fieldIds: string[];
   }>;
+  inspectScheduleTable(): Promise<ScheduleTableInspection>;
+  applyScheduleTable(target: ScheduleTableTarget, plan: ScheduleTablePlan): Promise<{
+    afterDocumentSha256: string;
+  }>;
+  undoScheduleTable(): Promise<void>;
+  canUndoScheduleTable(): boolean;
 }
 
 export interface RhwpStudioDocumentActionState {
@@ -153,6 +167,14 @@ type StudioState =
   | { status: "error"; message: string };
 
 type StudioSaveIntent = "auto" | "stay" | "return";
+
+interface ScheduleTableUndoState {
+  beforeBytes: Uint8Array;
+  beforeDocumentSha256: string;
+  afterDocumentSha256: string;
+  appliedRevisionId: string;
+  pageCountBefore: number;
+}
 
 export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
   transport: RhwpWorkingDocumentTransport;
@@ -214,6 +236,7 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
   const agentCandidatesRef = useRef<DocumentEditCandidate[]>([]);
   const agentReservedAnchorsRef = useRef<DocumentAgentReservedAnchor[]>([]);
   const latestAppliedSuggestionIdRef = useRef<string | null>(null);
+  const scheduleTableUndoRef = useRef<ScheduleTableUndoState | null>(null);
   const preparedRef = useRef<RhwpWorkingDocument | null>(null);
   const onSavedRef = useRef(onSaved);
   const onFieldBindingsResolvedRef = useRef(onFieldBindingsResolved);
@@ -331,6 +354,11 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
             throw new Error("문서 편집기 초기화가 취소되었습니다.");
           }
           attemptState.editor = candidate;
+          try {
+            await applyEmbeddedRhwpStudioPresentation(candidate);
+          } catch (error) {
+            console.warn("rhwp Studio 밝은 플랫 스킨 적용 실패", error);
+          }
           setState({
             status: "loading",
             message: "문서 내용을 편집 화면에 펼치고 있어요.",
@@ -432,6 +460,7 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
       });
       unsubscribeDocumentChanged = saveProtocol.subscribeDocumentChanged((change) => {
         if (disposed || requestSeq.current !== seq || !change.dirty) return;
+        scheduleTableUndoRef.current = null;
         documentEpochRef.current = change.documentEpoch;
         latestChangeSeqRef.current = change.changeSeq;
         dispatchSave({ type: "changed", changeSeq: change.changeSeq });
@@ -459,6 +488,7 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
       agentCandidatesRef.current = [];
       agentReservedAnchorsRef.current = [];
       latestAppliedSuggestionIdRef.current = null;
+      scheduleTableUndoRef.current = null;
       setAgentCapabilityReady(false);
       preparedRef.current = null;
     };
@@ -1749,6 +1779,300 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
     transport,
   ]);
 
+  const readCurrentScheduleDocument = useCallback(async () => {
+    const editor = editorRef.current;
+    const prepared = preparedRef.current;
+    if (!editor || !prepared) throw new Error("현재 Studio 작업본을 찾지 못했습니다.");
+    const bytes = await exportVerifiedEditorDocument(editor, prepared.format);
+    const documentSha256 = await sha256Hex(bytes);
+    const rhwp = await loadRhwp();
+    const document = new rhwp.HwpDocument(bytes);
+    try {
+      return {
+        bytes,
+        documentSha256,
+        pageCount: document.pageCount(),
+        inspection: await inspectScheduleTableDocument(document, documentSha256),
+      };
+    } finally {
+      document.free();
+    }
+  }, []);
+
+  const loadScheduleBytesIntoEditor = useCallback(async (bytes: Uint8Array) => {
+    const editor = editorRef.current;
+    const prepared = preparedRef.current;
+    if (!editor || !prepared) throw new Error("현재 Studio 작업본을 찾지 못했습니다.");
+    const result = await loadEditorFileWithoutDialogs(editor, bytes.slice(), prepared.filename);
+    clearAutosaveTimers();
+    const dirtyStateRequest = saveProtocolRef.current?.getDirtyState() ?? null;
+    const dirtyState = dirtyStateRequest ? await dirtyStateRequest.catch(() => null) : null;
+    const documentEpoch = dirtyState?.documentEpoch ?? documentEpochRef.current;
+    const changeSeq = dirtyState?.changeSeq ?? legacySaveSeqRef.current + 1;
+    documentEpochRef.current = documentEpoch;
+    latestChangeSeqRef.current = dirtyState?.changeSeq ?? null;
+    setState({ status: "ready", pageCount: result.pageCount, skipped: prepared.skipped });
+
+    try {
+      const rhwp = await loadRhwp();
+      const reopened = new rhwp.HwpDocument(bytes);
+      try {
+        const resolutions = resolveStudioFieldBindings(reopened, connectedFields);
+        for (const resolution of resolutions) {
+          if (resolution.status === "unique") fieldTargetsRef.current.set(resolution.fieldId, resolution.target);
+          else fieldTargetsRef.current.delete(resolution.fieldId);
+        }
+        onFieldBindingsResolvedRef.current?.(resolutions);
+      } finally {
+        reopened.free();
+      }
+    } catch (error) {
+      fieldTargetsRef.current = new Map();
+      onFieldBindingsResolvedRef.current?.([]);
+      console.warn("일정표 반영 뒤 필드 위치 재탐색 실패", error);
+    }
+    return { pageCount: result.pageCount, documentEpoch, changeSeq };
+  }, [clearAutosaveTimers, connectedFields]);
+
+  const inspectScheduleTable = useCallback(async (): Promise<ScheduleTableInspection> => {
+    if (transport.mode !== "persistent") throw new Error("서버에 저장되는 문서 초안이 아닙니다.");
+    let locked = false;
+    setFieldAgentBusy(true);
+    try {
+      beginAgentMutation();
+      locked = true;
+      const current = await readCurrentScheduleDocument();
+      return current.inspection;
+    } finally {
+      if (locked) finishAgentMutation();
+      setFieldAgentBusy(false);
+    }
+  }, [beginAgentMutation, finishAgentMutation, readCurrentScheduleDocument, transport]);
+
+  const applyScheduleTable = useCallback(async (
+    target: ScheduleTableTarget,
+    plan: ScheduleTablePlan,
+  ): Promise<{ afterDocumentSha256: string }> => {
+    if (transport.mode !== "persistent") throw new Error("서버에 저장되는 문서 초안이 아닙니다.");
+    const prepared = preparedRef.current;
+    const editor = editorRef.current;
+    if (!prepared || !editor) throw new Error("현재 문서에서 일정표 자동 입력을 실행할 수 없습니다.");
+
+    let locked = false;
+    let keepLocked = false;
+    let editorLoaded = false;
+    let current: Awaited<ReturnType<typeof readCurrentScheduleDocument>> | null = null;
+    setFieldAgentBusy(true);
+    try {
+      beginAgentMutation();
+      locked = true;
+      current = await readCurrentScheduleDocument();
+      const rhwp = await loadRhwp();
+      const applied = await applyScheduleTablePlan({
+        rhwp,
+        bytes: current.bytes,
+        format: prepared.format,
+        target,
+        plan,
+      });
+
+      editorLoaded = true;
+      let loaded: Awaited<ReturnType<typeof loadScheduleBytesIntoEditor>>;
+      try {
+        loaded = await loadScheduleBytesIntoEditor(applied.bytes);
+      } catch (error) {
+        try {
+          await loadScheduleBytesIntoEditor(current.bytes);
+          await notifyEditorSaved(editor);
+          editorLoaded = false;
+        } catch (rollbackError) {
+          keepLocked = true;
+          throw new Error(`일정표 적용본을 편집기에 불러오지 못했고 원본 복구도 확정하지 못했습니다: ${errorMessage(rollbackError, "복구 실패")}`);
+        }
+        throw new Error(`${errorMessage(error, "일정표 적용본을 편집기에 불러오지 못했습니다.")} 문서는 원상 복구했습니다.`);
+      }
+      let persisted: Awaited<ReturnType<typeof persistStudioSnapshot>>;
+      try {
+        persisted = await persistStudioSnapshot({
+          draftId: transport.draftId,
+          bytes: applied.bytes,
+          filename: prepared.filename,
+          format: prepared.format,
+          pageCount: loaded.pageCount,
+          sessionId: studioSessionIdRef.current!,
+          baseRevisionId: prepared.revisionId,
+          documentEpoch: loaded.documentEpoch,
+          changeSeq: loaded.changeSeq,
+          origin: "studio_manual",
+          materializedAnswers: prepared.materializedAnswers,
+          verification: {
+            client: "rhwp-core-reopen",
+            verified: true,
+            purpose: "schedule_table_apply",
+            beforeDocumentSha256: applied.beforeDocumentSha256,
+            afterDocumentSha256: applied.afterDocumentSha256,
+            structureSha256: target.structureSha256,
+            preimageSha256: target.preimageSha256,
+            phases: plan.phases.map((phase) => ({
+              title: phase.title,
+              startMonth: phase.startMonth,
+              endMonth: phase.endMonth,
+              basisKind: phase.basisKind,
+            })),
+          },
+        });
+      } catch (error) {
+        try {
+          await loadScheduleBytesIntoEditor(current.bytes);
+          await notifyEditorSaved(editor);
+        } catch (rollbackError) {
+          keepLocked = true;
+          throw new Error(`일정표 저장과 원상 복구를 확정하지 못해 편집을 잠갔습니다: ${errorMessage(rollbackError, "복구 실패")}`);
+        }
+        editorLoaded = false;
+        throw new Error(`${errorMessage(error, "일정표를 반영한 문서를 저장하지 못했습니다.")} 문서 변경은 원상 복구했습니다.`);
+      }
+
+      if (!(saveProtocolRef.current?.supportsChangeEvents ?? false)) legacySaveSeqRef.current = loaded.changeSeq;
+      await acceptPersistedAgentSnapshot({
+        bytes: applied.bytes,
+        revisionId: persisted.revisionId,
+        savedAt: persisted.savedAt,
+        changeSeq: loaded.changeSeq,
+      });
+      scheduleTableUndoRef.current = {
+        beforeBytes: current.bytes,
+        beforeDocumentSha256: current.documentSha256,
+        afterDocumentSha256: applied.afterDocumentSha256,
+        appliedRevisionId: persisted.revisionId,
+        pageCountBefore: current.pageCount,
+      };
+      return { afterDocumentSha256: applied.afterDocumentSha256 };
+    } catch (error) {
+      if (editorLoaded) {
+        keepLocked = true;
+        const message = `일정표 자동 입력 뒤 현재 편집 상태를 확정하지 못해 편집을 잠갔습니다: ${errorMessage(error, "상태 반영 실패")}`;
+        setAgentHardLock(message);
+        throw new Error(message);
+      }
+      throw error;
+    } finally {
+      if (locked) finishAgentMutation(keepLocked);
+      setFieldAgentBusy(false);
+    }
+  }, [
+    acceptPersistedAgentSnapshot,
+    beginAgentMutation,
+    finishAgentMutation,
+    loadScheduleBytesIntoEditor,
+    readCurrentScheduleDocument,
+    transport,
+  ]);
+
+  const undoScheduleTable = useCallback(async (): Promise<void> => {
+    if (transport.mode !== "persistent") throw new Error("서버에 저장되는 문서 초안이 아닙니다.");
+    const undo = scheduleTableUndoRef.current;
+    const prepared = preparedRef.current;
+    const editor = editorRef.current;
+    if (!undo || !prepared || !editor) throw new Error("이 Studio 세션에서 되돌릴 최근 일정표 입력이 없습니다.");
+
+    let locked = false;
+    let keepLocked = false;
+    let editorLoaded = false;
+    setFieldAgentBusy(true);
+    try {
+      beginAgentMutation();
+      locked = true;
+      const current = await readCurrentScheduleDocument();
+      if (current.documentSha256 !== undo.afterDocumentSha256) {
+        scheduleTableUndoRef.current = null;
+        throw new Error("일정표 입력 뒤 문서가 변경되어 전체 문서 Undo를 차단했습니다.");
+      }
+      if (await sha256Hex(undo.beforeBytes) !== undo.beforeDocumentSha256) {
+        scheduleTableUndoRef.current = null;
+        throw new Error("저장해 둔 일정표 입력 전 문서가 손상되어 Undo를 차단했습니다.");
+      }
+
+      editorLoaded = true;
+      let loaded: Awaited<ReturnType<typeof loadScheduleBytesIntoEditor>>;
+      try {
+        loaded = await loadScheduleBytesIntoEditor(undo.beforeBytes);
+      } catch (error) {
+        try {
+          await loadScheduleBytesIntoEditor(current.bytes);
+          await notifyEditorSaved(editor);
+          editorLoaded = false;
+        } catch (rollbackError) {
+          keepLocked = true;
+          throw new Error(`일정표 Undo 문서를 편집기에 불러오지 못했고 적용본 복구도 확정하지 못했습니다: ${errorMessage(rollbackError, "복구 실패")}`);
+        }
+        throw new Error(`${errorMessage(error, "일정표 Undo 문서를 편집기에 불러오지 못했습니다.")} 문서는 적용 상태로 복구했습니다.`);
+      }
+      let persisted: Awaited<ReturnType<typeof persistStudioSnapshot>>;
+      try {
+        persisted = await persistStudioSnapshot({
+          draftId: transport.draftId,
+          bytes: undo.beforeBytes,
+          filename: prepared.filename,
+          format: prepared.format,
+          pageCount: undo.pageCountBefore,
+          sessionId: studioSessionIdRef.current!,
+          baseRevisionId: undo.appliedRevisionId,
+          documentEpoch: loaded.documentEpoch,
+          changeSeq: loaded.changeSeq,
+          origin: "studio_manual",
+          materializedAnswers: prepared.materializedAnswers,
+          verification: {
+            client: "rhwp-core-reopen",
+            verified: true,
+            purpose: "schedule_table_undo",
+            beforeDocumentSha256: current.documentSha256,
+            afterDocumentSha256: undo.beforeDocumentSha256,
+          },
+        });
+      } catch (error) {
+        try {
+          await loadScheduleBytesIntoEditor(current.bytes);
+          await notifyEditorSaved(editor);
+        } catch (rollbackError) {
+          keepLocked = true;
+          throw new Error(`일정표 Undo 저장과 적용본 복구를 확정하지 못해 편집을 잠갔습니다: ${errorMessage(rollbackError, "복구 실패")}`);
+        }
+        editorLoaded = false;
+        throw new Error(`${errorMessage(error, "일정표 Undo 문서를 저장하지 못했습니다.")} 문서는 적용 상태로 복구했습니다.`);
+      }
+
+      if (!(saveProtocolRef.current?.supportsChangeEvents ?? false)) legacySaveSeqRef.current = loaded.changeSeq;
+      await acceptPersistedAgentSnapshot({
+        bytes: undo.beforeBytes,
+        revisionId: persisted.revisionId,
+        savedAt: persisted.savedAt,
+        changeSeq: loaded.changeSeq,
+      });
+      scheduleTableUndoRef.current = null;
+    } catch (error) {
+      if (editorLoaded) {
+        keepLocked = true;
+        const message = `일정표 Undo 뒤 현재 편집 상태를 확정하지 못해 편집을 잠갔습니다: ${errorMessage(error, "상태 반영 실패")}`;
+        setAgentHardLock(message);
+        throw new Error(message);
+      }
+      throw error;
+    } finally {
+      if (locked) finishAgentMutation(keepLocked);
+      setFieldAgentBusy(false);
+    }
+  }, [
+    acceptPersistedAgentSnapshot,
+    beginAgentMutation,
+    finishAgentMutation,
+    loadScheduleBytesIntoEditor,
+    readCurrentScheduleDocument,
+    transport,
+  ]);
+
+  const canUndoScheduleTable = useCallback(() => scheduleTableUndoRef.current !== null, []);
+
   useImperativeHandle(ref, () => ({
     saveAndReturn,
     saveCurrent,
@@ -1761,18 +2085,26 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
     dismissFieldSuggestion,
     inspectProfileAutofill,
     applyProfileAutofill,
+    inspectScheduleTable,
+    applyScheduleTable,
+    undoScheduleTable,
+    canUndoScheduleTable,
   }), [
     applyProfileAutofill,
+    applyScheduleTable,
     applyFieldSuggestion,
     dismissFieldSuggestion,
     downloadCurrentCopy,
     focusField,
     inspectProfileAutofill,
+    inspectScheduleTable,
     prepareFieldWritingSession,
     requestFieldSuggestion,
     saveAndReturn,
     saveCurrent,
     undoFieldSuggestion,
+    undoScheduleTable,
+    canUndoScheduleTable,
   ]);
 
   const saving = isStudioSaveInFlight(saveState);

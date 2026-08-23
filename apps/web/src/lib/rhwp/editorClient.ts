@@ -1,9 +1,41 @@
 import type { RhwpEditor } from "@rhwp/editor";
 import { exportVerifiedRhwpDocument, loadRhwp, type RhwpDocumentFormat } from "./client";
 
+const DEFAULT_RHWP_STUDIO_URL = "https://changupnote-rhwp-studio.vercel.app/";
+const EMBEDDED_STUDIO_COMMANDS = ["view:theme-light", "view:skin-flat"] as const;
+
+/** 호스트가 문서 수명주기를 소유하므로 Studio의 로컬 파일 명령을 숨긴다. */
+export function embeddedRhwpStudioUrl(studioUrl: string): string {
+  const url = new URL(studioUrl);
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    throw new Error("RHWP Studio URL은 HTTP(S) 주소여야 합니다.");
+  }
+  url.searchParams.set("chrome", "embed");
+  return url.href;
+}
+
 /** 자가 호스팅 rhwp Studio. 운영에서는 동일 제어 범위의 URL로 덮어쓴다. */
-export const RHWP_STUDIO_URL =
-  process.env.NEXT_PUBLIC_RHWP_STUDIO_URL ?? "https://changupnote-rhwp-studio.vercel.app/";
+export const RHWP_STUDIO_URL = embeddedRhwpStudioUrl(
+  process.env.NEXT_PUBLIC_RHWP_STUDIO_URL ?? DEFAULT_RHWP_STUDIO_URL,
+);
+
+/** 문서를 열기 전에 밝은 플랫 스킨을 적용해 불필요한 문서 재렌더를 피한다. */
+export async function applyEmbeddedRhwpStudioPresentation(
+  editor: Pick<RhwpEditor, "commands">,
+): Promise<void> {
+  const results = await Promise.all(
+    EMBEDDED_STUDIO_COMMANDS.map(async (commandId) => ({
+      commandId,
+      result: await editor.commands.execute(commandId),
+    })),
+  );
+  const failed = results.find(({ result }) => !result.ok);
+  if (failed && !failed.result.ok) {
+    throw new Error(
+      `RHWP Studio 표시 설정을 적용하지 못했습니다. (${failed.commandId}: ${failed.result.reason})`,
+    );
+  }
+}
 
 type RhwpEditorWithDocumentAgentLifecycle = RhwpEditor & {
   loadFile(

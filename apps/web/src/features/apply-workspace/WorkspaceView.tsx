@@ -44,6 +44,8 @@ import type { FieldAgentRunDto, FieldAgentSuggestionDto } from "@/lib/server/doc
 import { fetchFieldAgentRuns } from "@/lib/rhwp/fieldAgentApi";
 import type { StudioFieldTargetV1 } from "@/lib/rhwp/studioDocumentAgentProtocol";
 import type { StudioFieldBindingResolution } from "@/lib/rhwp/studioFieldBindings";
+import type { ScheduleTableTarget } from "@/lib/rhwp/scheduleTable";
+import type { ScheduleTablePlan } from "@/lib/rhwp/scheduleTableContract";
 import { initialStudioSaveState } from "@/lib/rhwp/studioSaveState";
 import type { ConnectedDocumentField } from "@/lib/server/documents/documentFieldLink";
 import type { WorkspaceData } from "@/lib/server/documents/workspaceData";
@@ -200,6 +202,28 @@ export function WorkspaceView({
     if (!surface) return Promise.reject(new Error("문서 편집 화면이 준비되지 않았습니다."));
     return surface.applyProfileAutofill(entries);
   }, []);
+
+  const inspectScheduleTable = useCallback(() => {
+    const surface = studioSurfaceRef.current;
+    if (!surface) return Promise.reject(new Error("문서 편집 화면이 준비되지 않았습니다."));
+    return surface.inspectScheduleTable();
+  }, []);
+
+  const applyScheduleTable = useCallback((target: ScheduleTableTarget, plan: ScheduleTablePlan) => {
+    const surface = studioSurfaceRef.current;
+    if (!surface) return Promise.reject(new Error("문서 편집 화면이 준비되지 않았습니다."));
+    return surface.applyScheduleTable(target, plan);
+  }, []);
+
+  const undoScheduleTable = useCallback(() => {
+    const surface = studioSurfaceRef.current;
+    if (!surface) return Promise.reject(new Error("문서 편집 화면이 준비되지 않았습니다."));
+    return surface.undoScheduleTable();
+  }, []);
+
+  const canUndoScheduleTable = useCallback(() => (
+    studioSurfaceRef.current?.canUndoScheduleTable() ?? false
+  ), []);
 
   useEffect(() => {
     if (!integratedFieldEditor || !data.fieldEditorAgentAvailable || !data.draftId) return;
@@ -926,6 +950,14 @@ export function WorkspaceView({
                   inspectBindings: inspectProfileAutofillBindings,
                   applyEntries: applyProfileAutofillEntries,
                 } : undefined}
+                scheduleTable={data.draftId && data.fieldEditorAgentAvailable ? {
+                  draftId: data.draftId,
+                  disabled: !studioDocumentActions.canSave,
+                  inspectTable: inspectScheduleTable,
+                  applyPlan: applyScheduleTable,
+                  undoLatest: undoScheduleTable,
+                  canUndoLatest: canUndoScheduleTable,
+                } : undefined}
               />
             </div>
           </div>
@@ -966,6 +998,14 @@ export function WorkspaceView({
                     disabled: !studioDocumentActions.canSave,
                     inspectBindings: inspectProfileAutofillBindings,
                     applyEntries: applyProfileAutofillEntries,
+                  } : undefined}
+                  scheduleTable={data.draftId && data.fieldEditorAgentAvailable ? {
+                    draftId: data.draftId,
+                    disabled: !studioDocumentActions.canSave,
+                    inspectTable: inspectScheduleTable,
+                    applyPlan: applyScheduleTable,
+                    undoLatest: undoScheduleTable,
+                    canUndoLatest: canUndoScheduleTable,
                   } : undefined}
                 />
               </div>
