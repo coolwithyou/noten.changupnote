@@ -207,3 +207,38 @@ fail-closed한다. 실행 함수는 `enqueuePreparedJobs: false`를 고정하며
 주입하지 않는다. 종료 시에는 target별 봉인 여부, 라운드 지표, 외부 LLM 0회, 분석 job 0건,
 새 adoption manifest SHA를 하나의 immutable receipt에 결속한다. `lab:promote --write`는 이 범위에
 포함되지 않는다.
+
+### 9.3 2026-08-26 승인 실행 결과
+
+사용자가 recovery manifest `1bdd5d2f...72aed`의 exact 29건, 최대 3라운드, DB/R2 source
+복구와 receipt·재분류까지 승인했다. 실행 코드는 commit `7e9c94069d164229af3a8f9ed81e4e947afc0f24`로
+원격 `main`에 반영한 뒤 다음 원장으로 실행했다.
+
+- grant SHA-256: `3596dfc1e8b1100c78eb80e6f6266b83e85a665072ffc9c6685a2963a829a023`
+- receipt SHA-256: `cb7b4861537949bcaa0d6910c9f91980efc70696e2cde2df375f21f094ac5898`
+- 결과: `PARTIAL`, 29건 중 13건 봉인 회복, 16건 미해결
+- 라운드별 회복: 11건 → 1건 → 1건
+- 외부 LLM 호출 0회, deep/application 분석 job 생성 0건, promotion 0건
+- 실행 뒤 runtime: `paused`, owner 없음, active deep/application lease 각각 0
+- 새 adoption manifest SHA-256:
+  `3b28bc14c8a67d471bcf76d2893272875787ca6bd05863ccd6cf8dd10bb60ff4`
+
+재분류는 `projection_ready` 46건, `review_required` 1건, `rerun_required` 30건,
+`source_recovery_required` 5건이다. recovery target 중 봉인된 13건은 새 첨부 재료 때문에 모두
+rerun으로 이동했고, 미봉인 16건 중 11건도 일부 재료가 바뀌어 rerun과 source 차단을 함께 가진다.
+따라서 현재 모델 재실행을 준비할 수 있는 것은 `rerun_required + sourceSealed` 19건뿐이다.
+나머지 11건의 미봉인 rerun과 5건의 source recovery target은 모델 실행 대상이 아니다.
+
+미해결 blocker 19개는 `blocked_fetch` 11개와 `blocked_conversion` 8개다. 읽기 전용 DB 점검상
+fetch 11개는 이미지 원본 미보관 또는 빈 HWP 다운로드이며, conversion 8개는 다음으로 나뉜다.
+
+- page image/PDF artifact는 있으나 로컬 OCR이 3라운드 모두 실패한 PDF 3개
+- 변환 surface가 `failed|pending`이고 artifact가 없는 PDF 2개
+- child 변환은 존재하지만 parent ZIP waiver가 완결되지 않은 ZIP 2개
+- UTF-8 decode 실패 상태인 TXT 1개
+
+동일 경로 반복을 자동 실행하지 않는다. 남은 16건은 새 prepare-only manifest
+`3c423f11d6ba9f3b62bbb9781869f9fa063c26dbc0038771a10dc384930d7e14`로 재봉인했지만,
+이는 새 쓰기 권한이 아니며 기존 grant의 3라운드 상한도 연장하지 않는다. conversion retry/ZIP
+waiver/TXT decode와 영구 fetch 실패의 정책을 보정하고 exact material을 다시 준비한 뒤 새 승인을
+받는다. 19건의 모델 재분석도 별도 exact launch manifest와 사용자 승인 전에는 시작하지 않는다.
