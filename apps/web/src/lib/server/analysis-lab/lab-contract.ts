@@ -249,6 +249,8 @@ export interface LabRun {
   inputBlocks: LabInputBlock[];
   inputTotalChars: number;
   inputSha256: string;
+  /** 운영 source revision 결속. 구 로컬 런에는 없으므로 optional이다. */
+  sourceRevisionSha256?: string;
   /** 실제 첨부 로드·잘림·실패 상태를 봉인한 manifest SHA. 구 런에는 없다. */
   attachmentManifestSha256?: string;
   usage: LabUsage | null;

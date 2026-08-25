@@ -53,9 +53,7 @@ import {
   type AdminGrantSimulationItem,
   type AdminGrantSimulationAttachmentFilter,
   type AdminGrantSimulationDeepFilter,
-  type AdminGrantSimulationKordocFilter,
   type AdminGrantSimulationQuery,
-  type AdminGrantSimulationQuickFilter,
   type AdminGrantSimulationStatusFilter,
   type AdminGrantSimulationTransportFilter,
 } from "@/lib/server/adminGrantSimulationList";
@@ -95,22 +93,6 @@ const TRANSPORT_OPTIONS: Array<{ value: AdminGrantSimulationTransportFilter; lab
   { value: "api", label: "운영 API" },
 ];
 
-const KORDOC_OPTIONS: Array<{ value: AdminGrantSimulationKordocFilter; label: string }> = [
-  { value: "all", label: "Kordoc 전체" },
-  { value: "complete", label: "Kordoc 완료" },
-  { value: "review", label: "검토 필요·부분 완료" },
-  { value: "pending", label: "대기·분석 중" },
-  { value: "failed", label: "실패·차단" },
-  { value: "not_run", label: "Kordoc 미분석" },
-];
-
-const QUICK_OPTIONS: Array<{ value: AdminGrantSimulationQuickFilter; label: string }> = [
-  { value: "all", label: "빠른 작성 전체" },
-  { value: "ready", label: "빠른 작성 준비 완료" },
-  { value: "not_ready", label: "빠른 작성 준비 안 됨" },
-  { value: "no_template", label: "작성 양식 없음" },
-];
-
 const ATTACHMENT_OPTIONS: Array<{ value: AdminGrantSimulationAttachmentFilter; label: string }> = [
   { value: "all", label: "첨부파일 전체" },
   { value: "has", label: "첨부파일 있음" },
@@ -124,7 +106,11 @@ export default async function AdminGrantSimulationPage({ searchParams }: AdminGr
   ]);
   if (!identity) notFound();
 
-  const query = normalizeAdminGrantSimulationQuery(rawQuery);
+  const query: AdminGrantSimulationQuery = {
+    ...normalizeAdminGrantSimulationQuery(rawQuery),
+    kordoc: "all",
+    quick: "all",
+  };
 
   return (
     <ReviewWorkspaceShell
@@ -134,7 +120,7 @@ export default async function AdminGrantSimulationPage({ searchParams }: AdminGr
       density="compact"
       theme="shadcn-neutral"
       title="관리자 공고 시뮬레이션"
-      description="공개 서비스가 읽을 수 있는 모든 공고를 회사 매칭 없이 열어 빠른 작성 연결을 확인합니다."
+      description="공개 서비스가 읽을 수 있는 모든 공고를 회사 매칭 없이 열어 RHWP 작성 경로를 확인합니다."
       badge="관리자 전용 · 읽기 전용"
     >
       <div className="@container/main flex w-full flex-col gap-4">
@@ -169,7 +155,7 @@ export default async function AdminGrantSimulationPage({ searchParams }: AdminGr
           </CardHeader>
           <CardContent>
             <form id="grant-simulation-filter" method="get">
-              <FieldGroup className="grid gap-3 md:grid-cols-2 xl:grid-cols-8">
+              <FieldGroup className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
                 <Field className="md:col-span-2 xl:col-span-2">
                   <FieldLabel htmlFor="grant-simulation-search">공고 검색</FieldLabel>
                   <InputGroup size="admin">
@@ -186,8 +172,6 @@ export default async function AdminGrantSimulationPage({ searchParams }: AdminGr
                 <FilterSelect name="status" label="모집 상태" value={query.status} options={STATUS_OPTIONS} />
                 <FilterSelect name="deep" label="딥분석" value={query.deep} options={DEEP_OPTIONS} />
                 <FilterSelect name="transport" label="분석 경로" value={query.transport} options={TRANSPORT_OPTIONS} />
-                <FilterSelect name="kordoc" label="Kordoc 분석" value={query.kordoc} options={KORDOC_OPTIONS} />
-                <FilterSelect name="quick" label="빠른 작성" value={query.quick} options={QUICK_OPTIONS} />
                 <FilterSelect name="attachments" label="첨부파일" value={query.attachments} options={ATTACHMENT_OPTIONS} />
               </FieldGroup>
             </form>
@@ -388,23 +372,11 @@ function GrantListCard({ item }: { item: AdminGrantSimulationItem }) {
               ) : null}
             </div>
           </StatusGroup>
-          <StatusGroup label="Kordoc" description={item.kordoc.model ?? "모델 기록 없음"}>
-            <div className="flex flex-wrap gap-1">
-              <Badge size="admin" variant={kordocStatusVariant(item.kordoc.status)}>
-                {kordocStatusLabel(item.kordoc.status)}
-              </Badge>
-              {item.kordoc.transport ? (
-                <Badge size="admin" variant={analysisTransportVariant(item.kordoc.transport)}>
-                  {analysisTransportLabel(item.kordoc.transport)}
-                </Badge>
-              ) : null}
-            </div>
-          </StatusGroup>
           <StatusGroup
-            label="빠른 작성"
-            description={`${item.fieldCount.toLocaleString("ko-KR")}필드 · 양식 ${item.fieldsReadySurfaceCount.toLocaleString("ko-KR")}/${item.templateSurfaceCount.toLocaleString("ko-KR")}`}
+            label="RHWP 문서"
+            description={`편집 가능한 양식 ${item.templateSurfaceCount.toLocaleString("ko-KR")}개 · legacy 연결 필드 ${item.fieldCount.toLocaleString("ko-KR")}개`}
           >
-            <QuickWritingStatusBadge item={item} />
+            <RhwpWritingStatusBadge item={item} />
           </StatusGroup>
         </dl>
       </CardContent>
@@ -418,34 +390,28 @@ function GrantListCard({ item }: { item: AdminGrantSimulationItem }) {
 
 function SimulationReadinessBadges({ item }: { item: AdminGrantSimulationItem }) {
   return (
-    <div className="flex flex-wrap gap-1" aria-label="딥분석, Kordoc 분석, 빠른 작성 상태">
+    <div className="flex flex-wrap gap-1" aria-label="딥분석과 RHWP 문서 상태">
       <Badge size="admin" variant={deepAnalysisVariant(item.deepAnalysis.status)}>
         {deepAnalysisStatusLabel(item.deepAnalysis.status, true)}
       </Badge>
-      <Badge size="admin" variant={kordocStatusVariant(item.kordoc.status)}>
-        {kordocStatusLabel(item.kordoc.status, true)}
-      </Badge>
-      <QuickWritingStatusBadge item={item} includeCategory />
+      <RhwpWritingStatusBadge item={item} includeCategory />
     </div>
   );
 }
 
-function QuickWritingStatusBadge({
+function RhwpWritingStatusBadge({
   item,
   includeCategory = false,
 }: {
   item: AdminGrantSimulationItem;
   includeCategory?: boolean;
 }) {
-  const ready = item.fieldCount > 0 && item.fieldsReadySurfaceCount > 0;
-  const pending = !ready && item.templateSurfaceCount > 0;
-  const label = ready ? "준비 완료" : pending ? "필드 준비 대기" : "작성 양식 없음";
-  let variant: AdminStatusBadgeVariant = "admin-neutral";
-  if (ready) variant = "admin-success";
-  else if (pending) variant = "admin-warning";
+  const ready = item.templateSurfaceCount > 0;
+  const label = ready ? "편집 가능" : "작성 양식 없음";
+  const variant: AdminStatusBadgeVariant = ready ? "admin-success" : "admin-neutral";
   return (
     <Badge size="admin" variant={variant}>
-      {includeCategory ? `빠른 작성 ${label}` : label}
+      {includeCategory ? `RHWP ${label}` : label}
     </Badge>
   );
 }
@@ -618,29 +584,6 @@ function analysisTransportLabel(transport: "subscription" | "api"): string {
 
 function analysisTransportVariant(transport: "subscription" | "api"): AdminStatusBadgeVariant {
   return transport === "subscription" ? "admin-violet" : "admin-info";
-}
-
-function kordocStatusLabel(status: string | null, includeCategory = false): string {
-  let label = "미분석";
-  if (status === "complete") label = "완료";
-  else if (status === "partial") label = "부분 완료";
-  else if (status === "review_required") label = "검토 필요";
-  else if (status === "not_applicable") label = "대상 아님";
-  else if (status === "pending") label = "분석 대기";
-  else if (status === "running") label = "분석 중";
-  else if (status === "blocked") label = "차단";
-  else if (status) label = "실패";
-  return includeCategory ? `Kordoc ${label}` : label;
-}
-
-function kordocStatusVariant(status: string | null): AdminStatusBadgeVariant {
-  if (status === "complete") return "admin-success";
-  if (status === "partial" || status === "review_required") return "admin-warning";
-  if (status === "pending" || status === "running") {
-    return "admin-info";
-  }
-  if (status === "failed" || status === "blocked") return "admin-danger";
-  return "admin-neutral";
 }
 
 function formatDate(value: Date | null): string {

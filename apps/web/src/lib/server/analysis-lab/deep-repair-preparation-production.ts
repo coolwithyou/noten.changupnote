@@ -10,35 +10,16 @@ import { readCurrentDeepRepairExecutionProvenance } from "./deep-repair-runtime-
 import {
   ACTIVE_DEEP_REPAIR_SERIES_ID,
   DEEP_REPAIR_PLANNING_PRIMARY_SEED,
-  DEEP_REPAIR_PLANNING_SUPPLEMENTAL_SEED,
 } from "./deep-repair-formal-policy";
-import { prioritizeDeepRepairPlanningTargetsForKordoc } from "./deep-repair-kordoc-priority-production";
 
 const preparer = createDeepRepairProposalPreparer({
   now: () => new Date(),
   readExecutionProvenance: readCurrentDeepRepairExecutionProvenance,
   listExcludedGrantIds: () => readDeepRepairHistoricalGrantIds({ scope: "all" }),
   async selectTargets({ excludedGrantIds }) {
-    const [primary, supplemental] = await Promise.all([
-      selectDeepRepairPlanningTargets({
-        excludeGrantIds: excludedGrantIds,
-        seed: DEEP_REPAIR_PLANNING_PRIMARY_SEED,
-      }),
-      selectDeepRepairPlanningTargets({
-        excludeGrantIds: excludedGrantIds,
-        seed: DEEP_REPAIR_PLANNING_SUPPLEMENTAL_SEED,
-      }),
-    ]);
-    const seen = new Set<string>();
-    const targets = [...primary.targets, ...supplemental.targets].filter((target) => {
-      if (seen.has(target.grantId)) return false;
-      seen.add(target.grantId);
-      return true;
-    });
-    return prioritizeDeepRepairPlanningTargetsForKordoc({
-      ...primary,
-      targets,
-      warnings: primary.warnings.filter((warning) => !warning.startsWith("쿼터 미충족")),
+    return selectDeepRepairPlanningTargets({
+      excludeGrantIds: excludedGrantIds,
+      seed: DEEP_REPAIR_PLANNING_PRIMARY_SEED,
     });
   },
   async prepareTarget(grantId) {

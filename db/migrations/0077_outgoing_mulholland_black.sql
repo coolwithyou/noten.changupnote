@@ -1,0 +1,1 @@
+ALTER TABLE "grants" ADD COLUMN "authoring_guide" jsonb;

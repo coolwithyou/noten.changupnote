@@ -53,6 +53,8 @@ export interface DeepPromotionRunIdentity {
   completedAt: Date | null;
   inputChars: number;
   inputSha256: string;
+  sourceRevisionSha256?: string;
+  attachmentManifestSha256?: string;
   costUsd: number | null;
 }
 
@@ -340,6 +342,12 @@ export function buildDeepAnalysisPromotionPlan(input: {
     inputBlocks: [],
     inputTotalChars: input.run.inputChars,
     inputSha256: input.run.inputSha256,
+    ...(input.run.sourceRevisionSha256
+      ? { sourceRevisionSha256: input.run.sourceRevisionSha256 }
+      : {}),
+    ...(input.run.attachmentManifestSha256
+      ? { attachmentManifestSha256: input.run.attachmentManifestSha256 }
+      : {}),
     usage: result.usage,
     costUsd: input.run.costUsd,
     analysisMarkdown: result.analysisMarkdown,

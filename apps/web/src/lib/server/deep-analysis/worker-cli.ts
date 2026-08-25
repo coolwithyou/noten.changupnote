@@ -1,7 +1,6 @@
 import { loadMonorepoEnv } from "@/lib/server/loadMonorepoEnv";
 import { closeCunoteDb, getCunoteDb } from "@/lib/server/db/client";
 import { createR2ObjectStorageFromEnv } from "@/lib/server/storage/r2ObjectStorage";
-import { runApplicationPrecomputeWorkerCycle } from "@/lib/server/documents/applicationPrecomputeWorkerCycle";
 import { enqueueActiveDeepAnalysisJobs } from "./enqueueActive";
 import { processDeepAnalysisJob } from "./processor";
 import { runDeepAnalysisWorkerInvocation } from "./workerLoop";
@@ -137,21 +136,6 @@ try {
       enqueue: enqueueResult,
       repairedErrorCodes,
       ...result,
-    }));
-  }
-  const applicationPrecompute = await runApplicationPrecomputeWorkerCycle({
-    db,
-    workerId: `${workerId}-application`.slice(0, 200),
-    serviceRevision,
-    runtimeAllowed: runtime.allowed,
-  });
-  if (applicationPrecompute.enabled) {
-    console.log(JSON.stringify({
-      ok: true,
-      workerId: `${workerId}-application`.slice(0, 200),
-      serviceRevision,
-      component: "application_precompute",
-      ...applicationPrecompute,
     }));
   }
 } finally {

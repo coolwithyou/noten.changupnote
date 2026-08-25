@@ -175,7 +175,10 @@ export async function loadDeepRepairPromotionCohort(input: {
     let promotionPlan: GrantPromotionPlan | null = null;
     if (readiness.disposition === "ready" || readiness.disposition === "conditional") {
       promotionPlan = planGrantPromotion({
-        run: loaded.run,
+        run: {
+          ...loaded.run,
+          sourceRevisionSha256: current.sourceRevisionSha256,
+        },
         origin: "deep_repair",
         deepRepairReceiptSha256: receipt.receiptSha256,
         sidecar: null,
@@ -374,7 +377,10 @@ export async function verifyDeepRepairPromotionSourceArtifactDetailed(
   );
   if (readiness.disposition === "ready" || readiness.disposition === "conditional") {
     readiness = guardDeepRepairPromotionPlan(readiness, planGrantPromotion({
-      run: loaded.run,
+      run: {
+        ...loaded.run,
+        sourceRevisionSha256: current.sourceRevisionSha256,
+      },
       origin: "deep_repair",
       deepRepairReceiptSha256: receipt.receiptSha256,
       sidecar: null,

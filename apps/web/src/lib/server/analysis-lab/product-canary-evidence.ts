@@ -24,16 +24,13 @@ export interface ProductCanaryObservation {
   promotionVerified: boolean;
   matchingVerified: boolean;
   matchingCompanyCount: number;
-  applicationEvidencePresent: boolean;
+  authoringGuidePresent: boolean;
   connectedFieldCount: number;
   seededAnswerCount: number;
-  precomputeStatus: string | null;
   workspaceMode: string;
   workspaceLadder: string;
   activeDocumentKey: string | null;
   draftId: string | null;
-  pollConversion: boolean;
-  recoveryNeeded: boolean;
 }
 
 /**
@@ -60,39 +57,32 @@ export function evaluateProductCanaryObservation(
       : "대상 공고의 매칭 섀도 증거가 없거나 실패했습니다.",
     [`회사 ${input.matchingCompanyCount}개`, "shadow.json"],
   );
-  const materialized = input.applicationEvidencePresent
-    && input.precomputeStatus === "complete"
-    && input.connectedFieldCount > 0;
+  const materialized = input.authoringGuidePresent;
   const fieldMaterialization = node(
     materialized,
     materialized
-      ? `Kordoc 완료 결과가 빠른 작성 필드 ${input.connectedFieldCount}개로 반영됐습니다.`
-      : "Kordoc 완료 증거와 실제 빠른 작성 필드가 함께 확인되지 않았습니다.",
+      ? "검증된 공고 작성 가이드가 승격 결과에 포함됐습니다."
+      : "승격 결과에서 검증된 공고 작성 가이드를 확인하지 못했습니다.",
     [
-      `precompute ${input.precomputeStatus ?? "없음"}`,
+      `작성 가이드 ${input.authoringGuidePresent ? "있음" : "없음"}`,
       `연결 필드 ${input.connectedFieldCount}개`,
       `프로필 자동 채움 ${input.seededAnswerCount}개`,
     ],
   );
   const workspaceReady = input.workspaceMode === "admin_preview"
-    && input.workspaceLadder === "a"
+    && (input.workspaceLadder === "a" || input.workspaceLadder === "b")
     && Boolean(input.activeDocumentKey)
-    && input.connectedFieldCount > 0
-    && input.draftId === null
-    && !input.pollConversion
-    && !input.recoveryNeeded;
+    && input.draftId === null;
   const workspaceCanary = node(
     workspaceReady,
     workspaceReady
-      ? "관리자 읽기 전용 시뮬레이션이 빠른 작성 사다리 A로 진입했습니다."
-      : "지원서 작성 시뮬레이션이 완전한 빠른 작성 경로에 진입하지 못했습니다.",
+      ? "관리자 읽기 전용 시뮬레이션이 RHWP 작성 경로로 진입했습니다."
+      : "지원서 작성 시뮬레이션이 RHWP 작성 경로에 진입하지 못했습니다.",
     [
       `mode ${input.workspaceMode}`,
       `ladder ${input.workspaceLadder}`,
       `active document ${input.activeDocumentKey ?? "없음"}`,
       `draft write ${input.draftId === null ? "없음" : "발생"}`,
-      `conversion poll ${input.pollConversion ? "발생" : "없음"}`,
-      `recovery ${input.recoveryNeeded ? "필요" : "불필요"}`,
     ],
   );
   return { deepPromotion, matchingCanary, fieldMaterialization, workspaceCanary };

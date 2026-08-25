@@ -387,7 +387,7 @@ function buildAttention(input: Omit<AnalysisMonitoringSnapshot, "attention">): A
       id: "runtime-lease-conflict",
       severity: "critical",
       title: "paused 상태에 활성 lease가 남아 있습니다",
-      description: `Deep ${input.runtime.activeDeepLeases}건 · Kordoc ${input.runtime.activeApplicationLeases}건`,
+      description: `Deep ${input.runtime.activeDeepLeases}건`,
     })
   }
   if (!input.worker.healthy) {

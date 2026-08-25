@@ -4,7 +4,7 @@
  * 필드 패널 (Apply Experience v2 · §4.3 · P2-6).
  *
  * (a) 완전 경험: 확인 카드 1장(FieldCard) + 확인 완료 축약 리스트 / 전체 목록 뷰 + 중도 다운로드 보조 버튼.
- * (b) 프리뷰만: "필드 분석 중" 안내 + draft.missingFields 기반 질문 카드(입력→초안 재생성 트리거).
+ * (b) RHWP 직접 편집: 원본 문서를 열고 AI 작성 가이드를 요청한다.
  *
  * 진행 표시(confirmed/total 단일 축)는 이 패널이 아니라 WorkspaceView 상단 바에 있다(재정의 §2-①).
  */
@@ -24,7 +24,6 @@ import type { ConnectedDocumentField } from "@/lib/server/documents/documentFiel
 import type { DraftFieldAnswers, DraftFieldAnswerStatus } from "@/lib/server/documents/fieldAnswers";
 import type { FieldLessonTipsDto } from "@/lib/server/knowledge/lessonContext";
 import type { WorkspaceLadder } from "@/lib/server/documents/workspaceData";
-import type { ApplicationPrecomputeStatus } from "@/lib/server/documents/applicationPrecomputeState";
 import type { RhwpFieldAnchor } from "@/lib/rhwp/fieldAnchors";
 import type { RhwpWorkingDocument } from "@/lib/rhwp/workingDocument";
 import { answerKey } from "./fieldAnswerState";
@@ -44,7 +43,6 @@ export type WorkspacePanelMode = "single" | "list";
 
 export function FieldPanel({
   ladder,
-  applicationPrecomputeStatus,
   grantId,
   activeDocumentKey,
   connectedFields,
@@ -77,7 +75,6 @@ export function FieldPanel({
   readOnlyPreview,
 }: {
   ladder: WorkspaceLadder;
-  applicationPrecomputeStatus: ApplicationPrecomputeStatus | null;
   grantId: string;
   activeDocumentKey: string | null;
   connectedFields: ConnectedDocumentField[];
@@ -106,7 +103,7 @@ export function FieldPanel({
   onStartLocateField: (fieldId: string) => void;
   authoringTasks: readonly DocumentAuthoringTask[];
   studioTaskStates: StudioTaskStates;
-  onOpenStudio: (fieldId: string) => void;
+  onOpenStudio: (fieldId?: string) => void;
   onSetStudioTaskStatus: (fieldId: string, status: StudioTaskStatus) => void;
   workingDocument: RhwpWorkingDocument | null;
   studioServerSaved: boolean;
@@ -118,19 +115,23 @@ export function FieldPanel({
   // wrapper(WorkspaceView)는 스크롤만 담당한다(R4 이중 프레임 방지) — 표면(테두리·bg)은
   // 각 모드가 직접 진다: single 은 FieldCard(Card)가, 나머지 모드는 아래 자체 컨테이너가.
   if (ladder === "b") {
-    const terminalPrecompute = applicationPrecomputeStatus === "review_required"
-      || applicationPrecomputeStatus === "not_applicable"
-      || applicationPrecomputeStatus === "failed"
-      ? applicationPrecomputeStatus
-      : null;
     return (
       <div className="grid gap-3 rounded-[var(--radius-xl)] border bg-card p-4">
-        {terminalPrecompute
-          ? <ApplicationPrecomputeTerminalNotice status={terminalPrecompute} />
-          : readOnlyPreview
-            ? <ApplicationPrecomputeUnavailableNotice />
-            : <FieldAnalyzingNotice />}
-        {!terminalPrecompute && !readOnlyPreview && activeDocumentKey ? (
+        <Card className="border-primary/20 bg-primary/[0.03] shadow-none">
+          <CardHeader>
+            <CardTitle>원본 문서에서 바로 작성할 수 있습니다</CardTitle>
+            <CardDescription>
+              RHWP에서 필요한 문단과 셀을 직접 편집하고, 공고 분석에 근거한 AI 작성 가이드를 요청하세요.
+            </CardDescription>
+          </CardHeader>
+          <CardFooter>
+            <Button type="button" onClick={() => onOpenStudio()}>
+              <Sparkles className="size-4" aria-hidden />
+              RHWP로 문서 열기
+            </Button>
+          </CardFooter>
+        </Card>
+        {!readOnlyPreview && activeDocumentKey ? (
           <MissingFieldQuestions
             grantId={grantId}
             documentKey={activeDocumentKey}
@@ -375,59 +376,6 @@ function FieldStateIcon({ state }: { state: ReturnType<typeof workspaceFieldStat
   if (state === "filled") return <Check className="shrink-0 text-success" aria-label="확인 완료" />;
   if (state === "reviewing") return <CircleDot className="shrink-0 text-primary" aria-label="확인 중" />;
   return <Circle className="shrink-0 text-muted-foreground" aria-label="미입력" />;
-}
-
-function ApplicationPrecomputeTerminalNotice({
-  status,
-}: {
-  status: Extract<ApplicationPrecomputeStatus, "review_required" | "not_applicable" | "failed">;
-}) {
-  const copy = status === "review_required"
-    ? {
-        title: "원본 문서에서 확인할 항목이 있습니다",
-        description: "자동 분석만으로 입력 위치를 안전하게 확정하기 어려웠습니다. 문서 직접 편집에서 원본을 보며 작성해 주세요.",
-      }
-    : status === "not_applicable"
-      ? {
-          title: "빠른 작성 항목을 찾지 못했습니다",
-          description: "자동으로 채울 수 있는 입력 위치가 확인되지 않았습니다. 원본 문서를 직접 편집할 수 있습니다.",
-        }
-      : {
-          title: "작성 항목 자동 분석을 완료하지 못했습니다",
-          description: "반복 분석을 자동으로 실행하지 않습니다. 원본 문서를 직접 편집해 작성을 계속할 수 있습니다.",
-        };
-  return (
-    <div className="grid gap-1 rounded-[var(--radius-lg)] border border-amber-500/30 bg-amber-500/[0.06] p-3 text-sm">
-      <span className="font-medium text-foreground">{copy.title}</span>
-      <span className="text-muted-foreground">{copy.description}</span>
-    </div>
-  );
-}
-
-function FieldAnalyzingNotice() {
-  return (
-    <div className="flex items-start gap-2 rounded-[var(--radius-lg)] border border-sky-500/30 bg-sky-500/[0.06] p-3 text-sm">
-      <Loader2 className="mt-0.5 size-4 shrink-0 animate-spin text-sky-600 dark:text-sky-400" aria-hidden />
-      <div className="grid gap-0.5">
-        <span className="font-medium text-foreground">작성 항목을 분석하고 있습니다</span>
-        <span className="text-muted-foreground">
-          문서 프리뷰는 준비됐지만 항목별 채움은 아직 분석 중입니다. 아래 질문에 답하면 초안에 먼저 반영해
-          드릴게요.
-        </span>
-      </div>
-    </div>
-  );
-}
-
-function ApplicationPrecomputeUnavailableNotice() {
-  return (
-    <div className="grid gap-1 rounded-[var(--radius-lg)] border border-amber-500/30 bg-amber-500/[0.06] p-3 text-sm">
-      <span className="font-medium text-foreground">빠른 작성 결과가 아직 연결되지 않았습니다</span>
-      <span className="text-muted-foreground">
-        이 읽기 전용 시뮬레이션에서 새 분석을 시작하지 않습니다. Kordoc 분석 또는 승격 상태를 확인한 뒤 다시 열어 주세요.
-      </span>
-    </div>
-  );
 }
 
 function MissingFieldQuestions({

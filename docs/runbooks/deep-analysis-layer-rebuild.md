@@ -1,5 +1,9 @@
 # 딥분석·Kordoc 분석 계층 전체 재구축 Runbook
 
+> **역사·재해복구 전용:** 신규 공고 처리에는 Kordoc projection을 만들지 않는다. 이 runbook의
+> Kordoc 정리 절차는 과거 데이터가 남은 환경을 해석하거나 명시 승인된 재해복구를 수행할 때만 사용한다.
+> 현재 운영 정본은 [`공고 딥분석과 RHWP 작성 가이드 운영 가이드`](../guides/deep-analysis-and-rhwp-authoring-guide-operations.md)다.
+
 > 최초 결정: 2026-07-31<br>
 > fresh-start 범위 확정: 2026-08-08<br>
 > 적용 조건: 공개 런칭 전이며 클로즈드 베타와 실제 사용자 상태가 없는 현재 환경<br>

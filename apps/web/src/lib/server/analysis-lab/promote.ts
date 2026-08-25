@@ -19,7 +19,7 @@
 // 쓰기 경로(per-grant 트랜잭션·Drizzle 포트)는 promote-cli.ts 에 있고, 이 모듈은 주입
 // 가능한 포트 인터페이스(PromotionWritePort)와 실행 오케스트레이션만 정의한다(테스트는 페이크).
 import { createHash } from "node:crypto";
-import type { GrantCriterion } from "@cunote/contracts";
+import type { GrantAuthoringGuideV1, GrantCriterion } from "@cunote/contracts";
 import { nonMatchingCriterionReason } from "@cunote/core";
 import type {
   LabAudit,
@@ -49,6 +49,7 @@ import {
   type PromotionReviewRisk,
 } from "./promotion-review-risk";
 import { isPublishableLabRun } from "./run-outcome";
+import { buildGrantAuthoringGuide } from "./authoring-guide";
 
 // ---- 대상 선정 (사람 우선 dedupe — confirmations-cli 규칙의 순수화) -------------------
 
@@ -338,6 +339,8 @@ export interface GrantPromotionPlan {
   droppedQuestionCandidates: number;
   /** 신규 plan의 오류 영향도 판정. 구 release manifest 호환을 위해 optional. */
   reviewRisk?: PromotionReviewRisk;
+  /** 서비스 작성 도우미용 advisory. 구 release manifest에는 없을 수 있다. */
+  authoringGuide?: GrantAuthoringGuideV1 | null;
 }
 
 /** 산출 criterion id(…:llm-<n>)에서 변환 입력 row 순번을 역산한다 — llm-criteria 의 id 계약. */
@@ -511,6 +514,10 @@ export function planGrantPromotion(input: {
     scopeRejectedCriterionIndexes: [...scopeRejectedIndexes].sort((left, right) => left - right),
     questions,
     droppedQuestionCandidates,
+    authoringGuide: buildGrantAuthoringGuide({
+      run: mergedRun,
+      criteria: conversion.criteria,
+    }),
     ...(reviewRisk ? { reviewRisk } : {}),
   };
 }

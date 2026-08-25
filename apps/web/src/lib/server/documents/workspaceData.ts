@@ -6,8 +6,8 @@
  * 선택된 문서(documentKey) 기준으로 사다리 (a)(b)(c) 판정 + draft ensure + 필드-문서 연결(surfaceId 우선)
  * + 프로필 시드(멱등) + label 충돌 감지 + fieldAnswers 해석 + lesson 팁을 한 번에 조립해 페이지에 반환한다.
  *
- * 사다리 판정은 DB 신호(`grant_application_surfaces.extractionStatus`)로 결정론적으로 계산한다.
- * fields_ready 인데 실제 연결 필드가 0건인 edge case 는 보수적으로 (b)로 낮춰 잡는다(§4.4 의도).
+ * 사다리 판정은 편집 가능한 HWP/HWPX 원본과 검증된 legacy 필드 연결의 존재로 계산한다.
+ * 필드 연결이 없어도 RHWP가 원본을 직접 열 수 있으면 (b)로 진입한다.
  */
 import type {
   ApplicationPrep,
@@ -37,17 +37,11 @@ import { getDraftRevisionHead } from "./documentRevisions";
 import { seedProfileFieldAnswers, type SeedFieldInput } from "./seedProfileAnswers";
 import { classifyApplicationFieldMap } from "./applicationFieldVersion";
 import {
-  loadSurfaceApplicationPrecomputeState,
-  shouldRecoverApplicationPrecompute,
-  type ApplicationPrecomputeStatus,
-  type SurfaceApplicationPrecomputeState,
-} from "./applicationPrecomputeState";
-import {
   resolveDocumentAgentAvailability,
   resolveFieldEditorAgentAvailability,
 } from "./documentAgentAvailability";
 
-/** 성능 저하 사다리(§4.4): (a) 완전 경험 · (b) 프리뷰+필드 분석 중 · (c) 채팅 전면 폴백. */
+/** 성능 저하 사다리: (a) legacy 필드 연결+RHWP · (b) RHWP 직접 편집 · (c) 채팅 폴백. */
 export type WorkspaceLadder = "a" | "b" | "c";
 
 export interface WorkspaceDocumentOption {
@@ -111,7 +105,7 @@ export interface WorkspaceData {
   /** 매칭 surface 의 페이지 이미지들(프리뷰 캔버스용). */
   pages: PreviewPage[];
   grant: WorkspaceGrantMeta;
-  /** (b) 상태 질문 카드용 draft.missingFields. */
+  /** draft.missingFields. */
   missingFields: MissingFieldQuestion[];
   /** (c) 폴백 DraftFallbackEditor 용 전체 prep. */
   prep: ApplicationPrep;
@@ -121,10 +115,6 @@ export interface WorkspaceData {
   pollConversion: boolean;
   /** 성능 저하 또는 부분 필드 커버리지를 정직하게 고지하는 문구. */
   honestNotice: string | null;
-  /** 현재 원본 SHA·계약 버전에 결속된 Kordoc 선분석의 종결 상태. */
-  applicationPrecomputeStatus: ApplicationPrecomputeStatus | null;
-  /** 작업공간 진입 분석은 선분석이 없거나 stale·materialization 누락일 때만 복구용으로 실행한다. */
-  fieldAnalysisRecoveryNeeded: boolean;
 }
 
 const HWP_FAMILY_FORMATS = new Set(["hwp", "hwpx"]);
@@ -173,8 +163,6 @@ export async function loadGrantWorkspaceData(input: {
       initialDrafts,
       pollConversion: false,
       honestNotice: "이 공고에는 아직 작성형 서류가 없습니다. 채팅으로 먼저 물어보세요.",
-      applicationPrecomputeStatus: null,
-      fieldAnalysisRecoveryNeeded: false,
     };
   }
 
@@ -193,7 +181,6 @@ export async function loadGrantWorkspaceData(input: {
     matchedSurface,
     pages,
     pollConversion,
-    applicationPrecomputeState,
   } = documentContext;
 
   // draft ensure(§6.3): documentKey 별 1행. 없으면 기존 생성 경로 재사용(빈 draft 발명 금지).
@@ -262,13 +249,7 @@ export async function loadGrantWorkspaceData(input: {
     surface: matchedSurface,
     connectedFieldsCount: connectedFields.length,
     fieldMapNeedsRefresh: automatedFieldMapNeedsRefresh(connectedFields),
-    applicationPrecomputeState,
   });
-  const currentPrecomputeStatus = applicationPrecomputeState?.current
-    ? applicationPrecomputeState.status
-    : null;
-  const fieldAnalysisRecoveryNeeded = ladder === "b"
-    && shouldRecoverApplicationPrecompute(applicationPrecomputeState, connectedFields.length);
 
   return {
     execution: { mode: "persistent" },
@@ -300,8 +281,6 @@ export async function loadGrantWorkspaceData(input: {
     initialDrafts,
     pollConversion,
     honestNotice,
-    applicationPrecomputeStatus: currentPrecomputeStatus,
-    fieldAnalysisRecoveryNeeded,
   };
 }
 
@@ -335,7 +314,7 @@ export async function loadVirtualGrantWorkspaceData(input: {
   });
 }
 
-/** 활성 관리·검수 계정이 회사·초안 write 없이 모든 공고의 빠른 작성 연결을 확인하는 read model. */
+/** 활성 관리·검수 계정이 회사·초안 write 없이 모든 공고의 RHWP 작성 경로를 확인하는 read model. */
 export async function loadAdminGrantWorkspaceData(input: {
   sheet: ApplySheet;
   companyProfile: CompanyProfile;
@@ -398,8 +377,6 @@ async function loadReadOnlyGrantWorkspaceData(input: {
       initialDrafts: [],
       pollConversion: false,
       honestNotice: "이 공고에는 아직 작성형 서류가 없습니다.",
-      applicationPrecomputeStatus: null,
-      fieldAnalysisRecoveryNeeded: false,
     };
   }
 
@@ -408,7 +385,6 @@ async function loadReadOnlyGrantWorkspaceData(input: {
     connectedFields,
     matchedSurface,
     pages,
-    applicationPrecomputeState,
   } = await loadWorkspaceDocumentContext({
     sheet,
     allowLocalApplicationPrecomputePreview: execution.mode === "admin_preview",
@@ -440,11 +416,7 @@ async function loadReadOnlyGrantWorkspaceData(input: {
     surface: matchedSurface,
     connectedFieldsCount: connectedFields.length,
     fieldMapNeedsRefresh: automatedFieldMapNeedsRefresh(connectedFields),
-    applicationPrecomputeState,
   });
-  const currentPrecomputeStatus = applicationPrecomputeState?.current
-    ? applicationPrecomputeState.status
-    : null;
 
   return {
     execution,
@@ -470,8 +442,6 @@ async function loadReadOnlyGrantWorkspaceData(input: {
     // 변환 poll은 서버 write를 일으킬 수 있으므로 가상 미리보기에서 마운트하지 않는다.
     pollConversion: false,
     honestNotice,
-    applicationPrecomputeStatus: currentPrecomputeStatus,
-    fieldAnalysisRecoveryNeeded: false,
   };
 }
 
@@ -481,7 +451,6 @@ interface WorkspaceDocumentContext {
   matchedSurface: PreviewSurface | null;
   pages: PreviewPage[];
   pollConversion: boolean;
-  applicationPrecomputeState: SurfaceApplicationPrecomputeState | null;
 }
 
 function buildWorkspaceDocumentOptions(draftable: readonly DraftableDocument[]): WorkspaceDocumentOption[] {
@@ -549,22 +518,16 @@ async function loadWorkspaceDocumentContext(input: {
     ?? draftable[0]!;
   const matchedSurface = matchSurfaceFor(activeDocument);
   const activeStorageKey = storageKeyByDocumentKey.get(activeDocument.documentKey) ?? null;
-  let [connectedFields, applicationPrecomputeState] = await Promise.all([
-    loadConnectedDocumentFields({
-      source: sheet.grant.source,
-      sourceId: sheet.grant.sourceId,
-      surfaceId: matchedSurface?.id ?? null,
-      sourceAttachment: activeStorageKey,
-    }),
-    matchedSurface
-      ? loadSurfaceApplicationPrecomputeState({ surfaceId: matchedSurface.id })
-      : Promise.resolve(null),
-  ]);
+  let connectedFields = await loadConnectedDocumentFields({
+    source: sheet.grant.source,
+    sourceId: sheet.grant.sourceId,
+    surfaceId: matchedSurface?.id ?? null,
+    sourceAttachment: activeStorageKey,
+  });
   if (
     input.allowLocalApplicationPrecomputePreview
     && matchedSurface
     && connectedFields.length === 0
-    && !applicationPrecomputeState?.current
   ) {
     try {
       const { loadLocalApplicationPrecomputePreview } = await import("./localApplicationPrecomputePreview");
@@ -576,7 +539,6 @@ async function loadWorkspaceDocumentContext(input: {
       });
       if (localPreview) {
         connectedFields = localPreview.connectedFields;
-        applicationPrecomputeState = localPreview.state;
       }
     } catch (error) {
       console.warn(
@@ -594,13 +556,12 @@ async function loadWorkspaceDocumentContext(input: {
     matchedSurface,
     pages,
     pollConversion: surfaces.some((surface) => surface.extractionStatus === "pending"),
-    applicationPrecomputeState,
   };
 }
 
 /**
  * workspace 기본 문서는 실제로 작성 가능한 surface를 우선한다. 페이지 이미지가 없는
- * Kordoc 선분석 문서도 fields_ready면 첨부 없는 합성 문서보다 먼저 열어야 한다.
+ * HWP/HWPX 문서도 fields_ready면 첨부 없는 합성 문서보다 먼저 열어야 한다.
  * 사용자가 명시한 documentKey가 있으면 이 자동 우선순위보다 항상 앞선다.
  */
 export function selectActiveWorkspaceDocumentKey(input: {
@@ -649,11 +610,11 @@ function matchDocumentSurface(input: {
 }
 
 /**
- * 사다리 판정 (§4.4). DB 신호로 결정론적으로 계산한다.
- * (c) 하드 트리거를 먼저 걸러 채움/프리뷰 경험 자체가 불가능한 경우를 정직 고지로 보낸다.
- * fields_ready 인데 연결 필드 0건이면 보수적으로 (b)로 낮춘다.
+ * 사다리 판정. Kordoc 상태는 진입 조건이 아니다.
+ * (c) 하드 트리거를 먼저 걸러 원본 편집 자체가 불가능한 경우만 폴백한다.
+ * 현재 원본에 결속된 필드 연결이 있으면 (a), 아니면 RHWP 직접 편집 (b)다.
  */
-function classifyWorkspace(input: {
+export function classifyWorkspace(input: {
   document: { sourceAttachment: string | null; hwpxTemplateAvailable: boolean };
   surface: Pick<
     PreviewSurface,
@@ -661,7 +622,6 @@ function classifyWorkspace(input: {
   > | null;
   connectedFieldsCount: number;
   fieldMapNeedsRefresh: boolean;
-  applicationPrecomputeState: SurfaceApplicationPrecomputeState | null;
 }): { ladder: WorkspaceLadder; honestNotice: string | null } {
   const { document, surface } = input;
 
@@ -672,7 +632,14 @@ function classifyWorkspace(input: {
         "이 서류는 별도 원본 양식이 없어 원본 채움을 지원하지 않습니다. 채팅과 초안 편집기로 도와드릴게요.",
     };
   }
+  const sourceExtension = document.sourceAttachment.split(".").pop()?.toLowerCase() ?? "";
   if (!surface) {
+    if (HWP_FAMILY_FORMATS.has(sourceExtension) || document.hwpxTemplateAvailable) {
+      return {
+        ladder: "b",
+        honestNotice: "미리보기 없이 RHWP에서 보관된 원본 문서를 직접 편집할 수 있습니다.",
+      };
+    }
     return {
       ladder: "c",
       honestNotice: "원본 양식을 아직 불러오지 못했습니다. 준비되면 자동으로 채움 화면으로 전환됩니다.",
@@ -685,54 +652,15 @@ function classifyWorkspace(input: {
         "이 공고는 웹 양식으로 접수해 원본 파일 채움을 지원하지 않습니다. 채팅과 초안 편집기로 도와드릴게요.",
     };
   }
-  if (surface.extractionStatus === "pending") {
-    return { ladder: "c", honestNotice: "서류를 준비 중입니다. 변환이 끝나면 자동으로 채움 화면으로 전환됩니다." };
-  }
-  if (surface.extractionStatus === "failed") {
-    return { ladder: "c", honestNotice: "원본 양식 변환에 실패했습니다. 채팅과 초안 편집기로 작성을 도와드릴게요." };
-  }
-
   const fillableFormat =
-    HWP_FAMILY_FORMATS.has(surface.format.toLowerCase()) || document.hwpxTemplateAvailable;
+    HWP_FAMILY_FORMATS.has(surface.format.toLowerCase())
+    || HWP_FAMILY_FORMATS.has(sourceExtension)
+    || document.hwpxTemplateAvailable;
   if (!fillableFormat) {
     return { ladder: "c", honestNotice: UNSUPPORTED_FORMAT_NOTICE };
   }
 
-  if (input.applicationPrecomputeState?.current) {
-    if (input.applicationPrecomputeState.status === "review_required") {
-      return {
-        ladder: "b",
-        honestNotice: "자동으로 위치를 확정하기 어려운 항목이 있어 원본 문서에서 직접 확인해야 합니다.",
-      };
-    }
-    if (input.applicationPrecomputeState.status === "not_applicable") {
-      return {
-        ladder: "b",
-        honestNotice: "이 문서에서는 빠른 작성 대상으로 안전하게 확정할 항목을 찾지 못했습니다.",
-      };
-    }
-    if (input.applicationPrecomputeState.status === "failed") {
-      return {
-        ladder: "b",
-        honestNotice: "작성 항목 자동 분석을 완료하지 못했습니다. 원본 문서에서 직접 작성할 수 있습니다.",
-      };
-    }
-    if (
-      (input.applicationPrecomputeState.status === "complete"
-        || input.applicationPrecomputeState.status === "partial")
-      && input.connectedFieldsCount >= 1
-      && !input.fieldMapNeedsRefresh
-    ) {
-      return {
-        ladder: "a",
-        honestNotice: input.applicationPrecomputeState.status === "partial"
-          ? "빠른 작성에는 위치를 안전하게 확정한 항목만 표시합니다. 구조가 합쳐진 구간은 문서 직접 편집에서 함께 확인해 주세요."
-          : null,
-      };
-    }
-  }
-
-  if (surface.extractionStatus === "fields_ready" && input.connectedFieldsCount >= 1 && !input.fieldMapNeedsRefresh) {
+  if (input.connectedFieldsCount >= 1 && !input.fieldMapNeedsRefresh) {
     const partialCoverage = surface.confidence !== null
       && surface.confidence < 0.99;
     return {
@@ -742,14 +670,19 @@ function classifyWorkspace(input: {
         : null,
     };
   }
-  if (surface.pageCount > 0) {
-    // preview_ready, 또는 fields_ready·0필드 → 프리뷰는 있으나 필드 미완.
-    return { ladder: "b", honestNotice: null };
+  if (surface.extractionStatus === "failed") {
+    return {
+      ladder: "b",
+      honestNotice: "미리보기 변환은 실패했지만 RHWP에서 원본 문서를 직접 편집할 수 있습니다.",
+    };
   }
-  return {
-    ladder: "c",
-    honestNotice: "원본 양식을 아직 불러오지 못했습니다. 준비되면 자동으로 채움 화면으로 전환됩니다.",
-  };
+  if (surface.extractionStatus === "pending") {
+    return {
+      ladder: "b",
+      honestNotice: "미리보기 준비와 별개로 RHWP에서 원본 문서를 직접 편집할 수 있습니다.",
+    };
+  }
+  return { ladder: "b", honestNotice: null };
 }
 
 function automatedFieldMapNeedsRefresh(fields: ConnectedDocumentField[]): boolean {

@@ -13,7 +13,7 @@
  *
  * 사다리(서버 개념, 화면 비노출):
  *  (a) 프리뷰+오버레이+확인 카드
- *  (b) 프리뷰 + "작성 항목 분석 중" + missingFields 질문 카드
+ *  (b) RHWP 원본 직접 편집 + AI 작성 가이드
  *  (c) 정직 고지 + 채팅 전면(기관 연락처 포함) — 확인 루프 불성립(§2-⑥, DraftFallbackEditor 미렌더)
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -52,7 +52,6 @@ import type { WorkspaceData } from "@/lib/server/documents/workspaceData";
 import type { ChatMessageContent } from "@/lib/chat/messageContent";
 import { ConversionPollTrigger } from "@/features/apply-sheet/ConversionPollTrigger";
 import { PreviewCanvas, type PreviewOverlayField } from "@/features/document-viewer/PreviewCanvas";
-import { ApplicationFieldAnalysisTrigger } from "./ApplicationFieldAnalysisTrigger";
 import { answerKey, fieldVisualState, optimisticApply } from "./fieldAnswerState";
 import { ChatPanelView, useGrantChat } from "./ChatPanel";
 import {
@@ -143,11 +142,8 @@ export function WorkspaceView({
     () => authoringTasks.filter((task) => task.mode === "studio"),
     [authoringTasks],
   );
-  const terminalApplicationPrecompute = data.applicationPrecomputeStatus === "review_required"
-    || data.applicationPrecomputeStatus === "not_applicable"
-    || data.applicationPrecomputeStatus === "failed";
   const studioTransport = useMemo<RhwpWorkingDocumentTransport | null>(() => {
-    if (data.ladder !== "a" && !terminalApplicationPrecompute) return null;
+    if (data.ladder === "c") return null;
     if (data.draftId) return { mode: "persistent", draftId: data.draftId };
     if (!readOnlyPreview || !data.activeDocumentKey) return null;
     const params = new URLSearchParams({ document: data.activeDocumentKey });
@@ -158,7 +154,7 @@ export function WorkspaceView({
       sourceKey: `${readOnlyPreview.mode}:${grantId}:${data.activeDocumentKey}`,
       sourceUrl: `/api/web/grants/${encodeURIComponent(grantId)}/virtual-source-file?${params.toString()}`,
     };
-  }, [adminPreview, data.activeDocumentKey, data.draftId, data.ladder, grantId, readOnlyPreview, terminalApplicationPrecompute, virtualPreview]);
+  }, [adminPreview, data.activeDocumentKey, data.draftId, data.ladder, grantId, readOnlyPreview, virtualPreview]);
   const currentStudioSourceKey = studioTransport ? sourceKeyForTransport(studioTransport) : null;
   // Studio는 복합 과제 전용 화면이 아니라 준비된 HWP/HWPX 전체 문서 편집기이기도 하다.
   // 따라서 모든 필드가 quick으로 분류돼도 ladder (a)의 원본 draft에서는 직접 열 수 있어야 한다.
@@ -738,7 +734,6 @@ export function WorkspaceView({
   const fieldPanel = (
     <FieldPanel
       ladder={data.ladder}
-      applicationPrecomputeStatus={data.applicationPrecomputeStatus}
       grantId={grantId}
       activeDocumentKey={data.activeDocumentKey}
       connectedFields={data.connectedFields}
@@ -1113,9 +1108,6 @@ export function WorkspaceView({
       ) : null}
 
       {data.pollConversion ? <ConversionPollTrigger grantId={grantId} /> : null}
-      {data.fieldAnalysisRecoveryNeeded && data.draftId && !readOnlyPreview ? (
-        <ApplicationFieldAnalysisTrigger draftId={data.draftId} />
-      ) : null}
     </div>
   );
 }

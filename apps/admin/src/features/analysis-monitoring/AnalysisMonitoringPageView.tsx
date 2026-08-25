@@ -146,7 +146,7 @@ export function AnalysisMonitoringPageView({
           value={runtimeModeLabel(snapshot.runtime.effectiveMode)}
           healthy={snapshot.runtime.activeDeepLeases === 0 || snapshot.runtime.effectiveMode !== "paused"}
           icon={ShieldCheckIcon}
-          detail={`Deep lease ${snapshot.runtime.activeDeepLeases} · Kordoc lease ${snapshot.runtime.activeApplicationLeases}`}
+          detail={`Deep lease ${snapshot.runtime.activeDeepLeases}`}
         />
         <StatusCard
           title="운영 worker"
@@ -173,7 +173,6 @@ export function AnalysisMonitoringPageView({
             {launch.seriesId ?? "로컬 launch 없음"}
             {launch.model ? ` · ${launch.model}` : ""}
             {launch.concurrency ? ` · 동시성 ${launch.concurrency}` : ""}
-            {launch.withApplicationRoundtrip ? " · Kordoc 포함" : ""}
           </CardDescription>
           <CardAction>
             <Badge variant={launch.stopReason === "systemic-failure" ? "destructive" : "outline"}>
@@ -338,9 +337,6 @@ function TargetItem({ target }: { target: AnalysisLaunchMonitoringTarget }) {
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-xs tabular-nums text-muted-foreground">#{target.sequence + 1}</span>
           <Badge variant={targetBadgeVariant(target.status)}>{TARGET_STATUS_LABELS[target.status]}</Badge>
-          {target.applicationRoundtripStatus ? (
-            <Badge variant="secondary">Kordoc {target.applicationRoundtripStatus}</Badge>
-          ) : null}
         </div>
         <p className="mt-2 truncate font-medium" title={target.title ?? target.grantId}>
           {target.title ?? target.grantId}

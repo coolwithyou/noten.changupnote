@@ -256,6 +256,30 @@ export interface DeepAnalysisProgramIntent {
   cautionNotes: string[];
 }
 
+export interface GrantAuthoringGuideEvidenceV1 {
+  dimension: DeepAnalysisCriterionDimension;
+  kind: DeepAnalysisCriterionKind;
+  operator: string;
+  value: unknown;
+  sourceSpan: string;
+}
+
+/**
+ * 검증된 딥분석 release가 서비스 작성 도우미에 발행하는 advisory 자산.
+ * hard eligibility의 정본은 계속 grant_criteria이며, 이 guide가 매칭 판정을 대체하지 않는다.
+ */
+export interface GrantAuthoringGuideV1 {
+  schemaVersion: "grant-authoring-guide-v1";
+  source: {
+    runId: string;
+    inputSha256: string;
+    sourceRevisionSha256: string | null;
+    attachmentManifestSha256: string | null;
+  };
+  intent: DeepAnalysisProgramIntent;
+  evidenceChecklist: GrantAuthoringGuideEvidenceV1[];
+}
+
 export interface DeepAnalysisTaxonomyProposal {
   proposedDimension: string;
   rationale: string;

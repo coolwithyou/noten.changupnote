@@ -77,6 +77,12 @@ async function restoreBeforeSnapshot(
   tx: CunoteDbSession,
   before: PromotionGrantSnapshot,
 ): Promise<void> {
+  if (Object.prototype.hasOwnProperty.call(before, "authoringGuide")) {
+    await tx
+      .update(schema.grants)
+      .set({ authoringGuide: before.authoringGuide ?? null })
+      .where(eq(schema.grants.id, before.grantId));
+  }
   const currentQuestions = await tx
     .select({ id: schema.grantConfirmationQuestions.id })
     .from(schema.grantConfirmationQuestions)

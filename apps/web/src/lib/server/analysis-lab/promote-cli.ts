@@ -170,6 +170,13 @@ function createDrizzlePromotionPort(
           .where(eq(schema.grantConfirmationQuestions.grantId, plan.grantId));
         const existingQuestionModels = existingQuestions as unknown as ExistingPromotionQuestion[];
 
+        if (Object.prototype.hasOwnProperty.call(plan, "authoringGuide")) {
+          await tx
+            .update(schema.grants)
+            .set({ authoringGuide: plan.authoringGuide ?? null })
+            .where(eq(schema.grants.id, plan.grantId));
+        }
+
         const criteriaByKey = indexExistingCriteriaByStableKey(existingCriteria);
 
         const criterionIds: string[] = [];
@@ -360,17 +367,7 @@ function createDrizzlePromotionPort(
               evidence: applicationPrecompute.evidence,
               applied,
             }))
-          : {
-              schema: "analysis-lab-application-precompute-receipt-v1",
-              status: "not_applicable",
-              roundtripRunId: null,
-              materialized: 0,
-              reused: 0,
-              protected: 0,
-              terminalOnly: 0,
-              fields: 0,
-              completedAt: new Date().toISOString(),
-            };
+          : null;
         if (releaseContext) {
           const afterSnapshot = await loadPromotionGrantSnapshot(tx, plan.grantId, confirmedLinks);
           const afterSha256 = promotionGrantSnapshotStateSha256(afterSnapshot);
@@ -379,7 +376,9 @@ function createDrizzlePromotionPort(
             .set({
               afterSnapshot: afterSnapshot as unknown as Record<string, unknown>,
               afterSha256,
-              applicationPrecomputeReceipt: applicationPrecomputeReceipt as unknown as Record<string, unknown>,
+              ...(applicationPrecomputeReceipt
+                ? { applicationPrecomputeReceipt: applicationPrecomputeReceipt as unknown as Record<string, unknown> }
+                : {}),
               status: "applied",
               error: null,
               appliedAt: new Date(),

@@ -7,8 +7,6 @@ import { eq } from "drizzle-orm";
 import type { CunoteDbSession } from "@/lib/server/db/client";
 import * as schema from "@/lib/server/db/schema";
 import type { R2ObjectStorage } from "@/lib/server/storage/r2ObjectStorage";
-import { enqueueGrantApplicationPrecomputeJobs } from "@/lib/server/documents/applicationPrecomputeQueue";
-import { resolveApplicationPrecomputeWorkerPolicy } from "@/lib/server/documents/applicationPrecomputePolicy";
 import { ensureAggregateSplitCaseForSeal } from "./aggregateSplitCase";
 import { analyzeSealedDeepAnalysisInput } from "./analyzer";
 import {
@@ -48,13 +46,8 @@ import {
 } from "./validator";
 import type { DeepAnalysisWorkerPolicy } from "./workerPolicy";
 import { completeDeepAnalysisJob } from "./workerState";
-import {
-  applicationPrecomputeEnqueueExceptionEvent,
-  startPrimaryWithApplicationPrecompute,
-  type ParallelApplicationOutcome,
-} from "./parallelApplicationPrecompute";
 
-export const DEEP_ANALYSIS_PROCESSOR_VERSION = "deep-analysis-processor-v5" as const;
+export const DEEP_ANALYSIS_PROCESSOR_VERSION = "deep-analysis-processor-v6" as const;
 
 type DeepAnalysisJob = typeof schema.grantDeepAnalysisJobs.$inferSelect;
 
@@ -207,21 +200,9 @@ export async function processDeepAnalysisJob(input: {
       throw new Error(`Deep analysis input is not sealed: ${seal.blockers.map((item) => item.code).join(",")}`);
     }
 
-    // 같은 봉인 시점에 전용 Kordoc queue 등록과 22축 primary를 함께 시작한다.
-    // enqueue 실패는 별도 관제 대상이며 유효한 22축 분석을 실패시키지 않는다.
     let primary;
-    const parallel = startPrimaryWithApplicationPrecompute({
-      startApplication: async () => {
-        const policy = resolveApplicationPrecomputeWorkerPolicy();
-        return enqueueGrantApplicationPrecomputeJobs({
-          db: input.db,
-          grantId: input.job.grantId,
-          analysisVersion: policy.analysisVersion,
-          deepAnalysisRunId: run.id,
-          priority: 100,
-        });
-      },
-      startPrimary: () => analyzeSealedDeepAnalysisInput({
+    try {
+      primary = await analyzeSealedDeepAnalysisInput({
         seal,
         apiKey: input.apiKey,
         model: input.policy.primaryModel,
@@ -229,18 +210,8 @@ export async function processDeepAnalysisJob(input: {
         ...(auditRetryFeedback
           ? { taskInstruction: auditRetryFeedback.taskInstruction }
           : {}),
-      }),
-    });
-    try {
-      primary = await parallel.primary;
-    } catch (error) {
-      const applicationPrecompute = await parallel.application;
-      const applicationPrecomputeObservationError = await observeApplicationPrecomputeEnqueue({
-        db: input.db,
-        runId: run.id,
-        actor,
-        outcome: applicationPrecompute,
       });
+    } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       await appendVerifiedDeepAnalysisStageReceipt({
         ...receiptContext,
@@ -249,8 +220,6 @@ export async function processDeepAnalysisJob(input: {
         verifierVersion: DEEP_ANALYSIS_PROCESSOR_VERSION,
         evidence: {
           error: message.slice(0, 2_000),
-          applicationPrecompute,
-          applicationPrecomputeObservationError,
         },
       });
       await finishCurrentRun({
@@ -260,13 +229,6 @@ export async function processDeepAnalysisJob(input: {
       });
       throw error;
     }
-    const applicationPrecompute = await parallel.application;
-    const applicationPrecomputeObservationError = await observeApplicationPrecomputeEnqueue({
-      db: input.db,
-      runId: run.id,
-      actor,
-      outcome: applicationPrecompute,
-    });
 
     let validation = validateDeepAnalysisResult({ seal, result: primary.result });
     let validationRoute = decideDeepAnalysisValidationRoute({
@@ -364,8 +326,6 @@ export async function processDeepAnalysisJob(input: {
         usage: primary.result.usage,
         actualCostUsd: primary.result.costUsd,
         rawArtifactKey: rawArtifact.key,
-        applicationPrecompute,
-        applicationPrecomputeObservationError,
         auditRetryFeedback: auditRetryFeedbackMetadata(auditRetryFeedback),
       },
     });
@@ -724,22 +684,6 @@ export async function processDeepAnalysisJob(input: {
       }
     }
     throw error;
-  }
-}
-
-async function observeApplicationPrecomputeEnqueue(input: {
-  db: CunoteDbSession;
-  runId: string;
-  actor: string;
-  outcome: ParallelApplicationOutcome<unknown>;
-}): Promise<string | null> {
-  const event = applicationPrecomputeEnqueueExceptionEvent(input);
-  if (!event) return null;
-  try {
-    await appendDeepAnalysisExceptionEvent(input.db, event);
-    return null;
-  } catch (error) {
-    return error instanceof Error ? error.message.slice(0, 2_000) : String(error).slice(0, 2_000);
   }
 }
 

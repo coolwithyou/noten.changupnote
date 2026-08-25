@@ -40,16 +40,13 @@ const passed = evaluateProductCanaryObservation({
   promotionVerified: true,
   matchingVerified: true,
   matchingCompanyCount: 134,
-  applicationEvidencePresent: true,
+  authoringGuidePresent: true,
   connectedFieldCount: 37,
   seededAnswerCount: 3,
-  precomputeStatus: "complete",
   workspaceMode: "admin_preview",
   workspaceLadder: "a",
   activeDocumentKey: "business_plan::사업계획서::지원사업 추진계획서.hwp::1",
   draftId: null,
-  pollConversion: false,
-  recoveryNeeded: false,
 });
 assert.deepEqual(
   Object.values(passed).map((item) => item.status),
@@ -60,20 +57,17 @@ const missingFields = evaluateProductCanaryObservation({
   promotionVerified: true,
   matchingVerified: true,
   matchingCompanyCount: 134,
-  applicationEvidencePresent: true,
+  authoringGuidePresent: false,
   connectedFieldCount: 0,
   seededAnswerCount: 0,
-  precomputeStatus: "complete",
   workspaceMode: "admin_preview",
   workspaceLadder: "b",
   activeDocumentKey: "application_form::신청서::::0",
   draftId: null,
-  pollConversion: false,
-  recoveryNeeded: true,
 });
 assert.equal(missingFields.deepPromotion.status, "passed");
 assert.equal(missingFields.matchingCanary.status, "passed");
 assert.equal(missingFields.fieldMaterialization.status, "failed");
-assert.equal(missingFields.workspaceCanary.status, "failed");
+assert.equal(missingFields.workspaceCanary.status, "passed", "필드 연결이 없어도 RHWP ladder B는 제품 경로로 통과한다");
 
 console.log("product canary observation tests: ok");

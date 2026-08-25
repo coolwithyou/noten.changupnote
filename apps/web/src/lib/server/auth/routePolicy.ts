@@ -118,7 +118,6 @@ export const SESSION_WEB_ROUTES = [
   "POST /api/web/document-drafts/[draftId]/download",
   "PATCH /api/web/document-drafts/[draftId]",
   "PATCH /api/web/document-drafts/[draftId]/field-answers",
-  "POST /api/web/document-drafts/[draftId]/field-analysis",
   "POST /api/web/document-drafts/[draftId]/studio-snapshots",
   "POST /api/web/document-drafts/[draftId]/regenerate",
   "POST /api/web/document-drafts/[draftId]/feedback",

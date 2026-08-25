@@ -3,6 +3,11 @@ import { and, desc, eq, inArray, isNotNull, isNull } from "drizzle-orm";
 import type { DocumentEditCandidate } from "@/lib/rhwp/documentAgentContract";
 import { canonicalJson } from "@/lib/rhwp/documentAgentContract";
 import { resolvePromotionServingEvidence } from "../analysis-lab/promotion-serving";
+import {
+  authoringGuideMatchesSource,
+  formatGrantAuthoringGuide,
+  isGrantAuthoringGuideV1,
+} from "../analysis-lab/authoring-guide";
 import { validatePromotionReleaseManifest } from "../analysis-lab/promotion-release";
 import {
   loadPromotionGrantSnapshot,
@@ -104,7 +109,7 @@ export async function buildDocumentAgentGrounding(input: {
   };
 }
 
-async function loadVerifiedDeepSources(grantId: string): Promise<{
+export async function loadVerifiedDeepSources(grantId: string): Promise<{
   sources: DocumentAgentGroundingSource[];
   provenance: Record<string, unknown>;
 }> {
@@ -230,6 +235,37 @@ async function loadVerifiedDeepSources(grantId: string): Promise<{
     sourceIdCounts.set(source.sourceId, (sourceIdCounts.get(source.sourceId) ?? 0) + 1);
   }
   const sources = candidates.filter((source) => sourceIdCounts.get(source.sourceId) === 1);
+  let authoringGuideStatus: "verified" | "unavailable" | "binding_mismatch" = "unavailable";
+  if (isGrantAuthoringGuideV1(snapshot.authoringGuide)) {
+    const expectedInputSha256 = artifact.inputSha256 ?? artifact.localLabEvidence?.inputSha256 ?? null;
+    const expectedAttachmentManifestSha256 = artifact.localLabEvidence?.deepRepair?.attachmentManifestSha256 ?? null;
+    const guide = snapshot.authoringGuide;
+    const guideBound = authoringGuideMatchesSource({
+      guide,
+      runId: newest.runId,
+      inputSha256: expectedInputSha256,
+      sourceRevisionSha256,
+      attachmentManifestSha256: expectedAttachmentManifestSha256,
+    });
+    if (guideBound) {
+      const content = formatGrantAuthoringGuide(guide);
+      sources.push(makeSource({
+        sourceId: `deep_analysis:authoring_guide:${sha256(content)}`,
+        kind: "verified_deep",
+        title: "검증된 공고 작성 가이드",
+        content,
+        provenance: {
+          runId: guide.source.runId,
+          inputSha256: guide.source.inputSha256,
+          sourceRevisionSha256: guide.source.sourceRevisionSha256,
+          attachmentManifestSha256: guide.source.attachmentManifestSha256,
+        },
+      }));
+      authoringGuideStatus = "verified";
+    } else {
+      authoringGuideStatus = "binding_mismatch";
+    }
+  }
   return {
     sources,
     provenance: {
@@ -247,6 +283,7 @@ async function loadVerifiedDeepSources(grantId: string): Promise<{
       promotionStateSha256: currentSha256,
       servingKind: evidence.kind,
       sourceRevisionSha256,
+      authoringGuideStatus,
     },
   };
 }

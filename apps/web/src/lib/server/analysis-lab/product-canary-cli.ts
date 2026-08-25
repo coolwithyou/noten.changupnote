@@ -97,16 +97,13 @@ async function main(): Promise<number> {
       && shadow.guardIssues.length === 0
       && shadow.grants.some((item) => item.grantId === options.grantId),
     matchingCompanyCount: shadow.companyCount,
-    applicationEvidencePresent: Boolean(source.applicationPrecompute),
+    authoringGuidePresent: Boolean(plan.promotionPlan.authoringGuide),
     connectedFieldCount: workspace.connectedFields.length,
     seededAnswerCount: Object.keys(workspace.fieldAnswers).length,
-    precomputeStatus: workspace.applicationPrecomputeStatus,
     workspaceMode: workspace.execution.mode,
     workspaceLadder: workspace.ladder,
     activeDocumentKey: workspace.activeDocumentKey,
     draftId: workspace.draftId,
-    pollConversion: workspace.pollConversion,
-    recoveryNeeded: workspace.fieldAnalysisRecoveryNeeded,
   });
   const evidence: ProductCanaryEvidence = {
     schema: PRODUCT_CANARY_EVIDENCE_SCHEMA,

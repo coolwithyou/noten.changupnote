@@ -8,7 +8,7 @@ import {
 } from "./launch-batch-production";
 
 const SHA256 = /^[a-f0-9]{64}$/;
-const USAGE = `pnpm lab:launch:prepare -- --series=deep-v24 --sequences=0-29 --concurrency=2 --with-kordoc
+const USAGE = `pnpm lab:launch:prepare -- --series=deep-v24 --sequences=0-29 --concurrency=2
 pnpm lab:launch:grant -- --manifest=<sha256> --approved-by=<actor>
 pnpm lab:launch -- --grant=<sha256> [--retry-errors]`;
 
@@ -22,8 +22,6 @@ export type AnalysisLaunchCliArgs =
       readonly sequenceFrom: number;
       readonly sequenceTo: number;
       readonly concurrency: number;
-      readonly withKordoc: boolean;
-      readonly roundtripModel?: string;
     }
   | { readonly kind: "grant"; readonly manifestSha256: string; readonly approvedBy: string }
   | { readonly kind: "run"; readonly grantSha256: string; readonly retryErrors: boolean };
@@ -50,22 +48,19 @@ export function parseAnalysisLaunchCliArgs(
     values.set(key, value);
   }
   if (command === "prepare") {
-    const allowedValues = new Set(["--series", "--sequences", "--concurrency", "--roundtrip-model"]);
-    if ([...values.keys()].some((key) => !allowedValues.has(key)) || [...flags].some((key) => key !== "--with-kordoc")) {
+    const allowedValues = new Set(["--series", "--sequences", "--concurrency"]);
+    if ([...values.keys()].some((key) => !allowedValues.has(key)) || flags.size > 0) {
       throw usageError();
     }
     const seriesId = values.get("--series");
     const range = values.get("--sequences")?.match(/^(\d+)-(\d+)$/);
     const concurrency = Number(values.get("--concurrency") ?? "2");
-    const withKordoc = flags.has("--with-kordoc");
-    const roundtripModel = values.get("--roundtrip-model");
     if (
       !seriesId
       || !range
       || !Number.isInteger(concurrency)
       || concurrency < 1
       || concurrency > 4
-      || (!withKordoc && roundtripModel !== undefined)
     ) throw usageError();
     const sequenceFrom = Number(range[1]);
     const sequenceTo = Number(range[2]);
@@ -76,8 +71,6 @@ export function parseAnalysisLaunchCliArgs(
       sequenceFrom,
       sequenceTo,
       concurrency,
-      withKordoc,
-      ...(roundtripModel ? { roundtripModel } : {}),
     };
   }
   if (command === "grant") {
@@ -109,8 +102,7 @@ async function main(command: Command, argv: readonly string[]): Promise<void> {
         seriesId: parsed.seriesId,
         sequenceFrom: parsed.sequenceFrom,
         sequenceTo: parsed.sequenceTo,
-        withApplicationRoundtrip: parsed.withKordoc,
-        ...(parsed.roundtripModel ? { roundtripModel: parsed.roundtripModel } : {}),
+        withApplicationRoundtrip: false,
         concurrency: parsed.concurrency,
       });
       console.log(JSON.stringify({

@@ -1,4 +1,5 @@
 import { sql } from "drizzle-orm";
+import type { GrantAuthoringGuideV1 } from "@cunote/contracts";
 import {
   type AnyPgColumn,
   bigint,
@@ -765,6 +766,8 @@ export const grants = pgTable("grants", {
   modelVer: text("model_ver"),
   promptVer: text("prompt_ver"),
   parserVersion: text("parser_version"),
+  /** 검증된 딥분석 release가 발행한 서비스 작성 가이드. 매칭 hard condition을 대체하지 않는다. */
+  authoringGuide: jsonb("authoring_guide").$type<GrantAuthoringGuideV1>(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 }, (table) => ({
   sourceIdIdx: uniqueIndex("grants_source_id_idx").on(table.source, table.sourceId),

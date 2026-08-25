@@ -150,16 +150,17 @@ const badgeSource = await readFile(
   new URL("../../components/ui/badge.tsx", import.meta.url),
   "utf8",
 );
-for (const filterName of ["status", "deep", "transport", "kordoc", "quick", "attachments"]) {
+for (const filterName of ["status", "deep", "transport", "attachments"]) {
   assert.match(pageSource, new RegExp(`<FilterSelect name="${filterName}"`));
 }
+assert.doesNotMatch(pageSource, /<FilterSelect name="(?:kordoc|quick)"/);
 assert.match(pageSource, /<Suspense fallback=\{<GrantSimulationResultsSkeleton \/>\}>/);
 assert.match(pageSource, /<GrantListCard key=/);
 assert.match(pageSource, /<CardFooter className="justify-between gap-3">/);
-assert.match(pageSource, /aria-label="딥분석, Kordoc 분석, 빠른 작성 상태"/);
+assert.match(pageSource, /aria-label="딥분석과 RHWP 문서 상태"/);
 assert.match(pageSource, /deepAnalysisStatusLabel\(item\.deepAnalysis\.status, true\)/);
-assert.match(pageSource, /kordocStatusLabel\(item\.kordoc\.status, true\)/);
-assert.match(pageSource, /<QuickWritingStatusBadge item=\{item\} includeCategory \/>/);
+assert.doesNotMatch(pageSource, /kordocStatusLabel|Kordoc/);
+assert.match(pageSource, /<RhwpWritingStatusBadge item=\{item\} includeCategory \/>/);
 assert.doesNotMatch(pageSource, /<Table>/);
 assert.match(pageSource, /<DropdownMenu>/);
 assert.match(pageSource, /density="compact"/);

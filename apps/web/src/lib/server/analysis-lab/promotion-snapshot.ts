@@ -1,4 +1,5 @@
 import { eq } from "drizzle-orm";
+import type { GrantAuthoringGuideV1 } from "@cunote/contracts";
 import type { CunoteDbSession } from "../db/client";
 import * as schema from "../db/schema";
 import {
@@ -53,6 +54,8 @@ export interface PromotionAnswerBindingSnapshot {
 
 export interface PromotionGrantSnapshot {
   grantId: string;
+  /** 과거 snapshot에는 키 자체가 없으므로 optional로 읽고 신규 snapshot은 항상 기록한다. */
+  authoringGuide?: GrantAuthoringGuideV1 | null;
   criteria: PromotionCriterionSnapshot[];
   questions: PromotionQuestionSnapshot[];
   answerBindings: PromotionAnswerBindingSnapshot[];
@@ -88,18 +91,33 @@ export async function loadPromotionGrantSnapshot(
       `${left.canonicalGrantId}:${left.memberGrantId}`
         .localeCompare(`${right.canonicalGrantId}:${right.memberGrantId}`));
 
-  const criterionRows = await db
-    .select()
-    .from(schema.grantCriteria)
-    .where(eq(schema.grantCriteria.grantId, grantId));
+  const [grantRows, criterionRows, questionRows, answerRows] = await Promise.all([
+    db
+      .select({ authoringGuide: schema.grants.authoringGuide })
+      .from(schema.grants)
+      .where(eq(schema.grants.id, grantId))
+      .limit(1),
+    db
+      .select()
+      .from(schema.grantCriteria)
+      .where(eq(schema.grantCriteria.grantId, grantId)),
+    db
+      .select()
+      .from(schema.grantConfirmationQuestions)
+      .where(eq(schema.grantConfirmationQuestions.grantId, grantId)),
+    db
+      .select({
+        companyId: schema.companyGrantConfirmations.companyId,
+        questionId: schema.companyGrantConfirmations.questionId,
+      })
+      .from(schema.companyGrantConfirmations)
+      .where(eq(schema.companyGrantConfirmations.grantId, grantId)),
+  ]);
+  const authoringGuide = grantRows[0]?.authoringGuide ?? null;
   const criteria = criterionRows
     .map((row): PromotionCriterionSnapshot => ({ ...row }))
     .sort((left, right) => left.id.localeCompare(right.id));
 
-  const questionRows = await db
-    .select()
-    .from(schema.grantConfirmationQuestions)
-    .where(eq(schema.grantConfirmationQuestions.grantId, grantId));
   const questions = questionRows
     .map((row): PromotionQuestionSnapshot => ({
       ...row,
@@ -108,13 +126,6 @@ export async function loadPromotionGrantSnapshot(
     }))
     .sort((left, right) => left.id.localeCompare(right.id));
 
-  const answerRows = await db
-    .select({
-      companyId: schema.companyGrantConfirmations.companyId,
-      questionId: schema.companyGrantConfirmations.questionId,
-    })
-    .from(schema.companyGrantConfirmations)
-    .where(eq(schema.companyGrantConfirmations.grantId, grantId));
   const answerIdentitiesByQuestion = new Map<string, string[]>();
   for (const row of answerRows) {
     const identities = answerIdentitiesByQuestion.get(row.questionId) ?? [];
@@ -131,6 +142,7 @@ export async function loadPromotionGrantSnapshot(
 
   return {
     grantId,
+    authoringGuide,
     criteria,
     questions,
     answerBindings,
@@ -154,6 +166,9 @@ export function promotionGrantSnapshotHashes(
     dedupComponentSha256,
     snapshotSha256: sha256Canonical({
       grantId: snapshot.grantId,
+      ...(snapshot.authoringGuide
+        ? { authoringGuide: snapshot.authoringGuide }
+        : {}),
       criteriaSha256,
       questionsSha256,
       dedupComponentSha256,
@@ -170,6 +185,9 @@ export function promotionGrantSnapshotStateSha256(
 ): string {
   return sha256Canonical({
     grantId: snapshot.grantId,
+    ...(snapshot.authoringGuide
+      ? { authoringGuide: snapshot.authoringGuide }
+      : {}),
     criteria: snapshot.criteria,
     activeQuestions: snapshot.questions.filter((question) => question.invalidatedAt === null),
     dedupComponentGrantIds: snapshot.dedupComponentGrantIds,

@@ -199,6 +199,7 @@ function makeStoredGrantRow(overrides: Partial<StoredGrantRow> = {}): StoredGran
     fRequiredCerts: [],
     fApplyMethods: ["online"],
     fAuthoringMode: "unknown",
+    authoringGuide: null,
     embedding: null,
     overallConfidence: 0.5,
     modelVer: null,

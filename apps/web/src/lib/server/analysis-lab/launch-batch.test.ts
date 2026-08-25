@@ -154,15 +154,18 @@ test("launch CLI는 prepare/grant/run의 권한 단계를 분리한다", () => {
     "--series=deep-v24",
     "--sequences=10-29",
     "--concurrency=2",
-    "--with-kordoc",
   ]), {
     kind: "prepare",
     seriesId: "deep-v24",
     sequenceFrom: 10,
     sequenceTo: 29,
     concurrency: 2,
-    withKordoc: true,
   });
+  assert.throws(() => parseAnalysisLaunchCliArgs("prepare", [
+    "--series=deep-v24",
+    "--sequences=10-29",
+    "--with-kordoc",
+  ]));
   assert.equal(parseAnalysisLaunchCliArgs("grant", [
     `--manifest=${SHA_A}`,
     "--approved-by=operator",

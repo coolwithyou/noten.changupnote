@@ -26,12 +26,14 @@
 
 ## 현재 구현 핸드오프
 
+- [Kordoc 선분석에서 RHWP 실시간 작성 가이드로 전환](./plans/2026-08-25-kordoc-rhwp-목표구조-전환.md) — 공고 분석의 verified authoring guide 발행과 draft/revision 단위 RHWP 편집을 독립 seam으로 만드는 목표 구조·단계·검증 정본
+- [공고 딥분석과 RHWP 작성 가이드 운영 가이드](./guides/deep-analysis-and-rhwp-authoring-guide-operations.md) — 현재 공고 분석·authoring guide 발행·RHWP 사용자 요청형 LLM 작성·비용/운영 경계
 - [지원서 작성 워크스페이스 디자인 핸드오프](./design/2026-08-21-apply-workspace-design-handoff/) — 데스크톱·모바일 화면 7종과 필드 도우미, 큰 대화 모달, Markdown 스트리밍, exact 필드 적용의 디자인 기능 가이드
-- [딥분석과 공고 첨부파일 선분석 운영 가이드](./guides/deep-analysis-and-application-precompute-operations.md) — 공고 수집부터 22축 매칭·Kordoc 빠른 작성까지의 실제 트리거, 산출물, 실패 경계와 운영 화면
-- [반복형 구독 분석 에이전트 운용법](./explainers/구독모델로-딥분석-돌리는-법.md#3-2-반복형-분석-에이전트-권장-사용법) — 신규 모집 공고 선정부터 딥분석·Kordoc·독립 검수·감사·원인별 보정을 한 명령으로 반복 실행
+- [딥분석과 공고 첨부파일 선분석 운영 가이드](./guides/deep-analysis-and-application-precompute-operations.md) — 2026-08-05 Kordoc 구조의 역사 스냅샷
+- [구독 딥분석 운용법](./explainers/구독모델로-딥분석-돌리는-법.md#3-0-정식-런칭-batch--현재-정본) — 신규 launch의 딥분석 실행과 과거 Kordoc 이력 해석 경계
 - [딥분석 실행 모드 제어 설계](./architecture/deep-analysis-execution-mode-control.md) — 운영 API 자동화와 로컬 구독 분석을 상호배제하는 `paused / production_api / local_subscription` 제어 정본
 - [딥분석 실행 모드 제어 상세 구현 계획](./plans/2026-08-05-deep-analysis-runtime-control.md) — DB 게이트, ops 스위치, 로컬 lease, 검증·배포 순서의 현재 실행 정본
-- [딥분석·Kordoc 분석 계층 전체 재구축 Runbook](./runbooks/deep-analysis-layer-rebuild.md) — 런칭 전 구버전 분석 projection을 백업·dry-run·해시 확인 후 fresh-start하는 실행 정본
+- [딥분석·Kordoc 분석 계층 전체 재구축 Runbook](./runbooks/deep-analysis-layer-rebuild.md) — 과거 분석 projection 재해복구용 역사 runbook
 - [필드 인식 문서 편집 AI 에이전트 실행 계획](./plans/2026-08-19-field-aware-document-editor-agent.md) — 완전한 rhwp Studio 옆에서 필드를 인식하고 근거 기반 제안·명시 선택·exact 자동 입력·revision 저장을 연결하는 현재 제품 정본
 - [rhwp 필드 에이전트 워크스페이스 상세 구현 계획](./plans/2026-07-22-rhwp-field-agent-workspace.md) — field anchor·Studio·revision 기반과 과거 빠른 작성↔Studio 전환 구현 기록
 - [RHWP Studio 임베드 실화면 검증 시나리오](./plans/2026-08-22-rhwp-studio-embed-실화면-검증-시나리오.md) — Codex Desktop에서 HWP/HWPX 실문서로 밝은 플랫 테마, 임베드 메뉴, 제품 정보 접근성을 증거 기반으로 판정하는 읽기 전용 런북

@@ -324,41 +324,6 @@ export function PipelinePageView({
         </AlertDescription>
       </Alert>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>지원 바이너리 선분석</CardTitle>
-          <CardDescription>
-            HWP/HWPX 빠른 작성 필드를 사용자 접근 전에 준비하는 별도 Kordoc 큐입니다.
-          </CardDescription>
-          <CardAction>
-            <Badge variant={summary.applicationPrecompute.needsAttention > 0 ? "destructive" : "outline"}>
-              {summary.applicationPrecompute.needsAttention > 0
-                ? `확인 ${summary.applicationPrecompute.needsAttention}건`
-                : "오류 없음"}
-            </Badge>
-          </CardAction>
-        </CardHeader>
-        <CardContent className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-          <PrecomputeMetric label="대기·재시도" value={summary.applicationPrecompute.queued} />
-          <PrecomputeMetric label="실행 중" value={summary.applicationPrecompute.running} />
-          <PrecomputeMetric label="완료" value={summary.applicationPrecompute.succeeded} />
-          <PrecomputeMetric label="생성 필드" value={summary.applicationPrecompute.fieldCount} />
-          <div className="rounded-lg border p-3">
-            <p className="text-xs text-muted-foreground">비용 · worker</p>
-            <p className="mt-1 font-medium tabular-nums">
-              {summary.applicationPrecompute.costUsd === null
-                ? "비용 미집계"
-                : `$${summary.applicationPrecompute.costUsd.toFixed(4)}`}
-            </p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              {summary.applicationPrecompute.workerStale
-                ? "worker 미기동·지연"
-                : summary.applicationPrecompute.workerStatus ?? "worker 미기동"}
-            </p>
-          </div>
-        </CardContent>
-      </Card>
-
       <section className="grid gap-4 md:grid-cols-3">
         {summary.sources.map((source) => (
           <Card key={source.source}>
@@ -711,15 +676,6 @@ export function PipelinePageView({
         </AlertDialogContent>
       </AlertDialog>
     </main>
-  )
-}
-
-function PrecomputeMetric({ label, value }: { label: string; value: number }) {
-  return (
-    <div className="rounded-lg border p-3">
-      <p className="text-xs text-muted-foreground">{label}</p>
-      <p className="mt-1 text-xl font-semibold tabular-nums">{value.toLocaleString("ko-KR")}</p>
-    </div>
   )
 }
 

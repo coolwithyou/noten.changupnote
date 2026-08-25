@@ -97,8 +97,6 @@ const data: WorkspaceData = {
   initialDrafts: [],
   pollConversion: false,
   honestNotice: null,
-  applicationPrecomputeStatus: "complete",
-  fieldAnalysisRecoveryNeeded: false,
 };
 
 const html = renderToStaticMarkup(
@@ -204,25 +202,24 @@ assert.equal(
   "통합 문서 편집 화면에는 폐기한 빠른 작성 안내를 노출하면 안 됩니다.",
 );
 
-// current terminal 선분석은 무한 재분석처럼 보이지 않고 직접 편집으로 이어져야 한다.
-const reviewRequiredHtml = renderToStaticMarkup(
+// 필드 연결이 없어도 선분석을 기다리지 않고 RHWP 직접 편집으로 이어져야 한다.
+const directRhwpHtml = renderToStaticMarkup(
   <AppRouterContext.Provider value={router}>
     <WorkspaceView
       data={{
         ...data,
         ladder: "b",
-        applicationPrecomputeStatus: "review_required",
-        fieldAnalysisRecoveryNeeded: false,
-        honestNotice: "자동으로 위치를 확정하기 어려운 항목이 있습니다.",
+        connectedFields: [],
+        honestNotice: null,
       }}
       greeting={{ text: "지원서 작성을 도와드릴게요.", generalNotice: true }}
       institutionContact={null}
     />
   </AppRouterContext.Provider>,
 );
-assert.equal(reviewRequiredHtml.includes("작성 항목을 분석하고 있습니다"), false);
-assert.ok(reviewRequiredHtml.includes("원본 문서에서 확인할 항목이 있습니다"));
-assert.ok(reviewRequiredHtml.includes("문서 직접 편집"));
+assert.equal(directRhwpHtml.includes("작성 항목을 분석하고 있습니다"), false);
+assert.ok(directRhwpHtml.includes("원본 문서에서 바로 작성할 수 있습니다"));
+assert.ok(directRhwpHtml.includes("RHWP로 문서 열기"));
 
 // 승인된 값은 프리뷰 오버레이 안에 실제 기입처럼 렌더돼야 한다.
 const confirmedValue = "주식회사 창업노트";
@@ -339,7 +336,6 @@ const adminPendingHtml = renderToStaticMarkup(
           reviewerEmail: "admin@noten.im",
         },
         ladder: "b",
-        applicationPrecomputeStatus: null,
         connectedFields: [],
       }}
       greeting={{ text: "지원서 작성을 도와드릴게요.", generalNotice: true }}
@@ -352,6 +348,7 @@ assert.equal(
   false,
   "읽기 전용 관리 화면은 실행 중인 분석이 없는데 무한 분석 중으로 표시하면 안 됩니다.",
 );
-assert.ok(adminPendingHtml.includes("빠른 작성 결과가 아직 연결되지 않았습니다"));
+assert.ok(adminPendingHtml.includes("원본 문서에서 바로 작성할 수 있습니다"));
+assert.ok(adminPendingHtml.includes("RHWP로 문서 열기"));
 
 console.log("WorkspaceView grant UUID render regression passed");

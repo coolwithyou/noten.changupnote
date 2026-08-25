@@ -41,6 +41,7 @@ import {
 } from "./documentFieldLink";
 import { normalizeAnswerLabel, normalizeAnswerValue } from "./fieldAnswers";
 import { beginGenerativeUsage, finalizeGenerativeUsage } from "./generativeUsage";
+import { loadVerifiedDeepSources } from "./documentAgentGrounding";
 
 const DEFAULT_DRAFT_MODEL = "claude-sonnet-4-6"; // ADR-7 — env CHAT_DRAFT_MODEL 로 오버라이드.
 const MAX_LABELS = 10; // §7.4 labels ≤ 10개/호출.
@@ -116,6 +117,7 @@ function buildSuggestSystemPrompt(): string {
     "- 사용자가 작성한 원문이 있으면 그 원문의 사실·수치·고유명사·의미를 그대로 유지합니다.",
     "- 사용자 원문에 없는 회사 실적·고객·인증·수치·사업 현황을 새로 만들거나 추측하지 않습니다.",
     "- 공고에 어울리는 문장 구조, 명료성, 설득력, 연결 표현만 보강합니다.",
+    "- 검증된 공고 작성 가이드는 작성 방향을 위한 조언입니다. 회사 사실·수치·실적의 근거로 사용하지 않습니다.",
     "- 정보가 부족한 부분은 임의로 채우지 않습니다.",
     "",
     "[문서 반영 준비도]",
@@ -438,15 +440,24 @@ export async function generateFieldSuggestions(input: {
 
   // 그라운딩(citations 비활성 변형 — structured output 병행, ADR-3). frontmatter 절단·본문성 선택·
   // 토큰 캡·cache_control 은 §7.3 그대로 재사용.
-  const grounding = await buildGrantGrounding({
-    grantId: draft.grantId,
-    companyId: input.access.companyId,
-    disableCitations: true,
-  });
+  const [grounding, deep] = await Promise.all([
+    buildGrantGrounding({
+      grantId: draft.grantId,
+      companyId: input.access.companyId,
+      disableCitations: true,
+    }),
+    loadVerifiedDeepSources(draft.grantId),
+  ]);
+  const authoringGuideSources = deep.sources.filter((source) =>
+    source.sourceId.startsWith("deep_analysis:authoring_guide:"));
   const groundingCorpus = decodeGroundingCorpus(grounding.documents);
   const groundingBindingSha256 = createHash("sha256").update(JSON.stringify({
     documents: grounding.documents,
     dynamicContext: grounding.dynamicContext,
+    authoringGuides: authoringGuideSources.map((source) => ({
+      sourceId: source.sourceId,
+      sha256: source.sha256,
+    })),
   })).digest("hex");
 
   const model = fieldSuggestModel();
@@ -464,6 +475,9 @@ export async function generateFieldSuggestions(input: {
   ];
   if (grounding.dynamicContext.trim()) {
     userParts.push({ type: "text", text: grounding.dynamicContext });
+  }
+  for (const source of authoringGuideSources) {
+    userParts.push({ type: "text", text: source.content });
   }
   userParts.push({
     type: "text",
