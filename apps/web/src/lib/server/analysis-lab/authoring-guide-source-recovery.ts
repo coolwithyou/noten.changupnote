@@ -174,6 +174,109 @@ export function hashAuthoringGuideSourceRecoveryManifest(
   return createHash("sha256").update(encodeAuthoringGuideSourceRecoveryManifest(manifest)).digest("hex");
 }
 
+export function assertAuthoringGuideSourceRecoveryManifest(
+  manifest: AuthoringGuideSourceRecoveryManifest,
+): AuthoringGuideSourceRecoveryManifest {
+  if (
+    manifest.schema !== AUTHORING_GUIDE_SOURCE_RECOVERY_SCHEMA
+    || manifest.generatorVersion !== AUTHORING_GUIDE_SOURCE_RECOVERY_GENERATOR_VERSION
+    || manifest.execution.mode !== "prepare_only"
+    || manifest.execution.maxRounds !== 3
+    || manifest.execution.maxTargetsPerSourcePerRound !== 20
+    || manifest.execution.archiveFetchTimeoutMs !== 30_000
+    || manifest.execution.archiveMaxEntries !== 20
+    || manifest.execution.reprocessMissingMarkdown !== true
+    || manifest.execution.externalLlmCallsAuthorized !== false
+    || manifest.execution.analysisJobsAuthorized !== false
+    || manifest.execution.databaseWritesAuthorized !== false
+    || manifest.execution.objectStorageWritesAuthorized !== false
+    || manifest.execution.liveExecutionAuthorized !== false
+    || manifest.execution.readyForExactWriteGrant !== true
+    || !Object.values(manifest.runtimeReadiness).every((value) => value === true)
+  ) {
+    throw new Error("source recovery manifest 실행 계약이 잘못됐습니다.");
+  }
+  requireSha(manifest.source.adoptionManifestSha256, "source.adoptionManifestSha256");
+  if (!/^\d{4}-\d{2}-\d{2}$/u.test(manifest.source.adoptionAsOfKst)) {
+    throw new Error("source recovery adoptionAsOfKst가 잘못됐습니다.");
+  }
+  if (!Number.isFinite(Date.parse(manifest.preparedAt))) {
+    throw new Error("source recovery preparedAt이 잘못됐습니다.");
+  }
+  if (
+    manifest.targets.length < 1
+    || manifest.targets.length !== manifest.summary.targetCount
+    || new Set(manifest.targets.map((target) => target.grantId)).size !== manifest.targets.length
+  ) {
+    throw new Error("source recovery target 수 또는 grantId 결속이 잘못됐습니다.");
+  }
+  manifest.targets.forEach((target, sequence) => {
+    if (target.sequence !== sequence) throw new Error("source recovery sequence가 연속적이지 않습니다.");
+    requireSha(target.current.sourceRevisionSha256, `${target.grantId}.sourceRevisionSha256`);
+    requireSha(target.current.operationalInputSha256, `${target.grantId}.operationalInputSha256`);
+    requireSha(
+      target.current.operationalAttachmentManifestSha256,
+      `${target.grantId}.operationalAttachmentManifestSha256`,
+    );
+    if (target.source !== "kstartup" && target.source !== "bizinfo") {
+      throw new Error(`source recovery source가 잘못됐습니다: ${target.grantId}`);
+    }
+    const blockers = normalizedRecoveryBlockers(target.blockers, target.grantId);
+    if (target.blockersSha256 !== sha256Canonical(blockers)) {
+      throw new Error(`source recovery blocker SHA가 잘못됐습니다: ${target.grantId}`);
+    }
+    const expectedActions = [
+      ...(blockers.some((blocker) => blocker.code === "blocked_fetch")
+        ? ["archive_refetch" as const]
+        : []),
+      ...(blockers.some((blocker) => blocker.code === "blocked_conversion")
+        ? ["conversion_retry" as const]
+        : []),
+    ];
+    if (canonicalJson(target.recoveryActions) !== canonicalJson(expectedActions)) {
+      throw new Error(`source recovery action 결속이 잘못됐습니다: ${target.grantId}`);
+    }
+    const material = recoveryTargetMaterial(target);
+    if (target.targetSha256 !== sha256Canonical(material)) {
+      throw new Error(`source recovery target SHA가 잘못됐습니다: ${target.grantId}`);
+    }
+  });
+  const expectedSummary = {
+    targetCount: manifest.targets.length,
+    targetsBySource: {
+      kstartup: manifest.targets.filter((target) => target.source === "kstartup").length,
+      bizinfo: manifest.targets.filter((target) => target.source === "bizinfo").length,
+    },
+    blockerCount: manifest.targets.reduce((total, target) => total + target.blockers.length, 0),
+    blockersByCode: {
+      blocked_fetch: manifest.targets.reduce(
+        (total, target) => total + target.blockers.filter((blocker) => blocker.code === "blocked_fetch").length,
+        0,
+      ),
+      blocked_conversion: manifest.targets.reduce(
+        (total, target) => total + target.blockers.filter((blocker) => blocker.code === "blocked_conversion").length,
+        0,
+      ),
+    },
+    reclassifyAfterRecovery: manifest.targets.filter(
+      (target) => target.nextActionAfterRecovery === "reclassify_adoption",
+    ).length,
+    prepareRerunAfterRecovery: manifest.targets.filter(
+      (target) => target.nextActionAfterRecovery === "prepare_rerun_manifest",
+    ).length,
+  };
+  if (canonicalJson(manifest.summary) !== canonicalJson(expectedSummary)) {
+    throw new Error("source recovery summary 결속이 잘못됐습니다.");
+  }
+  return manifest;
+}
+
+export function hashAuthoringGuideSourceRecoveryBlockers(
+  blockers: AuthoringGuideSourceRecoveryTarget["blockers"],
+): string {
+  return sha256Canonical(normalizedRecoveryBlockers(blockers, "current"));
+}
+
 function recoveryTarget(
   item: AuthoringGuideAdoptionManifestItem,
   sequence: number,
@@ -196,21 +299,7 @@ function recoveryTarget(
     item.current.operationalAttachmentManifestSha256,
     `${item.grantId}.operationalAttachmentManifestSha256`,
   );
-  const blockers = item.current.sourceBlockers.map((blocker) => {
-    if (blocker.code !== "blocked_fetch" && blocker.code !== "blocked_conversion") {
-      throw new Error(`자동 복구를 지원하지 않는 blocker입니다: ${item.grantId}:${blocker.code}`);
-    }
-    return Object.freeze({
-      code: blocker.code,
-      attachmentId: blocker.attachmentId,
-      message: blocker.message,
-    });
-  }).sort((left, right) => (
-    `${left.code}:${left.attachmentId ?? ""}:${left.message}`.localeCompare(
-      `${right.code}:${right.attachmentId ?? ""}:${right.message}`,
-      "en",
-    )
-  ));
+  const blockers = normalizedRecoveryBlockers(item.current.sourceBlockers, item.grantId);
   const blockersSha256 = sha256Canonical(blockers);
   const material = {
     sequence,
@@ -250,6 +339,46 @@ function recoveryTarget(
     blockersSha256,
     targetSha256: sha256Canonical(material),
   });
+}
+
+function normalizedRecoveryBlockers(
+  sourceBlockers: readonly { readonly code: string; readonly attachmentId: string | null; readonly message: string }[],
+  grantId: string,
+): Array<{
+  readonly code: "blocked_fetch" | "blocked_conversion";
+  readonly attachmentId: string | null;
+  readonly message: string;
+}> {
+  const blockers = sourceBlockers.map((blocker) => {
+    if (blocker.code !== "blocked_fetch" && blocker.code !== "blocked_conversion") {
+      throw new Error(`자동 복구를 지원하지 않는 blocker입니다: ${grantId}:${blocker.code}`);
+    }
+    return Object.freeze({
+      code: blocker.code,
+      attachmentId: blocker.attachmentId,
+      message: blocker.message,
+    });
+  }).sort((left, right) => (
+    `${left.code}:${left.attachmentId ?? ""}:${left.message}`.localeCompare(
+      `${right.code}:${right.attachmentId ?? ""}:${right.message}`,
+      "en",
+    )
+  ));
+  return blockers;
+}
+
+function recoveryTargetMaterial(target: AuthoringGuideSourceRecoveryTarget): object {
+  return {
+    sequence: target.sequence,
+    grantId: target.grantId,
+    source: target.source,
+    sourceId: target.sourceId,
+    adoptionDisposition: target.adoptionDisposition,
+    sourceRevisionSha256: target.current.sourceRevisionSha256,
+    operationalInputSha256: target.current.operationalInputSha256,
+    operationalAttachmentManifestSha256: target.current.operationalAttachmentManifestSha256,
+    blockersSha256: target.blockersSha256,
+  };
 }
 
 function assertAdoptionManifestSource(manifest: AuthoringGuideAdoptionManifest): void {

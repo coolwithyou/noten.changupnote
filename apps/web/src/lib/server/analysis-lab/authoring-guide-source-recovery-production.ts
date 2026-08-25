@@ -9,6 +9,7 @@ import {
   authoringGuideAdoptionManifestPath,
 } from "./authoring-guide-adoption-production";
 import {
+  assertAuthoringGuideSourceRecoveryManifest,
   createAuthoringGuideSourceRecoveryManifest,
   encodeAuthoringGuideSourceRecoveryManifest,
   type AuthoringGuideSourceRecoveryManifest,
@@ -36,6 +37,21 @@ export async function prepareAuthoringGuideSourceRecovery(input: {
     runtimeReadiness: input.runtimeReadiness,
     preparedAt: input.preparedAt ?? new Date(),
   });
+}
+
+export async function readAuthoringGuideSourceRecoveryManifest(
+  sha256: string,
+  repositoryRoot = findMonorepoRoot(),
+): Promise<AuthoringGuideSourceRecoveryManifest> {
+  if (!SHA256.test(sha256)) throw new Error(`허용되지 않는 recovery manifest SHA: ${sha256}`);
+  const bytes = await readFile(authoringGuideSourceRecoveryManifestPath(sha256, repositoryRoot));
+  const actualSha256 = createHash("sha256").update(bytes).digest("hex");
+  if (actualSha256 !== sha256) throw new Error("recovery manifest 파일 SHA가 ID와 다릅니다.");
+  const manifest = JSON.parse(bytes.toString("utf8")) as AuthoringGuideSourceRecoveryManifest;
+  if (Buffer.compare(bytes, encodeAuthoringGuideSourceRecoveryManifest(manifest)) !== 0) {
+    throw new Error("recovery manifest가 canonical JSON이 아닙니다.");
+  }
+  return assertAuthoringGuideSourceRecoveryManifest(manifest);
 }
 
 export async function writeAuthoringGuideSourceRecoveryManifest(

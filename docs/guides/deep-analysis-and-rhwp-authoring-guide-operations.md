@@ -1,6 +1,6 @@
 # 공고 딥분석과 RHWP 작성 가이드 운영 가이드
 
-> 기준일: 2026-08-25  
+> 기준일: 2026-08-26
 > 대상: 제품·운영·개발 담당자  
 > 전환 정본: [`2026-08-25-kordoc-rhwp-목표구조-전환.md`](../plans/2026-08-25-kordoc-rhwp-목표구조-전환.md)
 
@@ -188,3 +188,22 @@ pnpm lab:authoring-guide:recovery:prepare -- \
 
 이 매니페스트는 쓰기 권한이 아니다. exact SHA, 29건, 최대 3라운드, DB·R2 입력 복구만을
 승인받은 뒤 별도 grant/execute 경로를 열고, receipt와 새 adoption manifest를 다시 봉인해야 한다.
+
+승인 뒤에는 다음 두 명령을 분리해 사용한다. grant는 exact manifest·29건·3라운드 상한과
+`no LLM/no analysis enqueue/no promotion`을 불변 원장으로 남기고, run은 현재 KST 기준일과
+29건의 source/input/attachment/blocker SHA가 그대로인지 확인한 다음 하나의 DB runtime lease에서
+실행한다.
+
+```bash
+pnpm lab:authoring-guide:recovery:grant -- \
+  --manifest=1bdd5d2fb66dccd11c276efb8b4e67ea2f6ca8429dcd9281d68de9813a672aed \
+  --approved-by=owner
+
+pnpm lab:authoring-guide:recovery:run -- --grant=<grant-sha256>
+```
+
+재료 drift, 지원 가능 기준일 변경, runtime active lease, 중복 execution claim은 쓰기 전에
+fail-closed한다. 실행 함수는 `enqueuePreparedJobs: false`를 고정하며 외부 image OCR adapter를
+주입하지 않는다. 종료 시에는 target별 봉인 여부, 라운드 지표, 외부 LLM 0회, 분석 job 0건,
+새 adoption manifest SHA를 하나의 immutable receipt에 결속한다. `lab:promote --write`는 이 범위에
+포함되지 않는다.

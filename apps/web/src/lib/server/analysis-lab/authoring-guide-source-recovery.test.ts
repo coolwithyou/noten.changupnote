@@ -10,9 +10,23 @@ import {
   writeAuthoringGuideAdoptionManifest,
 } from "./authoring-guide-adoption-production";
 import {
+  assertAuthoringGuideSourceRecoveryManifest,
   createAuthoringGuideSourceRecoveryManifest,
   hashAuthoringGuideSourceRecoveryManifest,
 } from "./authoring-guide-source-recovery";
+import {
+  createAuthoringGuideSourceRecoveryGrant,
+  createAuthoringGuideSourceRecoveryReceipt,
+  normalizeAuthoringGuideSourceRecoveryGrant,
+  runAuthoringGuideSourceRecoveryRounds,
+  type AuthoringGuideSourceRecoveryRoundResult,
+} from "./authoring-guide-source-recovery-execution";
+import { parseAuthoringGuideSourceRecoveryExecutionCliArgs } from "./authoring-guide-source-recovery-execution-cli";
+import {
+  approveAuthoringGuideSourceRecovery,
+  assertExactAuthoringGuideSourceRecoveryMaterial,
+  readAuthoringGuideSourceRecoveryExecutionArtifact,
+} from "./authoring-guide-source-recovery-execution-production";
 import { parseAuthoringGuideSourceRecoveryCliArgs } from "./authoring-guide-source-recovery-cli";
 import {
   prepareAuthoringGuideSourceRecovery,
@@ -144,6 +158,115 @@ assert.equal(manifest.execution.externalLlmCallsAuthorized, false);
 assert.equal(manifest.targets[0]?.nextActionAfterRecovery, "reclassify_adoption");
 assert.equal(manifest.targets[1]?.nextActionAfterRecovery, "prepare_rerun_manifest");
 assert.equal(hashAuthoringGuideSourceRecoveryManifest(manifest), hashAuthoringGuideSourceRecoveryManifest(manifest));
+assert.equal(assertAuthoringGuideSourceRecoveryManifest(manifest), manifest);
+assert.throws(() => assertAuthoringGuideSourceRecoveryManifest({
+  ...manifest,
+  execution: { ...manifest.execution, analysisJobsAuthorized: true },
+} as never), /실행 계약/);
+
+const grant = createAuthoringGuideSourceRecoveryGrant({
+  manifestSha256: A,
+  manifest,
+  approvedBy: "owner",
+  approvedAt: new Date("2026-08-26T02:10:00.000Z"),
+});
+assert.equal(normalizeAuthoringGuideSourceRecoveryGrant(grant).targetCount, 2);
+assert.equal(grant.externalLlmCallsAuthorized, false);
+assert.equal(grant.analysisJobsAuthorized, false);
+assert.equal(grant.promotionAuthorized, false);
+
+function roundResult(input: {
+  selected: typeof manifest.targets;
+  sealedGrantIds: readonly string[];
+  withAnalysisJob?: boolean;
+}): AuthoringGuideSourceRecoveryRoundResult {
+  const sealed = new Set(input.sealedGrantIds);
+  return {
+    targets: input.selected.map((target) => ({
+      grantId: target.grantId,
+      source: target.source,
+      sourceId: target.sourceId,
+      sealed: sealed.has(target.grantId),
+      blockerCodes: sealed.has(target.grantId) ? [] : [target.blockers[0]!.code],
+      blockerCount: sealed.has(target.grantId) ? 0 : 1,
+      sourceRevisionSha256: C,
+      analysisJobId: input.withAnalysisJob ? "forbidden" as never : null,
+      analysisJobStatus: null,
+      error: null,
+    })),
+    metrics: {
+      archivedCandidateCount: input.selected.length,
+      selectedAttachmentCount: input.selected.length,
+      archiveSucceededCount: input.selected.length,
+      archiveFailedCount: 0,
+      conversionCandidateAttachmentCount: 0,
+      conversionJobsEnqueued: 0,
+      conversionCacheHits: 0,
+      conversionFailedCount: 0,
+      conversionStillPendingCount: 0,
+      pdfRecoveryCandidateCount: 0,
+      pdfRecoverySucceededCount: 0,
+      pdfRecoveryFailedCount: 0,
+      deadlineReached: false,
+      budgetExhausted: false,
+      elapsedMs: 1,
+    },
+  };
+}
+
+let roundCalls = 0;
+const execution = await runAuthoringGuideSourceRecoveryRounds({
+  manifest,
+  signal: new AbortController().signal,
+  async runRound(selected) {
+    roundCalls += 1;
+    return roundResult({
+      selected,
+      sealedGrantIds: roundCalls === 1
+        ? [manifest.targets[0]!.grantId]
+        : [manifest.targets[1]!.grantId],
+    });
+  },
+});
+assert.equal(roundCalls, 2);
+assert.equal(execution.recoveredTargetCount, 2);
+assert.equal(execution.remainingTargetCount, 0);
+assert.deepEqual(execution.rounds.map((round) => round.remainingTargetCount), [1, 0]);
+
+let boundedCalls = 0;
+const unresolvedExecution = await runAuthoringGuideSourceRecoveryRounds({
+  manifest,
+  signal: new AbortController().signal,
+  async runRound(selected) {
+    boundedCalls += 1;
+    return roundResult({ selected, sealedGrantIds: [] });
+  },
+});
+assert.equal(boundedCalls, 3);
+assert.equal(unresolvedExecution.remainingTargetCount, 2);
+
+await assert.rejects(() => runAuthoringGuideSourceRecoveryRounds({
+  manifest,
+  signal: new AbortController().signal,
+  async runRound(selected) {
+    return roundResult({ selected, sealedGrantIds: [], withAnalysisJob: true });
+  },
+}), /분석 job/);
+
+const receipt = createAuthoringGuideSourceRecoveryReceipt({
+  grantSha256: B,
+  manifestSha256: A,
+  manifest,
+  execution,
+  startedAt: new Date("2026-08-26T02:20:00.000Z"),
+  finishedAt: new Date("2026-08-26T02:21:00.000Z"),
+  adoptionManifest: adoptionManifest(),
+  adoptionArtifact: { sha256: D, path: "spike-out/adoption.json" },
+});
+assert.equal(receipt.stopReason, "completed");
+assert.equal(receipt.summary.externalLlmCalls, 0);
+assert.equal(receipt.summary.analysisJobsEnqueued, 0);
+assert.equal(receipt.summary.promotionAuthorized, false);
 
 const notReady = createAuthoringGuideSourceRecoveryManifest({
   adoptionManifestSha256: A,
@@ -169,6 +292,15 @@ assert.deepEqual(sourceRecoveryRuntimeReadiness({
   CONVERSION_SERVER_URL: "https://conversion.example.invalid",
   CONVERSION_SHARED_SECRET: "shared",
 }), runtimeReadiness);
+assert.deepEqual(parseAuthoringGuideSourceRecoveryExecutionCliArgs([
+  "grant",
+  `--manifest=${A}`,
+  "--approved-by=owner",
+]), { command: "grant", manifestSha256: A, approvedBy: "owner" });
+assert.deepEqual(parseAuthoringGuideSourceRecoveryExecutionCliArgs([
+  "run",
+  `--grant=${B}`,
+]), { command: "run", grantSha256: B });
 
 const repositoryRoot = await mkdtemp(join(tmpdir(), "cunote-source-recovery-"));
 const adoptionArtifact = await writeAuthoringGuideAdoptionManifest(adoptionManifest(), repositoryRoot);
@@ -185,6 +317,43 @@ assert.equal(
   hashAuthoringGuideSourceRecoveryManifest(loaded),
 );
 assert.equal((await readFile(artifact.path, "utf8")).endsWith("\n"), true);
+const grantArtifact = await approveAuthoringGuideSourceRecovery({
+  manifestSha256: artifact.sha256,
+  approvedBy: "owner",
+  approvedAt: new Date("2026-08-26T02:10:00.000Z"),
+  repositoryRoot,
+});
+const storedGrant = normalizeAuthoringGuideSourceRecoveryGrant(
+  await readAuthoringGuideSourceRecoveryExecutionArtifact(
+    "grants",
+    grantArtifact.grantSha256,
+    repositoryRoot,
+  ),
+);
+assert.equal(storedGrant.manifestSha256, artifact.sha256);
+assert.doesNotThrow(() => assertExactAuthoringGuideSourceRecoveryMaterial(
+  loaded,
+  adoptionManifest(),
+));
+const driftBase = adoptionManifest();
+const drifted: AuthoringGuideAdoptionManifest = {
+  ...driftBase,
+  items: driftBase.items.map((entry, index) => index === 0
+    ? { ...entry, current: { ...entry.current, operationalInputSha256: B } }
+    : entry),
+};
+assert.throws(
+  () => assertExactAuthoringGuideSourceRecoveryMaterial(loaded, drifted),
+  /material이 준비 시점과 달라졌습니다/,
+);
+const productionSource = await readFile(join(
+  process.cwd(),
+  "apps/web/src/lib/server/analysis-lab/authoring-guide-source-recovery-execution-production.ts",
+), "utf8");
+assert.match(productionSource, /enqueuePreparedJobs: false/);
+assert.doesNotMatch(productionSource, /resolveGrantImageOcrAdapter|verifyClaude|runLabAnalysis/);
+assert.match(productionSource, /createDeepRepairLiveRuntimeAuthority/);
+assert.match(productionSource, /assertExactAuthoringGuideSourceRecoveryMaterial\(manifest, current\)/);
 await rm(repositoryRoot, { recursive: true, force: true });
 
 console.log("authoring-guide-source-recovery tests passed");
