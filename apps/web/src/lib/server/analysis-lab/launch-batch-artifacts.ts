@@ -3,6 +3,8 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { ANALYSIS_LAB_PROMPT_VERSION } from "@/lib/server/analysis-lab/lab-contract";
 import { DEEP_ANALYSIS_VALIDATOR_VERSION } from "@/lib/server/deep-analysis/validator";
+import type { AuthoringGuideAdoptionManifest } from "./authoring-guide-adoption";
+import { DEEP_REPAIR_PREPARATION_POLICY } from "./deep-repair-preparation";
 import { writeImmutableBytesAtomic } from "./immutable-artifact-fs";
 import { findMonorepoRoot } from "./run-store";
 
@@ -26,9 +28,11 @@ export interface AnalysisLaunchManifest {
   readonly schema: "analysis-launch-manifest-v1";
   readonly preparedAt: string;
   readonly source: {
+    readonly kind: "formal_plan" | "authoring_guide_adoption";
     readonly seriesId: string;
     readonly planSha256: string;
     readonly planArtifactSha256: string;
+    readonly adoptionManifestSha256: string | null;
     readonly sequenceFrom: number;
     readonly sequenceTo: number;
   };
@@ -43,6 +47,7 @@ export interface AnalysisLaunchManifest {
     readonly withApplicationRoundtrip: boolean;
     readonly roundtripModel: string | null;
     readonly concurrency: number;
+    readonly existingRunPolicy: "skip_existing" | "rerun_exact_targets";
   };
   readonly targets: readonly AnalysisLaunchManifestTarget[];
 }
@@ -107,7 +112,7 @@ export interface AnalysisLaunchPreparedTarget {
   readonly attachmentManifestSha256: string;
 }
 
-export function createAnalysisLaunchManifest(input: {
+interface AnalysisLaunchManifestPreparationInput {
   readonly inventory: AnalysisLaunchPlanInventory;
   readonly sequenceFrom: number;
   readonly sequenceTo: number;
@@ -121,7 +126,84 @@ export function createAnalysisLaunchManifest(input: {
   readonly roundtripModel?: string;
   readonly concurrency: number;
   readonly now: Date;
+}
+
+export function createAnalysisLaunchManifest(
+  input: AnalysisLaunchManifestPreparationInput,
+): AnalysisLaunchManifest {
+  return createAnalysisLaunchManifestFromInventory(input, {
+    sourceKind: "formal_plan",
+    adoptionManifestSha256: null,
+    existingRunPolicy: "skip_existing",
+  });
+}
+
+export function createAuthoringGuideRerunAnalysisLaunchManifest(input: {
+  readonly adoptionManifestSha256: string;
+  readonly adoptionManifest: AuthoringGuideAdoptionManifest;
+  readonly preparedTargets: readonly AnalysisLaunchPreparedTarget[];
+  readonly provenance: AnalysisLaunchManifestPreparationInput["provenance"];
+  readonly concurrency: number;
+  readonly now: Date;
 }): AnalysisLaunchManifest {
+  const adoptionManifestSha256 = exactSha(
+    input.adoptionManifestSha256,
+    "adoptionManifestSha256",
+  );
+  if (
+    input.adoptionManifest.schema !== "authoring-guide-adoption-manifest-v1"
+    || input.adoptionManifest.execution.mode !== "offline_read_only"
+    || input.adoptionManifest.execution.modelCallsMade !== 0
+    || input.adoptionManifest.execution.databaseWritesMade !== 0
+    || input.adoptionManifest.execution.promotionAuthorized !== false
+  ) {
+    throw new Error("작성 가이드 adoption manifest가 재분석 준비 계약과 다릅니다.");
+  }
+  const selected = input.adoptionManifest.items.filter((item) => (
+    item.disposition === "rerun_required" && item.current.sourceSealed
+  ));
+  if (selected.length === 0) throw new Error("source-sealed 작성 가이드 재분석 대상이 없습니다.");
+  const seriesId = `authoring-guide-rerun-${input.adoptionManifest.asOfKst.replaceAll("-", "")}`;
+  const manifest = createAnalysisLaunchManifestFromInventory({
+    inventory: {
+      seriesId,
+      planSha256: adoptionManifestSha256,
+      planArtifactSha256: adoptionManifestSha256,
+      model: DEEP_REPAIR_PREPARATION_POLICY.model,
+      targets: selected.map((item, sequence) => ({
+        sequence,
+        grantId: item.grantId,
+        stratum: `${item.source}/authoring-guide-rerun`,
+        inputSha256: item.current.inputSha256,
+        attachmentManifestSha256: item.current.attachmentManifestSha256,
+      })),
+    },
+    sequenceFrom: 0,
+    sequenceTo: selected.length - 1,
+    preparedTargets: input.preparedTargets,
+    provenance: input.provenance,
+    withApplicationRoundtrip: false,
+    concurrency: input.concurrency,
+    now: input.now,
+  }, {
+    sourceKind: "authoring_guide_adoption",
+    adoptionManifestSha256,
+    existingRunPolicy: "rerun_exact_targets",
+  });
+  if (manifest.targets.some((target) => target.changedSinceInventory)) {
+    throw new Error("작성 가이드 재분석 target input/attachment가 adoption manifest와 달라졌습니다.");
+  }
+  return manifest;
+}
+
+function createAnalysisLaunchManifestFromInventory(
+  input: AnalysisLaunchManifestPreparationInput,
+  binding: {
+    readonly sourceKind: AnalysisLaunchManifest["source"]["kind"];
+    readonly adoptionManifestSha256: string | null;
+    readonly existingRunPolicy: AnalysisLaunchManifest["execution"]["existingRunPolicy"];
+  },
+): AnalysisLaunchManifest {
   const inventory = normalizeInventory(input.inventory);
   if (
     !Number.isSafeInteger(input.sequenceFrom)
@@ -181,9 +263,11 @@ export function createAnalysisLaunchManifest(input: {
     schema: "analysis-launch-manifest-v1",
     preparedAt,
     source: {
+      kind: binding.sourceKind,
       seriesId: inventory.seriesId,
       planSha256: inventory.planSha256,
       planArtifactSha256: inventory.planArtifactSha256,
+      adoptionManifestSha256: binding.adoptionManifestSha256,
       sequenceFrom: input.sequenceFrom,
       sequenceTo: input.sequenceTo,
     },
@@ -200,6 +284,7 @@ export function createAnalysisLaunchManifest(input: {
       withApplicationRoundtrip: input.withApplicationRoundtrip,
       roundtripModel,
       concurrency: input.concurrency,
+      existingRunPolicy: binding.existingRunPolicy,
     },
     targets,
   });
@@ -282,6 +367,30 @@ export function normalizeAnalysisLaunchManifest(value: unknown): AnalysisLaunchM
     throw new Error("launch manifest Kordoc/model binding이 다릅니다.");
   }
   if (execution.transport !== "claude-cli") throw new Error("launch transport는 claude-cli여야 합니다.");
+  const sourceKind = source.kind === undefined ? "formal_plan" : source.kind;
+  const existingRunPolicy = execution.existingRunPolicy === undefined
+    ? "skip_existing"
+    : execution.existingRunPolicy;
+  const adoptionManifestSha256 = source.adoptionManifestSha256 === undefined
+    || source.adoptionManifestSha256 === null
+    ? null
+    : exactSha(String(source.adoptionManifestSha256), "adoptionManifestSha256");
+  if (
+    (sourceKind === "formal_plan"
+      && (adoptionManifestSha256 !== null || existingRunPolicy !== "skip_existing"))
+    || (sourceKind === "authoring_guide_adoption"
+      && (
+        adoptionManifestSha256 === null
+        || adoptionManifestSha256 !== source.planSha256
+        || adoptionManifestSha256 !== source.planArtifactSha256
+        || existingRunPolicy !== "rerun_exact_targets"
+        || withApplicationRoundtrip
+      ))
+    || (sourceKind !== "formal_plan" && sourceKind !== "authoring_guide_adoption")
+    || (existingRunPolicy !== "skip_existing" && existingRunPolicy !== "rerun_exact_targets")
+  ) {
+    throw new Error("launch source/existing run 정책 결속이 잘못됐습니다.");
+  }
   const preparedAt = exactIso(record.preparedAt, "preparedAt");
   const concurrency = integer(execution.concurrency, "concurrency");
   if (concurrency < 1 || concurrency > 4) throw new Error("launch concurrency는 1~4여야 합니다.");
@@ -289,9 +398,11 @@ export function normalizeAnalysisLaunchManifest(value: unknown): AnalysisLaunchM
     schema: "analysis-launch-manifest-v1",
     preparedAt,
     source: Object.freeze({
+      kind: sourceKind,
       seriesId: exactSeries(source.seriesId),
       planSha256: exactSha(String(source.planSha256), "planSha256"),
       planArtifactSha256: exactSha(String(source.planArtifactSha256), "planArtifactSha256"),
+      adoptionManifestSha256,
       sequenceFrom,
       sequenceTo,
     }),
@@ -305,6 +416,7 @@ export function normalizeAnalysisLaunchManifest(value: unknown): AnalysisLaunchM
       withApplicationRoundtrip,
       roundtripModel,
       concurrency,
+      existingRunPolicy,
     }),
     targets: Object.freeze(targets),
   });

@@ -187,6 +187,8 @@ export async function runApprovedAnalysisLaunchBatch(input: {
         concurrency: manifest.execution.concurrency,
         retryErrors: input.retryErrors,
         reanalyzeOutdated: false,
+        exactManifestReanalysis:
+          manifest.execution.existingRunPolicy === "rerun_exact_targets",
         transport: "claude-cli",
         model: manifest.execution.model,
         withApplicationRoundtrip: manifest.execution.withApplicationRoundtrip,

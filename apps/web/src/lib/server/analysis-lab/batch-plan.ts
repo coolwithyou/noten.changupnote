@@ -38,7 +38,11 @@ export interface CohortPartition<E> {
 export function partitionCohortEntries<E extends { grantId: string }>(
   entries: E[],
   states: Map<string, GrantRunState>,
-  options: { retryErrors: boolean; reanalyzeOutdated: boolean },
+  options: {
+    retryErrors: boolean;
+    reanalyzeOutdated: boolean;
+    exactManifestReanalysis?: boolean;
+  },
 ): CohortPartition<E> {
   const partition: CohortPartition<E> = {
     skippedOk: [],
@@ -48,6 +52,10 @@ export function partitionCohortEntries<E extends { grantId: string }>(
     pending: [],
   };
   for (const entry of entries) {
+    if (options.exactManifestReanalysis) {
+      partition.pending.push(entry);
+      continue;
+    }
     const state = states.get(entry.grantId);
     if (state?.okCurrent) {
       partition.skippedOk.push(entry);

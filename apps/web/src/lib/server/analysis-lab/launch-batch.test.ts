@@ -10,14 +10,17 @@ import {
 } from "./analysis-execution-admission";
 import {
   assertAnalysisLaunchExecutionContract,
+  createAuthoringGuideRerunAnalysisLaunchManifest,
   createAnalysisLaunchGrant,
   createAnalysisLaunchManifest,
   encodeCanonical,
   normalizeAnalysisLaunchGrant,
   normalizeAnalysisLaunchManifest,
 } from "./launch-batch-artifacts";
+import { partitionCohortEntries } from "./batch-plan";
 import { withAnalysisLaunchBatchExecution } from "./launch-batch-context";
 import { parseAnalysisLaunchCliArgs } from "./launch-batch-cli";
+import { parseAuthoringGuideRerunLaunchCliArgs } from "./authoring-guide-rerun-launch-cli";
 
 const SHA_A = "a".repeat(64);
 const SHA_B = "b".repeat(64);
@@ -72,6 +75,69 @@ test("launch manifest는 inventory drift를 target telemetry로 보존한다", (
   assert.equal(manifest.targets[0]?.changedSinceInventory, false);
   assert.equal(manifest.targets[1]?.changedSinceInventory, true);
   assert.deepEqual(normalizeAnalysisLaunchManifest(JSON.parse(encodeCanonical(manifest).toString("utf8"))), manifest);
+});
+
+test("과거 launch manifest는 새 source 정책 필드가 없어도 skip_existing으로 읽는다", () => {
+  const legacy = JSON.parse(encodeCanonical(manifest).toString("utf8"));
+  delete legacy.source.kind;
+  delete legacy.source.adoptionManifestSha256;
+  delete legacy.execution.existingRunPolicy;
+  const normalized = normalizeAnalysisLaunchManifest(legacy);
+  assert.equal(normalized.source.kind, "formal_plan");
+  assert.equal(normalized.source.adoptionManifestSha256, null);
+  assert.equal(normalized.execution.existingRunPolicy, "skip_existing");
+});
+
+test("작성 가이드 adoption 재분석은 source-sealed rerun만 exact 기존 런 재분석으로 봉인한다", () => {
+  const adoption = {
+    schema: "authoring-guide-adoption-manifest-v1" as const,
+    preparedAt: "2026-08-26T00:00:00.000Z",
+    asOfKst: "2026-08-26",
+    execution: {
+      mode: "offline_read_only" as const,
+      modelCallsMade: 0 as const,
+      databaseWritesMade: 0 as const,
+      promotionAuthorized: false as const,
+    },
+    population: { strictEligibleGrantCount: 2, historicalPublishableRunCount: 2 },
+    summary: { projectionReady: 0, reviewRequired: 0, sourceRecoveryRequired: 0, rerunRequired: 2 },
+    items: [
+      adoptionItem(GRANT_0, "kstartup", true),
+      adoptionItem(GRANT_1, "bizinfo", false),
+    ],
+  };
+  const rerun = createAuthoringGuideRerunAnalysisLaunchManifest({
+    adoptionManifestSha256: SHA_A,
+    adoptionManifest: adoption,
+    preparedTargets: [{
+      grantId: GRANT_0,
+      inputSha256: SHA_A,
+      attachmentManifestSha256: SHA_B,
+    }],
+    provenance: {
+      gitSha: GIT_A,
+      packageRuntimeSha256: SHA_C,
+      validatorVersion: DEEP_ANALYSIS_VALIDATOR_VERSION,
+    },
+    concurrency: 2,
+    now: new Date("2026-08-26T00:01:00.000Z"),
+  });
+  assert.equal(rerun.targets.length, 1);
+  assert.equal(rerun.targets[0]?.grantId, GRANT_0);
+  assert.equal(rerun.source.kind, "authoring_guide_adoption");
+  assert.equal(rerun.source.adoptionManifestSha256, SHA_A);
+  assert.equal(rerun.execution.existingRunPolicy, "rerun_exact_targets");
+  assert.equal(rerun.execution.withApplicationRoundtrip, false);
+  const exact = partitionCohortEntries([{ grantId: GRANT_0 }], new Map([[
+    GRANT_0,
+    { okCurrent: true, okOutdated: false, heldCurrent: false, errorCurrent: false },
+  ]]), {
+    retryErrors: false,
+    reanalyzeOutdated: false,
+    exactManifestReanalysis: true,
+  });
+  assert.deepEqual(exact.pending, [{ grantId: GRANT_0 }]);
+  assert.equal(exact.skippedOk.length, 0);
 });
 
 test("cohort grant는 manifest 전체를 한 번 승인하고 만료/sequence authority를 만들지 않는다", () => {
@@ -174,4 +240,54 @@ test("launch CLI는 prepare/grant/run의 권한 단계를 분리한다", () => {
     `--grant=${SHA_B}`,
     "--retry-errors",
   ]), { kind: "run", grantSha256: SHA_B, retryErrors: true });
+  assert.deepEqual(parseAuthoringGuideRerunLaunchCliArgs([
+    `--adoption-manifest=${SHA_A}`,
+    "--concurrency=3",
+  ]), { adoptionManifestSha256: SHA_A, concurrency: 3 });
 });
+
+function adoptionItem(
+  grantId: string,
+  source: "kstartup" | "bizinfo",
+  sourceSealed: boolean,
+) {
+  return {
+    grantId,
+    source,
+    sourceId: `source-${grantId.slice(-1)}`,
+    title: `공고 ${grantId.slice(-1)}`,
+    disposition: "rerun_required" as const,
+    reasons: sourceSealed
+      ? ["input_sha256_drift" as const]
+      : ["current_source_unsealed" as const, "input_sha256_drift" as const],
+    requiresReleaseValidation: true as const,
+    advisoryPreviewOnly: true as const,
+    run: {
+      runId: "run-2026-08-26T000000.000Z-test",
+      artifactPath: "spike-out/run.json",
+      artifactSha256: SHA_D,
+      inputSha256: SHA_D,
+      attachmentManifestSha256: SHA_C,
+    },
+    current: {
+      inputSha256: SHA_A,
+      attachmentManifestSha256: SHA_B,
+      sourceRevisionSha256: SHA_C,
+      sourceSealed,
+      operationalInputSha256: SHA_A,
+      operationalAttachmentManifestSha256: SHA_B,
+      sourceBlockers: sourceSealed ? [] : [{
+        code: "blocked_conversion",
+        attachmentId: "attachment",
+        message: "missing",
+      }],
+    },
+    evidence: {
+      programIntentPresent: true,
+      criterionCount: 1,
+      verifiedSourceSpanCount: 1,
+      projectedCriterionCount: 1,
+    },
+    authoringGuidePreview: null,
+  };
+}

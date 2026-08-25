@@ -2,11 +2,7 @@ import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
-  encodeAuthoringGuideAdoptionManifest,
-  type AuthoringGuideAdoptionManifest,
-} from "./authoring-guide-adoption";
-import {
-  authoringGuideAdoptionManifestPath,
+  readAuthoringGuideAdoptionManifest,
 } from "./authoring-guide-adoption-production";
 import {
   assertAuthoringGuideSourceRecoveryManifest,
@@ -27,7 +23,7 @@ export async function prepareAuthoringGuideSourceRecovery(input: {
   readonly repositoryRoot?: string;
 }): Promise<AuthoringGuideSourceRecoveryManifest> {
   const repositoryRoot = input.repositoryRoot ?? findMonorepoRoot();
-  const adoptionManifest = await readExactAdoptionManifest(
+  const adoptionManifest = await readAuthoringGuideAdoptionManifest(
     input.adoptionManifestSha256,
     repositoryRoot,
   );
@@ -96,22 +92,4 @@ export function sourceRecoveryRuntimeReadiness(
     conversionSharedSecretConfigured: Boolean(env.CONVERSION_SHARED_SECRET?.trim()),
     localImageOcrReady: platform === "darwin",
   });
-}
-
-async function readExactAdoptionManifest(
-  sha256: string,
-  repositoryRoot: string,
-): Promise<AuthoringGuideAdoptionManifest> {
-  if (!SHA256.test(sha256)) throw new Error(`허용되지 않는 adoption manifest SHA: ${sha256}`);
-  const bytes = await readFile(authoringGuideAdoptionManifestPath(sha256, repositoryRoot));
-  const actualSha256 = createHash("sha256").update(bytes).digest("hex");
-  if (actualSha256 !== sha256) throw new Error("adoption manifest 파일 SHA가 ID와 다릅니다.");
-  const manifest = JSON.parse(bytes.toString("utf8")) as AuthoringGuideAdoptionManifest;
-  if (manifest.schema !== "authoring-guide-adoption-manifest-v1") {
-    throw new Error("adoption manifest schema가 잘못됐습니다.");
-  }
-  if (Buffer.compare(bytes, encodeAuthoringGuideAdoptionManifest(manifest)) !== 0) {
-    throw new Error("adoption manifest가 canonical JSON이 아닙니다.");
-  }
-  return manifest;
 }

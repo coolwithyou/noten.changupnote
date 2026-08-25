@@ -52,6 +52,8 @@ export interface LabBatchRunnerOptions {
   retryErrors: boolean;
   /** 구버전 ok 런"만" 보유한 공고를 대상에 편입한다 — 우발 재분석 가드의 명시적 탈출구. */
   reanalyzeOutdated: boolean;
+  /** 승인된 exact launch manifest가 기존 terminal 상태와 무관하게 대상 전체 재분석을 명시한다. */
+  exactManifestReanalysis?: boolean;
   /** env(ANALYSIS_LAB_TRANSPORT)보다 우선하는 명시 오버라이드. 미지정 시 기존 env 경로. */
   transport?: LabBatchTransport;
   /** env(ANALYSIS_LAB_MODEL)보다 우선하는 명시 오버라이드. 미지정 시 기존 env 경로. */
@@ -387,6 +389,7 @@ export async function runLabBatch(
   const partition = partitionCohortEntries(cohortEntries, states, {
     retryErrors: options.retryErrors,
     reanalyzeOutdated: options.reanalyzeOutdated,
+    ...(options.exactManifestReanalysis ? { exactManifestReanalysis: true } : {}),
   });
   // 모집기간 가드 — 실행 시에만 DB로 확인해 위반(마감·시작 전·기간 미상)을 스킵한다(비파괴).
   const periodSplit = await (deps?.splitPeriodImpl ?? splitByPeriodPolicy)(partition.pending);

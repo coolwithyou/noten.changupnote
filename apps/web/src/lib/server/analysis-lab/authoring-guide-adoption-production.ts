@@ -132,6 +132,25 @@ export async function writeAuthoringGuideAdoptionManifest(
   return Object.freeze({ sha256, path });
 }
 
+export async function readAuthoringGuideAdoptionManifest(
+  sha256: string,
+  repositoryRoot = findMonorepoRoot(),
+): Promise<AuthoringGuideAdoptionManifest> {
+  if (!SHA256.test(sha256)) throw new Error(`허용되지 않는 adoption manifest SHA: ${sha256}`);
+  const bytes = await readFile(authoringGuideAdoptionManifestPath(sha256, repositoryRoot));
+  if (createHash("sha256").update(bytes).digest("hex") !== sha256) {
+    throw new Error("adoption manifest 파일 SHA가 ID와 다릅니다.");
+  }
+  const manifest = JSON.parse(bytes.toString("utf8")) as AuthoringGuideAdoptionManifest;
+  if (manifest.schema !== "authoring-guide-adoption-manifest-v1") {
+    throw new Error("adoption manifest schema가 잘못됐습니다.");
+  }
+  if (Buffer.compare(bytes, encodeAuthoringGuideAdoptionManifest(manifest)) !== 0) {
+    throw new Error("adoption manifest가 canonical JSON이 아닙니다.");
+  }
+  return manifest;
+}
+
 export function authoringGuideAdoptionManifestPath(
   sha256: string,
   repositoryRoot = findMonorepoRoot(),

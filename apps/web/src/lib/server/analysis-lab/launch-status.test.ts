@@ -10,9 +10,11 @@ const manifest: AnalysisLaunchManifest = {
   schema: "analysis-launch-manifest-v1",
   preparedAt: "2026-08-18T00:00:00.000Z",
   source: {
+    kind: "formal_plan",
     seriesId: "deep-v24",
     planSha256: "1".repeat(64),
     planArtifactSha256: "2".repeat(64),
+    adoptionManifestSha256: null,
     sequenceFrom: 0,
     sequenceTo: 1,
   },
@@ -26,6 +28,7 @@ const manifest: AnalysisLaunchManifest = {
     withApplicationRoundtrip: true,
     roundtripModel: "claude-opus-5",
     concurrency: 2,
+    existingRunPolicy: "skip_existing",
   },
   targets: [0, 1].map((sequence) => ({
     sequence,
