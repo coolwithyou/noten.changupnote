@@ -180,6 +180,27 @@
 - 남은 `Kordoc` 문자열은 역사 문서·legacy verifier·migration 이름뿐이다.
 - 기존 역사 artifact fixture가 계속 검증된다.
 
+### Phase 6 — 기존 분석의 RHWP 작성 가이드 채택
+
+- 현재 지원 가능 모집단과 명시적 `publishable` 역사 런을 다시 결속한다.
+- 과거 런 파일은 수정하지 않고 run/input/attachment/current source revision SHA를 새 불변
+  `authoring-guide-adoption-manifest-v1`에 봉인한다.
+- 분류는 다음 네 상태로 종결한다.
+  - `projection_ready`: 현재 원문과 일치하고 검증된 criteria/source span이 있어 guide preview를
+    결정적으로 만들 수 있다.
+  - `review_required`: 원문은 일치하지만 criteria 근거가 비어 있거나 투영 검수가 필요하다.
+  - `source_recovery_required`: 원문 해시는 일치하지만 현행 운영 입력 봉인이 불완전하다.
+  - `rerun_required`: input 또는 attachment manifest가 바뀌었거나 program intent가 없다.
+- manifest의 guide는 `advisoryPreviewOnly=true`이며 기존 독립 검수와 release admission을
+  대체하지 않는다. manifest 생성은 모델 호출·DB 쓰기·promotion 권한을 모두 0으로 고정한다.
+
+수용 조건:
+
+- 구형 `error=null` 호환 런을 명시적 publishable 런으로 승격하지 않는다.
+- source recovery 대상은 복구 전에 모델 재분석을 시작하지 않는다.
+- rerun 대상은 exact 새 launch manifest와 사용자 승인 전 모델을 호출하지 않는다.
+- 기존 run/receipt/release artifact는 수정·삭제하지 않는다.
+
 ## 5. DB 변경 원칙
 
 - `grants.authoring_guide`는 nullable JSONB로 추가한다.
@@ -243,7 +264,12 @@ git diff --check
 - [x] document/field/schedule agent의 verified guide grounding 연결
 - [x] 관리자 Kordoc queue·비용·readiness 활성 표면 제거
 - [x] 전체 자동 gate와 web/admin production build 검증
+- [x] 기존 publishable 분석의 read-only RHWP guide 채택 분류기와 immutable manifest
+- [x] 2026-08-25 현행 86건 분류: 투영 가능 46, 검수 1, source 복구 30, 재분석 9
 - [ ] 역사 receipt·관리자 데이터 호환 read model과 Kordoc 구현 파일의 물리 삭제 — 보존 기간·데이터 폐기 승인 뒤 별도 수행
+- [ ] source 봉인 차단 32건(복구 전용 30 + 재분석과 중첩 2) 처리 후 동일 manifest 규칙 재검증
+- [ ] 드리프트 9건 exact launch manifest 준비·승인·live 재분석
+- [ ] 투영 결과의 기존 독립 검수·release gate 처리와 `lab:promote --write` 별도 승인
 - [ ] 운영 DB migration 적용 — 별도 승인 필요
 - [ ] 실제 HWP/HWPX 브라우저 UAT — 실행 중인 사용자 서버 필요
 - [ ] 배포·Cloud Run 상태 확인 — 별도 승인 필요

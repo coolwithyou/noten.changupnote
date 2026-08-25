@@ -114,3 +114,38 @@ RHWP는 Kordoc 분석 상태를 기다리지 않는다. 편집 가능한 HWP/HWP
 - workspace admission: `apps/web/src/lib/server/documents/workspaceData.ts`
 - RHWP UI: `apps/web/src/features/apply-workspace/RhwpStudioSurface.tsx`
 - 역사 운영 문서: `deep-analysis-and-application-precompute-operations.md`
+
+## 9. 기존 분석 채택 절차
+
+기존 분석을 폐기하거나 과거 런 파일에 source revision을 덧써서는 안 된다. 다음 명령은 현재
+DB·R2와 로컬 런을 읽기만 하고, 모델 호출이나 DB 쓰기 없이 채택 가능성을 다시 계산한다.
+
+```bash
+# 출력만 확인
+pnpm lab:authoring-guide:adopt -- --as-of=2026-08-25 --concurrency=4
+
+# content-addressed local artifact로 봉인
+pnpm lab:authoring-guide:adopt -- --as-of=2026-08-25 --concurrency=4 --prepare
+```
+
+2026-08-25 KST 봉인 결과:
+
+- 현재 지원 가능 공고: 559건
+- 명시적 publishable 역사 런: 86건
+- `projection_ready`: 46건
+- `review_required`: 1건
+- `source_recovery_required`: 30건
+- `rerun_required`: 9건
+- source 봉인 차단: 32건(복구 전용 30건, 재분석 대상과 중첩 2건; blocker 55개)
+- manifest SHA-256: `990dbdb84d84eb40ada4393eb3ced7d6fe017d6fc1e979e9c4f44d0af2d9aeb8`
+- 로컬 경로: `spike-out/analysis-lab/authoring-guide-adoption/manifests/<sha256>.json`
+
+86건 중 input/attachment가 현재와 같은 77건은 `46 + 1 + 30`으로 보존된다. 이 중 30건은
+현행 운영 입력 봉인을 먼저 복구해야 하며, 복구 뒤 SHA가 유지되면 재분석 없이 다시 투영할 수
+있다. source blocker는 `blocked_fetch` 38개와 `blocked_conversion` 17개다. 실제 드리프트 9건만
+새 live 분석 후보이며, 이 중 source 차단과 겹친 2건도 복구가 먼저다. exact launch manifest
+승인 전에는 모델을 실행하지 않는다.
+
+manifest의 `authoringGuidePreview`는 전환 가능성을 검증하는 advisory preview다. 실제
+`grants.authoring_guide` 저장은 기존 독립 검수, release gate, 별도 `lab:promote --write` 승인을
+모두 통과해야 한다.
