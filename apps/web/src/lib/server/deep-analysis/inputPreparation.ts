@@ -203,6 +203,7 @@ export async function runDeepAnalysisInputPreparation(input: {
   prepareInput?: typeof prepareDeepAnalysisInput;
   ensurePreparedJob?: typeof ensurePreparedDeepAnalysisJob;
   enqueuePreparedJobs?: boolean;
+  retryFailedConversions?: boolean;
   archiveFetchTimeoutMs?: number;
   reprocessMissingMarkdown?: boolean;
   archiveMaxEntries?: number;
@@ -294,6 +295,7 @@ export async function runDeepAnalysisInputPreparation(input: {
       budgetMs: remainingBudgetMs,
       maxAttempts: 60,
       intervalMs: 250,
+      ...(input.retryFailedConversions ? { includeFailed: true } : {}),
     })
     : {
       ok: true,

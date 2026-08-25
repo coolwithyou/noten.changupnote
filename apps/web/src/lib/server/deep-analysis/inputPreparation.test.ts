@@ -57,6 +57,7 @@ const result = await runDeepAnalysisInputPreparation({
   archiveFetchTimeoutMs: 1_234,
   reprocessMissingMarkdown: true,
   archiveMaxEntries: 20,
+  retryFailedConversions: true,
   imageOcr: async () => ({
     markdown: "지원대상: 창업기업",
     confidence: 0.9,
@@ -125,7 +126,7 @@ const result = await runDeepAnalysisInputPreparation({
     };
   },
   runConversionSweep: async (_db, options) => {
-    calls.push(`c:${options?.sourceIds?.join(",")}:${options?.limit}`);
+    calls.push(`c:${options?.sourceIds?.join(",")}:${options?.limit}:${options?.includeFailed}`);
     return {
       ok: true,
       pendingCount: 2,
@@ -140,7 +141,36 @@ const result = await runDeepAnalysisInputPreparation({
   },
   listPdfRecoveryCandidates: async ({ targets }) => {
     calls.push(`p:${targets.map((target) => target.sourceId).join(",")}`);
-    return [];
+    return [{
+      target: targets[0]!,
+      surfaceId: "surface-pdf",
+      title: "공고.pdf",
+      sourceUrl: null,
+      sourceAttachment: "archive/pdf",
+      pdfStorageKey: "artifact/pdf",
+      pdfSha256: "e".repeat(64),
+      pageCount: 1,
+      pageImages: [],
+    }];
+  },
+  recoverPdfCandidates: async (input) => {
+    calls.push(`o:${Boolean(input.imageOcr)}`);
+    return {
+      candidateCount: input.candidates.length,
+      candidatesBySource: { kstartup: 1, bizinfo: 0 },
+      succeededCount: 1,
+      failedCount: 0,
+      recoveredCommitments: [input.candidates[0]!.target.opaqueCommitmentSha256],
+      failures: [],
+      results: [{
+        opaqueCommitmentSha256: input.candidates[0]!.target.opaqueCommitmentSha256,
+        mode: "page_image_ocr",
+        pageCount: 1,
+        textChars: 100,
+        averageConfidence: 0.9,
+        markdownSha256: "f".repeat(64),
+      }],
+    };
   },
   prepareInput: async (input) => ({
     schema: "deep-analysis-input-v1",
@@ -172,8 +202,9 @@ assert.deepEqual(calls, [
   "k:178001:6:1234:true:20:true",
   "b:PBLN_1:6:1234:true:20:test",
   "r:178001,PBLN_1",
-  "c:178001,PBLN_1:5",
+  "c:178001,PBLN_1:5:true",
   "p:178001,PBLN_1",
+  "o:true",
 ]);
 assert.equal(result.targetCount, 2);
 assert.equal(result.sealedCount, 1);
@@ -182,7 +213,7 @@ assert.equal(result.after[0]?.queuePriority, 100);
 assert.equal(result.after[1]?.queuePriority, null);
 assert.deepEqual(result.after[1]?.blockerCodes, ["blocked_conversion"]);
 assert.equal(result.conversionRegistration.jobsEnqueued, 2);
-assert.equal(result.pdfRecovery.candidateCount, 0);
+assert.equal(result.pdfRecovery.candidateCount, 1);
 
 let enqueueAttempted = false;
 const noEnqueueResult = await runDeepAnalysisInputPreparation({

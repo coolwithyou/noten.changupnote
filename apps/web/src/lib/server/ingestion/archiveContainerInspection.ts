@@ -1,12 +1,12 @@
 import { extname } from "node:path";
 import { unzipSync, type UnzipFileInfo } from "fflate";
 
-const SUPPORTED_DOCUMENT = /\.(?:hwp|hwpx|pdf|docx|txt|xlsx|pptx)$/i;
-const CONTAINER_EXTENSION = /\.(?:zip|xlsx|pptx)$/i;
+const SUPPORTED_DOCUMENT = /\.(?:hwp|hwpx|pdf|docx|txt|xlsx|xlsm|pptx)$/i;
+const CONTAINER_EXTENSION = /\.(?:zip|xlsx|xlsm|pptx)$/i;
 
 export interface ArchiveContainerInspection {
   filename: string;
-  format: "zip" | "xlsx" | "pptx";
+  format: "zip" | "xlsx" | "xlsm" | "pptx";
   byteLength: number;
   entryCount: number;
   safeEntryCount: number;
@@ -160,7 +160,7 @@ export function listVerifiedArchiveMaterialEntries(
 
 export function extractOfficeContainerMarkdown(filename: string, body: Buffer): string | null {
   const format = containerFormat(filename);
-  if (format !== "xlsx" && format !== "pptx") return null;
+  if (format !== "xlsx" && format !== "xlsm" && format !== "pptx") return null;
   const infos = readEntryInfo(body);
   if (infos.length > 500) throw new Error("Office container contains more than 500 entries");
   if (infos.some((entry) => isSuspiciousArchivePath(entry.name))) {
@@ -217,7 +217,7 @@ function containerFormat(filename: string): ArchiveContainerInspection["format"]
 }
 
 function isContainerTextPayload(format: ArchiveContainerInspection["format"], entry: string): boolean {
-  if (format === "xlsx") {
+  if (format === "xlsx" || format === "xlsm") {
     return entry === "xl/sharedStrings.xml" || /^xl\/worksheets\/sheet\d+\.xml$/i.test(entry);
   }
   if (format === "pptx") return /^ppt\/slides\/slide\d+\.xml$/i.test(entry);

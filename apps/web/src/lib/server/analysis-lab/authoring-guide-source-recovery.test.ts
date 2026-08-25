@@ -10,6 +10,8 @@ import {
   writeAuthoringGuideAdoptionManifest,
 } from "./authoring-guide-adoption-production";
 import {
+  AUTHORING_GUIDE_SOURCE_RECOVERY_GENERATOR_VERSION_V1,
+  AUTHORING_GUIDE_SOURCE_RECOVERY_SCHEMA_V1,
   assertAuthoringGuideSourceRecoveryManifest,
   createAuthoringGuideSourceRecoveryManifest,
   hashAuthoringGuideSourceRecoveryManifest,
@@ -136,6 +138,7 @@ const runtimeReadiness = {
   r2Configured: true,
   conversionServerConfigured: true,
   conversionSharedSecretConfigured: true,
+  localImageOcrReady: true,
 };
 const manifest = createAuthoringGuideSourceRecoveryManifest({
   adoptionManifestSha256: A,
@@ -155,6 +158,10 @@ assert.equal(manifest.execution.readyForExactWriteGrant, true);
 assert.equal(manifest.execution.databaseWritesAuthorized, false);
 assert.equal(manifest.execution.objectStorageWritesAuthorized, false);
 assert.equal(manifest.execution.externalLlmCallsAuthorized, false);
+assert.equal(manifest.execution.retryFailedConversionSurfaces, true);
+assert.equal(manifest.execution.localImageOcrProvider, "macos_vision");
+assert.equal(manifest.execution.plainTextDecoderVersion, "plain-text-v2-utf8-euckr");
+assert.equal(manifest.execution.unsupportedZipMaterialPolicy, "block");
 assert.equal(manifest.targets[0]?.nextActionAfterRecovery, "reclassify_adoption");
 assert.equal(manifest.targets[1]?.nextActionAfterRecovery, "prepare_rerun_manifest");
 assert.equal(hashAuthoringGuideSourceRecoveryManifest(manifest), hashAuthoringGuideSourceRecoveryManifest(manifest));
@@ -163,6 +170,32 @@ assert.throws(() => assertAuthoringGuideSourceRecoveryManifest({
   ...manifest,
   execution: { ...manifest.execution, analysisJobsAuthorized: true },
 } as never), /실행 계약/);
+
+const historicalV1Manifest = {
+  ...manifest,
+  schema: AUTHORING_GUIDE_SOURCE_RECOVERY_SCHEMA_V1,
+  generatorVersion: AUTHORING_GUIDE_SOURCE_RECOVERY_GENERATOR_VERSION_V1,
+  execution: {
+    mode: manifest.execution.mode,
+    maxRounds: manifest.execution.maxRounds,
+    maxTargetsPerSourcePerRound: manifest.execution.maxTargetsPerSourcePerRound,
+    archiveFetchTimeoutMs: manifest.execution.archiveFetchTimeoutMs,
+    archiveMaxEntries: manifest.execution.archiveMaxEntries,
+    reprocessMissingMarkdown: manifest.execution.reprocessMissingMarkdown,
+    externalLlmCallsAuthorized: manifest.execution.externalLlmCallsAuthorized,
+    analysisJobsAuthorized: manifest.execution.analysisJobsAuthorized,
+    databaseWritesAuthorized: manifest.execution.databaseWritesAuthorized,
+    objectStorageWritesAuthorized: manifest.execution.objectStorageWritesAuthorized,
+    liveExecutionAuthorized: manifest.execution.liveExecutionAuthorized,
+    readyForExactWriteGrant: manifest.execution.readyForExactWriteGrant,
+  },
+  runtimeReadiness: {
+    r2Configured: true,
+    conversionServerConfigured: true,
+    conversionSharedSecretConfigured: true,
+  },
+} as const;
+assert.equal(assertAuthoringGuideSourceRecoveryManifest(historicalV1Manifest), historicalV1Manifest);
 
 const grant = createAuthoringGuideSourceRecoveryGrant({
   manifestSha256: A,
@@ -291,7 +324,7 @@ assert.deepEqual(sourceRecoveryRuntimeReadiness({
   R2_BUCKET_URL: "https://example.invalid",
   CONVERSION_SERVER_URL: "https://conversion.example.invalid",
   CONVERSION_SHARED_SECRET: "shared",
-}), runtimeReadiness);
+}, "darwin"), runtimeReadiness);
 assert.deepEqual(parseAuthoringGuideSourceRecoveryExecutionCliArgs([
   "grant",
   `--manifest=${A}`,
@@ -352,6 +385,8 @@ const productionSource = await readFile(join(
 ), "utf8");
 assert.match(productionSource, /enqueuePreparedJobs: false/);
 assert.doesNotMatch(productionSource, /resolveGrantImageOcrAdapter|verifyClaude|runLabAnalysis/);
+assert.match(productionSource, /macosVisionGrantImageOcr/);
+assert.match(productionSource, /retryFailedConversions: true/);
 assert.match(productionSource, /createDeepRepairLiveRuntimeAuthority/);
 assert.match(productionSource, /assertExactAuthoringGuideSourceRecoveryMaterial\(manifest, current\)/);
 await rm(repositoryRoot, { recursive: true, force: true });

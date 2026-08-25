@@ -48,6 +48,8 @@ export interface CollectPendingOptions {
   sourceIds?: string[];
   /** 특정 grant 의 surface 로 제한 (on-demand 폴링용). */
   grantId?: string;
+  /** 승인된 복구에서만 failed surface도 같은 content identity로 다시 조정한다. */
+  includeFailed?: boolean;
 }
 
 /**
@@ -65,7 +67,9 @@ export async function collectPendingSurfaceJobs(
   const archives = schema.grantAttachmentArchives;
 
   const conditions = [
-    eq(surfaces.extractionStatus, "pending"),
+    options.includeFailed
+      ? inArray(surfaces.extractionStatus, ["pending", "failed"])
+      : eq(surfaces.extractionStatus, "pending"),
     eq(surfaces.type, FILE_TEMPLATE_SURFACE_TYPE),
   ];
   if (options.source) conditions.push(eq(surfaces.source, options.source));

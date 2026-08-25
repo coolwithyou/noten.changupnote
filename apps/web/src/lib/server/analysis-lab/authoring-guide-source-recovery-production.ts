@@ -82,6 +82,7 @@ export function authoringGuideSourceRecoveryManifestPath(
 
 export function sourceRecoveryRuntimeReadiness(
   env: Readonly<Record<string, string | undefined>> = process.env,
+  platform: NodeJS.Platform = process.platform,
 ): AuthoringGuideSourceRecoveryRuntimeReadiness {
   return Object.freeze({
     r2Configured: [
@@ -93,6 +94,7 @@ export function sourceRecoveryRuntimeReadiness(
     ].every((name) => Boolean(env[name]?.trim())),
     conversionServerConfigured: Boolean(env.CONVERSION_SERVER_URL?.trim()),
     conversionSharedSecretConfigured: Boolean(env.CONVERSION_SHARED_SECRET?.trim()),
+    localImageOcrReady: platform === "darwin",
   });
 }
 

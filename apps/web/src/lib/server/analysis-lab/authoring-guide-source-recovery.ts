@@ -5,10 +5,16 @@ import type {
   AuthoringGuideAdoptionManifestItem,
 } from "./authoring-guide-adoption";
 
-export const AUTHORING_GUIDE_SOURCE_RECOVERY_SCHEMA =
+export const AUTHORING_GUIDE_SOURCE_RECOVERY_SCHEMA_V1 =
   "authoring-guide-source-recovery-manifest-v1" as const;
-export const AUTHORING_GUIDE_SOURCE_RECOVERY_GENERATOR_VERSION =
+export const AUTHORING_GUIDE_SOURCE_RECOVERY_GENERATOR_VERSION_V1 =
   "authoring-guide-source-recovery-prepare-v1" as const;
+export const AUTHORING_GUIDE_SOURCE_RECOVERY_SCHEMA =
+  "authoring-guide-source-recovery-manifest-v2" as const;
+export const AUTHORING_GUIDE_SOURCE_RECOVERY_GENERATOR_VERSION =
+  "authoring-guide-source-recovery-prepare-v2" as const;
+export const AUTHORING_GUIDE_SOURCE_RECOVERY_EXECUTOR_VERSION =
+  "authoring-guide-source-recovery-executor-v2" as const;
 
 export type AuthoringGuideSourceRecoveryAction =
   | "archive_refetch"
@@ -19,6 +25,13 @@ export type AuthoringGuideSourceRecoveryNextAction =
   | "prepare_rerun_manifest";
 
 export interface AuthoringGuideSourceRecoveryRuntimeReadiness {
+  readonly r2Configured: boolean;
+  readonly conversionServerConfigured: boolean;
+  readonly conversionSharedSecretConfigured: boolean;
+  readonly localImageOcrReady: boolean;
+}
+
+export interface AuthoringGuideSourceRecoveryRuntimeReadinessV1 {
   readonly r2Configured: boolean;
   readonly conversionServerConfigured: boolean;
   readonly conversionSharedSecretConfigured: boolean;
@@ -50,15 +63,28 @@ export interface AuthoringGuideSourceRecoveryTarget {
   readonly targetSha256: string;
 }
 
-export interface AuthoringGuideSourceRecoveryManifest {
-  readonly schema: typeof AUTHORING_GUIDE_SOURCE_RECOVERY_SCHEMA;
+interface AuthoringGuideSourceRecoveryManifestBase {
   readonly preparedAt: string;
   readonly source: {
     readonly adoptionManifestSha256: string;
     readonly adoptionAsOfKst: string;
     readonly adoptionPreparedAt: string;
   };
-  readonly generatorVersion: typeof AUTHORING_GUIDE_SOURCE_RECOVERY_GENERATOR_VERSION;
+  readonly summary: {
+    readonly targetCount: number;
+    readonly targetsBySource: Readonly<Record<"kstartup" | "bizinfo", number>>;
+    readonly blockerCount: number;
+    readonly blockersByCode: Readonly<Record<"blocked_fetch" | "blocked_conversion", number>>;
+    readonly reclassifyAfterRecovery: number;
+    readonly prepareRerunAfterRecovery: number;
+  };
+  readonly targets: readonly AuthoringGuideSourceRecoveryTarget[];
+}
+
+export interface AuthoringGuideSourceRecoveryManifestV1
+  extends AuthoringGuideSourceRecoveryManifestBase {
+  readonly schema: typeof AUTHORING_GUIDE_SOURCE_RECOVERY_SCHEMA_V1;
+  readonly generatorVersion: typeof AUTHORING_GUIDE_SOURCE_RECOVERY_GENERATOR_VERSION_V1;
   readonly execution: {
     readonly mode: "prepare_only";
     readonly maxRounds: 3;
@@ -73,24 +99,33 @@ export interface AuthoringGuideSourceRecoveryManifest {
     readonly liveExecutionAuthorized: false;
     readonly readyForExactWriteGrant: boolean;
   };
-  readonly runtimeReadiness: AuthoringGuideSourceRecoveryRuntimeReadiness;
-  readonly summary: {
-    readonly targetCount: number;
-    readonly targetsBySource: Readonly<Record<"kstartup" | "bizinfo", number>>;
-    readonly blockerCount: number;
-    readonly blockersByCode: Readonly<Record<"blocked_fetch" | "blocked_conversion", number>>;
-    readonly reclassifyAfterRecovery: number;
-    readonly prepareRerunAfterRecovery: number;
-  };
-  readonly targets: readonly AuthoringGuideSourceRecoveryTarget[];
+  readonly runtimeReadiness: AuthoringGuideSourceRecoveryRuntimeReadinessV1;
 }
+
+export interface AuthoringGuideSourceRecoveryManifestV2
+  extends AuthoringGuideSourceRecoveryManifestBase {
+  readonly schema: typeof AUTHORING_GUIDE_SOURCE_RECOVERY_SCHEMA;
+  readonly generatorVersion: typeof AUTHORING_GUIDE_SOURCE_RECOVERY_GENERATOR_VERSION;
+  readonly execution: AuthoringGuideSourceRecoveryManifestV1["execution"] & {
+    readonly executorVersion: typeof AUTHORING_GUIDE_SOURCE_RECOVERY_EXECUTOR_VERSION;
+    readonly retryFailedConversionSurfaces: true;
+    readonly localImageOcrProvider: "macos_vision";
+    readonly plainTextDecoderVersion: "plain-text-v2-utf8-euckr";
+    readonly unsupportedZipMaterialPolicy: "block";
+  };
+  readonly runtimeReadiness: AuthoringGuideSourceRecoveryRuntimeReadiness;
+}
+
+export type AuthoringGuideSourceRecoveryManifest =
+  | AuthoringGuideSourceRecoveryManifestV1
+  | AuthoringGuideSourceRecoveryManifestV2;
 
 export function createAuthoringGuideSourceRecoveryManifest(input: {
   readonly adoptionManifestSha256: string;
   readonly adoptionManifest: AuthoringGuideAdoptionManifest;
   readonly runtimeReadiness: AuthoringGuideSourceRecoveryRuntimeReadiness;
   readonly preparedAt: Date;
-}): AuthoringGuideSourceRecoveryManifest {
+}): AuthoringGuideSourceRecoveryManifestV2 {
   requireSha(input.adoptionManifestSha256, "adoptionManifestSha256");
   assertAdoptionManifestSource(input.adoptionManifest);
   const preparedAt = input.preparedAt.toISOString();
@@ -130,6 +165,11 @@ export function createAuthoringGuideSourceRecoveryManifest(input: {
       objectStorageWritesAuthorized: false,
       liveExecutionAuthorized: false,
       readyForExactWriteGrant,
+      executorVersion: AUTHORING_GUIDE_SOURCE_RECOVERY_EXECUTOR_VERSION,
+      retryFailedConversionSurfaces: true,
+      localImageOcrProvider: "macos_vision",
+      plainTextDecoderVersion: "plain-text-v2-utf8-euckr",
+      unsupportedZipMaterialPolicy: "block",
     }),
     runtimeReadiness: Object.freeze({ ...input.runtimeReadiness }),
     summary: Object.freeze({
@@ -177,9 +217,12 @@ export function hashAuthoringGuideSourceRecoveryManifest(
 export function assertAuthoringGuideSourceRecoveryManifest(
   manifest: AuthoringGuideSourceRecoveryManifest,
 ): AuthoringGuideSourceRecoveryManifest {
+  const isV1 = manifest.schema === AUTHORING_GUIDE_SOURCE_RECOVERY_SCHEMA_V1;
+  const isV2 = manifest.schema === AUTHORING_GUIDE_SOURCE_RECOVERY_SCHEMA;
   if (
-    manifest.schema !== AUTHORING_GUIDE_SOURCE_RECOVERY_SCHEMA
-    || manifest.generatorVersion !== AUTHORING_GUIDE_SOURCE_RECOVERY_GENERATOR_VERSION
+    (!isV1 && !isV2)
+    || (isV1 && manifest.generatorVersion !== AUTHORING_GUIDE_SOURCE_RECOVERY_GENERATOR_VERSION_V1)
+    || (isV2 && manifest.generatorVersion !== AUTHORING_GUIDE_SOURCE_RECOVERY_GENERATOR_VERSION)
     || manifest.execution.mode !== "prepare_only"
     || manifest.execution.maxRounds !== 3
     || manifest.execution.maxTargetsPerSourcePerRound !== 20
@@ -195,6 +238,16 @@ export function assertAuthoringGuideSourceRecoveryManifest(
     || !Object.values(manifest.runtimeReadiness).every((value) => value === true)
   ) {
     throw new Error("source recovery manifest 실행 계약이 잘못됐습니다.");
+  }
+  if (isV2 && (
+    manifest.execution.executorVersion !== AUTHORING_GUIDE_SOURCE_RECOVERY_EXECUTOR_VERSION
+    || manifest.execution.retryFailedConversionSurfaces !== true
+    || manifest.execution.localImageOcrProvider !== "macos_vision"
+    || manifest.execution.plainTextDecoderVersion !== "plain-text-v2-utf8-euckr"
+    || manifest.execution.unsupportedZipMaterialPolicy !== "block"
+    || manifest.runtimeReadiness.localImageOcrReady !== true
+  )) {
+    throw new Error("source recovery v2 보정 실행 계약이 잘못됐습니다.");
   }
   requireSha(manifest.source.adoptionManifestSha256, "source.adoptionManifestSha256");
   if (!/^\d{4}-\d{2}-\d{2}$/u.test(manifest.source.adoptionAsOfKst)) {

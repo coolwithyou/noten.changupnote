@@ -25,6 +25,7 @@ import type { R2ObjectStorage } from "../storage/r2ObjectStorage";
 import {
   archiveGrantAttachments,
   attachDetectedSurfaceFormat,
+  decodePlainTextAttachment,
   detectConvertibleSurfaceFormat,
   detectConvertibleSurfaceFormatFromBytes,
   readDetectedSurfaceFormat,
@@ -113,11 +114,17 @@ async function main(): Promise<void> {
     assert.equal(result.archivedCount, 1);
     assert.equal(result.convertedCount, 1);
     assert.equal(result.attachments[0]?.conversion?.status, "converted");
-    assert.equal(result.attachments[0]?.conversion?.converter, "plain-text-v1");
+    assert.equal(result.attachments[0]?.conversion?.converter, "plain-text-v2/utf-8");
     assert.equal(result.attachmentMarkdowns[0]?.markdown, "지원대상: 창업기업");
     assert.equal(uploads.length, 2);
     assert.equal(uploads[0]?.contentType, "text/plain; charset=utf-8");
     assert.equal(uploads[1]?.contentType, "text/markdown; charset=utf-8");
+  });
+
+  await check("CP949/EUC-KR txt 첨부는 UTF-8 실패 뒤 보수적으로 디코딩", () => {
+    const decoded = decodePlainTextAttachment(Buffer.from([0xc1, 0xf6, 0xbf, 0xf8]));
+    assert.equal(decoded.markdown, "지원");
+    assert.equal(decoded.converter, "plain-text-v2/euc-kr");
   });
 
   await check("ZIP 첨부는 안전한 내부 문서를 별도 archive 항목으로 확장", async () => {

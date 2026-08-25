@@ -378,11 +378,8 @@ async function archiveOneAttachment(
         ocrConfidence: confidence,
       };
     } else if (isPlainTextFilename(attachment.filename)) {
-      converted = {
-        markdown: decodePlainText(downloaded.body),
-        converter: "plain-text-v1",
-      };
-    } else if (/\.(?:xlsx|pptx)$/i.test(attachment.filename)) {
+      converted = decodePlainTextAttachment(downloaded.body);
+    } else if (/\.(?:xlsx|xlsm|pptx)$/i.test(attachment.filename)) {
       const markdown = extractOfficeContainerMarkdown(attachment.filename, downloaded.body);
       if (!markdown) throw new Error("Office attachment did not contain extractable text");
       converted = { markdown, converter: "office-openxml-v1" };
@@ -597,6 +594,7 @@ function inferContentType(filename: string): string {
   if (ext === ".zip") return "application/zip";
   if (ext === ".docx") return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
   if (ext === ".xlsx") return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+  if (ext === ".xlsm") return "application/vnd.ms-excel.sheet.macroEnabled.12";
   return "application/octet-stream";
 }
 
@@ -608,11 +606,35 @@ function isImageFilename(filename: string): boolean {
   return /\.(?:png|jpe?g)$/i.test(filename);
 }
 
-function decodePlainText(body: Buffer): string {
+export function decodePlainTextAttachment(body: Buffer): {
+  readonly markdown: string;
+  readonly converter: "plain-text-v2/utf-8" | "plain-text-v2/euc-kr";
+} {
   if (body.length > 5 * 1024 * 1024) throw new Error("Plain text attachment exceeds 5 MiB");
-  const text = new TextDecoder("utf-8", { fatal: true }).decode(body).replace(/\u0000/g, "").trim();
-  if (!text) throw new Error("Plain text attachment is empty");
-  return text;
+  const failures: string[] = [];
+  for (const encoding of ["utf-8", "euc-kr"] as const) {
+    try {
+      const markdown = new TextDecoder(encoding, { fatal: true })
+        .decode(body)
+        .replace(/\u0000/g, "")
+        .trim();
+      if (!markdown) throw new Error("decoded text is empty");
+      const disallowedControls = [...markdown].filter((character) => {
+        const code = character.codePointAt(0) ?? 0;
+        return code < 0x20 && character !== "\n" && character !== "\r" && character !== "\t";
+      }).length;
+      if (disallowedControls > Math.max(2, Math.floor(markdown.length * 0.01))) {
+        throw new Error("decoded text contains binary control characters");
+      }
+      return {
+        markdown,
+        converter: `plain-text-v2/${encoding}`,
+      };
+    } catch (error) {
+      failures.push(`${encoding}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+  throw new Error(`Plain text attachment encoding is unsupported (${failures.join("; ")})`);
 }
 
 function sanitizeKeyPart(value: string): string {

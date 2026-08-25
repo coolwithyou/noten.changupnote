@@ -10,6 +10,7 @@ import {
 
 assert.equal(isArchiveContainerFilename("첨부파일.zip"), true);
 assert.equal(isArchiveContainerFilename("목록.xlsx"), true);
+assert.equal(isArchiveContainerFilename("목록.xlsm"), true);
 assert.equal(isArchiveContainerFilename("포스터.png"), false);
 
 const safe = await inspectArchiveContainer("첨부파일.zip", writeHwpx([
@@ -33,6 +34,21 @@ assert.deepEqual(
   ["eligibility.xlsx", "notice.hwpx"],
 );
 assert.equal(listVerifiedArchiveMaterialEntries("첨부파일.zip", nestedOffice).length, 2);
+
+const macroWorkbook = writeHwpx([
+  { name: "xl/sharedStrings.xml", data: Buffer.from('<sst><si><t>직접참여인력</t></si></sst>'), method: 0 },
+  { name: "xl/worksheets/sheet1.xml", data: Buffer.from('<worksheet><sheetData><row><c t="s"><v>0</v></c></row></sheetData></worksheet>'), method: 0 },
+]);
+assert.deepEqual(
+  listVerifiedArchiveMaterialEntries("첨부파일.zip", writeHwpx([
+    { name: "신청서목록.xlsm", data: macroWorkbook, method: 0 },
+  ])).map((entry) => entry.filename),
+  ["신청서목록.xlsm"],
+);
+assert.match(extractOfficeContainerMarkdown("신청서목록.xlsm", macroWorkbook) ?? "", /직접참여인력/);
+assert.throws(() => listVerifiedArchiveMaterialEntries("첨부파일.zip", writeHwpx([
+  { name: "이해관계자리스트.xls", data: Buffer.from("legacy-cfbf"), method: 0 },
+])), /unsupported material entries/);
 
 const traversal = await inspectArchiveContainer("첨부파일.zip", writeHwpx([
   { name: "../outside.txt", data: Buffer.from("unsafe"), method: 0 },

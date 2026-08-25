@@ -10,6 +10,7 @@ import {
 } from "@/lib/server/deep-analysis/inputPreparation";
 import { readDeepAnalysisRuntimeAdmissionSnapshot } from "@/lib/server/deep-analysis/runtimeControl";
 import { createR2ObjectStorageFromEnv } from "@/lib/server/storage/r2ObjectStorage";
+import { macosVisionGrantImageOcr } from "@/lib/server/ingestion/macosVisionOcr";
 import {
   prepareCurrentAuthoringGuideAdoption,
   writeAuthoringGuideAdoptionManifest,
@@ -26,6 +27,7 @@ import {
   type AuthoringGuideSourceRecoveryRoundResult,
 } from "./authoring-guide-source-recovery-execution";
 import {
+  AUTHORING_GUIDE_SOURCE_RECOVERY_SCHEMA,
   hashAuthoringGuideSourceRecoveryBlockers,
   type AuthoringGuideSourceRecoveryManifest,
 } from "./authoring-guide-source-recovery";
@@ -113,6 +115,10 @@ export async function runApprovedAuthoringGuideSourceRecovery(input: {
   if (!process.env.CONVERSION_SHARED_SECRET?.trim()) {
     throw new Error("source recovery 실행에 CONVERSION_SHARED_SECRET이 필요합니다.");
   }
+  const usesRecoveryV2 = manifest.schema === AUTHORING_GUIDE_SOURCE_RECOVERY_SCHEMA;
+  if (usesRecoveryV2 && process.platform !== "darwin") {
+    throw new Error("source recovery v2는 macOS Vision OCR을 사용할 수 있는 darwin 실행 환경이 필요합니다.");
+  }
 
   const db = getCunoteDb();
   const runtime = await readDeepAnalysisRuntimeAdmissionSnapshot(db);
@@ -190,6 +196,13 @@ export async function runApprovedAuthoringGuideSourceRecovery(input: {
           archiveFetchTimeoutMs: manifest.execution.archiveFetchTimeoutMs,
           reprocessMissingMarkdown: manifest.execution.reprocessMissingMarkdown,
           archiveMaxEntries: manifest.execution.archiveMaxEntries,
+          ...(usesRecoveryV2
+            ? {
+              retryFailedConversions: true,
+              imageOcr: macosVisionGrantImageOcr,
+              imageOcrName: "macos_vision",
+            }
+            : {}),
           listTargets: async () => targets,
         });
         return toRecoveryRoundResult(result);
