@@ -266,9 +266,11 @@ git diff --check
 - [x] 전체 자동 gate와 web/admin production build 검증
 - [x] 기존 publishable 분석의 read-only RHWP guide 채택 분류기와 immutable manifest
 - [x] 2026-08-25 현행 86건 분류: 투영 가능 46, 검수 1, source 복구 30, 재분석 9
+- [x] 2026-08-26 현행 재봉인: 지원 가능 538, publishable 82, 투영 46, 검수 1, source 복구 28, 재분석 7
+- [x] adoption 전용 source-recovery prepare 모듈과 exact 매니페스트 생성
 - [ ] 역사 receipt·관리자 데이터 호환 read model과 Kordoc 구현 파일의 물리 삭제 — 보존 기간·데이터 폐기 승인 뒤 별도 수행
-- [ ] source 봉인 차단 32건(복구 전용 30 + 재분석과 중첩 2) 처리 후 동일 manifest 규칙 재검증
-- [ ] 드리프트 9건 exact launch manifest 준비·승인·live 재분석
+- [ ] 8월 26일 source 봉인 차단 29건(복구 전용 28 + 재분석과 중첩 1) exact write 승인·복구·재검증
+- [ ] 8월 26일 드리프트 7건 exact launch manifest 준비·승인·live 재분석
 - [ ] 투영 결과의 기존 독립 검수·release gate 처리와 `lab:promote --write` 별도 승인
 - [ ] 운영 DB migration 적용 — 별도 승인 필요
 - [ ] 실제 HWP/HWPX 브라우저 UAT — 실행 중인 사용자 서버 필요

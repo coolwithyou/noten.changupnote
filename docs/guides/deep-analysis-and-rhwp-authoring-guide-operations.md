@@ -149,3 +149,42 @@ pnpm lab:authoring-guide:adopt -- --as-of=2026-08-25 --concurrency=4 --prepare
 manifest의 `authoringGuidePreview`는 전환 가능성을 검증하는 advisory preview다. 실제
 `grants.authoring_guide` 저장은 기존 독립 검수, release gate, 별도 `lab:promote --write` 승인을
 모두 통과해야 한다.
+
+### 9.1 2026-08-26 재봉인
+
+날짜가 바뀌면 지원 가능 모집단과 채택 대상은 반드시 새 SHA로 다시 봉인한다. 2026-08-26 KST
+결과는 다음과 같다.
+
+- 현재 지원 가능 공고: 538건
+- 명시적 publishable 역사 런: 82건
+- `projection_ready`: 46건
+- `review_required`: 1건
+- `source_recovery_required`: 28건
+- `rerun_required`: 7건
+- source 봉인 차단: 29건(복구 전용 28건, 재분석 대상과 중첩 1건; blocker 46개)
+- blocker: `blocked_fetch` 29개, `blocked_conversion` 17개
+- adoption manifest SHA-256: `d3022d30bb333a4e5978660b93d6edeb80f800f145b74f7c06fcd129ba118ecc`
+
+### 9.2 adoption 전용 source recovery 준비
+
+과거 frozen quality cohort 복구 명령은 해당 public/secret manifest와 receipt에 결속되어 있으므로
+adoption 대상에 재사용하지 않는다. 다음 prepare 명령은 exact adoption SHA에서 자동 복구 가능한
+`blocked_fetch|blocked_conversion`만 고르고 모델·DB·R2 쓰기 없이 새 매니페스트를 만든다.
+
+```bash
+pnpm lab:authoring-guide:recovery:prepare -- \
+  --adoption-manifest=d3022d30bb333a4e5978660b93d6edeb80f800f145b74f7c06fcd129ba118ecc
+```
+
+봉인 결과:
+
+- recovery manifest SHA-256: `1bdd5d2fb66dccd11c276efb8b4e67ea2f6ca8429dcd9281d68de9813a672aed`
+- 대상: 29건(`bizinfo` 19, `kstartup` 10)
+- 복구 후 재분류: 28건
+- 복구 후 rerun manifest 준비: 1건
+- R2·conversion server·shared secret 준비도: 모두 true
+- 최대 3라운드, source별 라운드당 20건
+- 외부 LLM 호출·분석 enqueue·DB 쓰기·R2 쓰기·live 실행 권한: 모두 false
+
+이 매니페스트는 쓰기 권한이 아니다. exact SHA, 29건, 최대 3라운드, DB·R2 입력 복구만을
+승인받은 뒤 별도 grant/execute 경로를 열고, receipt와 새 adoption manifest를 다시 봉인해야 한다.
