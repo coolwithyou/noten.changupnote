@@ -252,15 +252,22 @@ export async function applyVerifiedAttachmentWaivers(
       );
       const children = materialEntries.map((entry) => {
         const expectedSourceUri = `${childPrefix}${encodeURIComponent(entry.filename)}`;
+        const candidates = inventoryChildren.filter((candidate) => (
+          candidate.sourceUri === expectedSourceUri
+        ));
         return {
           entry,
-          child: inventoryChildren.find((candidate) =>
-            candidate.sourceUri === expectedSourceUri),
+          child: candidates.find((candidate) => (
+            candidate.storageKey
+            && candidate.sha256
+            && candidate.conversionStatus === "converted"
+            && candidate.markdownStorageKey
+            && candidate.markdownSha256
+          )) ?? candidates[0],
         };
       });
       if (
-        children.length !== inventoryChildren.length
-        || children.some(({ child }) => (
+        children.some(({ child }) => (
           !child
           || !child.storageKey
           || !child.sha256
@@ -273,7 +280,7 @@ export async function applyVerifiedAttachmentWaivers(
       }
       attachment.waiver = {
         disposition: "waived_non_material",
-        reason: `ZIP 실제 바이트의 material entry ${children.length}건 전부가 검증된 child 입력으로 연결됨`,
+        reason: `ZIP 실제 바이트의 material entry ${children.length}건 전부가 검증된 current child 입력으로 연결됨`,
         proofSha256: sha256Hex(stableJson({
           parentSha256: attachment.sha256,
           entries: children.map(({ entry, child }) => ({

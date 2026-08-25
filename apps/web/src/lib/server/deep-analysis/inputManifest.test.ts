@@ -211,6 +211,33 @@ assert.equal(sealDeepAnalysisInput({
   attachments: expandedArchive,
 }).sealed, true);
 
+const expandedArchiveWithStaleDuplicate = [
+  { ...archiveContainer },
+  archiveChildren[0]!,
+  attachment({
+    ...archiveChildren[0]!,
+    id: "form-1-stale",
+    filename: "신청서식__03__신청서.hwp",
+    conversionStatus: "skipped",
+    markdownStorageKey: null,
+    markdownSha256: null,
+    markdownText: null,
+  }),
+  archiveChildren[1]!,
+];
+await applyVerifiedAttachmentWaivers(expandedArchiveWithStaleDuplicate, archiveStorage);
+assert.equal(
+  expandedArchiveWithStaleDuplicate[0]?.waiver?.disposition,
+  "waived_non_material",
+  "같은 ZIP entry의 과거 incomplete child가 남아도 검증된 current child를 선택해야 한다",
+);
+assert.equal(sealDeepAnalysisInput({
+  grantId: "grant-expanded-archive-stale-duplicate",
+  sourceRevisionSha256: sha256Hex("revision"),
+  structuredText: "구조화 공고",
+  attachments: expandedArchiveWithStaleDuplicate,
+}).sealed, true);
+
 const incompleteArchive = [
   attachment({
     id: "forms-zip-incomplete",
