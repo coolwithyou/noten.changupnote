@@ -16,11 +16,17 @@ import {
   encodeCanonical,
   normalizeAnalysisLaunchGrant,
   normalizeAnalysisLaunchManifest,
+  normalizeAnalysisLaunchReceipt,
+  type AnalysisLaunchReceipt,
+  type AnalysisLaunchReceiptTarget,
 } from "./launch-batch-artifacts";
 import { partitionCohortEntries } from "./batch-plan";
 import { withAnalysisLaunchBatchExecution } from "./launch-batch-context";
 import { parseAnalysisLaunchCliArgs } from "./launch-batch-cli";
-import { shouldForceExactManifestReanalysis } from "./launch-batch-production";
+import {
+  selectAnalysisLaunchRetryGrantIds,
+  shouldForceExactManifestReanalysis,
+} from "./launch-batch-production";
 import { parseAuthoringGuideRerunLaunchCliArgs } from "./authoring-guide-rerun-launch-cli";
 
 const SHA_A = "a".repeat(64);
@@ -147,13 +153,12 @@ test("작성 가이드 adoption 재분석은 source-sealed rerun만 exact 기존
   assert.equal(shouldForceExactManifestReanalysis({
     existingRunPolicy: rerun.execution.existingRunPolicy,
     retryErrors: true,
-  }), false);
+  }), true);
 
   const retryOnly = partitionCohortEntries(
-    [{ grantId: GRANT_0 }, { grantId: GRANT_1 }],
+    [{ grantId: GRANT_1 }],
     new Map([
-      [GRANT_0, { okCurrent: true, okOutdated: false, heldCurrent: false, errorCurrent: false }],
-      [GRANT_1, { okCurrent: false, okOutdated: false, heldCurrent: false, errorCurrent: true }],
+      [GRANT_1, { okCurrent: false, okOutdated: true, heldCurrent: false, errorCurrent: false }],
     ]),
     {
       retryErrors: true,
@@ -165,7 +170,37 @@ test("작성 가이드 adoption 재분석은 source-sealed rerun만 exact 기존
     },
   );
   assert.deepEqual(retryOnly.pending, [{ grantId: GRANT_1 }]);
-  assert.deepEqual(retryOnly.skippedOk, [{ grantId: GRANT_0 }]);
+  assert.deepEqual(retryOnly.skippedOk, []);
+
+  const firstReceipt = launchReceipt([
+    launchReceiptTarget(0, GRANT_0, "publishable"),
+    launchReceiptTarget(1, GRANT_1, "failed"),
+  ], "2026-08-26T00:10:00.000Z");
+  const noOpReceipt = launchReceipt([
+    launchReceiptTarget(0, GRANT_0, "skipped"),
+    launchReceiptTarget(1, GRANT_1, "skipped"),
+  ], "2026-08-26T00:20:00.000Z");
+  assert.deepEqual(selectAnalysisLaunchRetryGrantIds({
+    manifest,
+    grantSha256: SHA_D,
+    manifestSha256: SHA_C,
+    receipts: [noOpReceipt, firstReceipt],
+  }), [GRANT_1]);
+
+  const successReceipt = launchReceipt([
+    launchReceiptTarget(0, GRANT_0, "skipped"),
+    launchReceiptTarget(1, GRANT_1, "publishable"),
+  ], "2026-08-26T00:30:00.000Z");
+  assert.deepEqual(selectAnalysisLaunchRetryGrantIds({
+    manifest,
+    grantSha256: SHA_D,
+    manifestSha256: SHA_C,
+    receipts: [firstReceipt, noOpReceipt, successReceipt],
+  }), []);
+  assert.deepEqual(
+    normalizeAnalysisLaunchReceipt(JSON.parse(encodeCanonical(firstReceipt).toString("utf8"))),
+    firstReceipt,
+  );
 });
 
 test("cohort grant는 manifest 전체를 한 번 승인하고 만료/sequence authority를 만들지 않는다", () => {
@@ -317,5 +352,44 @@ function adoptionItem(
       projectedCriterionCount: 1,
     },
     authoringGuidePreview: null,
+  };
+}
+
+function launchReceiptTarget(
+  sequence: number,
+  grantId: string,
+  status: AnalysisLaunchReceiptTarget["status"],
+): AnalysisLaunchReceiptTarget {
+  return {
+    sequence,
+    grantId,
+    status,
+    runArtifactPath: status === "skipped" ? null : `spike-out/${grantId}.json`,
+    runArtifactSha256: status === "skipped" ? null : SHA_A,
+    applicationRoundtripStatus: null,
+    error: status === "failed" ? "timeout" : null,
+  };
+}
+
+function launchReceipt(
+  targets: readonly AnalysisLaunchReceiptTarget[],
+  finishedAt: string,
+): AnalysisLaunchReceipt {
+  return {
+    schema: "analysis-launch-receipt-v1",
+    grantSha256: SHA_D,
+    manifestSha256: SHA_C,
+    startedAt: "2026-08-26T00:00:00.000Z",
+    finishedAt,
+    lifecycle: "finished",
+    stopReason: "completed",
+    systemicFailure: null,
+    summary: {
+      publishable: targets.filter((target) => target.status === "publishable").length,
+      held: targets.filter((target) => target.status === "held").length,
+      failed: targets.filter((target) => target.status === "failed").length,
+      skipped: targets.filter((target) => target.status === "skipped").length,
+    },
+    targets,
   };
 }

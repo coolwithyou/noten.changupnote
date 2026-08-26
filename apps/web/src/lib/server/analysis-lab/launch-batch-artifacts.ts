@@ -444,6 +444,96 @@ export function normalizeAnalysisLaunchGrant(value: unknown): AnalysisLaunchGran
   });
 }
 
+export function normalizeAnalysisLaunchReceipt(value: unknown): AnalysisLaunchReceipt {
+  const record = object(value, "receipt");
+  if (record.schema !== "analysis-launch-receipt-v1" || record.lifecycle !== "finished") {
+    throw new Error("launch receipt 계약이 다릅니다.");
+  }
+  if (!Array.isArray(record.targets) || record.targets.length < 1 || record.targets.length > MAX_LAUNCH_TARGETS) {
+    throw new Error("launch receipt targets 수가 잘못됐습니다.");
+  }
+  const targets = record.targets.map((raw, index): AnalysisLaunchReceiptTarget => {
+    const target = object(raw, `receipt.targets[${index}]`);
+    const status = target.status;
+    if (status !== "publishable" && status !== "held" && status !== "failed" && status !== "skipped") {
+      throw new Error(`receipt.targets[${index}].status가 잘못됐습니다.`);
+    }
+    const runArtifactPath = target.runArtifactPath === null
+      ? null
+      : requireNonEmpty(target.runArtifactPath, `receipt.targets[${index}].runArtifactPath`);
+    const runArtifactSha256 = target.runArtifactSha256 === null
+      ? null
+      : exactSha(String(target.runArtifactSha256), `receipt.targets[${index}].runArtifactSha256`);
+    if ((runArtifactPath === null) !== (runArtifactSha256 === null)) {
+      throw new Error(`receipt.targets[${index}] run artifact 결속이 잘못됐습니다.`);
+    }
+    const applicationRoundtripStatus = target.applicationRoundtripStatus === null
+      ? null
+      : requireNonEmpty(
+        target.applicationRoundtripStatus,
+        `receipt.targets[${index}].applicationRoundtripStatus`,
+      );
+    const error = target.error === null
+      ? null
+      : requireNonEmpty(target.error, `receipt.targets[${index}].error`);
+    if (status === "skipped" && (runArtifactPath !== null || applicationRoundtripStatus !== null || error !== null)) {
+      throw new Error(`receipt.targets[${index}] skipped 결과가 산출물을 참조합니다.`);
+    }
+    return Object.freeze({
+      sequence: integer(target.sequence, `receipt.targets[${index}].sequence`),
+      grantId: exactUuid(target.grantId, `receipt.targets[${index}].grantId`),
+      status,
+      runArtifactPath,
+      runArtifactSha256,
+      applicationRoundtripStatus,
+      error,
+    });
+  });
+  if (new Set(targets.map((target) => target.grantId)).size !== targets.length) {
+    throw new Error("launch receipt grantId가 중복됐습니다.");
+  }
+  const summary = object(record.summary, "receipt.summary");
+  const normalizedSummary = Object.freeze({
+    publishable: integer(summary.publishable, "receipt.summary.publishable"),
+    held: integer(summary.held, "receipt.summary.held"),
+    failed: integer(summary.failed, "receipt.summary.failed"),
+    skipped: integer(summary.skipped, "receipt.summary.skipped"),
+  });
+  for (const [status, count] of Object.entries(normalizedSummary)) {
+    if (count < 0 || targets.filter((target) => target.status === status).length !== count) {
+      throw new Error(`launch receipt summary.${status}가 targets와 다릅니다.`);
+    }
+  }
+  const stopReason = record.stopReason;
+  if (
+    stopReason !== "completed"
+    && stopReason !== "window-exhausted"
+    && stopReason !== "aborted"
+    && stopReason !== "systemic-failure"
+  ) {
+    throw new Error("launch receipt stopReason이 잘못됐습니다.");
+  }
+  const startedAt = exactIso(record.startedAt, "receipt.startedAt");
+  const finishedAt = exactIso(record.finishedAt, "receipt.finishedAt");
+  if (Date.parse(finishedAt) < Date.parse(startedAt)) {
+    throw new Error("launch receipt finishedAt이 startedAt보다 빠릅니다.");
+  }
+  return Object.freeze({
+    schema: "analysis-launch-receipt-v1",
+    grantSha256: exactSha(String(record.grantSha256), "receipt.grantSha256"),
+    manifestSha256: exactSha(String(record.manifestSha256), "receipt.manifestSha256"),
+    startedAt,
+    finishedAt,
+    lifecycle: "finished",
+    stopReason,
+    systemicFailure: record.systemicFailure === null
+      ? null
+      : requireNonEmpty(record.systemicFailure, "receipt.systemicFailure"),
+    summary: normalizedSummary,
+    targets: Object.freeze(targets),
+  });
+}
+
 export function assertAnalysisLaunchExecutionContract(input: {
   readonly manifest: AnalysisLaunchManifest;
   readonly current: {

@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
-import { readFile } from "node:fs/promises";
-import { relative, sep } from "node:path";
+import { readdir, readFile } from "node:fs/promises";
+import { dirname, relative, sep } from "node:path";
 import { getCunoteDb } from "@/lib/server/db/client";
 import { readDeepAnalysisRuntimeAdmissionSnapshot } from "@/lib/server/deep-analysis/runtimeControl";
 import { runLabAnalysis, prepareLabAnalysis } from "./analyze";
@@ -16,6 +16,7 @@ import {
   createAnalysisLaunchManifest,
   normalizeAnalysisLaunchGrant,
   normalizeAnalysisLaunchManifest,
+  normalizeAnalysisLaunchReceipt,
   readAnalysisLaunchArtifact,
   readCurrentSeriesPlanInventory,
   writeAnalysisLaunchArtifact,
@@ -103,7 +104,40 @@ export function shouldForceExactManifestReanalysis(input: {
   readonly existingRunPolicy: AnalysisLaunchManifest["execution"]["existingRunPolicy"];
   readonly retryErrors: boolean;
 }): boolean {
-  return input.existingRunPolicy === "rerun_exact_targets" && !input.retryErrors;
+  return input.existingRunPolicy === "rerun_exact_targets" || input.retryErrors;
+}
+
+export function selectAnalysisLaunchRetryGrantIds(input: {
+  readonly manifest: AnalysisLaunchManifest;
+  readonly grantSha256: string;
+  readonly manifestSha256: string;
+  readonly receipts: readonly AnalysisLaunchReceipt[];
+}): string[] {
+  const matching = input.receipts
+    .filter((receipt) => (
+      receipt.grantSha256 === input.grantSha256
+      && receipt.manifestSha256 === input.manifestSha256
+    ))
+    .sort((left, right) => left.finishedAt.localeCompare(right.finishedAt));
+  if (matching.length === 0) {
+    throw new Error("--retry-errors에 사용할 이전 launch receipt가 없습니다.");
+  }
+  const expected = new Map(input.manifest.targets.map((target) => [target.grantId, target.sequence]));
+  const latest = new Map<string, AnalysisLaunchReceiptTarget["status"]>();
+  for (const receipt of matching) {
+    if (receipt.targets.length !== input.manifest.targets.length) {
+      throw new Error("retry launch receipt targetCount가 manifest와 다릅니다.");
+    }
+    for (const target of receipt.targets) {
+      if (expected.get(target.grantId) !== target.sequence) {
+        throw new Error("retry launch receipt target 결속이 manifest와 다릅니다.");
+      }
+      if (target.status !== "skipped") latest.set(target.grantId, target.status);
+    }
+  }
+  return input.manifest.targets
+    .filter((target) => latest.get(target.grantId) === "failed")
+    .map((target) => target.grantId);
 }
 
 /**
@@ -131,6 +165,14 @@ export async function runApprovedAnalysisLaunchBatch(input: {
     manifest,
     current: await readCurrentDeepRepairExecutionProvenance({ repositoryRoot }),
   });
+  const selectedGrantIds = input.retryErrors
+    ? await readAnalysisLaunchRetryGrantIds({
+      repositoryRoot,
+      manifest,
+      grantSha256: input.grantSha256,
+      manifestSha256: grant.manifestSha256,
+    })
+    : manifest.targets.map((target) => target.grantId);
   let launchStatus: AnalysisLaunchStatus = createAnalysisLaunchStatus({
     grantSha256: input.grantSha256,
     manifestSha256: grant.manifestSha256,
@@ -204,7 +246,7 @@ export async function runApprovedAnalysisLaunchBatch(input: {
         ...(manifest.execution.roundtripModel
           ? { roundtripModel: manifest.execution.roundtripModel }
           : {}),
-        grantIds: manifest.targets.map((target) => target.grantId),
+        grantIds: selectedGrantIds,
         signal: executionSignal,
         onEvent(event) {
           persistLaunchStatus(applyAnalysisLaunchEvent(launchStatus, event, new Date()));
@@ -307,6 +349,33 @@ export async function runApprovedAnalysisLaunchBatch(input: {
 
 export function analysisLaunchReceiptPath(sha256: string): string {
   return analysisLaunchArtifactPath("receipts", sha256);
+}
+
+async function readAnalysisLaunchRetryGrantIds(input: {
+  readonly repositoryRoot: string;
+  readonly manifest: AnalysisLaunchManifest;
+  readonly grantSha256: string;
+  readonly manifestSha256: string;
+}): Promise<string[]> {
+  const directory = dirname(analysisLaunchArtifactPath("receipts", "0".repeat(64), input.repositoryRoot));
+  const names = await readdir(directory);
+  const receipts: AnalysisLaunchReceipt[] = [];
+  for (const name of names.sort()) {
+    const match = /^([a-f0-9]{64})\.json$/.exec(name);
+    if (!match?.[1]) continue;
+    const receipt = normalizeAnalysisLaunchReceipt(
+      await readAnalysisLaunchArtifact("receipts", match[1], input.repositoryRoot),
+    );
+    if (receipt.grantSha256 === input.grantSha256 && receipt.manifestSha256 === input.manifestSha256) {
+      receipts.push(receipt);
+    }
+  }
+  return selectAnalysisLaunchRetryGrantIds({
+    manifest: input.manifest,
+    grantSha256: input.grantSha256,
+    manifestSha256: input.manifestSha256,
+    receipts,
+  });
 }
 
 function skippedTarget(target: AnalysisLaunchManifest["targets"][number]): AnalysisLaunchReceiptTarget {
