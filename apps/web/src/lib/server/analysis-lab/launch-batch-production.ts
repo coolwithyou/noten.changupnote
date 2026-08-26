@@ -99,6 +99,13 @@ export interface AnalysisLaunchRunResult {
   readonly batchSummary: LabBatchSummary | null;
 }
 
+export function shouldForceExactManifestReanalysis(input: {
+  readonly existingRunPolicy: AnalysisLaunchManifest["execution"]["existingRunPolicy"];
+  readonly retryErrors: boolean;
+}): boolean {
+  return input.existingRunPolicy === "rerun_exact_targets" && !input.retryErrors;
+}
+
 /**
  * 승인된 manifest 전체를 하나의 DB lease 아래 실행한다. target 품질/입력 drift/개별 오류는
  * 격리하고, manifest 손상·공통 인증 실패·runtime lease 상실만 cohort 전체 오류로 올린다.
@@ -187,8 +194,10 @@ export async function runApprovedAnalysisLaunchBatch(input: {
         concurrency: manifest.execution.concurrency,
         retryErrors: input.retryErrors,
         reanalyzeOutdated: false,
-        exactManifestReanalysis:
-          manifest.execution.existingRunPolicy === "rerun_exact_targets",
+        exactManifestReanalysis: shouldForceExactManifestReanalysis({
+          existingRunPolicy: manifest.execution.existingRunPolicy,
+          retryErrors: input.retryErrors,
+        }),
         transport: "claude-cli",
         model: manifest.execution.model,
         withApplicationRoundtrip: manifest.execution.withApplicationRoundtrip,

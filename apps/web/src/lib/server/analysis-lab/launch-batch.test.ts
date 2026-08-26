@@ -20,6 +20,7 @@ import {
 import { partitionCohortEntries } from "./batch-plan";
 import { withAnalysisLaunchBatchExecution } from "./launch-batch-context";
 import { parseAnalysisLaunchCliArgs } from "./launch-batch-cli";
+import { shouldForceExactManifestReanalysis } from "./launch-batch-production";
 import { parseAuthoringGuideRerunLaunchCliArgs } from "./authoring-guide-rerun-launch-cli";
 
 const SHA_A = "a".repeat(64);
@@ -138,6 +139,33 @@ test("작성 가이드 adoption 재분석은 source-sealed rerun만 exact 기존
   });
   assert.deepEqual(exact.pending, [{ grantId: GRANT_0 }]);
   assert.equal(exact.skippedOk.length, 0);
+
+  assert.equal(shouldForceExactManifestReanalysis({
+    existingRunPolicy: rerun.execution.existingRunPolicy,
+    retryErrors: false,
+  }), true);
+  assert.equal(shouldForceExactManifestReanalysis({
+    existingRunPolicy: rerun.execution.existingRunPolicy,
+    retryErrors: true,
+  }), false);
+
+  const retryOnly = partitionCohortEntries(
+    [{ grantId: GRANT_0 }, { grantId: GRANT_1 }],
+    new Map([
+      [GRANT_0, { okCurrent: true, okOutdated: false, heldCurrent: false, errorCurrent: false }],
+      [GRANT_1, { okCurrent: false, okOutdated: false, heldCurrent: false, errorCurrent: true }],
+    ]),
+    {
+      retryErrors: true,
+      reanalyzeOutdated: false,
+      exactManifestReanalysis: shouldForceExactManifestReanalysis({
+        existingRunPolicy: rerun.execution.existingRunPolicy,
+        retryErrors: true,
+      }),
+    },
+  );
+  assert.deepEqual(retryOnly.pending, [{ grantId: GRANT_1 }]);
+  assert.deepEqual(retryOnly.skippedOk, [{ grantId: GRANT_0 }]);
 });
 
 test("cohort grant는 manifest 전체를 한 번 승인하고 만료/sequence authority를 만들지 않는다", () => {
