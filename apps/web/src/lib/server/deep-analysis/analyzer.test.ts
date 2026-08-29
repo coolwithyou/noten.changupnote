@@ -375,6 +375,58 @@ assert.match(
     "등과 같은 예시 표지가 있으면 모델 요청과 무관하게 열린 목록을 보존한다",
   );
 
+  const kstartupSummary = "청소년,대학생,일반인,대학,연구기관,일반기업,1인 창조기업";
+  const kstartupSummaryInput = [
+    `신청대상 요약: ${kstartupSummary} (source_field: aply_trgt)`,
+    "신청대상 상세: 지원사업별 세부 자격 확인 (source_field: aply_trgt_ctnt)",
+  ].join("\n");
+  const [kstartupSummaryCriterion] = normalizeCriteria([{
+    dimension: "target_type",
+    kind: "required",
+    operator: "in",
+    value: {
+      targets: ["청소년", "대학생", "일반인", "대학", "연구기관", "일반기업", "1인 창조기업"],
+      list_semantics: "closed",
+    },
+    confidence: 0.9,
+    source_span: kstartupSummary,
+    note: "포털 신청대상 요약 분류이므로 목록 밖 유형을 자동 탈락시키지 않는다.",
+  }], kstartupSummaryInput);
+  assert.equal(
+    (kstartupSummaryCriterion?.value as { list_semantics?: string }).list_semantics,
+    "open",
+    "exact span에서 라벨이 빠져도 source_field=aply_trgt 결속으로 열린 목록을 보존한다",
+  );
+
+  const longKstartupSummary = [
+    "청소년", "대학생", "일반인", "대학", "연구기관", "일반기업", "1인 창조기업",
+    "협동조합", "비영리법인", "공공기관", "중소기업", "중견기업", "대기업",
+  ].join(",");
+  const longKstartupInput = [
+    "## 신청대상 요약",
+    "source_field: aply_trgt",
+    longKstartupSummary,
+    "## 신청대상 상세",
+    "source_field: aply_trgt_ctnt",
+    "공고문 참고",
+  ].join("\n");
+  const [longKstartupCriterion] = normalizeCriteria([{
+    dimension: "target_type",
+    kind: "required",
+    operator: "in",
+    value: {
+      targets: ["청소년", "대학생", "일반인"],
+      list_semantics: "closed",
+    },
+    confidence: 0.9,
+    source_span: longKstartupSummary,
+  }], longKstartupInput);
+  assert.equal(
+    (longKstartupCriterion?.value as { list_semantics?: string }).list_semantics,
+    "open",
+    "다중행 aply_trgt 블록도 열린 포털 분류로 보존한다",
+  );
+
   const delegatedInput = [
     "신청대상 요약: 청소년,대학생,일반인,대학,연구기관,일반기업,1인 창조기업",
     "신청대상 상세: 각 지원사업 모집 공고문 참고",
@@ -401,6 +453,10 @@ assert.match(
 assert.match(
   DEEP_ANALYSIS_SYSTEM_PROMPT,
   /신청주체 선택란도 대기업·중소기업·대학·공공기관.*structured target 충돌/,
+);
+assert.match(
+  DEEP_ANALYSIS_SYSTEM_PROMPT,
+  /source_field: aply_trgt.*list_semantics=open.*목록 밖 유형을 자동 탈락시키지/,
 );
 
 assert.equal(

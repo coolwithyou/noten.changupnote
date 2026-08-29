@@ -892,7 +892,7 @@ export const DEEP_ANALYSIS_ELIGIBILITY_EXCEPTION_RULE =
 export const DEEP_ANALYSIS_STRUCTURED_TARGET_RULE =
   "sealed structured source의 rawPayload.trgetNm은 Bizinfo가 제공한 공식 신청대상 필드다. 이 값이 '중소기업'처럼 지원대상을 구체적으로 명시하면 첨부 본문에 같은 문장이 반복되지 않아도 해당 축 criterion의 유효한 근거로 사용하고, 첨부에 없다는 이유만으로 inspected_no_condition이나 unsure로 낮추지 마라. 다만 structured 신청대상과 공고 본문·첨부의 명시 조건이 서로 충돌하면 임의로 선택하지 말고 ambiguous로 남겨라. 특히 본문의 신청·추천 대상 문장이 규모를 한정하지 않고 기업·기관 등으로 열려 있으며 신청서의 신청주체 선택란도 대기업·중소기업·대학·공공기관처럼 structured target보다 넓은 유형을 명시하면, 그 선택란은 단독 자격근거가 아니라 본문과 결합해 structured target 충돌을 입증하는 근거다. 이 경우 structured target만으로 size required criterion을 만들지 마라.";
 export const DEEP_ANALYSIS_STRUCTURED_FILTER_METADATA_RULE =
-  "K-Startup의 rawPayload.biz_enyy와 biz_trgt_age처럼 포털 검색용 범주를 넓게 열거한 필드는 그 자체를 신청자격 상·하한으로 만들지 마라. 지원 가능한 모든 업력 또는 연령 범주를 사실상 전부 나열하면 비제한 검색 메타데이터이므로 criterion이나 ambiguous 근거가 아니다. rawPayload.supt_regin(입력의 source_field: supt_regin)은 사업·운영기관의 서비스 권역 또는 포털 분류일 수 있으므로 그 값만으로 신청기업 소재지 region criterion을 만들지 마라. 신청대상·신청자격 본문에 신청자 주소지·본사·사업장 소재지가 명시된 경우에만 region 자격으로 만들고, 양쪽이 모두 실제 자격 문장인데 충돌할 때만 ambiguous로 남겨라.";
+  "K-Startup의 rawPayload.biz_enyy와 biz_trgt_age처럼 포털 검색용 범주를 넓게 열거한 필드는 그 자체를 신청자격 상·하한으로 만들지 마라. 지원 가능한 모든 업력 또는 연령 범주를 사실상 전부 나열하면 비제한 검색 메타데이터이므로 criterion이나 ambiguous 근거가 아니다. rawPayload.aply_trgt(입력의 source_field: aply_trgt)는 포털 신청대상 요약 분류이므로 target_type으로 보존할 때는 list_semantics=open으로 두고, 목록 밖 유형을 자동 탈락시키지 마라. 상세 신청대상·첨부의 명시적 유한 자격 목록만 closed 근거로 사용한다. rawPayload.supt_regin(입력의 source_field: supt_regin)은 사업·운영기관의 서비스 권역 또는 포털 분류일 수 있으므로 그 값만으로 신청기업 소재지 region criterion을 만들지 마라. 신청대상·신청자격 본문에 신청자 주소지·본사·사업장 소재지가 명시된 경우에만 region 자격으로 만들고, 양쪽이 모두 실제 자격 문장인데 충돌할 때만 ambiguous로 남겨라.";
 export const DEEP_ANALYSIS_ALTERNATIVE_PATH_SCOPE_RULE =
   "신청자격이 A 또는 B, 쉼표 열거, 트랙별 경로처럼 대안(OR)으로 열려 있으면 한 경로의 속성을 모든 신청자에게 적용되는 독립 required criterion으로 승격하지 마라. 서로 다른 22축이 섞인 대안은 현재 criterion 계약으로 논리식을 무손실 표현할 수 없으므로 dimension=other, operator=text_only 한 건에 전체 OR 경로와 적용 범위를 보존한다. 예: '입주기업, 졸업기업 및 기타 예비·초기 창업기업'에서 입주 여부와 예비·초기 업력을 별도 전역 필수조건으로 만들면 안 되고, '콘텐츠 제작 사업자 또는 제주 거주 개인 창작자'에서 콘텐츠 업종을 개인 창작자에게까지 적용하면 안 된다.";
 export const DEEP_ANALYSIS_PROGRAM_THEME_BOUNDARY_RULE =
@@ -1087,6 +1087,10 @@ function normalizeCriterionValue(input: {
   return {
     ...value,
     list_semantics: hasOpenTargetTypeListMarker(normalizedSpan)
+      || hasKStartupOpenTargetSummaryEvidence({
+        sourceSpan: normalizedSpan,
+        inputText: input.inputText,
+      })
       || hasDelegatedOpenTargetTypeEvidence({
         sourceSpan: normalizedSpan,
         note: input.note,
@@ -1095,6 +1099,34 @@ function normalizeCriterionValue(input: {
       ? "open"
       : "closed",
   };
+}
+
+/**
+ * K-Startup aply_trgt는 포털의 신청대상 요약 분류다. 실제 exact source_span은
+ * 라벨을 제외한 값만 가리키므로, 봉인 입력의 source_field 결속을 별도로 확인한다.
+ * 짧은 단일행과 80자 초과 다중행 렌더 형식을 모두 지원한다.
+ */
+function hasKStartupOpenTargetSummaryEvidence(input: {
+  sourceSpan: string;
+  inputText: string;
+}): boolean {
+  const lines = input.inputText.split(/\r?\n/u);
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = normalizeEvidence(lines[index] ?? "");
+    const short = /^신청대상 요약:\s*(.*?)\s*\(source_field:\s*aply_trgt\)$/u.exec(line)?.[1];
+    if (short && normalizeEvidence(short) === input.sourceSpan) return true;
+    if (line !== "## 신청대상 요약") continue;
+    const sourceField = normalizeEvidence(lines[index + 1] ?? "");
+    if (sourceField !== "source_field: aply_trgt") continue;
+    const body: string[] = [];
+    for (let cursor = index + 2; cursor < lines.length; cursor += 1) {
+      const candidate = lines[cursor] ?? "";
+      if (/^##\s/u.test(candidate) || /^\[블록:/u.test(candidate)) break;
+      body.push(candidate);
+    }
+    if (normalizeEvidence(body.join("\n")).includes(input.sourceSpan)) return true;
+  }
+  return false;
 }
 
 /**

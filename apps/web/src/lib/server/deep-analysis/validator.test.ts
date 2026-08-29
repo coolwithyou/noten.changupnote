@@ -127,6 +127,29 @@ const openTargetTypeValidation = validateDeepAnalysisResult({
   })], axes(["target_type"])),
 });
 assert.equal(openTargetTypeValidation.valid, true);
+
+const contradictoryTargetTypeValidation = validateDeepAnalysisResult({
+  seal,
+  result: result([criterion({
+    dimension: "target_type",
+    operator: "in",
+    kind: "required",
+    value: {
+      targets: ["기업", "공공기관"],
+      list_semantics: "closed",
+    },
+    note: "목록 밖 유형을 자동 탈락시키지 않도록 list_semantics=open으로 둔다.",
+  })], axes(["target_type"])),
+});
+assert.equal(contradictoryTargetTypeValidation.valid, false);
+assert.equal(
+  contradictoryTargetTypeValidation.issues.some((issue) => (
+    issue.code === "semantic_misattribution"
+    && issue.path.endsWith(".value.list_semantics")
+  )),
+  true,
+  "열린 목록이라고 설명하면서 closed 구조값을 내면 matcher 오탈락 전에 차단한다",
+);
 assert.equal(
   (openTargetTypeValidation.criteria[0]?.criterion.value as Record<string, unknown>).list_semantics,
   "open",

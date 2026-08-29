@@ -21,7 +21,7 @@ import {
 import type { DeepAnalysisInputSeal } from "./inputManifest";
 import { sha256Hex, stableJson } from "./sourceRevision";
 
-export const DEEP_ANALYSIS_VALIDATOR_VERSION = "deep-analysis-validator-v11" as const;
+export const DEEP_ANALYSIS_VALIDATOR_VERSION = "deep-analysis-validator-v12" as const;
 
 export type DeepAnalysisValidationIssueCode =
   | "raw_contract_invalid"
@@ -959,6 +959,21 @@ function validateCriterion(
         message: "target_type value.list_semantics must be open or closed.",
       });
     }
+    const semanticNote = [
+      criterion.note,
+      typeof rawValue.note === "string" ? rawValue.note : null,
+    ].filter((value): value is string => Boolean(value)).join(" ");
+    if (
+      rawValue.list_semantics === "closed"
+      && targetTypeNoteRequiresOpenList(semanticNote)
+    ) {
+      issues.push({
+        code: "semantic_misattribution",
+        path: `$.criteria[${index}].value.list_semantics`,
+        message:
+          "target_type note says the applicant list is open or must not reject unlisted types, but value.list_semantics is closed. Preserve it as open or remove the contradictory note.",
+      });
+    }
     const value = isRecord(canonicalCriterion.value) ? canonicalCriterion.value : {};
     const targets = Array.isArray(value.targets)
       ? value.targets.filter((item): item is string => typeof item === "string" && Boolean(item.trim()))
@@ -1048,6 +1063,13 @@ function validateCriterion(
     semanticSha256,
     evidenceRefs,
   };
+}
+
+function targetTypeNoteRequiresOpenList(note: string): boolean {
+  const normalized = note.normalize("NFKC");
+  return /list_semantics\s*=\s*open/iu.test(normalized)
+    || /(?:열린|개방형|완전\s*열거가\s*아닌).{0,24}목록/iu.test(normalized)
+    || /목록\s*밖.{0,40}(?:자동\s*)?탈락시키지/iu.test(normalized);
 }
 
 function validateMatcherSemanticCompleteness(
