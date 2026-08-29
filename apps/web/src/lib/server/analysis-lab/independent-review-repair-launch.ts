@@ -86,6 +86,26 @@ export function normalizeIndependentReviewRepairAggregate(
   });
 }
 
+export function selectIndependentReviewRepairSequences(
+  aggregate: IndependentReviewRepairAggregate,
+  requested?: readonly number[],
+): readonly number[] {
+  if (requested === undefined) return aggregate.consensus.affectedTargets;
+  if (
+    requested.length === 0
+    || new Set(requested).size !== requested.length
+    || requested.some((sequence) => !Number.isSafeInteger(sequence) || sequence < 0)
+  ) {
+    throw new Error("독립 검수 합의 결함 재분석 sequence는 중복 없는 0 이상의 정수여야 합니다.");
+  }
+  const allowed = new Set(aggregate.consensus.affectedTargets);
+  const selected = [...requested].sort((left, right) => left - right);
+  if (selected.some((sequence) => !allowed.has(sequence))) {
+    throw new Error("독립 검수 aggregate의 합의 결함 대상이 아닌 sequence는 재분석할 수 없습니다.");
+  }
+  return Object.freeze(selected);
+}
+
 function object(value: unknown, label: string): Record<string, unknown> {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     throw new Error(`${label}가 객체가 아닙니다.`);

@@ -14,7 +14,10 @@ import {
   writeAnalysisLaunchArtifact,
   type AnalysisLaunchManifest,
 } from "./launch-batch-artifacts";
-import { normalizeIndependentReviewRepairAggregate } from "./independent-review-repair-launch";
+import {
+  normalizeIndependentReviewRepairAggregate,
+  selectIndependentReviewRepairSequences,
+} from "./independent-review-repair-launch";
 import { findMonorepoRoot } from "./run-store";
 
 const SHA256 = /^[a-f0-9]{64}$/u;
@@ -38,6 +41,7 @@ interface ReviewManifest {
 export async function prepareIndependentReviewRepairLaunchManifest(input: {
   readonly aggregatePath: string;
   readonly concurrency: number;
+  readonly originalSequences?: readonly number[];
   readonly preparedAt?: Date;
   readonly repositoryRoot?: string;
 }): Promise<{
@@ -61,6 +65,10 @@ export async function prepareIndependentReviewRepairLaunchManifest(input: {
     throw new Error("독립 검수 aggregate 파일명이 실제 SHA와 다릅니다.");
   }
   const aggregate = normalizeIndependentReviewRepairAggregate(parseJson(aggregateBytes, "aggregate"));
+  const originalSequences = selectIndependentReviewRepairSequences(
+    aggregate,
+    input.originalSequences,
+  );
   const reviewManifestPath = resolve(
     dirname(aggregatePath),
     `${aggregate.manifestSha256}.manifest.json`,
@@ -121,7 +129,7 @@ export async function prepareIndependentReviewRepairLaunchManifest(input: {
   const sourceTargetBySequence = new Map(sourceManifest.targets.map((target) => [target.sequence, target]));
   const receiptTargetBySequence = new Map(receipt.targets.map((target) => [target.sequence, target]));
   const repairTargets = [];
-  for (const originalSequence of aggregate.consensus.affectedTargets) {
+  for (const originalSequence of originalSequences) {
     const packetEntry = packetBySequence.get(originalSequence);
     const sourceTarget = sourceTargetBySequence.get(originalSequence);
     const receiptTarget = receiptTargetBySequence.get(originalSequence);
@@ -213,7 +221,7 @@ export async function prepareIndependentReviewRepairLaunchManifest(input: {
     manifestSha256: stored.sha256,
     path: stored.path,
     aggregateSha256,
-    originalSequences: aggregate.consensus.affectedTargets,
+    originalSequences,
   });
 }
 

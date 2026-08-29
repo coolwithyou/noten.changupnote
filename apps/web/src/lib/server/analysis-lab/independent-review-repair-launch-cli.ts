@@ -3,10 +3,11 @@ import { closeCunoteDb } from "@/lib/server/db/client";
 import { loadAnalysisLabEnv } from "@/lib/server/loadMonorepoEnv";
 import { prepareIndependentReviewRepairLaunchManifest } from "./independent-review-repair-launch-production";
 
-const USAGE = "pnpm lab:independent-review:repair:prepare -- --aggregate=<aggregate.json> [--concurrency=1-4]";
+const USAGE = "pnpm lab:independent-review:repair:prepare -- --aggregate=<aggregate.json> [--original-sequences=3,14] [--concurrency=1-4]";
 
 export function parseIndependentReviewRepairLaunchCliArgs(argv: readonly string[]): {
   readonly aggregatePath: string;
+  readonly originalSequences?: readonly number[];
   readonly concurrency: number;
 } {
   const args = argv[0] === "--" ? argv.slice(1) : [...argv];
@@ -16,23 +17,38 @@ export function parseIndependentReviewRepairLaunchCliArgs(argv: readonly string[
     if (separator < 0) throw new Error(USAGE);
     const key = arg.slice(0, separator);
     const value = arg.slice(separator + 1).trim();
-    if (!new Set(["--aggregate", "--concurrency"]).has(key) || !value || values.has(key)) {
+    if (
+      !new Set(["--aggregate", "--original-sequences", "--concurrency"]).has(key)
+      || !value
+      || values.has(key)
+    ) {
       throw new Error(USAGE);
     }
     values.set(key, value);
   }
   const aggregatePath = values.get("--aggregate");
+  const rawSequences = values.get("--original-sequences");
+  const originalSequences = rawSequences?.split(",").map((value) => Number(value));
   const concurrency = Number(values.get("--concurrency") ?? "2");
   if (
     !aggregatePath
     || !aggregatePath.endsWith(".aggregate.json")
+    || (originalSequences !== undefined && (
+      originalSequences.length === 0
+      || new Set(originalSequences).size !== originalSequences.length
+      || originalSequences.some((sequence) => !Number.isSafeInteger(sequence) || sequence < 0)
+    ))
     || !Number.isSafeInteger(concurrency)
     || concurrency < 1
     || concurrency > 4
   ) {
     throw new Error(USAGE);
   }
-  return { aggregatePath, concurrency };
+  return {
+    aggregatePath,
+    ...(originalSequences ? { originalSequences } : {}),
+    concurrency,
+  };
 }
 
 export async function main(argv = process.argv.slice(2)): Promise<void> {

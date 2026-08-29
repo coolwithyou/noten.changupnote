@@ -31,7 +31,10 @@ import {
 } from "./launch-batch-production";
 import { parseAuthoringGuideRerunLaunchCliArgs } from "./authoring-guide-rerun-launch-cli";
 import { parseIndependentReviewRepairLaunchCliArgs } from "./independent-review-repair-launch-cli";
-import { normalizeIndependentReviewRepairAggregate } from "./independent-review-repair-launch";
+import {
+  normalizeIndependentReviewRepairAggregate,
+  selectIndependentReviewRepairSequences,
+} from "./independent-review-repair-launch";
 
 const SHA_A = "a".repeat(64);
 const SHA_B = "b".repeat(64);
@@ -348,7 +351,13 @@ test("독립 검수 repair aggregate는 합의된 결함 sequence와 HOLD만 허
     },
     policy: { databaseWrites: false, promotion: false, deployment: false },
   };
-  assert.deepEqual(normalizeIndependentReviewRepairAggregate(aggregate).consensus.affectedTargets, [3, 27]);
+  const normalized = normalizeIndependentReviewRepairAggregate(aggregate);
+  assert.deepEqual(normalized.consensus.affectedTargets, [3, 27]);
+  assert.deepEqual(selectIndependentReviewRepairSequences(normalized, [27]), [27]);
+  assert.throws(
+    () => selectIndependentReviewRepairSequences(normalized, [14]),
+    /합의 결함 대상이 아닌 sequence/,
+  );
   assert.throws(() => normalizeIndependentReviewRepairAggregate({
     ...aggregate,
     consensus: {
@@ -465,9 +474,11 @@ test("launch CLI는 prepare/grant/run의 권한 단계를 분리한다", () => {
   ]), { adoptionManifestSha256: SHA_A, concurrency: 3 });
   assert.deepEqual(parseIndependentReviewRepairLaunchCliArgs([
     "--aggregate=spike-out/review.aggregate.json",
+    "--original-sequences=14,3",
     "--concurrency=2",
   ]), {
     aggregatePath: "spike-out/review.aggregate.json",
+    originalSequences: [14, 3],
     concurrency: 2,
   });
   assert.throws(() => parseIndependentReviewRepairLaunchCliArgs([
