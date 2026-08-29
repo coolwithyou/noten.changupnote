@@ -1,0 +1,75 @@
+import { resolve } from "node:path";
+import {
+  aggregateIndependentReviews,
+  importGrokCombinedReview,
+  prepareIndependentReviewPackets,
+  writeIndependentReviewBundle,
+  validateAndWrapIndependentReviewResult,
+  writeIndependentReviewResult,
+} from "./independent-review-packet";
+
+function option(name: string): string | null {
+  const prefix = `--${name}=`;
+  return process.argv.slice(2).find((arg) => arg.startsWith(prefix))?.slice(prefix.length) ?? null;
+}
+
+async function main() {
+  const aggregateManifest = option("aggregate-manifest");
+  if (aggregateManifest) {
+    const aggregated = await aggregateIndependentReviews(aggregateManifest);
+    console.log(JSON.stringify({
+      aggregateSha256: aggregated.aggregateSha256,
+      aggregatePath: aggregated.aggregatePath,
+      reviewedTargets: aggregated.aggregate.reviewedTargets,
+      heldTargets: aggregated.aggregate.heldTargets,
+    }, null, 2));
+    return;
+  }
+  const grokCombined = option("grok-combined");
+  const grokManifest = option("manifest");
+  if (grokCombined || grokManifest) {
+    if (!grokCombined || !grokManifest) throw new Error("--grok-combined와 --manifest를 함께 지정해야 합니다.");
+    console.log(JSON.stringify(await importGrokCombinedReview(grokManifest, grokCombined), null, 2));
+    return;
+  }
+  const bundleManifest = option("bundle-manifest");
+  if (bundleManifest) {
+    console.log(JSON.stringify(await writeIndependentReviewBundle(bundleManifest), null, 2));
+    return;
+  }
+  const launchReceipt = option("launch-receipt");
+  if (launchReceipt) {
+    const prepared = await prepareIndependentReviewPackets(launchReceipt);
+    console.log(JSON.stringify({
+      manifestSha256: prepared.manifestSha256,
+      manifestPath: prepared.manifestPath,
+      outputDir: prepared.outputDir,
+      publishableTargets: prepared.manifest.packets.length,
+      heldTargets: prepared.manifest.heldTargets.length,
+    }, null, 2));
+    return;
+  }
+
+  const packetPath = option("packet");
+  const rawResultPath = option("raw-result");
+  const reviewer = option("reviewer");
+  const reviewerModel = option("reviewer-model");
+  const outputPath = option("output");
+  if (!packetPath || !rawResultPath || !outputPath || !reviewerModel || (reviewer !== "codex" && reviewer !== "grok")) {
+    throw new Error("--launch-receipt, --bundle-manifest, --grok-combined/--manifest, --aggregate-manifest 또는 --packet/--raw-result/--reviewer/--reviewer-model/--output 조합이 필요합니다.");
+  }
+  const result = await validateAndWrapIndependentReviewResult({
+    packetPath: resolve(packetPath),
+    rawResultPath: resolve(rawResultPath),
+    reviewer,
+    reviewerModel,
+    reviewerTransport: reviewer === "codex" ? "codex-cli" : "grok-bot",
+  });
+  await writeIndependentReviewResult(resolve(outputPath), result);
+  console.log(JSON.stringify({ outputPath: resolve(outputPath), sequence: result.sequence, reviewer: result.reviewer }));
+}
+
+main().catch((error) => {
+  console.error(error instanceof Error ? error.message : error);
+  process.exitCode = 1;
+});
