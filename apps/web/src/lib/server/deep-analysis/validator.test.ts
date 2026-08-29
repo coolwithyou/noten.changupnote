@@ -150,6 +150,61 @@ assert.equal(
   true,
   "열린 목록이라고 설명하면서 closed 구조값을 내면 matcher 오탈락 전에 차단한다",
 );
+
+const compoundCertificationSpan =
+  "방위사업법에 따라 지정된 방산업체 중 직접 연관 분야에서 방산물자 지정을 받은 중소기업 1.5%";
+const compoundCertificationSeal = sealDeepAnalysisInput({
+  grantId: "grant-compound-certification",
+  sourceRevisionSha256: "e".repeat(64),
+  structuredText: compoundCertificationSpan,
+  attachments: [],
+});
+const compoundCertification = criterion({
+  dimension: "certification",
+  operator: "in",
+  kind: "preferred",
+  value: { certs: ["방산업체 지정", "직접 연관 분야 방산물자 지정"] },
+  sourceSpan: compoundCertificationSpan,
+});
+const compoundCertificationValidation = validateDeepAnalysisResult({
+  seal: compoundCertificationSeal,
+  result: result([compoundCertification], axes(["certification"])),
+});
+assert.equal(compoundCertificationValidation.valid, false);
+assert.equal(
+  compoundCertificationValidation.issues.some((issue) => (
+    issue.code === "canonical_contract_invalid"
+    && issue.message.includes("certification/text_only")
+  )),
+  true,
+  "복합 인증 AND를 OR certs로 내보내면 validator가 차단한다",
+);
+assert.equal(validateDeepAnalysisResult({
+  seal: compoundCertificationSeal,
+  result: result([{
+    ...compoundCertification,
+    operator: "text_only",
+    value: { note: compoundCertificationSpan },
+  }], axes(["certification"])),
+}).valid, true, "복합 인증을 certification/text_only로 무손실 보존하면 통과한다");
+
+const alternativeCertificationSpan = "벤처기업 또는 이노비즈 인증기업은 1점 가점";
+const alternativeCertificationSeal = sealDeepAnalysisInput({
+  grantId: "grant-alternative-certification",
+  sourceRevisionSha256: "f".repeat(64),
+  structuredText: alternativeCertificationSpan,
+  attachments: [],
+});
+assert.equal(validateDeepAnalysisResult({
+  seal: alternativeCertificationSeal,
+  result: result([criterion({
+    dimension: "certification",
+    operator: "in",
+    kind: "preferred",
+    value: { certs: ["벤처기업", "이노비즈 인증기업"] },
+    sourceSpan: alternativeCertificationSpan,
+  })], axes(["certification"])),
+}).valid, true, "명시적 OR 인증 목록은 정상 구조값으로 통과한다");
 assert.equal(
   (openTargetTypeValidation.criteria[0]?.criterion.value as Record<string, unknown>).list_semantics,
   "open",

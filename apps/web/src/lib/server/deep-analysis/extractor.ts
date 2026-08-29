@@ -38,6 +38,7 @@ import {
   EXECUTION_TIMEOUT_HEADER,
   hasExecutionScopedTimeout,
 } from "./fetchTimeout";
+import { isConjunctiveCertificationMembership } from "./criterion-semantics";
 
 export const ANALYSIS_LAB_TOOL_NAME = "emit_deep_grant_analysis";
 
@@ -386,7 +387,7 @@ export function normalizeCriteria(rows: unknown, inputText: string): DeepAnalysi
     const dimension = stringEnum(row.dimension, CRITERIA_EMITTABLE_DIMENSIONS);
     const kind = stringEnum(row.kind, CRITERION_KINDS) as DeepAnalysisCriterionKind | null;
     if (!dimension || !kind) continue; // enum 밖 값은 드롭.
-    const operator = typeof row.operator === "string" &&
+    let operator = typeof row.operator === "string" &&
       (CRITERION_OPERATORS as readonly string[]).includes(row.operator)
       ? row.operator
       : "text_only";
@@ -395,8 +396,20 @@ export function normalizeCriteria(rows: unknown, inputText: string): DeepAnalysi
       ? resolveExactEvidenceSpan(requestedSourceSpan, inputText) ?? requestedSourceSpan
       : null;
     const spanCheck = verifySpan(sourceSpan, normalizedInput, inputLines, inputText.length);
+    let rawValue = row.value;
+    if (
+      spanCheck.verified
+      && isConjunctiveCertificationMembership({
+        operator,
+        value: rawValue,
+        sourceSpan,
+      })
+    ) {
+      operator = "text_only";
+      rawValue = { note: sourceSpan };
+    }
     const value = normalizeCriterionValue({
-      rawValue: row.value,
+      rawValue,
       dimension,
       kind,
       operator,
@@ -915,6 +928,8 @@ export const DEEP_ANALYSIS_PRIOR_AWARD_STATE_RULE =
   "prior_award states의 completed는 사업 수행을 끝냈다는 뜻으로만 한정하지 않고 선정·수혜 사실이 확정된 상태를 뜻한다. 원문이 '선정된', '선정 이력', '지원을 받은'이면 completed, 현재 참여·수행 중이면 participating, 교육·프로그램 수료·졸업이면 graduated를 사용한다. 다만 원문이 '협약을 체결했던 이력'처럼 상태를 가리지 않고 중단처분·중도포기까지 명시적으로 포함하면 states를 넣지 말고 해당 program의 모든 이력을 대상으로 보존한다. states=[\"completed\"]로 범위를 줄이지 마라. 명시적 '선정된'을 completed로 표현한 결과를 수행완료 오분류로 감사하지 마라.";
 export const DEEP_ANALYSIS_COMPOUND_PREDICATE_RULE =
   "하나의 신청조건이 금액·기간·기관유형·투자형태처럼 여러 전제를 AND로 결합하고 현재 canonical value가 그 전제를 모두 표현하지 못하면, 표현 가능한 일부만 구조화해 자동 pass가 가능하게 만들지 마라. 해당 축을 유지한 operator=text_only와 value.note에 전체 조건을 무손실 보존한다. 예: '공고 마감일로부터 2년 이내 투자기관으로부터 총 1천만원 이상 투자'는 현재 investment의 누적 총액만으로 기간과 투자기관을 판정할 수 없으므로 investment/gte가 아니라 investment/text_only 한 건으로 보존한다.";
+export const DEEP_ANALYSIS_CERTIFICATION_CONJUNCTION_RULE =
+  "certification의 operator=in과 value.certs 배열은 나열된 인증 중 어느 하나를 충족하는 OR 목록일 때만 사용한다. 원문이 '방산업체 중 특정 분야 방산물자 지정을 받은 기업'처럼 상위 지정과 추가 지정을 모두 요구하거나 복수 인증의 동시 충족을 명시하면 certs 배열로 분해하지 말고 certification/text_only와 value.note에 전체 AND 조건을 보존한다. 가점률·적용 분야·중복 인정 제한도 note와 analysis_markdown에서 잃지 마라.";
 export const DEEP_ANALYSIS_CONDITIONAL_INDUSTRY_RULE =
   "업종명이 자격·등록·신고 상태 같은 다른 전제 아래 예시로 열거되면 업종 자체의 무조건 배제로 축약하지 마라. 예: '금융정보분석원의 신고·등록이 되지 않은 자(가상자산 매매·중개업 등)'는 FIU 미신고가 핵심 전제이므로 industry/not_in tags로 모든 가상자산 업종을 배제하지 말고, 전체 조건을 industry/text_only와 value.note로 보존한다.";
 export const DEEP_ANALYSIS_APPLICANT_INDUSTRY_SCOPE_RULE =
@@ -979,6 +994,7 @@ export const DEEP_ANALYSIS_SYSTEM_PROMPT = [
   DEEP_ANALYSIS_ELIGIBILITY_RANKING_SEPARATION_RULE,
   DEEP_ANALYSIS_LOCALITY_PREMISES_RULE,
   DEEP_ANALYSIS_COMPOUND_PREDICATE_RULE,
+  DEEP_ANALYSIS_CERTIFICATION_CONJUNCTION_RULE,
   DEEP_ANALYSIS_CONDITIONAL_INDUSTRY_RULE,
   DEEP_ANALYSIS_APPLICANT_INDUSTRY_SCOPE_RULE,
   DEEP_ANALYSIS_JOB_FIELD_INDUSTRY_BOUNDARY_RULE,

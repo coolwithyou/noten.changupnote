@@ -20,8 +20,9 @@ import {
 } from "@cunote/core";
 import type { DeepAnalysisInputSeal } from "./inputManifest";
 import { sha256Hex, stableJson } from "./sourceRevision";
+import { isConjunctiveCertificationMembership } from "./criterion-semantics";
 
-export const DEEP_ANALYSIS_VALIDATOR_VERSION = "deep-analysis-validator-v12" as const;
+export const DEEP_ANALYSIS_VALIDATOR_VERSION = "deep-analysis-validator-v13" as const;
 
 export type DeepAnalysisValidationIssueCode =
   | "raw_contract_invalid"
@@ -1095,6 +1096,20 @@ function validateMatcherSemanticCompleteness(
   ) {
     reject(
       "Investment amount combined with a time window is not losslessly representable; use investment/text_only with the complete predicate.",
+      ".operator",
+    );
+  }
+
+  if (
+    criterion.dimension === "certification"
+    && isConjunctiveCertificationMembership({
+      operator: criterion.operator,
+      value,
+      sourceSpan: criterion.sourceSpan,
+    })
+  ) {
+    reject(
+      "Conjunctive or nested certification requirements cannot be represented as an OR certs membership list; preserve the complete predicate as certification/text_only.",
       ".operator",
     );
   }

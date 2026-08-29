@@ -11,6 +11,7 @@ import {
   DEEP_ANALYSIS_APPLICANT_INDUSTRY_SCOPE_RULE,
   DEEP_ANALYSIS_BUSINESS_CREDIT_AXIS_RULE,
   DEEP_ANALYSIS_BUSINESS_STATUS_RULE,
+  DEEP_ANALYSIS_CERTIFICATION_CONJUNCTION_RULE,
   DEEP_ANALYSIS_COMPOUND_PREDICATE_RULE,
   DEEP_ANALYSIS_CONDITIONAL_INDUSTRY_RULE,
   DEEP_ANALYSIS_DOCUMENT_ONLY_ELIGIBILITY_RULE,
@@ -190,6 +191,7 @@ assert.equal(
 );
 for (const rule of [
   DEEP_ANALYSIS_COMPOUND_PREDICATE_RULE,
+  DEEP_ANALYSIS_CERTIFICATION_CONJUNCTION_RULE,
   DEEP_ANALYSIS_CONDITIONAL_INDUSTRY_RULE,
   DEEP_ANALYSIS_BUSINESS_STATUS_RULE,
   DEEP_ANALYSIS_UNRESOLVED_REFUND_RULE,
@@ -208,6 +210,10 @@ for (const rule of [
 ]) {
   assert.equal(DEEP_ANALYSIS_SYSTEM_PROMPT.includes(rule), true);
 }
+assert.match(
+  DEEP_ANALYSIS_CERTIFICATION_CONJUNCTION_RULE,
+  /operator=in.*어느 하나.*OR.*상위 지정과 추가 지정.*certification\/text_only/,
+);
 assert.equal(
   DEEP_ANALYSIS_SYSTEM_PROMPT.includes(DEEP_ANALYSIS_ELIGIBILITY_RANKING_SEPARATION_RULE),
   true,
@@ -447,6 +453,40 @@ assert.match(
     (delegatedCriterion?.value as { list_semantics?: string }).list_semantics,
     "open",
     "봉인 입력이 하위 공고에 상세 자격을 위임하면 요약 목록을 closed로 되돌리지 않는다",
+  );
+
+  const compoundCertificationSpan =
+    "방위사업법에 따라 지정된 방산업체 중 직접 연관 분야에서 방산물자 지정을 받은 중소기업 1.5%";
+  const [compoundCertification] = normalizeCriteria([{
+    dimension: "certification",
+    kind: "preferred",
+    operator: "in",
+    value: {
+      certs: ["방산업체 지정", "직접 연관 분야 방산물자 지정"],
+    },
+    confidence: 0.9,
+    source_span: compoundCertificationSpan,
+  }], compoundCertificationSpan);
+  assert.equal(compoundCertification?.operator, "text_only");
+  assert.deepEqual(
+    compoundCertification?.value,
+    { note: compoundCertificationSpan },
+    "상위 지정과 추가 지정을 모두 요구하면 OR certs로 쪼개지 않고 전체 조건을 보존한다",
+  );
+
+  const alternativeCertificationSpan = "벤처기업 또는 이노비즈 인증기업은 1점 가점";
+  const [alternativeCertification] = normalizeCriteria([{
+    dimension: "certification",
+    kind: "preferred",
+    operator: "in",
+    value: { certs: ["벤처기업", "이노비즈 인증기업"] },
+    confidence: 0.9,
+    source_span: alternativeCertificationSpan,
+  }], alternativeCertificationSpan);
+  assert.equal(
+    alternativeCertification?.operator,
+    "in",
+    "명시적인 OR 인증 목록은 기존 구조화를 유지한다",
   );
 }
 
