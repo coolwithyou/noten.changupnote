@@ -50,7 +50,7 @@ import {
   type GrantChatFailure,
 } from "./chatRequestState";
 import { contactPhoneHref, type InstitutionContact } from "./workspacePresentation";
-import type { StudioFieldTargetV1 } from "@/lib/rhwp/studioDocumentAgentProtocol";
+import type { StudioFieldBindingTargetV1 } from "@/lib/rhwp/studioDocumentAgentProtocol";
 import { ChatMessageMarkdown } from "./ChatMessageMarkdown";
 
 export interface ChatFieldPrompt {
@@ -59,7 +59,7 @@ export interface ChatFieldPrompt {
   fieldId?: string | null;
   fieldAgent?: {
     baseRevisionId: string;
-    target: StudioFieldTargetV1;
+    target: StudioFieldBindingTargetV1;
   };
 }
 

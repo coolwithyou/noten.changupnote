@@ -22,6 +22,7 @@ import {
 } from "@/lib/server/analysis-lab/lab-contract";
 import { classifyNoticePeriod } from "@/lib/server/analysis-lab/notice-period";
 import { assertApplicationRoundtripOptIn } from "./application-roundtrip-policy";
+import { classifyApplicationFieldAnalysis } from "./application-precompute";
 import { partitionCohortEntries, type GrantRunState } from "./batch-plan";
 import {
   CLAUDE_CLI_MAX_AUTH_FAILED_MARKER,
@@ -181,7 +182,7 @@ export interface LabBatchRunScan {
 export async function scanExistingRuns(): Promise<LabBatchRunScan> {
   type BatchScannedRun = ScannedLabRunStateRecord & {
     costUsd?: unknown;
-    applicationRoundtrip?: { costUsd?: unknown };
+    applicationRoundtrip?: LabApplicationRoundtripReference;
   };
   const records: BatchScannedRun[] = [];
   const okCostSamples: number[] = [];
@@ -220,7 +221,7 @@ export async function scanExistingRuns(): Promise<LabBatchRunScan> {
         primaryValidationOutcome?: unknown;
         error?: unknown;
         costUsd?: unknown;
-        applicationRoundtrip?: { costUsd?: unknown };
+        applicationRoundtrip?: LabApplicationRoundtripReference;
       };
       try {
         parsed = JSON.parse(await readFile(join(root, entry, file), "utf8")) as typeof parsed;
@@ -246,7 +247,12 @@ export async function scanExistingRuns(): Promise<LabBatchRunScan> {
   const resolved = resolveGrantRunStates(records, ANALYSIS_LAB_PROMPT_VERSION);
   const states = new Map<string, GrantRunState>();
   for (const [grantId, item] of resolved) {
-    states.set(grantId, item.state);
+    states.set(grantId, {
+      ...item.state,
+      applicationFieldAnalysisReadyCurrent: item.latestCurrentTerminal
+        ? classifyApplicationFieldAnalysis(item.latestCurrentTerminal.applicationRoundtrip) !== "held"
+        : false,
+    });
     const run = item.state.okCurrent ? item.latestCurrentTerminal : null;
     if (run && typeof run.costUsd === "number") {
       const roundtripCost = typeof run.applicationRoundtrip?.costUsd === "number"
@@ -390,6 +396,9 @@ export async function runLabBatch(
     retryErrors: options.retryErrors,
     reanalyzeOutdated: options.reanalyzeOutdated,
     ...(options.exactManifestReanalysis ? { exactManifestReanalysis: true } : {}),
+    ...(options.withApplicationRoundtrip
+      ? { requireApplicationFieldAnalysis: true }
+      : {}),
   });
   // 모집기간 가드 — 실행 시에만 DB로 확인해 위반(마감·시작 전·기간 미상)을 스킵한다(비파괴).
   const periodSplit = await (deps?.splitPeriodImpl ?? splitByPeriodPolicy)(partition.pending);

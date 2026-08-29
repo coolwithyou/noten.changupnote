@@ -23,7 +23,7 @@ const document: RoundtripParsedDocument = {
   roleScores: { applicationForm: 8, businessPlan: 0, announcement: 0, evidence: 0 },
   roleSignals: ["테스트"],
   fields: [
-    field({ id: "company", label: "기업명", required: true }),
+    field({ id: "company", label: "기업명", displayLabel: "신청기업명", required: true }),
     field({ id: "company-duplicate", label: "기업명", row: 2 }),
     field({ id: "vendor", label: "홍보물 제작기업 기업명", row: 3 }),
     field({
@@ -98,6 +98,7 @@ assert.deepEqual(company.position, {
   col: 1,
   occurrence: 1,
   normalizedLabel: "기업명",
+  anchorLabel: "기업명",
 });
 assert.deepEqual(
   serializeReconciledFieldPosition(company.position),
@@ -113,6 +114,7 @@ const selfIntro = fields[3]!;
 assert.equal(selfIntro.fieldType, "long_text");
 assert.equal(selfIntro.fillStrategy, "ask_user");
 assert.equal(selfIntro.sourceSpan, "※ 성장과정과 전공분야가 나타나도록 작성");
+assert.equal((selfIntro.textEvidence as { helperText?: string })?.helperText, "※ 성장과정과 전공분야가 나타나도록 작성");
 
 const choice = fields[4]!;
 assert.equal(choice.fieldType, "checkbox");
@@ -127,6 +129,7 @@ console.log("application field analysis tests: ok");
 function field(input: {
   id: string;
   label: string;
+  displayLabel?: string;
   required?: boolean;
   recommendedInput?: boolean;
   row?: number;
@@ -136,7 +139,7 @@ function field(input: {
   return {
     fieldInstanceId: input.id,
     label: input.label,
-    displayLabel: input.label,
+    displayLabel: input.displayLabel ?? input.label,
     normalizedLabel: input.label.replaceAll(" ", ""),
     originalValue: input.originalValue ?? "",
     type: "text",

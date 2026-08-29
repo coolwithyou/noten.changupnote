@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { extractFormSchema, type FormFieldSchema, type IRBlock } from "kordoc";
+import { extractFormSchema, inferFieldType, type FormFieldSchema, type IRBlock, type IRCell } from "kordoc";
 import type {
   RoundtripDocumentRole,
   RoundtripFieldCandidate,
@@ -192,8 +192,11 @@ export function extractLocatedRoundtripFields(
         row: field.row,
         required: field.required ?? false,
       });
-      const instructionPlaceholder = isNarrativeInstructionPlaceholder(label, field.value);
-      const empty = field.empty || instructionPlaceholder;
+      const narrativePlaceholder = isNarrativeInstructionPlaceholder(label, field.value);
+      const fixedCellPlaceholder = !field.empty
+        && inputAssessment.recommended
+        && isWritableStructuralPlaceholder(field.value);
+      const empty = field.empty || narrativePlaceholder || fixedCellPlaceholder;
       fields.push({
         fieldInstanceId,
         label,
@@ -207,14 +210,17 @@ export function extractLocatedRoundtripFields(
         inputLikelihood: inputAssessment.likelihood,
         inputSignals: [
           ...inputAssessment.signals,
-          ...(instructionPlaceholder ? ["작성 안내문이 있는 장문 입력 셀"] : []),
+          ...(narrativePlaceholder ? ["작성 안내문이 있는 장문 입력 셀"] : []),
+          ...(fixedCellPlaceholder ? ["입력 셀에 남아 있는 고정 양식 placeholder"] : []),
         ],
         sampleValue: sample.value,
         sampleReason: sample.reason,
         source: "kordoc-form",
-        inputKind: instructionPlaceholder ? "textarea" : inferRoundtripInputKind(label, field.type),
+        inputKind: narrativePlaceholder ? "textarea" : inferRoundtripInputKind(label, field.type),
         writeOperation: "kordoc_field",
-        helperText: field.value.trim() && (!field.empty || instructionPlaceholder) ? field.value.trim() : null,
+        helperText: field.value.trim() && (!field.empty || narrativePlaceholder || fixedCellPlaceholder)
+          ? field.value.trim()
+          : null,
         unit: null,
         options: [],
         analysisSource: "heuristic",
@@ -233,8 +239,199 @@ export function extractLocatedRoundtripFields(
   const formConfidence = confidenceSamples.length > 0
     ? confidenceSamples.reduce((sum, value) => sum + value, 0) / confidenceSamples.length
     : 0;
+  const structuralOccurrences = buildStructuralLabelOccurrences(blocks);
+  fields.push(...extractRhwpStructuralFields(blocks, sourceSha256, fields, structuralOccurrences));
+  for (const field of fields) {
+    if (field.source === "contextual-region") continue;
+    const observed = structuralOccurrences.get(structuralLocationKey(
+      field.location.blockIndex,
+      field.location.row,
+      field.location.col,
+    ));
+    if (observed?.normalizedLabel === field.normalizedLabel) {
+      field.location.occurrence = observed.occurrence;
+    }
+  }
   suppressValueCellDuplicates(fields);
   return { fields, formConfidence };
+}
+
+interface StructuralLabelOccurrence {
+  normalizedLabel: string;
+  occurrence: number;
+}
+
+/**
+ * KorDoc의 label-value 추출기는 병합된 행의 오른쪽 끝 라벨이나 `/` 같은 값 placeholder를
+ * 후보로 만들지 못할 수 있다. RHWP는 원문 라벨에서 native 표 셀을 다시 exact하게 찾으므로,
+ * 고신호 라벨과 쓰기 가능한 오른쪽 구조가 함께 있는 경우만 RHWP 전용 후보로 보강한다.
+ */
+export function extractRhwpStructuralFields(
+  blocks: IRBlock[],
+  sourceSha256: string,
+  existingFields: readonly RoundtripFieldCandidate[] = [],
+  occurrences = buildStructuralLabelOccurrences(blocks),
+): RoundtripFieldCandidate[] {
+  const existing = new Set(existingFields.map((field) => structuralCandidateKey(
+    field.location.blockIndex,
+    field.location.row,
+    field.normalizedLabel,
+  )));
+  const recovered: RoundtripFieldCandidate[] = [];
+
+  blocks.forEach((block, blockIndex) => {
+    if (block.type !== "table" || !block.table) return;
+    block.table.cells.forEach((row, rowIndex) => {
+      row.forEach((cell, colIndex) => {
+        const label = cell.text.trim();
+        const normalizedLabel = normalizeRoundtripLabel(label);
+        if (
+          !normalizedLabel
+          || !isRhwpStructuralInputLabel(label)
+          || existing.has(structuralCandidateKey(blockIndex, rowIndex, normalizedLabel))
+        ) return;
+        const target = structuralValueEvidence(row, colIndex, cell);
+        if (!target) return;
+        const type = inferFieldType(label, target.value);
+        const inputAssessment = assessRoundtripInputField({ label, type, row: rowIndex });
+        if (!inputAssessment.recommended) return;
+        const observed = occurrences.get(structuralLocationKey(blockIndex, rowIndex, colIndex));
+        const sample = generateRoundtripSampleValue({ label, type });
+        recovered.push({
+          fieldInstanceId: createHash("sha256")
+            .update(`${sourceSha256}:rhwp:${blockIndex}:${rowIndex}:${colIndex}:${normalizedLabel}`)
+            .digest("hex")
+            .slice(0, 24),
+          label,
+          displayLabel: label,
+          normalizedLabel,
+          originalValue: target.value,
+          type,
+          required: false,
+          empty: true,
+          recommendedInput: true,
+          inputLikelihood: inputAssessment.likelihood,
+          inputSignals: [
+            ...inputAssessment.signals,
+            target.implicit ? "병합 표 오른쪽 끝의 RHWP 입력칸" : "RHWP 라벨 오른쪽의 빈 값 셀",
+            "KorDoc label-value 후보 누락 보강",
+          ],
+          sampleValue: sample.value,
+          sampleReason: sample.reason,
+          source: "rhwp-structural",
+          inputKind: inferRoundtripInputKind(label, type),
+          writeOperation: "rhwp_field",
+          helperText: `문서의 ‘${label.replace(/\s+/gu, " ")}’ 입력칸에 기재합니다.`,
+          unit: null,
+          options: [],
+          analysisSource: "heuristic",
+          llmConfidence: null,
+          location: {
+            blockIndex,
+            row: rowIndex,
+            col: colIndex,
+            occurrence: observed?.occurrence ?? 0,
+            pageNumber: block.pageNumber ?? null,
+          },
+        });
+        suppressStructuralPlaceholderCandidate(existingFields, {
+          blockIndex,
+          rowIndex,
+          label,
+          targetCol: target.targetCol,
+          targetValue: target.value,
+        });
+        existing.add(structuralCandidateKey(blockIndex, rowIndex, normalizedLabel));
+      });
+    });
+  });
+  return recovered;
+}
+
+function structuralValueEvidence(
+  row: readonly IRCell[],
+  colIndex: number,
+  labelCell: IRCell,
+): { value: string; implicit: boolean; targetCol: number } | null {
+  const targetIndex = colIndex + Math.max(1, labelCell.colSpan);
+  const target = row[targetIndex];
+  if (target && isWritableStructuralPlaceholder(target.text)) {
+    return { value: target.text.trim(), implicit: false, targetCol: targetIndex };
+  }
+  // 일부 HWPX 병합 표는 오른쪽 값 셀을 logical grid에서 생략하지만 native RHWP 표에는
+  // 별도 셀로 남긴다. 행 끝을 넘어가는 라벨만 이 보강을 허용해 일반 머리글 오탐을 줄인다.
+  if (targetIndex >= row.length) return { value: "", implicit: true, targetCol: targetIndex };
+  return null;
+}
+
+function isWritableStructuralPlaceholder(value: string): boolean {
+  const normalized = value.normalize("NFKC").trim();
+  return normalized.length === 0
+    || /^(?:[/＿_\-.·ㆍ]|\(\s*\))+$/u.test(normalized)
+    || /^\([^)]{2,40}\)$/u.test(normalized)
+    || /^금\s*:\s*(?:백\s*만\s*원|만\s*원|원)?$/u.test(normalized)
+    || /^(?:은행\s*)?지점\s*\(\s*담당자[^)]{0,30}\)$/u.test(normalized);
+}
+
+function suppressStructuralPlaceholderCandidate(
+  fields: readonly RoundtripFieldCandidate[],
+  owner: {
+    blockIndex: number;
+    rowIndex: number;
+    label: string;
+    targetCol: number;
+    targetValue: string;
+  },
+): void {
+  const targetLabel = normalizeRoundtripLabel(owner.targetValue);
+  if (!targetLabel) return;
+  for (const field of fields) {
+    if (
+      field.source !== "kordoc-form"
+      || field.location.blockIndex !== owner.blockIndex
+      || field.location.row !== owner.rowIndex
+      || field.location.col !== owner.targetCol
+      || field.normalizedLabel !== targetLabel
+    ) continue;
+    field.recommendedInput = false;
+    field.inputLikelihood = Math.min(field.inputLikelihood, 0.1);
+    field.inputSignals.push(`RHWP 구조가 더 구체적인 “${owner.label.replace(/\s+/gu, " ")}” 입력으로 대체`);
+  }
+}
+
+/** 행 끝 보강은 짧은 필드 라벨에만 적용하고 선택지·서명문·조례 본문은 후보로 만들지 않는다. */
+function isRhwpStructuralInputLabel(value: string): boolean {
+  const compact = value.normalize("NFKC").replace(/\s+/gu, " ").trim();
+  if (compact.length < 2 || compact.length > 60) return false;
+  if ((value.match(/\n/gu) ?? []).length > 2) return false;
+  if (/[□☐■☑✓]/u.test(value)) return false;
+  return !/(?:본인은|조례|규칙|다짐|감수|귀하|제출합니다|신청합니다|동의합니다)/u.test(compact);
+}
+
+function buildStructuralLabelOccurrences(blocks: readonly IRBlock[]): Map<string, StructuralLabelOccurrence> {
+  const result = new Map<string, StructuralLabelOccurrence>();
+  const counts = new Map<string, number>();
+  blocks.forEach((block, blockIndex) => {
+    if (block.type !== "table" || !block.table) return;
+    block.table.cells.forEach((row, rowIndex) => {
+      row.forEach((cell, colIndex) => {
+        const normalizedLabel = normalizeRoundtripLabel(cell.text);
+        if (!normalizedLabel) return;
+        const occurrence = counts.get(normalizedLabel) ?? 0;
+        counts.set(normalizedLabel, occurrence + 1);
+        result.set(structuralLocationKey(blockIndex, rowIndex, colIndex), { normalizedLabel, occurrence });
+      });
+    });
+  });
+  return result;
+}
+
+function structuralLocationKey(blockIndex: number, row: number, col: number): string {
+  return `${blockIndex}:${row}:${col}`;
+}
+
+function structuralCandidateKey(blockIndex: number, row: number, normalizedLabel: string): string {
+  return `${blockIndex}:${row}:${normalizedLabel}`;
 }
 
 /** 같은 행의 앞 라벨이 뒤 라벨을 포함하면 뒤 셀은 값 placeholder를 필드로 재인식한 경우가 많다. */
@@ -245,8 +442,13 @@ function suppressValueCellDuplicates(fields: RoundtripFieldCandidate[]): void {
       && other.location.blockIndex === candidate.location.blockIndex
       && other.location.row === candidate.location.row
       && other.location.col < candidate.location.col
-      && other.normalizedLabel.length > candidate.normalizedLabel.length
-      && other.normalizedLabel.endsWith(candidate.normalizedLabel));
+      && (
+        (
+          other.normalizedLabel.length > candidate.normalizedLabel.length
+          && other.normalizedLabel.endsWith(candidate.normalizedLabel)
+        )
+        || normalizeRoundtripLabel(other.originalValue) === candidate.normalizedLabel
+      ));
     if (!owner) continue;
     candidate.recommendedInput = false;
     candidate.inputLikelihood = Math.min(candidate.inputLikelihood, 0.15);
@@ -254,7 +456,7 @@ function suppressValueCellDuplicates(fields: RoundtripFieldCandidate[]): void {
   }
 }
 
-const POSITIVE_INPUT_LABEL = /(회사명|기업명|업체명|단체명|상호|법인명|기관명|대표자|성명|이름|신청인|담당자|책임자|사업자|법인번호|주민등록|연락처|전화|휴대|이메일|email|전자우편|주소|소재지|과제명|사업명|아이템명|제품명|서비스명|주생산품|설립|개업|직위|부서|홈페이지|지원금|사업비|예산|금액|계좌|은행|예금주|매출|고용|인원|자본금|기간|일자|날짜|년도|연도)/i;
+const POSITIVE_INPUT_LABEL = /(회사명|기업명|업체명|단체명|상호|법인명|기관명|대표자|성명|이름|신청인|담당자|책임자|사업자|법인번호|주민등록|연락처|전화|휴대|이메일|email|전자우편|주소|소재지|과제명|사업명|아이템명|제품명|서비스명|주생산품|업태|업종|종목|설립|개업|직위|부서|홈페이지|지원금|사업비|예산|금액|계좌|은행|예금주|상담|매출|고용|인원|자본금|기간|일자|날짜|년도|연도)/i;
 const CONTENT_INPUT_LABEL = /((회사|기업|업체|단체|기관|제품|서비스|기술)소개|자기소개|개요|현황|계획|목표|필요성|전략|기대효과|시장|기술|실적|역량|일정|자금|추진|문제|해결|활용|성과|동기|신청사유|운영계획|요약|주요내용|세부내용|주고객|이용대상)/i;
 const NON_INPUT_LABEL = /^(연번|순번|번호|구분|항목|서류명|제출서류|제출형식|형식|비고|배점|평가항목|확인|단위|천원|원|적용법률|법률)$/i;
 

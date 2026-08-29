@@ -45,10 +45,17 @@ import {
   resolveStudioFieldAgentProtocol,
   resolveStudioFieldNavigationProtocol,
   resolveStudioFieldSelectionProtocol,
+  type StudioBodyParagraphTargetV1,
+  type StudioDocumentAgentProtocol,
   type StudioFieldAgentProtocol,
+  type StudioFieldBindingTargetV1,
   type StudioFieldNavigationProtocol,
   type StudioFieldTargetV1,
 } from "@/lib/rhwp/studioDocumentAgentProtocol";
+import {
+  buildStudioParagraphFieldReplacement,
+  studioBodyParagraphTargetForField,
+} from "@/lib/rhwp/studioParagraphFieldBindings";
 import {
   resolveStudioFieldBindings,
   type StudioFieldBindingResolution,
@@ -116,7 +123,7 @@ import type {
   FieldAgentSuggestionDto,
 } from "@/lib/server/documents/fieldAgentRuns";
 import { StudioSaveIndicator } from "./StudioSaveIndicator";
-import { DocumentAgentSheet } from "./DocumentAgentSheet";
+import { DocumentAgentPanel, DocumentAgentSheet } from "./DocumentAgentSheet";
 import {
   initialDocumentAgentUiState,
   reduceDocumentAgentUiState,
@@ -158,8 +165,10 @@ export interface RhwpStudioDocumentActionState {
 export interface PreparedFieldWritingSession {
   fieldId: string;
   baseRevisionId: string;
-  target: StudioFieldTargetV1;
+  target: StudioFieldBindingTargetV1;
 }
+
+type StudioFieldSelectionTargetV1 = StudioFieldTargetV1 | StudioBodyParagraphTargetV1;
 
 type StudioState =
   | { status: "loading"; message: string; allowEditorInteraction?: boolean }
@@ -188,10 +197,10 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
   activeTask: DocumentAuthoringTask | null;
   documentAgentAvailable?: boolean;
   fieldEditorAgentAvailable?: boolean;
-  presentation?: "standalone" | "field_aware";
+  presentation?: "standalone" | "field_aware" | "document_guided";
   onDocumentActionStateChanged?: (state: RhwpStudioDocumentActionState) => void;
   onFieldBindingsResolved?: (resolutions: readonly StudioFieldBindingResolution[]) => void;
-  onFieldSelectionChanged?: (target: StudioFieldTargetV1 | null) => void;
+  onFieldSelectionChanged?: (target: StudioFieldSelectionTargetV1 | null) => void;
   onSaved: (
     document: RhwpWorkingDocument,
     taskFieldId: string | null,
@@ -222,6 +231,7 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
   const [saveState, dispatchSave] = useReducer(reduceStudioSaveState, initialStudioSaveState);
   const [agentState, dispatchAgent] = useReducer(reduceDocumentAgentUiState, initialDocumentAgentUiState);
   const [agentCapabilityReady, setAgentCapabilityReady] = useState(false);
+  const [showDocumentAgentSheet, setShowDocumentAgentSheet] = useState(false);
   const [agentHardLock, setAgentHardLock] = useState<string | null>(null);
   const [fieldAgentBusy, setFieldAgentBusy] = useState(false);
   const [downloadBusy, setDownloadBusy] = useState(false);
@@ -231,11 +241,13 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
   const agentTransactionRef = useRef<StudioCommandDocumentAgentTransaction | null>(null);
   const fieldAgentTransactionRef = useRef<StudioFieldAgentTransaction | null>(null);
   const fieldAgentProtocolRef = useRef<StudioFieldAgentProtocol | null>(null);
+  const documentAgentProtocolRef = useRef<StudioDocumentAgentProtocol | null>(null);
   const fieldNavigationProtocolRef = useRef<StudioFieldNavigationProtocol | null>(null);
-  const fieldTargetsRef = useRef<Map<string, StudioFieldTargetV1>>(new Map());
+  const fieldTargetsRef = useRef<Map<string, StudioFieldBindingTargetV1>>(new Map());
   const agentCandidatesRef = useRef<DocumentEditCandidate[]>([]);
   const agentReservedAnchorsRef = useRef<DocumentAgentReservedAnchor[]>([]);
   const latestAppliedSuggestionIdRef = useRef<string | null>(null);
+  const documentAgentInitializedRef = useRef(false);
   const scheduleTableUndoRef = useRef<ScheduleTableUndoState | null>(null);
   const preparedRef = useRef<RhwpWorkingDocument | null>(null);
   const onSavedRef = useRef(onSaved);
@@ -285,6 +297,7 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
     let disposed = false;
     let unsubscribeDocumentChanged: (() => void) | null = null;
     let unsubscribeFieldSelectionChanged: (() => void) | null = null;
+    let paragraphSelectionPoll: ReturnType<typeof setInterval> | null = null;
     const initialize = async () => {
       const initializationInput = initializationInputRef.current;
       setState({
@@ -416,6 +429,27 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
       const saveProtocol = resolveRhwpStudioSaveProtocol(editor);
       saveProtocolRef.current = saveProtocol;
       const agentProtocol = resolveStudioDocumentAgentProtocol(editor);
+      documentAgentProtocolRef.current = agentProtocol;
+      if (presentation === "field_aware" && agentProtocol
+          && [...fieldTargetsRef.current.values()].some((target) => target.kind === "body_paragraph_text")) {
+        let pollBusy = false;
+        const publishParagraphSelection = async () => {
+          if (pollBusy || disposed || requestSeq.current !== seq || document.visibilityState === "hidden") return;
+          pollBusy = true;
+          try {
+            const selection = await agentProtocol.getSelectionContext();
+            if (selection.editable && selection.target) {
+              onFieldSelectionChangedRef.current?.(selection.target);
+            }
+          } catch {
+            // selection polling 실패는 문서 편집과 native table field selection을 막지 않는다.
+          } finally {
+            pollBusy = false;
+          }
+        };
+        void publishParagraphSelection();
+        paragraphSelectionPoll = setInterval(() => void publishParagraphSelection(), 400);
+      }
       if (documentAgentAvailable && transport.mode === "persistent" && agentProtocol) {
         const rhwp = await loadRhwp();
         agentTransactionRef.current = createStudioCommandDocumentAgentTransaction({
@@ -436,12 +470,13 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
         fieldEditorAgentAvailable
         && presentation === "field_aware"
         && transport.mode === "persistent"
-        && fieldAgentProtocol
+        && (fieldAgentProtocol || agentProtocol)
       ) {
         const rhwp = await loadRhwp();
         fieldAgentTransactionRef.current = createStudioFieldAgentTransaction({
           rhwp,
-          protocol: fieldAgentProtocol,
+          fieldProtocol: fieldAgentProtocol,
+          documentProtocol: agentProtocol,
           exportCurrentBytes: (format) => exportVerifiedEditorDocument(editor, format),
         });
       } else {
@@ -477,12 +512,14 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
       requestSeq.current += 1;
       unsubscribeDocumentChanged?.();
       unsubscribeFieldSelectionChanged?.();
+      if (paragraphSelectionPoll) clearInterval(paragraphSelectionPoll);
       editorRef.current?.destroy();
       editorRef.current = null;
       saveProtocolRef.current = null;
       agentTransactionRef.current = null;
       fieldAgentTransactionRef.current = null;
       fieldAgentProtocolRef.current = null;
+      documentAgentProtocolRef.current = null;
       fieldNavigationProtocolRef.current = null;
       fieldTargetsRef.current = new Map();
       agentCandidatesRef.current = [];
@@ -696,11 +733,13 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
   }, [save]);
 
   const focusField = useCallback(async (fieldId: string): Promise<boolean> => {
-    const protocol = fieldNavigationProtocolRef.current;
     const target = fieldTargetsRef.current.get(fieldId);
-    if (!protocol || !target) return false;
+    if (!target) return false;
     try {
-      const result = await protocol.focusFieldTarget(target);
+      const result = target.kind === "body_paragraph_text"
+        ? await documentAgentProtocolRef.current?.focusTarget(studioBodyParagraphTargetForField(target))
+        : await fieldNavigationProtocolRef.current?.focusFieldTarget(target);
+      if (!result) return false;
       if (!result.focused) toast.error("문서에서 이 필드의 입력 셀로 이동하지 못했습니다.");
       return result.focused;
     } catch (error) {
@@ -829,8 +868,10 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
     return run;
   }, [transport]);
 
-  const openDocumentAgent = useCallback(async () => {
+  const initializeDocumentAgent = useCallback(async () => {
     if (!agentCapabilityReady || state.status !== "ready" || transport.mode !== "persistent") return;
+    if (documentAgentInitializedRef.current) return;
+    documentAgentInitializedRef.current = true;
     dispatchAgent({ type: "open", pageCount: state.pageCount });
     try {
       const [recent] = await fetchDocumentAgentRuns(transport.draftId);
@@ -839,6 +880,16 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
       toast.error(error instanceof Error ? error.message : "최근 문서 제안을 불러오지 못했습니다.");
     }
   }, [agentCapabilityReady, state, transport]);
+
+  const openDocumentAgent = useCallback(async () => {
+    await initializeDocumentAgent();
+    setShowDocumentAgentSheet(true);
+  }, [initializeDocumentAgent]);
+
+  useEffect(() => {
+    if (presentation !== "document_guided") return;
+    void initializeDocumentAgent();
+  }, [initializeDocumentAgent, presentation]);
 
   const scanDocumentAgentPage = useCallback(async () => {
     dispatchAgent({ type: "scan_started" });
@@ -1382,7 +1433,9 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
           formatSha256: run.formatSha256,
           adjacentContextSha256: run.adjacentContextSha256,
         },
-        replacement: buildChoiceCellReplacement(run.beforeText, suggestion.value) ?? suggestion.value,
+        replacement: run.target.kind === "body_paragraph_text"
+          ? buildStudioParagraphFieldReplacement(run.beforeText, run.target, suggestion.value)
+          : buildChoiceCellReplacement(run.beforeText, suggestion.value) ?? suggestion.value,
       });
       const materializedAnswers = { ...prepared.materializedAnswers, [run.fieldId]: suggestion.value };
       const persisted = await persistStudioSnapshot({
@@ -1493,7 +1546,9 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
         operationClientId,
       });
       const current = await readCurrentFieldDocument();
-      const appliedText = buildChoiceCellReplacement(run.beforeText, suggestion.value) ?? suggestion.value;
+      const appliedText = run.target.kind === "body_paragraph_text"
+        ? buildStudioParagraphFieldReplacement(run.beforeText, run.target, suggestion.value)
+        : buildChoiceCellReplacement(run.beforeText, suggestion.value) ?? suggestion.value;
       reverted = await transaction.revert({
         bytes: current.bytes,
         format: prepared.format,
@@ -1662,6 +1717,9 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
         const resolution = resolutionById.get(entry.fieldId);
         if (!field || !resolution || resolution.status !== "unique") {
           throw new Error("현재 revision에서 모든 일괄 입력 위치를 하나씩 확정하지 못했습니다.");
+        }
+        if (resolution.target.kind === "body_paragraph_text") {
+          throw new Error("표 밖 문단 필드는 AI 작성 가이드에서 개별 확인 후 반영해 주세요.");
         }
         return {
           fieldId: field.fieldId,
@@ -2131,6 +2189,43 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
     state.status,
   ]);
 
+  const documentAgentPageCount = state.status === "ready" ? state.pageCount : 1;
+  const documentAgentReady = documentAgentAvailable
+    && transport.mode === "persistent"
+    && agentCapabilityReady
+    && agentState.phase !== "closed"
+    && state.status === "ready";
+  const documentAgentUnavailableMessage = localPreview
+    ? "읽기 전용 시뮬레이션에서는 LLM 제안을 실행하지 않습니다. 실제 회사 초안에서 공고 근거와 현재 문서 문맥을 사용한 제안을 요청할 수 있습니다."
+    : !documentAgentAvailable
+      ? "AI 작성 가이드가 아직 활성화되지 않았습니다. RHWP 수동 편집과 저장·다운로드는 계속 사용할 수 있습니다."
+      : state.status !== "ready"
+        ? "RHWP 문서를 준비한 뒤 작성 위치와 가이드를 연결합니다."
+        : "현재 편집기에서 안전한 문단·셀 선택 기능을 확인하지 못했습니다. 수동 편집은 계속할 수 있습니다.";
+  const documentAgentControls = {
+    state: agentState,
+    pageCount: documentAgentPageCount,
+    onSelectPage: (page: number) => dispatchAgent({ type: "select_page", page, pageCount: documentAgentPageCount }),
+    onScan: () => void scanDocumentAgentPage(),
+    onSelectCandidate: (candidateId: string) => dispatchAgent({ type: "select_candidate", candidateId }),
+    onRequest: () => void requestAgentSuggestions(),
+    onApply: (suggestionId: string) => void applyAgentSuggestion(suggestionId),
+    onDismiss: (suggestionId: string) => void dismissAgentSuggestion(suggestionId),
+    onUndo: (suggestionId: string) => void undoAgentSuggestion(suggestionId),
+    onRetry: () => dispatchAgent({ type: "retry" }),
+    canUndoSuggestion: (suggestionId: string) => latestAppliedSuggestionIdRef.current === suggestionId,
+  };
+  const guidedDocumentActions = {
+    saveState,
+    saving,
+    downloading: downloadBusy,
+    canSave: state.status === "ready" && !saving && !documentActionsBlocked,
+    canDownload: state.status === "ready" && !saving && !downloadBusy && !documentActionsBlocked,
+    onSave: () => void saveCurrent(),
+    onDownload: () => void downloadCurrentCopy(),
+    saveLabel: localPreview ? "이 탭에 반영" : "지금 저장",
+  };
+
   return (
     <div className={cn(
       "flex min-h-0 flex-1 flex-col gap-3",
@@ -2262,7 +2357,7 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
       {state.status === "ready" && state.skipped.length > 0 ? (
         <Alert className="border-warning-strong/30 bg-warning-strong-soft">
           <AlertTitle>
-            {presentation === "field_aware" ? "필드 값" : "빠른 작성 값"} {state.skipped.length.toLocaleString("ko-KR")}개는 자동 반영하지 않았어요.
+            연결된 입력 값 {state.skipped.length.toLocaleString("ko-KR")}개는 자동 반영하지 않았어요.
           </AlertTitle>
           <AlertDescription>
             문서에서 직접 확인해 주세요: {state.skipped.map((entry) => entry.label).join(", ")}
@@ -2270,51 +2365,81 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
         </Alert>
       ) : null}
 
-      <div className="relative min-h-[68dvh] flex-1 overflow-hidden rounded-[var(--radius-xl)] border-[1.5px] border-input bg-card shadow-[var(--shadow-standard)]">
-        {state.status === "loading" && state.allowEditorInteraction ? (
-          <div className="pointer-events-none absolute top-3 left-1/2 z-10 w-[min(92%,42rem)] -translate-x-1/2 rounded-[var(--radius-lg)] border border-warning-strong/30 bg-card/95 px-3 py-2 text-center text-xs text-muted-foreground shadow-[var(--shadow-subtle)] backdrop-blur-sm">
-            {state.message}
-          </div>
-        ) : state.status === "loading" || saving || agentBusy || agentHardLock ? (
-          <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/80 backdrop-blur-sm">
-            <div className="flex items-center gap-2 rounded-full border bg-card px-4 py-2 text-sm shadow-[var(--shadow-subtle)]">
-              {agentHardLock ? <RefreshCw className="text-destructive" aria-hidden /> : <Spinner className="text-primary" />}
-              {agentHardLock
-                ? "안전을 위해 편집을 잠갔습니다. 최신 문서를 다시 불러와 주세요."
-                : state.status === "loading"
-                ? state.message
-                : agentBusy
-                  ? "문서 AI 작업을 검증하고 저장하고 있어요."
-                : localPreview
-                  ? "작업본을 검증해 이 브라우저 탭에 반영하고 있어요."
-                  : "작업본을 검증해 서버에 저장하고 있어요."}
+      <div className={cn(
+        "flex min-h-0 flex-1",
+        presentation === "document_guided"
+          && "grid gap-4 overflow-auto xl:grid-cols-[minmax(0,1fr)_360px] xl:overflow-hidden",
+      )}>
+        <div className="relative min-h-[68dvh] min-w-0 flex-1 overflow-hidden rounded-[var(--radius-xl)] border-[1.5px] border-input bg-card shadow-[var(--shadow-standard)]">
+          {state.status === "loading" && state.allowEditorInteraction ? (
+            <div className="pointer-events-none absolute top-3 left-1/2 z-10 w-[min(92%,42rem)] -translate-x-1/2 rounded-[var(--radius-lg)] border border-warning-strong/30 bg-card/95 px-3 py-2 text-center text-xs text-muted-foreground shadow-[var(--shadow-subtle)] backdrop-blur-sm">
+              {state.message}
             </div>
-          </div>
-        ) : state.status === "ready" ? (
-          <div className="pointer-events-none absolute top-3 right-3 z-10 flex items-center gap-1 rounded-full border bg-card/95 px-2.5 py-1 text-xs text-muted-foreground shadow-[var(--shadow-subtle)]">
-            <CheckCircle2 className="size-3.5 text-success" aria-hidden />
-            {state.pageCount.toLocaleString("ko-KR")}쪽 열림
+          ) : state.status === "loading" || saving || agentBusy || agentHardLock ? (
+            <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/80 backdrop-blur-sm">
+              <div className="flex items-center gap-2 rounded-full border bg-card px-4 py-2 text-sm shadow-[var(--shadow-subtle)]">
+                {agentHardLock ? <RefreshCw className="text-destructive" aria-hidden /> : <Spinner className="text-primary" />}
+                {agentHardLock
+                  ? "안전을 위해 편집을 잠갔습니다. 최신 문서를 다시 불러와 주세요."
+                  : state.status === "loading"
+                  ? state.message
+                  : agentBusy
+                    ? "문서 AI 작업을 검증하고 저장하고 있어요."
+                  : localPreview
+                    ? "작업본을 검증해 이 브라우저 탭에 반영하고 있어요."
+                    : "작업본을 검증해 서버에 저장하고 있어요."}
+              </div>
+            </div>
+          ) : state.status === "ready" ? (
+            <div className="pointer-events-none absolute top-3 right-3 z-10 flex items-center gap-1 rounded-full border bg-card/95 px-2.5 py-1 text-xs text-muted-foreground shadow-[var(--shadow-subtle)]">
+              <CheckCircle2 className="size-3.5 text-success" aria-hidden />
+              {state.pageCount.toLocaleString("ko-KR")}쪽 열림
+            </div>
+          ) : null}
+          <div ref={containerRef} className="h-full min-h-[68dvh] w-full" aria-label="문서 직접 편집기" />
+        </div>
+
+        {presentation === "document_guided" ? (
+          <div className="hidden h-full min-h-0 overflow-hidden xl:block">
+            <DocumentAgentPanel
+              {...documentAgentControls}
+              available={documentAgentReady}
+              unavailableMessage={documentAgentUnavailableMessage}
+              documentActions={guidedDocumentActions}
+            />
           </div>
         ) : null}
-        <div ref={containerRef} className="h-full min-h-[68dvh] w-full" aria-label="문서 직접 편집기" />
       </div>
 
-      {presentation === "standalone" && agentCapabilityReady && transport.mode === "persistent" && state.status === "ready" ? (
+      {presentation === "document_guided" ? (
+        <div className="fixed inset-x-3 bottom-3 z-30 flex items-center gap-3 rounded-xl border bg-background/95 p-2.5 shadow-lg backdrop-blur xl:hidden">
+          <div className="min-w-0 flex-1 px-1">
+            <p className="text-[11px] font-medium text-muted-foreground">현재 문서</p>
+            <p className="truncate text-sm font-semibold">공고 근거 기반 작성 가이드</p>
+          </div>
+          <Button
+            type="button"
+            size="sm"
+            disabled={state.status !== "ready"}
+            onClick={() => {
+              if (documentAgentReady) void openDocumentAgent();
+              else setShowDocumentAgentSheet(true);
+            }}
+          >
+            <WandSparkles data-icon="inline-start" aria-hidden />
+            AI 작성 가이드
+          </Button>
+        </div>
+      ) : null}
+
+      {(presentation === "standalone" || presentation === "document_guided") && state.status === "ready" ? (
         <DocumentAgentSheet
-          state={agentState}
-          pageCount={state.pageCount}
-          onOpenChange={(open) => {
-            if (!open) dispatchAgent({ type: "close" });
-          }}
-          onSelectPage={(page) => dispatchAgent({ type: "select_page", page, pageCount: state.pageCount })}
-          onScan={() => void scanDocumentAgentPage()}
-          onSelectCandidate={(candidateId) => dispatchAgent({ type: "select_candidate", candidateId })}
-          onRequest={() => void requestAgentSuggestions()}
-          onApply={(suggestionId) => void applyAgentSuggestion(suggestionId)}
-          onDismiss={(suggestionId) => void dismissAgentSuggestion(suggestionId)}
-          onUndo={(suggestionId) => void undoAgentSuggestion(suggestionId)}
-          onRetry={() => dispatchAgent({ type: "retry" })}
-          canUndoSuggestion={(suggestionId) => latestAppliedSuggestionIdRef.current === suggestionId}
+          {...documentAgentControls}
+          open={showDocumentAgentSheet}
+          onOpenChange={setShowDocumentAgentSheet}
+          available={presentation === "standalone" ? true : documentAgentReady}
+          unavailableMessage={documentAgentUnavailableMessage}
+          documentActions={presentation === "document_guided" ? guidedDocumentActions : undefined}
         />
       ) : null}
     </div>

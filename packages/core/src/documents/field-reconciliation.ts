@@ -66,6 +66,15 @@ export interface ReconciledField {
     col?: number;
     occurrence?: number;
     normalizedLabel?: string;
+    /** 사용자 표시명과 분리해 RHWP 원문 검색에 사용하는 실제 문서 라벨. */
+    anchorLabel?: string;
+    /** 표 밖 단일 문단 입력의 native RHWP 재결속 계약. */
+    targetKind?: "body_paragraph_text";
+    valueStart?: number;
+    valueEnd?: number;
+    paragraphPrefix?: string;
+    paragraphSuffix?: string;
+    paragraphOccurrence?: number;
   } | null;
   visualEvidence: Record<string, unknown> | null;
   textEvidence: Record<string, unknown> | null;

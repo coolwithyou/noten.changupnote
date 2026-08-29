@@ -102,7 +102,6 @@ async function main(command: Command, argv: readonly string[]): Promise<void> {
         seriesId: parsed.seriesId,
         sequenceFrom: parsed.sequenceFrom,
         sequenceTo: parsed.sequenceTo,
-        withApplicationRoundtrip: false,
         concurrency: parsed.concurrency,
       });
       console.log(JSON.stringify({

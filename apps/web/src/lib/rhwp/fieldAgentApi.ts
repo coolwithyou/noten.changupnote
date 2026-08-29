@@ -1,5 +1,5 @@
 import type { ActionResult } from "@cunote/contracts";
-import type { StudioFieldTargetV1 } from "./studioDocumentAgentProtocol";
+import type { StudioFieldBindingTargetV1 } from "./studioDocumentAgentProtocol";
 import type {
   FieldAgentRunDto,
   FieldAgentSuggestionAction,
@@ -17,7 +17,7 @@ export function requestFieldAgentRun(input: {
   fieldId: string;
   clientRequestId: string;
   baseRevisionId: string;
-  target: StudioFieldTargetV1;
+  target: StudioFieldBindingTargetV1;
   sourceText?: string;
 }): Promise<FieldAgentRunDto> {
   const { draftId, ...body } = input;

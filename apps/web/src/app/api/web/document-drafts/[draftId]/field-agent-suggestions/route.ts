@@ -4,7 +4,7 @@ import { z } from "zod";
 import { requireCompanyAccess } from "@/lib/server/auth/companyGuard";
 import { webActionError } from "@/lib/server/auth/webActionError";
 import { requireFieldEditorAgentFeature } from "@/lib/server/documents/documentAgentAvailability";
-import { studioFieldTargetSchema } from "@/lib/rhwp/studioDocumentAgentProtocol";
+import { studioFieldBindingTargetSchema } from "@/lib/rhwp/studioDocumentAgentProtocol";
 import {
   loadRecentFieldAgentRuns,
   requestFieldAgentSuggestions,
@@ -19,7 +19,7 @@ const postBodySchema = z.strictObject({
   fieldId: z.string().uuid(),
   clientRequestId: z.string().uuid(),
   baseRevisionId: z.string().uuid(),
-  target: studioFieldTargetSchema,
+  target: studioFieldBindingTargetSchema,
   sourceText: z.string().trim().min(1).max(4_000).optional(),
 });
 

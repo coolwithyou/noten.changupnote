@@ -15,6 +15,7 @@ const atomic: ConnectedDocumentField = {
   fillStrategy: "ask_user",
   position: null,
   visualEvidence: null,
+  guidance: "사업자등록증의 상호명을 적습니다.",
 };
 const table: ConnectedDocumentField = {
   ...atomic,
@@ -63,6 +64,7 @@ const ready = buildFieldAwareDocumentSession({
 assert.equal(ready.selected?.fieldId, atomic.fieldId);
 assert.equal(ready.selected?.assistAvailability, "ready");
 assert.equal(ready.selected?.canRequestSuggestion, true);
+assert.equal(ready.selected?.guidance, "사업자등록증의 상호명을 적습니다.");
 assert.equal(ready.fields[1]?.assistAvailability, "unsupported_kind");
 assert.equal(ready.fields[2]?.assistAvailability, "ready");
 assert.equal(ready.fields[3]?.assistAvailability, "ready");
@@ -126,5 +128,20 @@ assert.equal(fieldSelectionTargetKey({
   paragraph: 7,
   fieldId: 41,
 }), "form_text:0:7:41");
+assert.equal(fieldSelectionTargetKey({
+  kind: "body_paragraph_text",
+  section: 0,
+  paragraph: 12,
+  length: 17,
+  valueStart: 9,
+  valueEnd: 17,
+}), "body_paragraph:0:12");
+assert.equal(fieldSelectionTargetKey({
+  kind: "body_paragraph",
+  section: 0,
+  paragraph: 12,
+  charOffset: 0,
+  length: 17,
+}), "body_paragraph:0:12");
 
 console.log("field-aware document session tests passed");

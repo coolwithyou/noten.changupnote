@@ -145,14 +145,14 @@ export async function ensureDraftApplicationFields(input: {
     );
   }
   const fields = buildReconciledApplicationFields(analyzed.document);
-  if (analyzed.document.fieldCoverage.status === "review_required" && fields.length === 0) {
+  if (analyzed.document.fieldCoverage.status === "review_required") {
     const labels = analyzed.document.fieldCoverage.unresolvedCandidates
       .slice(0, 5)
       .map((candidate) => candidate.label)
       .join(", ");
     throw new ApplicationFieldAnalysisError(
       "application_field_coverage_incomplete",
-      `작성 여부를 확정하지 못한 빈 셀이 있어 자동 필드맵을 완료하지 않았습니다: ${labels}`,
+      `작성 여부나 RHWP 구조 앵커를 확정하지 못한 필드가 있어 자동 필드맵을 완료하지 않았습니다: ${labels}`,
       422,
     );
   }
@@ -246,6 +246,15 @@ export function buildReconciledApplicationFields(document: RoundtripParsedDocume
         col: candidate.location.col,
         occurrence: candidate.location.occurrence,
         normalizedLabel: candidate.normalizedLabel,
+        anchorLabel: candidate.label,
+        ...(candidate.location.target?.kind === "paragraph_text" ? {
+          targetKind: "body_paragraph_text",
+          valueStart: candidate.location.target.textStart,
+          valueEnd: candidate.location.target.textEnd,
+          paragraphPrefix: candidate.location.target.paragraphPrefix ?? "",
+          paragraphSuffix: candidate.location.target.paragraphSuffix ?? "",
+          paragraphOccurrence: candidate.location.target.paragraphOccurrence ?? 0,
+        } : {}),
       },
       visualEvidence: {
         source: "kordoc-rhwp",
@@ -256,6 +265,11 @@ export function buildReconciledApplicationFields(document: RoundtripParsedDocume
         source: "kordoc-rhwp",
         analysisSource: candidate.analysisSource,
         signals: candidate.inputSignals,
+        helperText: candidate.helperText,
+        originalLabel: candidate.label,
+        displayLabel: candidate.displayLabel,
+        llmConfidence: candidate.llmConfidence,
+        writeOperation: candidate.writeOperation,
       },
       reviewRequired: confidence < 0.75,
       mappedCompanyField: fillPlan.mappedCompanyField,

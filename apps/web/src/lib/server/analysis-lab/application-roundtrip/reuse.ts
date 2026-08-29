@@ -134,6 +134,9 @@ export function assertReusableApplicationRoundtrip(input: {
       || (document.fieldPlanning.failureCode ?? null) !== null
       || document.fieldPlanning.status === "heuristic_fallback"
       || (document.fieldPlanning.unprocessedCandidateCount ?? 0) > 0
+      || document.fieldCoverage.status === "review_required"
+      || document.fieldCoverage.anchorUnreadyInputCount !== 0
+      || document.fieldCoverage.anchorReadyInputCount !== document.recommendedInputFieldCount
       || document.fieldPlanning.transport !== input.transport
       || document.fieldPlanning.requestedModel !== input.model)
   ) {

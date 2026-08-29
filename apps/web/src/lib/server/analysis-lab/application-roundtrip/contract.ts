@@ -1,8 +1,12 @@
 // Kordoc 지원서 왕복 분석의 서버 도메인 계약.
 // 운영 DB/R2는 읽기만 하고, 분석·채움 산출물은 spike-out 아래에만 저장한다.
 
-/** v6: 구독 경로 전체 후보 판정과 미해결 후보 자동 재판정 provenance를 봉인한다. */
-export const APPLICATION_ROUNDTRIP_VERSION = "kordoc-application-roundtrip-v7";
+/** v9: 표 밖 단일 문단 입력의 exact prefix/value/suffix 계약을 함께 봉인한다. */
+export const APPLICATION_ROUNDTRIP_VERSION = "kordoc-application-roundtrip-v9";
+/** 관리자 로컬 preview에서만 현재 원본 SHA와 다시 대조해 읽을 수 있는 역사 계약. */
+export const LOCAL_PREVIEW_COMPATIBLE_ROUNDTRIP_VERSIONS = new Set([
+  "kordoc-application-roundtrip-v7",
+]);
 
 /**
  * 로컬 구독 Kordoc 필드 판정의 채택 모델.
@@ -58,13 +62,17 @@ export interface RoundtripFieldLocation {
 }
 
 export interface RoundtripEditableTarget {
-  kind: "table_cell" | "block_text";
+  kind: "table_cell" | "block_text" | "paragraph_text";
   row: number | null;
   col: number | null;
   textStart: number;
   textEnd: number;
   expectedText: string;
   expectedSha256: string;
+  /** paragraph_text만 사용한다. 값이 바뀌어도 고정 prefix/suffix로 native 문단을 재결속한다. */
+  paragraphPrefix?: string;
+  paragraphSuffix?: string;
+  paragraphOccurrence?: number;
 }
 
 export type RoundtripFieldType =
@@ -76,7 +84,7 @@ export type RoundtripFieldType =
   | "checkbox"
   | "idnum";
 
-export type RoundtripFieldSource = "kordoc-form" | "contextual-region";
+export type RoundtripFieldSource = "kordoc-form" | "contextual-region" | "rhwp-structural";
 export type RoundtripLlmTransport = "api" | "claude-cli";
 export type RoundtripFailureCode =
   | "api_key_missing"
@@ -97,6 +105,7 @@ export type RoundtripFieldInputKind =
   | "multiple_choice";
 export type RoundtripFieldWriteOperation =
   | "kordoc_field"
+  | "rhwp_field"
   | "replace_span"
   | "insert_after_label"
   | "insert_before_unit"
@@ -200,6 +209,12 @@ export interface RoundtripFieldCoverageSummary {
   structuralWarningCount: number;
   unresolvedCandidates: RoundtripFieldCoverageIssue[];
   structuralWarnings: RoundtripFieldCoverageIssue[];
+  /** RHWP 표 구조에서 직접 회수한 고신호 입력 라벨 수. v7 이하는 미보유다. */
+  structuralInputLabelCount?: number;
+  /** 표시명과 별개인 원문 라벨·구조 위치를 갖춘 최종 입력 필드 수. */
+  anchorReadyInputCount?: number;
+  /** RHWP exact binding 계약이 불완전해 publishable로 셀 수 없는 입력 필드 수. */
+  anchorUnreadyInputCount?: number;
 }
 
 export type RoundtripChoiceSelectionMode = "single" | "multiple";

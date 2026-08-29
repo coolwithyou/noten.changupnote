@@ -20,6 +20,14 @@ export function isGrantSimulationNavigationAllowed(
   return role === "owner" && isGrantSimulationNavigationHost(rawHost);
 }
 
+export function grantSimulationCallbackPath(
+  grantId: string,
+  surface: "detail" | "workspace",
+): string {
+  const detailPath = `/grants/${encodeURIComponent(grantId)}`;
+  return `${detailPath}${surface === "workspace" ? "/workspace" : ""}?adminPreview=1`;
+}
+
 function normalizeRequestHost(rawHost: string | null | undefined): string {
   const firstHost = rawHost?.split(",", 1)[0]?.trim().toLowerCase() ?? "";
   if (firstHost.startsWith("[")) {

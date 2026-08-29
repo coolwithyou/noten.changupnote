@@ -10,16 +10,22 @@
 
 | 흐름 | 입력 | 출력 | 모델 실행 시점 |
 |---|---|---|---|
-| 공고 딥분석 | 공고 본문, 첨부 텍스트, source revision | 22축 조건, 감사 결과, `authoring-guide-v1` | 승인된 딥분석 batch |
+| 공고 대량분석 | 공고 본문, 첨부 텍스트/HWP·HWPX, source revision | 22축 조건, `authoring-guide-v1`, 신청서 필드 map | 승인된 구독 launch batch |
 | RHWP 작성 | 보관 HWP/HWPX, draft revision, 회사 확인 정보 | 사용자가 승인할 문단·셀 제안과 새 revision | 사용자가 제안을 요청할 때 |
 
-공고 딥분석은 지원서의 좌표나 입력 필드를 찾지 않는다. promotion은 검증된
+운영 Cloud Run의 일반 딥분석은 지원서의 좌표나 입력 필드를 찾지 않는다. 반면 2026-08-28 이후
+승인된 로컬 formal launch는 같은 exact target에서 신청서 필드 분석을 함께 실행한다. promotion은 검증된
 `programIntent`와 criteria를 결정적으로 변환해 `grants.authoring_guide`에 저장한다. 이 변환에는
 추가 모델 호출이 없다.
 
 RHWP는 Kordoc 분석 상태를 기다리지 않는다. 편집 가능한 HWP/HWPX 원본이 있으면 원본을 열고,
 현재 문단·셀·누름틀과 검증된 작성 가이드를 근거로 사용자 요청 시에만 LLM 제안을 만든다.
 과거 `grant_document_fields`가 있으면 field-aware 보조로 사용하지만 Studio 진입 조건은 아니다.
+
+사용자 작업공간은 RHWP와 우측 `AI 작성 가이드`를 하나의 화면으로 사용한다. 역사 필드 결속이
+있으면 정확한 입력 칸 단위 제안을, 없으면 현재 쪽의 안전한 문단·셀 단위 제안을 제공한다.
+관리자·가상기업 미리보기는 같은 화면 골격을 사용하지만 LLM 호출과 서버 저장은 수행하지 않는다.
+구형 `빠른 작성 | 문서 직접 편집` 모드 전환은 사용자 작업공간 진입 경로에서 사용하지 않는다.
 
 ## 2. 전체 흐름
 
@@ -51,25 +57,27 @@ RHWP는 Kordoc 분석 상태를 기다리지 않는다. 편집 가능한 HWP/HWP
 하나라도 다르면 guide만 제외하고 provenance에 이유를 남긴다. 공고 원문과 수동 RHWP 편집을
 막지는 않는다. guide는 작성 방향을 위한 advisory이며 회사 실적·수치·고유명사의 사실 근거가 아니다.
 
-## 4. 신규 Kordoc 실행 경계
+## 4. 필드 분석 실행 경계
 
-2026-08-25 이후 신규 일반 경로는 다음 작업을 하지 않는다.
+다음 일반 운영·사용자 진입 경로는 필드 분석 작업을 만들지 않는다.
 
 - deep processor의 application-precompute enqueue
 - Cloud Run main worker의 application-precompute claim cycle
 - workspace 진입 시 `field-analysis` 복구 요청
-- 신규 launch의 `--with-kordoc` 또는 `--roundtrip-model`
+- 사용자가 임의로 고르는 `--with-kordoc` 또는 `--roundtrip-model`
 - 신규 release의 `--require-kordoc`과 Kordoc materialization bundle 생성
 - 관리자 화면의 Kordoc 큐·비용·readiness 판정
 
 과거 DB 행, immutable receipt, release manifest와 parser는 감사·rollback 호환을 위해 보존한다.
-과거 release에 이미 Kordoc evidence가 있으면 기존 verifier가 계속 읽을 수 있지만 새 release는 만들지 않는다.
+검증된 parser는 승인된 로컬 `lab:launch` 안에서 내부 신청서 필드 분석 adapter로만 사용한다.
+formal manifest는 이 단계를 끌 수 없으며 모델·parser 버전을 함께 봉인한다. UI의 구형 빠른 작성
+모드, workspace 복구 API, 운영 application queue는 되살리지 않는다.
 
 ## 5. 시간과 비용 해석
 
-공고 한 건의 딥분석에서는 Kordoc 모델 호출·재판정·artifact materialization이 빠졌으므로 해당
-부분의 대기 시간과 모델 비용은 구조적으로 0이 된다. `authoring-guide-v1`은 기존 딥분석 결과의
-결정적 projection이어서 추가 토큰 비용이 없다.
+`authoring-guide-v1` 자체는 기존 딥분석 결과의 결정적 projection이어서 추가 토큰 비용이 없다.
+다만 formal launch에 신청서 필드 분석이 다시 포함됐으므로, 2026-08-25의 “공고당 분석 시간·비용이
+구조적으로 감소한다”는 평가는 더 이상 현재 목표 구조의 보장이 아니다.
 
 과거 고정 30건 산출물의 Kordoc 호출량은 묶음 최적화 이후에도 보수적으로 151회로 계산됐다. 같은
 분포라면 공고당 평균 약 5회의 모델 호출 fan-out이 분석 시점에서 사라지는 셈이다. 이는 호출 수
@@ -80,14 +88,23 @@ RHWP는 Kordoc 분석 상태를 기다리지 않는다. 편집 가능한 HWP/HWP
 - 분석 시점: 22축 primary, 감사, 필요 시 adjudication 비용
 - 작성 시점: 사용자가 field/document/schedule 제안을 요청한 호출 비용
 
-따라서 “공고 분석 한 건당 비용 감소”는 맞지만, “사용자 작성 세션까지 포함한 총비용이 항상 감소”는
-실측 전에는 확정하지 않는다. 운영 지표는 deep run의 duration/cost와 사용자 요청형 생성 usage를
+따라서 비용·시간은 22축 primary와 필드 sidecar가 겹쳐 실행되는 실제 launch receipt로 다시
+측정해야 한다. 구독 모델이라 API 종량 비용은 피하지만 Max 사용량과 wall-clock은 증가할 수 있다.
+운영 지표는 deep run duration, 필드 분석 duration/인식 필드 수, 사용자 요청형 생성 usage를
 별도 시계열로 집계한다.
 
 ## 6. 운영 확인 항목
 
 - 운영 Cloud Run main worker는 별도 승인 전 `DEEP_ANALYSIS_WORKER_MODE=observe_only`를 유지한다.
-- 신규 launch prepare manifest의 `withApplicationRoundtrip`은 `false`여야 한다.
+- 신규 formal launch prepare manifest의 `withApplicationRoundtrip`은 `true`이고,
+  `roundtripModel=claude-opus-5` 및 현재 필드 분석 버전이 결속돼야 한다.
+- 지원 양식이 있는데 `recognizedFieldCount=0`이면 해당 target은 `held`여야 한다.
+- 현행 publishable 딥분석이라도 필드 준비도 없는 결과는 필드 포함 formal launch에서 자동 스킵하지 않는다.
+- `kordoc-application-roundtrip-v9`은 표 셀·누름틀 외에 `라벨 : 빈칸`, 날짜 자리표시자,
+  금액·인원 단위가 붙은 표 밖 단일 문단을 분석한다. 같은 원본을 RHWP core로 다시 열어 native
+  문단 좌표가 하나이고 제어 개체·혼합 글자서식이 없는 경우만 작성 필드로 유지한다.
+- 주소+전화번호, 업종+생산품명처럼 한 문단에 입력값이 둘 이상이거나 텍스트형 선택지, 임의 여백만
+  있는 문단은 자동 필드로 승격하지 않는다. 이 범위는 별도 세부 좌표 계약 전까지 안전 제외한다.
 - 신규 deep run 뒤 application-precompute job 수가 증가하지 않아야 한다.
 - promotion 뒤 `grants.authoring_guide`가 release plan과 동일한 source binding을 가져야 한다.
 - Kordoc 행이 없는 HWP/HWPX 공고도 workspace ladder B와 RHWP transport를 얻어야 한다.

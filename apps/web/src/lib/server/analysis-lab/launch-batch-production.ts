@@ -10,6 +10,11 @@ import { createDeepRepairLiveDbLeaseClient } from "./deep-repair-live-db-runtime
 import { createDeepRepairLiveRuntimeAuthority } from "./deep-repair-live-runtime";
 import { readCurrentDeepRepairExecutionProvenance } from "./deep-repair-runtime-provenance";
 import {
+  classifyApplicationFieldAnalysis,
+  type ApplicationFieldAnalysisDisposition,
+} from "./application-precompute";
+import { APPLICATION_ROUNDTRIP_ADOPTED_MODEL } from "./application-roundtrip/contract";
+import {
   analysisLaunchArtifactPath,
   assertAnalysisLaunchExecutionContract,
   createAnalysisLaunchGrant,
@@ -39,8 +44,6 @@ export async function prepareAnalysisLaunchManifest(input: {
   readonly seriesId: string;
   readonly sequenceFrom: number;
   readonly sequenceTo: number;
-  readonly withApplicationRoundtrip: boolean;
-  readonly roundtripModel?: string;
   readonly concurrency: number;
 }): Promise<{
   readonly manifest: AnalysisLaunchManifest;
@@ -66,8 +69,8 @@ export async function prepareAnalysisLaunchManifest(input: {
     sequenceTo: input.sequenceTo,
     preparedTargets,
     provenance: await readCurrentDeepRepairExecutionProvenance(),
-    withApplicationRoundtrip: input.withApplicationRoundtrip,
-    ...(input.roundtripModel ? { roundtripModel: input.roundtripModel } : {}),
+    withApplicationRoundtrip: true,
+    roundtripModel: APPLICATION_ROUNDTRIP_ADOPTED_MODEL,
     concurrency: input.concurrency,
     now: new Date(),
   });
@@ -105,6 +108,14 @@ export function shouldForceExactManifestReanalysis(input: {
   readonly retryErrors: boolean;
 }): boolean {
   return input.existingRunPolicy === "rerun_exact_targets" || input.retryErrors;
+}
+
+export function classifyAnalysisLaunchTargetStatus(input: {
+  readonly primaryOutcome: "publishable" | "held" | "failed";
+  readonly fieldAnalysis: ApplicationFieldAnalysisDisposition | "not_required";
+}): AnalysisLaunchReceiptTarget["status"] {
+  if (input.primaryOutcome !== "publishable") return input.primaryOutcome;
+  return input.fieldAnalysis === "held" ? "held" : "publishable";
 }
 
 export function selectAnalysisLaunchRetryGrantIds(input: {
@@ -272,17 +283,25 @@ export async function runApprovedAnalysisLaunchBatch(input: {
             });
             const absolutePath = labRunFilePath(run.source, run.sourceId, run.runId);
             const artifactBytes = await readFile(absolutePath);
-            const outcome = classifyLabRunOutcome(run);
+            const primaryOutcome = classifyLabRunOutcome(run);
+            const fieldAnalysis = manifest.execution.withApplicationRoundtrip
+              ? classifyApplicationFieldAnalysis(run.applicationRoundtrip)
+              : "not_required";
+            const outcome = classifyAnalysisLaunchTargetStatus({ primaryOutcome, fieldAnalysis });
+            const fieldAnalysisError = primaryOutcome === "publishable" && fieldAnalysis === "held"
+              ? "field_analysis_held: 지원 양식에서 안전하게 인식된 입력 필드를 확보하지 못했습니다."
+              : null;
             outcomes.set(grantId, Object.freeze({
               sequence: target.sequence,
               grantId,
-              status: outcome === "publishable"
-                ? "publishable"
-                : outcome === "held" ? "held" : "failed",
+              status: outcome,
               runArtifactPath: relative(repositoryRoot, absolutePath).split(sep).join("/"),
               runArtifactSha256: createHash("sha256").update(artifactBytes).digest("hex"),
               applicationRoundtripStatus: run.applicationRoundtrip?.status ?? null,
-              error: run.error,
+              applicationDocumentCount: run.applicationRoundtrip?.applicationDocumentCount ?? null,
+              fieldReadyDocumentCount: run.applicationRoundtrip?.fieldReadyDocumentCount ?? null,
+              recognizedFieldCount: run.applicationRoundtrip?.recognizedFieldCount ?? null,
+              error: run.error ?? fieldAnalysisError,
             }));
             return run;
           } catch (error) {
@@ -293,6 +312,9 @@ export async function runApprovedAnalysisLaunchBatch(input: {
               runArtifactPath: null,
               runArtifactSha256: null,
               applicationRoundtripStatus: null,
+              applicationDocumentCount: null,
+              fieldReadyDocumentCount: null,
+              recognizedFieldCount: null,
               error: error instanceof Error ? error.message.slice(0, 2_000) : String(error).slice(0, 2_000),
             }));
             throw error;
@@ -386,6 +408,9 @@ function skippedTarget(target: AnalysisLaunchManifest["targets"][number]): Analy
     runArtifactPath: null,
     runArtifactSha256: null,
     applicationRoundtripStatus: null,
+    applicationDocumentCount: null,
+    fieldReadyDocumentCount: null,
+    recognizedFieldCount: null,
     error: null,
   });
 }

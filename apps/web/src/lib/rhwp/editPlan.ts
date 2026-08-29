@@ -16,6 +16,7 @@ export interface RhwpEditField {
   fieldId?: string;
   fieldKey?: string;
   label: string;
+  anchorLabel?: string | null;
   value: string;
   fieldType?: string;
   sourceSpan?: string | null;
@@ -142,6 +143,7 @@ export function buildRhwpEditFields(input: {
       ...(connectedField?.fieldId || answer.fieldId ? { fieldId: connectedField?.fieldId ?? answer.fieldId } : {}),
       ...(connectedField ? {
         fieldKey: connectedField.fieldKey,
+        anchorLabel: connectedField.anchorLabel,
         fieldType: connectedField.fieldType,
         sourceSpan: connectedField.sourceSpan,
         position: connectedField.position,
@@ -473,6 +475,7 @@ export function applyRhwpEditFields(
     ? resolveRhwpFieldAnchors(document, fields.map((field) => ({
         fieldId: field.fieldId ?? field.label,
         label: field.label,
+        ...(field.anchorLabel !== undefined ? { anchorLabel: field.anchorLabel } : {}),
         fieldType: field.fieldType ?? "text",
         ...(field.fieldKey !== undefined ? { fieldKey: field.fieldKey } : {}),
         ...(field.sourceSpan !== undefined ? { sourceSpan: field.sourceSpan } : {}),

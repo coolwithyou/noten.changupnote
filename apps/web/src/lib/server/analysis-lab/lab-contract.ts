@@ -180,6 +180,12 @@ export interface LabApplicationRoundtripReference {
   model: string;
   documentCount: number;
   sourceCount: number;
+  /** 지원서·사업계획서·혼합 양식으로 판정된 문서 수. 구런에는 없다. */
+  applicationDocumentCount?: number;
+  /** 안전하게 입력 위치를 확정한 지원 문서 수. 구런에는 없다. */
+  fieldReadyDocumentCount?: number;
+  /** 확정된 텍스트 입력과 선택 그룹을 합친 필드 수. 구런에는 없다. */
+  recognizedFieldCount?: number;
   errorCode: string | null;
   error: string | null;
   /** 문서별 planner 최초 판정·재판정 usage를 합친 명목 API 환산 비용. 구런에는 없다. */

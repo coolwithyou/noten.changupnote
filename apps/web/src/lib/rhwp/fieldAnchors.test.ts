@@ -227,7 +227,8 @@ const repeatedLabelDocument: RhwpAnchorDocument = {
 };
 const [repeatedResolution] = resolveRhwpFieldAnchorsExact(repeatedLabelDocument, [{
   fieldId: "second-phone",
-  label: "연락처",
+  label: "두 번째 담당자 연락처",
+  anchorLabel: "연락처",
   fieldType: "text",
   position: { occurrence: 1, normalizedLabel: "연락처" },
 }]);

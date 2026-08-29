@@ -6,6 +6,8 @@ import {
   resolveStudioFieldSelectionProtocol,
   studioApplyFieldCommandSchema,
   studioDocumentStateSchema,
+  studioFieldBindingTargetSchema,
+  studioFieldTargetSchema,
   studioTextCommandReceiptSchema,
   type StudioDocumentAgentEvidenceDocument,
 } from "./studioDocumentAgentProtocol";
@@ -55,6 +57,23 @@ assert.throws(() => studioDocumentStateSchema.parse({ ...state, extra: true }), 
 assert.throws(
   () => studioDocumentStateSchema.parse({ ...state, changeSeq: Number.MAX_SAFE_INTEGER + 1 }),
   /safe integer/u,
+);
+const paragraphFieldTarget = {
+  kind: "body_paragraph_text" as const,
+  section: 0,
+  paragraph: 3,
+  length: 20,
+  valueStart: 9,
+  valueEnd: 16,
+};
+assert.deepEqual(studioFieldBindingTargetSchema.parse(paragraphFieldTarget), paragraphFieldTarget);
+assert.throws(
+  () => studioFieldBindingTargetSchema.parse({ ...paragraphFieldTarget, valueEnd: 21 }),
+  /값 범위/u,
+);
+assert.throws(
+  () => studioFieldTargetSchema.parse(paragraphFieldTarget),
+  /Invalid discriminator|invalid_union_discriminator|Invalid input/u,
 );
 
 const receipt = {

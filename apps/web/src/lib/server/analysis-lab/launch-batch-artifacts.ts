@@ -2,6 +2,10 @@ import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { ANALYSIS_LAB_PROMPT_VERSION } from "@/lib/server/analysis-lab/lab-contract";
+import {
+  APPLICATION_ROUNDTRIP_ADOPTED_MODEL,
+  APPLICATION_ROUNDTRIP_VERSION,
+} from "@/lib/server/analysis-lab/application-roundtrip/contract";
 import { DEEP_ANALYSIS_VALIDATOR_VERSION } from "@/lib/server/deep-analysis/validator";
 import type { AuthoringGuideAdoptionManifest } from "./authoring-guide-adoption";
 import { DEEP_REPAIR_PREPARATION_POLICY } from "./deep-repair-preparation";
@@ -46,6 +50,7 @@ export interface AnalysisLaunchManifest {
     readonly gitShaAtPreparation: string;
     readonly withApplicationRoundtrip: boolean;
     readonly roundtripModel: string | null;
+    readonly applicationFieldAnalysisVersion: string | null;
     readonly concurrency: number;
     readonly existingRunPolicy: "skip_existing" | "rerun_exact_targets";
   };
@@ -69,6 +74,9 @@ export interface AnalysisLaunchReceiptTarget {
   readonly runArtifactPath: string | null;
   readonly runArtifactSha256: string | null;
   readonly applicationRoundtripStatus: string | null;
+  readonly applicationDocumentCount: number | null;
+  readonly fieldReadyDocumentCount: number | null;
+  readonly recognizedFieldCount: number | null;
   readonly error: string | null;
 }
 
@@ -131,7 +139,20 @@ interface AnalysisLaunchManifestPreparationInput {
 export function createAnalysisLaunchManifest(
   input: AnalysisLaunchManifestPreparationInput,
 ): AnalysisLaunchManifest {
-  return createAnalysisLaunchManifestFromInventory(input, {
+  if (input.withApplicationRoundtrip !== true) {
+    throw new Error("정식 launch는 RHWP 신청서 필드 분석을 포함해야 합니다.");
+  }
+  if (
+    input.roundtripModel !== undefined
+    && input.roundtripModel !== APPLICATION_ROUNDTRIP_ADOPTED_MODEL
+  ) {
+    throw new Error(`정식 launch 필드 분석 모델은 ${APPLICATION_ROUNDTRIP_ADOPTED_MODEL}이어야 합니다.`);
+  }
+  return createAnalysisLaunchManifestFromInventory({
+    ...input,
+    withApplicationRoundtrip: true,
+    roundtripModel: APPLICATION_ROUNDTRIP_ADOPTED_MODEL,
+  }, {
     sourceKind: "formal_plan",
     adoptionManifestSha256: null,
     existingRunPolicy: "skip_existing",
@@ -283,6 +304,9 @@ function createAnalysisLaunchManifestFromInventory(
       gitShaAtPreparation: exactGitSha(input.provenance.gitSha),
       withApplicationRoundtrip: input.withApplicationRoundtrip,
       roundtripModel,
+      applicationFieldAnalysisVersion: input.withApplicationRoundtrip
+        ? APPLICATION_ROUNDTRIP_VERSION
+        : null,
       concurrency: input.concurrency,
       existingRunPolicy: binding.existingRunPolicy,
     },
@@ -364,7 +388,14 @@ export function normalizeAnalysisLaunchManifest(value: unknown): AnalysisLaunchM
     ? null
     : requireNonEmpty(execution.roundtripModel, "roundtripModel");
   if (withApplicationRoundtrip !== (roundtripModel !== null)) {
-    throw new Error("launch manifest Kordoc/model binding이 다릅니다.");
+    throw new Error("launch manifest 필드 분석/model binding이 다릅니다.");
+  }
+  const applicationFieldAnalysisVersion = execution.applicationFieldAnalysisVersion === undefined
+    || execution.applicationFieldAnalysisVersion === null
+    ? null
+    : requireNonEmpty(execution.applicationFieldAnalysisVersion, "applicationFieldAnalysisVersion");
+  if (!withApplicationRoundtrip && applicationFieldAnalysisVersion !== null) {
+    throw new Error("필드 분석이 꺼진 launch에는 필드 분석 버전을 결속할 수 없습니다.");
   }
   if (execution.transport !== "claude-cli") throw new Error("launch transport는 claude-cli여야 합니다.");
   const sourceKind = source.kind === undefined ? "formal_plan" : source.kind;
@@ -377,7 +408,13 @@ export function normalizeAnalysisLaunchManifest(value: unknown): AnalysisLaunchM
     : exactSha(String(source.adoptionManifestSha256), "adoptionManifestSha256");
   if (
     (sourceKind === "formal_plan"
-      && (adoptionManifestSha256 !== null || existingRunPolicy !== "skip_existing"))
+      && (
+        adoptionManifestSha256 !== null
+        || existingRunPolicy !== "skip_existing"
+        || !withApplicationRoundtrip
+        || roundtripModel !== APPLICATION_ROUNDTRIP_ADOPTED_MODEL
+        || applicationFieldAnalysisVersion !== APPLICATION_ROUNDTRIP_VERSION
+      ))
     || (sourceKind === "authoring_guide_adoption"
       && (
         adoptionManifestSha256 === null
@@ -385,6 +422,7 @@ export function normalizeAnalysisLaunchManifest(value: unknown): AnalysisLaunchM
         || adoptionManifestSha256 !== source.planArtifactSha256
         || existingRunPolicy !== "rerun_exact_targets"
         || withApplicationRoundtrip
+        || applicationFieldAnalysisVersion !== null
       ))
     || (sourceKind !== "formal_plan" && sourceKind !== "authoring_guide_adoption")
     || (existingRunPolicy !== "skip_existing" && existingRunPolicy !== "rerun_exact_targets")
@@ -415,6 +453,7 @@ export function normalizeAnalysisLaunchManifest(value: unknown): AnalysisLaunchM
       gitShaAtPreparation: exactGitSha(execution.gitShaAtPreparation),
       withApplicationRoundtrip,
       roundtripModel,
+      applicationFieldAnalysisVersion,
       concurrency,
       existingRunPolicy,
     }),
@@ -473,10 +512,39 @@ export function normalizeAnalysisLaunchReceipt(value: unknown): AnalysisLaunchRe
         target.applicationRoundtripStatus,
         `receipt.targets[${index}].applicationRoundtripStatus`,
       );
+    const applicationDocumentCount = nullableNonNegativeInteger(
+      target.applicationDocumentCount,
+      `receipt.targets[${index}].applicationDocumentCount`,
+    );
+    const fieldReadyDocumentCount = nullableNonNegativeInteger(
+      target.fieldReadyDocumentCount,
+      `receipt.targets[${index}].fieldReadyDocumentCount`,
+    );
+    const recognizedFieldCount = nullableNonNegativeInteger(
+      target.recognizedFieldCount,
+      `receipt.targets[${index}].recognizedFieldCount`,
+    );
+    if (
+      fieldReadyDocumentCount !== null
+      && applicationDocumentCount !== null
+      && fieldReadyDocumentCount > applicationDocumentCount
+    ) {
+      throw new Error(`receipt.targets[${index}] 필드 준비 문서 수가 신청 문서 수보다 큽니다.`);
+    }
     const error = target.error === null
       ? null
       : requireNonEmpty(target.error, `receipt.targets[${index}].error`);
-    if (status === "skipped" && (runArtifactPath !== null || applicationRoundtripStatus !== null || error !== null)) {
+    if (
+      status === "skipped"
+      && (
+        runArtifactPath !== null
+        || applicationRoundtripStatus !== null
+        || applicationDocumentCount !== null
+        || fieldReadyDocumentCount !== null
+        || recognizedFieldCount !== null
+        || error !== null
+      )
+    ) {
       throw new Error(`receipt.targets[${index}] skipped 결과가 산출물을 참조합니다.`);
     }
     return Object.freeze({
@@ -486,6 +554,9 @@ export function normalizeAnalysisLaunchReceipt(value: unknown): AnalysisLaunchRe
       runArtifactPath,
       runArtifactSha256,
       applicationRoundtripStatus,
+      applicationDocumentCount,
+      fieldReadyDocumentCount,
+      recognizedFieldCount,
       error,
     });
   });
@@ -547,6 +618,10 @@ export function assertAnalysisLaunchExecutionContract(input: {
     || input.current.validatorVersion !== input.manifest.execution.validatorVersion
     || input.manifest.execution.promptVersion !== ANALYSIS_LAB_PROMPT_VERSION
     || input.manifest.execution.validatorVersion !== DEEP_ANALYSIS_VALIDATOR_VERSION
+    || (
+      input.manifest.source.kind === "formal_plan"
+      && input.manifest.execution.applicationFieldAnalysisVersion !== APPLICATION_ROUNDTRIP_VERSION
+    )
   ) {
     throw new Error("launch material execution contract가 준비 시점과 달라졌습니다.");
   }
@@ -753,6 +828,13 @@ function exactIso(value: unknown, field: string): string {
 function integer(value: unknown, field: string): number {
   if (typeof value !== "number" || !Number.isSafeInteger(value)) throw new Error(`${field}는 정수여야 합니다.`);
   return value;
+}
+
+function nullableNonNegativeInteger(value: unknown, field: string): number | null {
+  if (value === undefined || value === null) return null;
+  const normalized = integer(value, field);
+  if (normalized < 0) throw new Error(`${field}는 0 이상이어야 합니다.`);
+  return normalized;
 }
 
 function requireNonEmpty(value: unknown, field: string): string {

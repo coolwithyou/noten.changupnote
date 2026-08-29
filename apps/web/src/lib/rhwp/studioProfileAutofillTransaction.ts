@@ -1,6 +1,10 @@
 import type { RhwpDocumentFormat, RhwpModule } from "./client";
 import { isReplaceableRhwpGuide } from "./guideText";
-import type { StudioFieldAgentProtocol, StudioFieldTargetV1 } from "./studioDocumentAgentProtocol";
+import type {
+  StudioFieldAgentProtocol,
+  StudioFieldRestoreFormatV1,
+  StudioFieldTargetV1,
+} from "./studioDocumentAgentProtocol";
 import {
   collectStudioFieldEvidence,
   createStudioFieldAgentTransaction,
@@ -24,7 +28,7 @@ export interface AppliedStudioProfileAutofillEntry {
   target: StudioFieldTargetV1;
   commandId: string;
   binding: FieldCommandBindingV1;
-  restoreFormat: Awaited<ReturnType<typeof collectStudioFieldEvidence>>["restoreFormat"];
+  restoreFormat: StudioFieldRestoreFormatV1;
   result: StudioFieldCommandResult;
 }
 
@@ -55,7 +59,12 @@ export function createStudioProfileAutofillTransaction(input: {
   protocol: StudioFieldAgentProtocol;
   exportCurrentBytes(format: RhwpDocumentFormat): Promise<Uint8Array>;
 }) {
-  const transaction = () => createStudioFieldAgentTransaction(input);
+  const transaction = () => createStudioFieldAgentTransaction({
+    rhwp: input.rhwp,
+    fieldProtocol: input.protocol,
+    documentProtocol: null,
+    exportCurrentBytes: input.exportCurrentBytes,
+  });
   return {
     async apply(batch: {
       bytes: Uint8Array;
@@ -92,6 +101,12 @@ export function createStudioProfileAutofillTransaction(input: {
             binding,
             replacement: entry.value,
           });
+          if (!evidence.restoreFormat) {
+            throw new StudioProfileAutofillTransactionError(
+              `'${entry.label}'의 원래 서식을 봉인하지 못했습니다.`,
+              false,
+            );
+          }
           applied.push({
             fieldId: entry.fieldId,
             label: entry.label,

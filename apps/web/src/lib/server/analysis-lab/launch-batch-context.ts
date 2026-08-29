@@ -49,7 +49,7 @@ function normalizeBinding(
       ? !binding.roundtripModel?.trim()
       : binding.roundtripModel !== null
   ) {
-    throw new Error("launch batch Kordoc/model binding이 일치하지 않습니다.");
+    throw new Error("launch batch 필드 분석/model binding이 일치하지 않습니다.");
   }
   if (binding.targets.size === 0) {
     throw new Error("launch batch target은 한 건 이상이어야 합니다.");

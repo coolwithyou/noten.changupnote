@@ -6,7 +6,7 @@
 
 /** 공고별 기존 런 상태 — batch.ts scanExistingRuns 가 채운다. */
 export interface GrantRunState {
-  /** 현행 promptVersion 의 ok 런 존재 → 항상 스킵. */
+  /** 현행 promptVersion 의 ok 런 존재. 필드 분석 필수 실행에서는 준비도까지 있어야 스킵한다. */
   okCurrent: boolean;
   /** 구버전 promptVersion 의 ok 런 존재 → 기본 스킵, --reanalyze-outdated 로만 대상 편입. */
   okOutdated: boolean;
@@ -14,6 +14,8 @@ export interface GrantRunState {
   heldCurrent: boolean;
   /** 현행 promptVersion 의 error 런 존재 → --retry-errors 없으면 보류. */
   errorCurrent: boolean;
+  /** 현행 publishable 런이 RHWP 필드 준비도까지 통과했는지. 구런에는 없다. */
+  applicationFieldAnalysisReadyCurrent?: boolean;
 }
 
 export interface CohortPartition<E> {
@@ -42,6 +44,7 @@ export function partitionCohortEntries<E extends { grantId: string }>(
     retryErrors: boolean;
     reanalyzeOutdated: boolean;
     exactManifestReanalysis?: boolean;
+    requireApplicationFieldAnalysis?: boolean;
   },
 ): CohortPartition<E> {
   const partition: CohortPartition<E> = {
@@ -58,10 +61,18 @@ export function partitionCohortEntries<E extends { grantId: string }>(
     }
     const state = states.get(entry.grantId);
     if (state?.okCurrent) {
-      partition.skippedOk.push(entry);
+      if (options.requireApplicationFieldAnalysis && !state.applicationFieldAnalysisReadyCurrent) {
+        partition.pending.push(entry);
+      } else {
+        partition.skippedOk.push(entry);
+      }
     } else if (state?.heldCurrent) {
       partition.skippedHeld.push(entry);
-    } else if (state?.okOutdated && !options.reanalyzeOutdated) {
+    } else if (
+      state?.okOutdated
+      && !options.reanalyzeOutdated
+      && !options.requireApplicationFieldAnalysis
+    ) {
       partition.skippedOk.push(entry);
       partition.skippedOkOutdatedOnly.push(entry);
     } else if (state?.errorCurrent && !options.retryErrors) {

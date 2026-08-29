@@ -18,6 +18,10 @@ const NARRATIVE_TABLE_LABEL_PATTERN = /(내용|고객|대상|사례|차별|수�
 const STRUCTURED_NARRATIVE_PATTERN = /(<[^>]*(?:일정|예시)|추진내용\s*\/|산출근거)/;
 const NON_FIELD_NARRATIVE_PATTERN = /(개인정보|고유식별정보|수집.?이용|제공받는 자|보유.?이용기간|동의함|동의하지 않음)/;
 const CONTEXTUAL_FIELD_LIMIT = 240;
+const PARAGRAPH_ENUMERATOR_PATTERN = /^(?:[가-힣]|\d+)[.．)]\s*/u;
+const PARAGRAPH_DATE_PLACEHOLDER_PATTERN = /^\s*(?:19|20)?\s*\d{0,3}\s*년\s*월\s*일(?:\s*\(\s*제\s*호\s*\))?\s*$/u;
+const PARAGRAPH_UNIT_PATTERN = /^(.*?)(\s*)(천원|원|만원|백만원|억원|명|건|개|회|%|개월|시간)\s*$/u;
+const SAFE_UNIT_LABEL_PATTERN = /(자산|매출|금액|비용|인원|종업원|고용|수량|수|합계|계|기타)/u;
 
 export function extractContextualRoundtripFields(
   blocks: IRBlock[],
@@ -32,11 +36,150 @@ export function extractContextualRoundtripFields(
       return;
     }
     if (block.type === "paragraph" || block.type === "list") {
+      if (extractOpenParagraphField(blocks, blockIndex, block, sourceSha256, fields)) return;
       extractNarrativeFields(blocks, blockIndex, block, sourceSha256, fields);
     }
   });
 
   return deduplicateContextualFields(fields).slice(0, CONTEXTUAL_FIELD_LIMIT);
+}
+
+/**
+ * 표가 아닌 본문의 한 문단에 입력값 하나만 있는 좁은 양식을 추출한다.
+ * prefix/value/suffix가 문단 전체를 정확히 재구성할 수 있을 때만 paragraph_text로 승격한다.
+ */
+function extractOpenParagraphField(
+  blocks: IRBlock[],
+  blockIndex: number,
+  block: IRBlock,
+  sourceSha256: string,
+  fields: RoundtripFieldCandidate[],
+): boolean {
+  const text = block.text ?? "";
+  if (!text || text.length > 500 || text.includes("\n") || NON_FIELD_NARRATIVE_PATTERN.test(text)) return false;
+
+  const colons = [...text.matchAll(/[:：]/gu)];
+  if (colons.length === 1) {
+    const colonEnd = (colons[0]!.index ?? 0) + colons[0]![0].length;
+    const prefix = text.slice(0, colonEnd);
+    const tail = text.slice(colonEnd);
+    const label = cleanOpenParagraphLabel(prefix.slice(0, -1));
+    const placeholder = tail.trim().length === 0 || PARAGRAPH_DATE_PLACEHOLDER_PATTERN.test(tail);
+    if (isSafeOpenParagraphLabel(label) && placeholder) {
+      fields.push(createContextualField({
+        sourceSha256,
+        blockIndex,
+        row: null,
+        col: null,
+        pageNumber: block.pageNumber ?? null,
+        label,
+        originalValue: "",
+        inputKind: "text",
+        writeOperation: "replace_span",
+        helperText: paragraphGuidance(label),
+        unit: null,
+        options: [],
+        expectedText: tail,
+        textStart: colonEnd,
+        sampleValue: sampleOpenParagraphValue(label),
+        sampleReason: "본문 라벨 뒤 단일 입력 샘플",
+        signals: [
+          "표 밖 단일 라벨 문단",
+          tail.trim() ? "명시적 날짜 자리표시자" : "콜론 뒤 빈 입력 영역",
+          "고정 prefix/value/suffix exact binding",
+        ],
+        confidence: 0.98,
+        paragraphText: text,
+        paragraphOccurrence: paragraphTemplateOccurrence(blocks, blockIndex, prefix, ""),
+      }));
+      return true;
+    }
+  }
+
+  const unitMatch = text.match(PARAGRAPH_UNIT_PATTERN);
+  if (!unitMatch) return false;
+  const rawPrefix = unitMatch[1] ?? "";
+  const gap = unitMatch[2] ?? "";
+  const unit = unitMatch[3] ?? "";
+  const label = cleanOpenParagraphLabel(rawPrefix);
+  if (!isSafeUnitParagraphLabel(blocks, blockIndex, label)) return false;
+  const valueStart = rawPrefix.length;
+  fields.push(createContextualField({
+    sourceSha256,
+    blockIndex,
+    row: null,
+    col: null,
+    pageNumber: block.pageNumber ?? null,
+    label,
+    originalValue: "",
+    inputKind: "number",
+    writeOperation: "insert_before_unit",
+    helperText: `‘${label}’을(를) ${unit} 단위 숫자로 입력합니다.`,
+    unit,
+    options: [],
+    expectedText: gap,
+    textStart: valueStart,
+    sampleValue: sampleNumericValue(label),
+    sampleReason: `${unit} 단위 본문 입력 샘플`,
+    signals: ["표 밖 단위형 단일 입력 문단", "고정 prefix/value/suffix exact binding"],
+    confidence: 0.97,
+    paragraphText: text,
+    paragraphOccurrence: paragraphTemplateOccurrence(blocks, blockIndex, rawPrefix, unit),
+  }));
+  return true;
+}
+
+function cleanOpenParagraphLabel(value: string): string {
+  return value
+    .normalize("NFKC")
+    .replace(PARAGRAPH_ENUMERATOR_PATTERN, "")
+    .replace(/\s+/gu, " ")
+    .trim()
+    .replace(/^\(\s*([^()]{2,40})\s*\)$/u, "$1");
+}
+
+function isSafeOpenParagraphLabel(label: string): boolean {
+  const normalized = normalizeRoundtripLabel(label);
+  return normalized.length >= 2
+    && normalized.length <= 40
+    && !NARRATIVE_ACTION_PATTERN.test(label)
+    && !/(서명|날인|직인|동의|확약|신청인|대표\)?\s*서명)/u.test(label);
+}
+
+function isSafeUnitParagraphLabel(blocks: IRBlock[], blockIndex: number, label: string): boolean {
+  const normalized = normalizeRoundtripLabel(label);
+  if (normalized !== "계" && (!isSafeOpenParagraphLabel(label) || !SAFE_UNIT_LABEL_PATTERN.test(normalized))) return false;
+  if (normalized !== "계") return true;
+  return blocks.slice(Math.max(0, blockIndex - 5), blockIndex)
+    .some((candidate) => /자\s*산\s*총\s*액/u.test(candidate.text ?? ""));
+}
+
+function paragraphTemplateOccurrence(
+  blocks: IRBlock[],
+  blockIndex: number,
+  prefix: string,
+  suffix: string,
+): number {
+  let occurrence = 0;
+  for (let index = 0; index < blockIndex; index += 1) {
+    const text = blocks[index]?.text;
+    if (typeof text === "string" && text.startsWith(prefix) && text.endsWith(suffix)) occurrence += 1;
+  }
+  return occurrence;
+}
+
+function paragraphGuidance(label: string): string {
+  if (/(년월일|일자|일시)/u.test(label)) return `‘${label}’의 정확한 날짜를 문서 표기에 맞춰 입력합니다.`;
+  if (/(기업체명|업체명|회사명|상호)/u.test(label)) return "사업자등록증에 기재된 공식 상호를 입력합니다.";
+  if (/(대표자)/u.test(label)) return "사업자등록증의 대표자 성명을 입력합니다.";
+  return `‘${label}’에 해당하는 확인된 값을 입력합니다.`;
+}
+
+function sampleOpenParagraphValue(label: string): string {
+  if (/(년월일|일자|일시)/u.test(label)) return "2024년 1월 1일";
+  if (/(대표자)/u.test(label)) return "홍길동";
+  if (/(기업체명|업체명|회사명|상호)/u.test(label)) return "주식회사 창업노트";
+  return "확인된 입력값";
 }
 
 function extractTableContextualFields(
@@ -458,6 +601,8 @@ function createContextualField(input: {
   sampleReason: string;
   signals: string[];
   confidence: number;
+  paragraphText?: string;
+  paragraphOccurrence?: number;
 }): RoundtripFieldCandidate {
   const normalizedLabel = normalizeRoundtripLabel(input.label);
   const locationSeed = [input.sourceSha256, input.blockIndex, input.row ?? "block", input.col ?? "text", input.textStart, input.expectedText].join(":");
@@ -490,13 +635,22 @@ function createContextualField(input: {
       occurrence: 0,
       pageNumber: input.pageNumber,
       target: {
-        kind: input.row === null ? "block_text" : "table_cell",
+        kind: input.paragraphText !== undefined
+          ? "paragraph_text"
+          : input.row === null
+            ? "block_text"
+            : "table_cell",
         row: input.row,
         col: input.col,
         textStart: input.textStart,
         textEnd: input.textStart + input.expectedText.length,
         expectedText: input.expectedText,
         expectedSha256: createHash("sha256").update(input.expectedText).digest("hex"),
+        ...(input.paragraphText !== undefined ? {
+          paragraphPrefix: input.paragraphText.slice(0, input.textStart),
+          paragraphSuffix: input.paragraphText.slice(input.textStart + input.expectedText.length),
+          paragraphOccurrence: input.paragraphOccurrence ?? 0,
+        } : {}),
       },
     },
   };
@@ -676,7 +830,7 @@ function applyOneContextualEdit(blocks: IRBlock[], edit: ContextualEditRequest):
   const block = blocks[edit.field.location.blockIndex];
   if (!block) throw new Error(`직접 편집 블록을 찾지 못했습니다: ${edit.field.label}`);
 
-  if (target.kind === "block_text") {
+  if (target.kind === "block_text" || target.kind === "paragraph_text") {
     const current = block.text ?? "";
     assertExpectedText(current, target.textStart, target.textEnd, target.expectedText, edit.field.label);
     block.text = replaceRange(current, target.textStart, target.textEnd, edit.documentValue);
@@ -698,6 +852,9 @@ function buildContextualDocumentValue(
   inputValue: string,
   selectedOptionIds: string[],
 ): string {
+  if (field.location.target?.kind === "paragraph_text") {
+    return paragraphRangeReplacement(field.location.target.paragraphPrefix ?? "", field.location.target.paragraphSuffix ?? "", inputValue);
+  }
   if (field.writeOperation === "insert_after_label") {
     return `${field.location.target!.expectedText} ${inputValue}`;
   }
@@ -710,6 +867,12 @@ function buildContextualDocumentValue(
     return selected?.writeValue ?? selected?.label ?? "";
   }
   return inputValue;
+}
+
+function paragraphRangeReplacement(prefix: string, suffix: string, value: string): string {
+  const leading = prefix.length > 0 && !/\s$/u.test(prefix) ? " " : "";
+  const trailing = suffix.length > 0 && !/^\s/u.test(suffix) ? " " : "";
+  return `${leading}${value.trim()}${trailing}`;
 }
 
 function toggleTextChoiceMarkers(

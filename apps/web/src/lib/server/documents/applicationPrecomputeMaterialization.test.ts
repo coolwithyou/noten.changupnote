@@ -9,7 +9,9 @@ import type { RoundtripRunManifest } from "../analysis-lab/application-roundtrip
 import {
   applicationPrecomputeAnalysisVersion,
   buildApplicationPrecomputeMaterializationPlan,
+  buildApplicationPrecomputeSurfacePlan,
 } from "./applicationPrecomputeMaterialization";
+import { mergeLegacyLocalPreviewStructure } from "./localApplicationPrecomputePreview";
 
 const GRANT_ID = "00000000-0000-4000-8000-000000000001";
 const LAB_RUN_ID = "run-2026-08-04T000000.000Z-abcdef";
@@ -122,7 +124,7 @@ assert.throws(
   assert.equal(planned?.fields.length, 0);
 }
 
-// 구조 검수가 review_required여도 확정된 안전 필드는 partial projection으로 보존한다.
+// 신규 v8 구조 검수가 review_required면 일부 확정 필드도 운영 projection하지 않는다.
 {
   const reviewDocument = {
     ...document,
@@ -135,9 +137,119 @@ assert.throws(
     manifest,
     surfaces: [surface(STORAGE_KEY, SOURCE_SHA)],
   });
-  assert.equal(planned?.status, "partial");
-  assert.equal(planned?.fields.length, 1);
+  assert.equal(planned?.status, "review_required");
+  assert.equal(planned?.fields.length, 0);
   assert.equal(planned?.candidateSet.candidates.length, 1);
+}
+
+// 이미 봉인된 v7은 관리자 로컬 preview에서만 확정 필드를 호환 투영한다.
+{
+  const reviewDocument = {
+    ...document,
+    fieldCoverage: { ...document.fieldCoverage, status: "review_required" as const },
+  };
+  const legacyRun = { ...roundtripRun(reviewDocument), version: "kordoc-application-roundtrip-v7" };
+  const planned = buildApplicationPrecomputeSurfacePlan({
+    surface: surface(STORAGE_KEY, SOURCE_SHA),
+    run: legacyRun as ApplicationRoundtripRun,
+    analysisVersion: "local-preview:kordoc-application-roundtrip-v7",
+    sourceSha256: SOURCE_SHA,
+    document: reviewDocument,
+  });
+  assert.equal(planned.status, "partial");
+  assert.equal(planned.fields.length, 1);
+}
+
+// v7 관리자 preview는 current-SHA 구조 보강으로 안내문 앵커를 교체하고 누락 라벨을 추가한다.
+{
+  const basePlan = buildApplicationPrecomputeSurfacePlan({
+    surface: surface(STORAGE_KEY, SOURCE_SHA),
+    run,
+    analysisVersion: "local-preview:kordoc-application-roundtrip-v7",
+    sourceSha256: SOURCE_SHA,
+    document,
+  });
+  const legacyPlan = {
+    ...basePlan,
+    fields: [
+      ...basePlan.fields,
+      {
+        ...basePlan.fields[0]!,
+        fieldKey: "legacy_amount_placeholder",
+        label: "융자 신청금액(백만원)",
+        position: {
+          ...basePlan.fields[0]!.position,
+          page: basePlan.fields[0]!.position?.page ?? null,
+          bbox: basePlan.fields[0]!.position?.bbox ?? null,
+          anchorLabel: "금: 백만원",
+          normalizedLabel: "금백만원",
+        },
+      },
+    ],
+  };
+  const freshFields = [
+    {
+      ...document.fields[0]!,
+      fieldInstanceId: "field-representative",
+      label: "대표자 성명",
+      displayLabel: "대표자 성명",
+      normalizedLabel: "대표자성명",
+      source: "rhwp-structural" as const,
+      writeOperation: "rhwp_field" as const,
+      location: { blockIndex: 0, row: 1, col: 6, occurrence: 0, pageNumber: 1 },
+    },
+    {
+      ...document.fields[0]!,
+      fieldInstanceId: "field-amount",
+      label: "신청금액",
+      displayLabel: "신청금액",
+      normalizedLabel: "신청금액",
+      originalValue: "금: 백만원",
+      type: "amount" as const,
+      source: "kordoc-form" as const,
+      inputKind: "number" as const,
+      inputSignals: ["입력 셀에 남아 있는 고정 양식 placeholder"],
+      location: { blockIndex: 0, row: 8, col: 4, occurrence: 0, pageNumber: 1 },
+    },
+    {
+      ...document.fields[0]!,
+      fieldInstanceId: "field-open-company-name",
+      label: "기업체명",
+      displayLabel: "기업체명",
+      normalizedLabel: "기업체명",
+      originalValue: "",
+      source: "contextual-region" as const,
+      writeOperation: "replace_span" as const,
+      inputSignals: ["표 밖 단일 라벨 문단", "고정 prefix/value/suffix exact binding"],
+      location: {
+        blockIndex: 3,
+        row: -1,
+        col: -1,
+        occurrence: 0,
+        pageNumber: 2,
+        target: {
+          kind: "paragraph_text" as const,
+          row: null,
+          col: null,
+          textStart: 9,
+          textEnd: 9,
+          expectedText: "",
+          expectedSha256: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          paragraphPrefix: "가. 기업체명 :",
+          paragraphSuffix: "",
+          paragraphOccurrence: 0,
+        },
+      },
+    },
+  ];
+  const merged = mergeLegacyLocalPreviewStructure(legacyPlan, document, freshFields);
+  assert.equal(merged.fields.some((field) => field.fieldKey === "legacy_amount_placeholder"), false);
+  assert.ok(merged.fields.some((field) => field.position?.anchorLabel === "대표자 성명"));
+  assert.ok(merged.fields.some((field) => field.position?.anchorLabel === "신청금액"));
+  assert.ok(merged.fields.some((field) => field.position
+    && "targetKind" in field.position
+    && field.position.targetKind === "body_paragraph_text"));
+  assert.equal(merged.fields.length, 4);
 }
 
 // LLM 일반 실패 뒤 구조 후보가 안전하면 heuristic 필드를 partial로 보존한다.
@@ -283,6 +395,9 @@ function roundtripDocument(): RoundtripParsedDocument {
       structuralWarningCount: 0,
       unresolvedCandidates: [],
       structuralWarnings: [],
+      structuralInputLabelCount: 0,
+      anchorReadyInputCount: 1,
+      anchorUnreadyInputCount: 0,
     },
     markdownPreview: "회사소개",
     warnings: [],

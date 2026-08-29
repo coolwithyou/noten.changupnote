@@ -59,6 +59,10 @@ export interface ConnectedDocumentField {
   fillStrategy: string;
   position: Record<string, unknown> | null;
   visualEvidence: Record<string, unknown> | null;
+  /** 화면 표시명과 분리된 원문 라벨. RHWP exact binding에서만 사용한다. */
+  anchorLabel?: string | null;
+  /** 선분석이 만든 짧은 작성 기준. 전체 분석 근거 대신 UI에 필요한 값만 직렬화한다. */
+  guidance?: string | null;
   /** 자동 필드 분석기 버전 판정용 provenance. */
   parserVersion?: string;
 }
@@ -101,6 +105,7 @@ export async function loadConnectedDocumentFields(input: {
       fillStrategy: schema.grantDocumentFields.fillStrategy,
       position: schema.grantDocumentFields.position,
       visualEvidence: schema.grantDocumentFields.visualEvidence,
+      textEvidence: schema.grantDocumentFields.textEvidence,
       parserVersion: schema.grantDocumentFields.parserVersion,
     })
     .from(schema.grantDocumentFields)
@@ -118,6 +123,13 @@ export async function loadConnectedDocumentFields(input: {
     fillStrategy: row.fillStrategy,
     position: row.position,
     visualEvidence: row.visualEvidence,
+    anchorLabel: stringProperty(row.position, "anchorLabel") ?? row.label,
+    guidance: stringProperty(row.textEvidence, "helperText"),
     parserVersion: row.parserVersion,
   }));
+}
+
+function stringProperty(value: Record<string, unknown> | null, key: string): string | null {
+  const candidate = value?.[key];
+  return typeof candidate === "string" && candidate.trim() ? candidate.trim() : null;
 }

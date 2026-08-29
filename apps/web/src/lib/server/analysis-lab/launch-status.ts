@@ -6,6 +6,7 @@ import type {
   AnalysisLaunchManifest,
   AnalysisLaunchReceipt,
 } from "./launch-batch-artifacts";
+import { classifyApplicationFieldAnalysis } from "./application-precompute";
 import { findMonorepoRoot } from "./run-store";
 
 export type AnalysisLaunchLiveTargetStatus =
@@ -25,6 +26,9 @@ export interface AnalysisLaunchLiveTarget {
   readonly finishedAt: string | null;
   readonly title: string | null;
   readonly applicationRoundtripStatus: string | null;
+  readonly applicationDocumentCount: number | null;
+  readonly fieldReadyDocumentCount: number | null;
+  readonly recognizedFieldCount: number | null;
   readonly error: string | null;
 }
 
@@ -76,6 +80,9 @@ export function createAnalysisLaunchStatus(input: {
       finishedAt: null,
       title: null,
       applicationRoundtripStatus: null,
+      applicationDocumentCount: null,
+      fieldReadyDocumentCount: null,
+      recognizedFieldCount: null,
       error: null,
     })),
   });
@@ -105,13 +112,22 @@ export function applyAnalysisLaunchEvent(
       return { ...target, status: "running", startedAt: timestamp };
     }
     if (event.type === "target-ok" || event.type === "target-held") {
+      const fieldAnalysis = status.execution.withApplicationRoundtrip
+        ? classifyApplicationFieldAnalysis(event.applicationRoundtrip)
+        : "not_required";
+      const heldByFieldAnalysis = event.type === "target-ok" && fieldAnalysis === "held";
       return {
         ...target,
-        status: event.type === "target-ok" ? "publishable" : "held",
+        status: event.type === "target-ok" && !heldByFieldAnalysis ? "publishable" : "held",
         finishedAt: timestamp,
         title: event.title,
         applicationRoundtripStatus: event.applicationRoundtrip?.status ?? null,
-        error: null,
+        applicationDocumentCount: event.applicationRoundtrip?.applicationDocumentCount ?? null,
+        fieldReadyDocumentCount: event.applicationRoundtrip?.fieldReadyDocumentCount ?? null,
+        recognizedFieldCount: event.applicationRoundtrip?.recognizedFieldCount ?? null,
+        error: heldByFieldAnalysis
+          ? "field_analysis_held: 지원 양식에서 안전하게 인식된 입력 필드를 확보하지 못했습니다."
+          : null,
       };
     }
     return {
@@ -147,6 +163,9 @@ export function finishAnalysisLaunchStatus(input: {
         status: terminal.status,
         finishedAt: target.finishedAt ?? input.receipt.finishedAt,
         applicationRoundtripStatus: terminal.applicationRoundtripStatus,
+        applicationDocumentCount: terminal.applicationDocumentCount,
+        fieldReadyDocumentCount: terminal.fieldReadyDocumentCount,
+        recognizedFieldCount: terminal.recognizedFieldCount,
         error: terminal.error,
       };
     }),

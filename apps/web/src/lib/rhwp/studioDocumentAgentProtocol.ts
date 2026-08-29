@@ -44,10 +44,31 @@ export const studioFormTextTargetSchema = z.strictObject({
   fieldId: nonnegativeSafeInteger,
 });
 
+/** 서버 field map이 한 문단 안의 값 범위를 결속할 때 쓰는 host 전용 target. */
+export const studioParagraphFieldTargetSchema = z.strictObject({
+  kind: z.literal("body_paragraph_text"),
+  section: nonnegativeSafeInteger,
+  paragraph: nonnegativeSafeInteger,
+  length: positiveSafeInteger.max(4_000),
+  valueStart: nonnegativeSafeInteger.max(4_000),
+  valueEnd: nonnegativeSafeInteger.max(4_000),
+}).superRefine((target, context) => {
+  if (target.valueStart > target.valueEnd || target.valueEnd > target.length) {
+    context.addIssue({ code: "custom", message: "paragraph field 값 범위가 문단 길이를 벗어났습니다." });
+  }
+});
+
 export const studioFieldTargetSchema = z.discriminatedUnion("kind", [
   studioTableCellTextTargetSchema,
   studioTableCellRegionTargetSchema,
   studioFormTextTargetSchema,
+]);
+
+export const studioFieldBindingTargetSchema = z.discriminatedUnion("kind", [
+  studioTableCellTextTargetSchema,
+  studioTableCellRegionTargetSchema,
+  studioFormTextTargetSchema,
+  studioParagraphFieldTargetSchema,
 ]);
 
 const studioRestoreCharShapeIdsSchema = z.array(nonnegativeSafeInteger).min(1).max(4_000);
@@ -242,7 +263,9 @@ export type StudioBodyParagraphTargetV1 = z.infer<typeof studioBodyParagraphTarg
 export type StudioTableCellTextTargetV1 = z.infer<typeof studioTableCellTextTargetSchema>;
 export type StudioTableCellRegionTargetV1 = z.infer<typeof studioTableCellRegionTargetSchema>;
 export type StudioFormTextTargetV1 = z.infer<typeof studioFormTextTargetSchema>;
+export type StudioParagraphFieldTargetV1 = z.infer<typeof studioParagraphFieldTargetSchema>;
 export type StudioFieldTargetV1 = z.infer<typeof studioFieldTargetSchema>;
+export type StudioFieldBindingTargetV1 = z.infer<typeof studioFieldBindingTargetSchema>;
 export type StudioFieldRestoreFormatV1 = z.infer<typeof studioFieldRestoreFormatSchema>;
 export type StudioDocumentStateV1 = z.infer<typeof studioDocumentStateSchema>;
 export type StudioSelectionContextV1 = z.infer<typeof studioSelectionContextSchema>;

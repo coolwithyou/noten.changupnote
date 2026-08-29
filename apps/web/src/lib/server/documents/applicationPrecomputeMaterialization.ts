@@ -4,6 +4,7 @@ import type { CandidateKind, CandidateSet, ReconciledField } from "@cunote/core"
 import type { GrantSource } from "@cunote/contracts";
 import {
   APPLICATION_ROUNDTRIP_VERSION,
+  LOCAL_PREVIEW_COMPATIBLE_ROUNDTRIP_VERSIONS,
   type ApplicationRoundtripRun,
   type RoundtripFieldType,
   type RoundtripParsedDocument,
@@ -159,7 +160,9 @@ export function buildApplicationPrecomputeSurfacePlan(input: {
   document: RoundtripParsedDocument;
   parentDeepAnalysisRunId?: string | null;
 }): ApplicationPrecomputeSurfacePlan {
-  const outcome = classifyApplicationPrecomputeDocument(input.document);
+  const outcome = classifyApplicationPrecomputeDocument(input.document, {
+    allowIncompleteFieldProjection: LOCAL_PREVIEW_COMPATIBLE_ROUNDTRIP_VERSIONS.has(input.run.version),
+  });
   return surfacePlan({
     ...input,
     status: outcome.status,
@@ -414,7 +417,10 @@ function surfacePlan(input: {
   };
 }
 
-export function classifyApplicationPrecomputeDocument(document: RoundtripParsedDocument): {
+export function classifyApplicationPrecomputeDocument(
+  document: RoundtripParsedDocument,
+  options: { allowIncompleteFieldProjection?: boolean } = {},
+): {
   status: ApplicationPrecomputeStatus;
   errorCode: ApplicationPrecomputeArtifactMetadata["errorCode"];
   materialize: boolean;
@@ -425,11 +431,15 @@ export function classifyApplicationPrecomputeDocument(document: RoundtripParsedD
   }
   const errorCode = document.fieldPlanning.failureCode ?? null;
   const fields = buildReconciledApplicationFields(document);
+  const anchorContractIncomplete = document.fieldCoverage.anchorUnreadyInputCount !== 0
+    || document.fieldCoverage.anchorReadyInputCount !== document.recommendedInputFieldCount;
+  if (!options.allowIncompleteFieldProjection && anchorContractIncomplete) {
+    return { status: "review_required", errorCode, materialize: false };
+  }
   if (document.fieldCoverage.status === "review_required") {
-    // 일부 후보가 끝내 모호하더라도 Opus가 확정한 안전 필드까지 버리면 빠른 작성
-    // 준비율이 불필요하게 0이 된다. 확정 필드만 partial로 투영하고 미해결 후보는
-    // immutable candidate artifact에 그대로 남겨 직접 편집으로 폴백한다.
-    return fields.length > 0
+    // v7 관리자 preview만 이미 봉인된 안전 필드를 계속 볼 수 있다. 신규 v8 대량분석은
+    // 원문 라벨·구조 앵커 하나라도 미결이면 전체 문서를 held로 남긴다.
+    return options.allowIncompleteFieldProjection && fields.length > 0
       ? { status: "partial", errorCode, materialize: true }
       : { status: "review_required", errorCode, materialize: false };
   }

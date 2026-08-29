@@ -168,6 +168,7 @@ export function prepareRhwpDeltaFields(input: {
   const descriptors = changedTextFields.map((field) => ({
     fieldId: field.fieldId!,
     label: field.label,
+    ...(field.anchorLabel !== undefined ? { anchorLabel: field.anchorLabel } : {}),
     fieldType: field.fieldType ?? "text",
     ...(field.fieldKey !== undefined ? { fieldKey: field.fieldKey } : {}),
     ...(field.sourceSpan !== undefined ? { sourceSpan: field.sourceSpan } : {}),

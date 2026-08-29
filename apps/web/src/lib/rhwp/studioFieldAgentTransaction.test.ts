@@ -2,12 +2,16 @@ import assert from "node:assert/strict";
 import type { RhwpModule } from "./client";
 import { sha256Hex } from "./documentAgentContract";
 import type {
+  StudioApplyTextCommandV1,
+  StudioDocumentAgentProtocol,
   StudioApplyFieldCommandV1,
   StudioFieldAgentProtocol,
   StudioFieldCommandReceiptV1,
   StudioRevertFieldCommandV1,
+  StudioRevertTextCommandV1,
   StudioTableCellRegionTargetV1,
   StudioTableCellTextTargetV1,
+  StudioTextCommandReceiptV1,
 } from "./studioDocumentAgentProtocol";
 import {
   collectStudioFieldEvidence,
@@ -202,6 +206,150 @@ await assert.rejects(
   }),
   /적용 revision과 현재 Studio 문서가 달라/,
 );
+
+type ParagraphFixture = { paragraphs: string[] };
+class FakeParagraphDocument {
+  private readonly fixture: ParagraphFixture;
+  constructor(bytes: Uint8Array) { this.fixture = JSON.parse(decoder.decode(bytes)) as ParagraphFixture; }
+  getSectionCount() { return 1; }
+  getParagraphCount() { return this.fixture.paragraphs.length; }
+  getParagraphLength(_section: number, paragraph: number) { return this.fixture.paragraphs[paragraph]!.length; }
+  getTextRange(_section: number, paragraph: number, offset: number, count: number) {
+    return this.fixture.paragraphs[paragraph]!.slice(offset, offset + count);
+  }
+  getControlTextPositions() { return "[]"; }
+  getFieldInfoAt() { return JSON.stringify({ inField: false }); }
+  getCharPropertiesAt() { return JSON.stringify({ charShapeId: 7 }); }
+  getParaPropertiesAt() { return JSON.stringify({ paraShapeId: 9 }); }
+  getStyleAt() { return JSON.stringify({ id: 3 }); }
+  free() {}
+}
+
+const paragraphRhwp = { HwpDocument: FakeParagraphDocument } as unknown as RhwpModule;
+const paragraphPrefix = "가. 기업체명 :";
+const paragraphTarget = {
+  kind: "body_paragraph_text" as const,
+  section: 0,
+  paragraph: 1,
+  length: paragraphPrefix.length,
+  valueStart: paragraphPrefix.length,
+  valueEnd: paragraphPrefix.length,
+};
+const paragraphOriginal = encoder.encode(JSON.stringify({ paragraphs: ["사업계획서", paragraphPrefix, "다. 대표자 :"] }));
+let paragraphCurrent = paragraphOriginal;
+let paragraphChangeSeq = 0;
+let paragraphApplyReceipt: StudioTextCommandReceiptV1 | null = null;
+const paragraphState = async () => ({
+  schemaVersion: 1 as const,
+  format: "hwp" as const,
+  documentEpoch: 1,
+  changeSeq: paragraphChangeSeq,
+  dirty: paragraphChangeSeq > 0,
+  pageCount: 1,
+  documentSha256: await sha256Hex(paragraphCurrent),
+});
+const paragraphProtocol: StudioDocumentAgentProtocol = {
+  getDocumentState: paragraphState,
+  getSelectionContext: async () => ({
+    schemaVersion: 1,
+    documentEpoch: 1,
+    changeSeq: paragraphChangeSeq,
+    page: 1,
+    editable: true,
+    collapsed: true,
+    target: { kind: "body_paragraph", section: 0, paragraph: 1, charOffset: 0, length: paragraphPrefix.length },
+    selectedTextSha256: null,
+  }),
+  applyTextCommand: async (command: StudioApplyTextCommandV1) => {
+    const before = paragraphCurrent;
+    const beforeState = await paragraphState();
+    const beforeEvidence = await collectStudioFieldEvidence(paragraphRhwp, before, paragraphTarget);
+    const fixture = JSON.parse(decoder.decode(before)) as ParagraphFixture;
+    fixture.paragraphs[1] = command.replacement;
+    paragraphCurrent = encoder.encode(JSON.stringify(fixture));
+    const afterTarget = { ...paragraphTarget, length: command.replacement.length, valueEnd: command.replacement.length };
+    const afterEvidence = await collectStudioFieldEvidence(paragraphRhwp, paragraphCurrent, afterTarget);
+    const beforeChangeSeq = paragraphChangeSeq++;
+    paragraphApplyReceipt = {
+      schemaVersion: 1,
+      commandId: command.commandId,
+      operation: "apply",
+      documentEpoch: 1,
+      beforeChangeSeq,
+      afterChangeSeq: paragraphChangeSeq,
+      beforeDocumentSha256: beforeState.documentSha256,
+      afterDocumentSha256: await sha256Hex(paragraphCurrent),
+      beforeTextSha256: beforeEvidence.textSha256,
+      afterTextSha256: afterEvidence.textSha256,
+      formatSha256: afterEvidence.formatSha256,
+      adjacentContextSha256: afterEvidence.adjacentContextSha256,
+      pageCountBefore: 1,
+      pageCountAfter: 1,
+      target: command.target,
+    };
+    return paragraphApplyReceipt;
+  },
+  revertTextCommand: async (command: StudioRevertTextCommandV1) => {
+    assert.ok(paragraphApplyReceipt);
+    const beforeState = await paragraphState();
+    const beforeEvidence = await collectStudioFieldEvidence(paragraphRhwp, paragraphCurrent, {
+      ...paragraphTarget,
+      length: "가. 기업체명 : 주식회사 노튼".length,
+      valueEnd: "가. 기업체명 : 주식회사 노튼".length,
+    });
+    paragraphCurrent = paragraphOriginal;
+    const afterEvidence = await collectStudioFieldEvidence(paragraphRhwp, paragraphCurrent, paragraphTarget);
+    const beforeChangeSeq = paragraphChangeSeq++;
+    return {
+      schemaVersion: 1,
+      commandId: command.commandId,
+      operation: "revert",
+      documentEpoch: 1,
+      beforeChangeSeq,
+      afterChangeSeq: paragraphChangeSeq,
+      beforeDocumentSha256: beforeState.documentSha256,
+      afterDocumentSha256: await sha256Hex(paragraphCurrent),
+      beforeTextSha256: beforeEvidence.textSha256,
+      afterTextSha256: afterEvidence.textSha256,
+      formatSha256: afterEvidence.formatSha256,
+      adjacentContextSha256: afterEvidence.adjacentContextSha256,
+      pageCountBefore: 1,
+      pageCountAfter: 1,
+      target: paragraphApplyReceipt.target,
+    };
+  },
+  focusTarget: async () => ({ focused: true, page: 1 }),
+  onDocumentChanged: () => () => undefined,
+};
+const paragraphEvidence = await collectStudioFieldEvidence(paragraphRhwp, paragraphOriginal, paragraphTarget);
+const paragraphTransaction = createStudioFieldAgentTransaction({
+  rhwp: paragraphRhwp,
+  documentProtocol: paragraphProtocol,
+  exportCurrentBytes: async () => paragraphCurrent,
+});
+const paragraphReplacement = "가. 기업체명 : 주식회사 노튼";
+const paragraphApplied = await paragraphTransaction.apply({
+  bytes: paragraphOriginal,
+  format: "hwp",
+  commandId: "paragraph:test",
+  binding: {
+    target: paragraphTarget,
+    beforeText: paragraphEvidence.text,
+    beforeTextSha256: paragraphEvidence.textSha256,
+    formatSha256: paragraphEvidence.formatSha256,
+    adjacentContextSha256: paragraphEvidence.adjacentContextSha256,
+  },
+  replacement: paragraphReplacement,
+});
+assert.equal((JSON.parse(decoder.decode(paragraphApplied.bytes)) as ParagraphFixture).paragraphs[1], paragraphReplacement);
+const paragraphReverted = await paragraphTransaction.revert({
+  bytes: paragraphApplied.bytes,
+  format: "hwp",
+  commandId: "paragraph:test",
+  expectedAfterTextSha256: paragraphApplied.receipt.afterTextSha256,
+});
+assert.deepEqual(paragraphReverted.bytes, paragraphOriginal);
+assert.equal(paragraphChangeSeq, 2);
 
 type RegionParagraphFixture = { text: string; charShapeIds: number[]; paraShapeId: number };
 type RegionFixture = { cells: RegionParagraphFixture[][] };

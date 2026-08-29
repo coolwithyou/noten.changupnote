@@ -18,8 +18,9 @@ import { buildInstitutionContact } from "@/features/apply-workspace/workspacePre
 import {
   buildGrantSimulationCompanyProfile,
   GRANT_SIMULATION_BUSINESS_NUMBER,
-  getGrantSimulationAdminIdentity,
+  requireGrantSimulationAdminIdentity,
 } from "@/lib/server/adminGrantSimulation";
+import { grantSimulationCallbackPath } from "@/lib/grantSimulationNavigation";
 
 export const dynamic = "force-dynamic";
 
@@ -42,7 +43,9 @@ export default async function GrantWorkspacePage({ params, searchParams }: Works
   const virtualScenario = requestedBizNo && isVirtualCompanyServerEnabled()
     ? resolveVirtualCompanyScenario(requestedBizNo)
     : null;
-  const adminIdentity = requestedAdminPreview ? await getGrantSimulationAdminIdentity() : null;
+  const adminIdentity = requestedAdminPreview
+    ? await loadGrantSimulationAdminIdentity(grantSimulationCallbackPath(grantId, "workspace"))
+    : null;
   if (requestedAdminPreview && !adminIdentity) notFound();
   if (virtualScenario && adminIdentity) notFound();
   const access = virtualScenario || adminIdentity ? null : await loadWorkspaceAccess(grantId);
@@ -105,6 +108,14 @@ async function loadWorkspaceAccess(grantId: string) {
     return await requireCompanyAccess();
   } catch (error) {
     redirectOnAuthRequired(error, `/grants/${encodeURIComponent(grantId)}/workspace`);
+  }
+}
+
+async function loadGrantSimulationAdminIdentity(callbackUrl: string) {
+  try {
+    return await requireGrantSimulationAdminIdentity();
+  } catch (error) {
+    redirectOnAuthRequired(error, callbackUrl);
   }
 }
 

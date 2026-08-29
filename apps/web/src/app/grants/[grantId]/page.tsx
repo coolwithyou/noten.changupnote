@@ -3,8 +3,9 @@ import { AppShell } from "@/components/app/app-shell";
 import { GrantOverviewView } from "@/features/grant-overview/GrantOverviewView";
 import {
   buildGrantSimulationCompanyProfile,
-  getGrantSimulationAdminIdentity,
+  requireGrantSimulationAdminIdentity,
 } from "@/lib/server/adminGrantSimulation";
+import { grantSimulationCallbackPath } from "@/lib/grantSimulationNavigation";
 import { requireCompanyAccess } from "@/lib/server/auth/companyGuard";
 import { redirectOnAuthRequired } from "@/lib/server/auth/pageRedirect";
 import { fallbackHeaderUserForDemoAccess, getOptionalHeaderUser } from "@/lib/server/auth/session";
@@ -36,7 +37,9 @@ export default async function GrantDetailPage({ params, searchParams }: GrantDet
   const virtualScenario = requestedBizNo && isVirtualCompanyServerEnabled()
     ? resolveVirtualCompanyScenario(requestedBizNo)
     : null;
-  const adminIdentity = requestedAdminPreview ? await getGrantSimulationAdminIdentity() : null;
+  const adminIdentity = requestedAdminPreview
+    ? await loadGrantSimulationAdminIdentity(grantSimulationCallbackPath(grantId, "detail"))
+    : null;
   if (requestedAdminPreview && !adminIdentity) notFound();
   if (virtualScenario && adminIdentity) notFound();
   const access = virtualScenario || adminIdentity ? null : await loadGrantAccess(grantId);
@@ -183,6 +186,14 @@ async function loadGrantAccess(grantId: string) {
     return await requireCompanyAccess();
   } catch (error) {
     redirectOnAuthRequired(error, `/grants/${encodeURIComponent(grantId)}`);
+  }
+}
+
+async function loadGrantSimulationAdminIdentity(callbackUrl: string) {
+  try {
+    return await requireGrantSimulationAdminIdentity();
+  } catch (error) {
+    redirectOnAuthRequired(error, callbackUrl);
   }
 }
 

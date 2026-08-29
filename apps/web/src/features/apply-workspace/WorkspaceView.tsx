@@ -1,34 +1,20 @@
 "use client";
 
 /**
- * 작성 도우미 workspace 오케스트레이터 (Apply Experience v2 · 재정의 2026-07-15).
- *
- * 이 화면이 답하는 질문은 단 하나 — "이 칸에 이 값을 넣어도 되나요?". 조종석에 보이는 것은
- * 미리보기 + 확인 카드 1장 + 진행 표시 3가지뿐이다(재정의 §0). 사다리·ladder·draft 등 내부
- * 어휘는 화면에 노출하지 않는다.
- *
- * 상단 바(재정의 §2-①): ← 공고 요약 / 공고명 / M/N 확인 완료(단일 축) / 하나씩·전체 목록 토글 /
- *   문서 Select(2개 이상일 때만). 채팅은 패널 대체가 아니라 Dialog 오버레이(§2-④) — 닫으면 루프가
- *   그 자리에 그대로 있다. 하단 상시 바는 제거(§2-⑤).
- *
- * 사다리(서버 개념, 화면 비노출):
- *  (a) 프리뷰+오버레이+확인 카드
- *  (b) RHWP 원본 직접 편집 + AI 작성 가이드
- *  (c) 정직 고지 + 채팅 전면(기관 연락처 포함) — 확인 루프 불성립(§2-⑥, DraftFallbackEditor 미렌더)
+ * RHWP 작성 workspace 오케스트레이터.
+ * HWP/HWPX는 필드 결속 유무와 관계없이 RHWP + 우측 AI 작성 가이드로 열고,
+ * RHWP 비지원 문서만 채팅 fallback으로 보낸다.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ChevronLeft, FilePenLine, WandSparkles } from "lucide-react";
+import { ChevronLeft, WandSparkles } from "lucide-react";
 import { toast } from "sonner";
-import type { ActionResult } from "@cunote/contracts";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
-import { Progress } from "@/components/ui/progress";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import { parsePositionBbox, parsePositionPage } from "@/lib/documents/bbox";
 import { extractFieldOptions } from "@/lib/documents/fieldOptions";
 import type {
   RhwpFieldAnchor,
@@ -39,10 +25,14 @@ import {
   type RhwpWorkingDocument,
   type RhwpWorkingDocumentTransport,
 } from "@/lib/rhwp/workingDocument";
-import type { DraftFieldAnswers, DraftFieldAnswerStatus } from "@/lib/server/documents/fieldAnswers";
+import type { DraftFieldAnswers } from "@/lib/server/documents/fieldAnswers";
 import type { FieldAgentRunDto, FieldAgentSuggestionDto } from "@/lib/server/documents/fieldAgentRuns";
 import { fetchFieldAgentRuns } from "@/lib/rhwp/fieldAgentApi";
-import type { StudioFieldTargetV1 } from "@/lib/rhwp/studioDocumentAgentProtocol";
+import type {
+  StudioBodyParagraphTargetV1,
+  StudioFieldBindingTargetV1,
+  StudioFieldTargetV1,
+} from "@/lib/rhwp/studioDocumentAgentProtocol";
 import type { StudioFieldBindingResolution } from "@/lib/rhwp/studioFieldBindings";
 import type { ScheduleTableTarget } from "@/lib/rhwp/scheduleTable";
 import type { ScheduleTablePlan } from "@/lib/rhwp/scheduleTableContract";
@@ -51,19 +41,9 @@ import type { ConnectedDocumentField } from "@/lib/server/documents/documentFiel
 import type { WorkspaceData } from "@/lib/server/documents/workspaceData";
 import type { ChatMessageContent } from "@/lib/chat/messageContent";
 import { ConversionPollTrigger } from "@/features/apply-sheet/ConversionPollTrigger";
-import { PreviewCanvas, type PreviewOverlayField } from "@/features/document-viewer/PreviewCanvas";
-import { answerKey, fieldVisualState, optimisticApply } from "./fieldAnswerState";
+import { answerKey } from "./fieldAnswerState";
 import { ChatPanelView, useGrantChat } from "./ChatPanel";
-import {
-  buildDocumentAuthoringTasks,
-  computeAuthoringProgress,
-  isAuthoringTaskComplete,
-  nextIncompleteTask,
-  type DocumentAuthoringMode,
-  type StudioTaskStates,
-  type StudioTaskStatus,
-} from "./documentAuthoring";
-import { FieldPanel, type WorkspacePanelMode } from "./FieldPanel";
+import { buildDocumentAuthoringTasks } from "./documentAuthoring";
 import { FieldAgentRail } from "./FieldAgentRail";
 import { buildFieldAwareDocumentSession, fieldSelectionTargetKey } from "./fieldAwareDocumentSession";
 import {
@@ -71,9 +51,11 @@ import {
   type RhwpStudioDocumentActionState,
   type RhwpStudioSurfaceHandle,
 } from "./RhwpStudioSurface";
-import { workspaceFieldState, type InstitutionContact } from "./workspacePresentation";
+import type { InstitutionContact } from "./workspacePresentation";
 
 const EMPTY_MATERIALIZED_ANSWERS: Record<string, string> = {};
+const EMPTY_RHWP_ANCHORS: readonly RhwpFieldAnchor[] = [];
+// 구형 quick/studio 완료 상태는 통합 RHWP 작업공간의 렌더 계약에 포함하지 않는다.
 
 export function WorkspaceView({
   data,
@@ -93,17 +75,9 @@ export function WorkspaceView({
   const router = useRouter();
   const [answers, setAnswers] = useState<DraftFieldAnswers>(data.fieldAnswers);
   const [selectedFieldId, setSelectedFieldId] = useState<string | null>(null);
-  const [pendingLabels, setPendingLabels] = useState<Set<string>>(() => new Set());
   const [suggestingLabels, setSuggestingLabels] = useState<Set<string>>(() => new Set());
-  const [panelMode, setPanelMode] = useState<WorkspacePanelMode>("single");
   const [showChat, setShowChat] = useState(false);
   const [showFieldAgent, setShowFieldAgent] = useState(false);
-  const [rhwpAnchorsReady, setRhwpAnchorsReady] = useState(false);
-  const [locatingFieldId, setLocatingFieldId] = useState<string | null>(null);
-  const [manualAnchors, setManualAnchors] = useState<RhwpFieldAnchor[]>([]);
-  const [authoringMode, setAuthoringMode] = useState<Extract<DocumentAuthoringMode, "quick" | "studio">>("quick");
-  const [studioSourceKey, setStudioSourceKey] = useState<string | null>(null);
-  const [studioTaskStates, setStudioTaskStates] = useState<StudioTaskStates>({});
   const [workingDocument, setWorkingDocument] = useState<RhwpWorkingDocument | null>(null);
   const [studioDocumentActions, setStudioDocumentActions] = useState<RhwpStudioDocumentActionState>({
     saveState: initialStudioSaveState,
@@ -112,12 +86,11 @@ export function WorkspaceView({
     canSave: false,
     canDownload: false,
   });
-  const [workingPreviewUrl, setWorkingPreviewUrl] = useState<string | null>(null);
   const [fieldBindingsResolved, setFieldBindingsResolved] = useState(false);
   const [fieldBindingStatuses, setFieldBindingStatuses] = useState<Map<string, "unique" | "missing" | "ambiguous">>(
     () => new Map(),
   );
-  const [fieldBindingTargets, setFieldBindingTargets] = useState<Map<string, StudioFieldTargetV1>>(() => new Map());
+  const [fieldBindingTargets, setFieldBindingTargets] = useState<Map<string, StudioFieldBindingTargetV1>>(() => new Map());
   const [fieldAgentRuns, setFieldAgentRuns] = useState<Map<string, FieldAgentRunDto>>(() => new Map());
   const studioSurfaceRef = useRef<RhwpStudioSurfaceHandle | null>(null);
   const fieldIdByTargetRef = useRef<Map<string, string>>(new Map());
@@ -138,10 +111,6 @@ export function WorkspaceView({
     () => authoringTasks.filter((task) => task.mode === "quick").map((task) => task.field),
     [authoringTasks],
   );
-  const studioTasks = useMemo(
-    () => authoringTasks.filter((task) => task.mode === "studio"),
-    [authoringTasks],
-  );
   const studioTransport = useMemo<RhwpWorkingDocumentTransport | null>(() => {
     if (data.ladder === "c") return null;
     if (data.draftId) return { mode: "persistent", draftId: data.draftId };
@@ -156,15 +125,13 @@ export function WorkspaceView({
     };
   }, [adminPreview, data.activeDocumentKey, data.draftId, data.ladder, grantId, readOnlyPreview, virtualPreview]);
   const currentStudioSourceKey = studioTransport ? sourceKeyForTransport(studioTransport) : null;
-  // Studio는 복합 과제 전용 화면이 아니라 준비된 HWP/HWPX 전체 문서 편집기이기도 하다.
-  // 따라서 모든 필드가 quick으로 분류돼도 ladder (a)의 원본 draft에서는 직접 열 수 있어야 한다.
-  const canOpenStudio = studioTransport !== null;
-  const integratedFieldEditor = data.ladder === "a" && studioTransport?.mode === "persistent";
+  const integratedRhwpWorkspace = studioTransport !== null;
+  // 필드 위치 인식은 모델 호출이나 서버 저장 권한과 무관한 RHWP read-only 기능이다.
+  // 따라서 로컬 관리자/가상기업 미리보기에서도 선분석된 필드가 있으면 같은 native
+  // selection protocol을 구독한다. 실제 제안과 영속 저장은 각 capability가 별도로 막는다.
+  const integratedFieldEditor = data.ladder === "a" && studioTransport !== null;
 
   useEffect(() => {
-    setAuthoringMode("quick");
-    setStudioSourceKey(null);
-    setStudioTaskStates({});
     setWorkingDocument(null);
     setStudioDocumentActions({
       saveState: initialStudioSaveState,
@@ -243,67 +210,17 @@ export function WorkspaceView({
   }, [data.draftId, data.fieldEditorAgentAvailable, integratedFieldEditor]);
 
   useEffect(() => {
-    if (!workingDocument) {
-      setWorkingPreviewUrl(null);
-      return;
-    }
-    const url = URL.createObjectURL(new Blob(
-      [workingDocument.bytes as BlobPart],
-      { type: "application/octet-stream" },
-    ));
-    setWorkingPreviewUrl(url);
-    return () => URL.revokeObjectURL(url);
-  }, [workingDocument]);
-
-  useEffect(() => {
     if (selectedFieldId || data.connectedFields.length === 0) return;
-    const first = nextIncompleteTask({ tasks: authoringTasks, answers, studioTaskStates });
+    const first = authoringTasks[0];
     if (first) setSelectedFieldId(first.fieldId);
-  }, [selectedFieldId, authoringTasks, answers, studioTaskStates]);
-
-  const materializedAnswers =
-    workingDocument?.materializedAnswers ?? data.headRevision?.materializedAnswers ?? EMPTY_MATERIALIZED_ANSWERS;
-
-  const overlayFields = useMemo<PreviewOverlayField[]>(
-    () =>
-      data.connectedFields.map((field) => {
-        const answer = answers[answerKey(field.label)];
-        const options = extractFieldOptions(field.fieldType, field.sourceSpan);
-        const task = taskByFieldId.get(field.fieldId);
-        const studioComplete = task?.mode === "studio"
-          && isAuthoringTaskComplete({ task, answers, studioTaskStates });
-        return {
-          fieldId: field.fieldId,
-          label: field.label,
-          page: parsePositionPage(field.position),
-          box: parsePositionBbox(field.position),
-          state: studioComplete ? "confirmed" : fieldVisualState(field.label, answers, duplicateSet),
-          // 확정(accepted/edited)된 값만 오버레이 안에 실제 기입처럼 렌더한다(R2).
-          value: workspaceFieldState(answer) === "filled" ? answer?.value ?? null : null,
-          valueAlreadyInDocument: Boolean(
-            answer?.value
-            && materializedAnswers[field.fieldId] === answer.value,
-          ),
-          isChoiceField: options.length > 0,
-          visualEvidence: field.visualEvidence,
-          authoringMode: task?.mode === "studio" ? "studio" : "quick",
-        };
-      }),
-    [
-      data.connectedFields,
-      answers,
-      duplicateSet,
-      materializedAnswers,
-      studioTaskStates,
-      taskByFieldId,
-    ],
-  );
+  }, [selectedFieldId, authoringTasks, data.connectedFields.length]);
 
   const rhwpFields = useMemo<RhwpFieldDescriptor[]>(
     () => data.connectedFields.map((field) => ({
       fieldId: field.fieldId,
       fieldKey: field.fieldKey,
       label: field.label,
+      anchorLabel: field.anchorLabel ?? null,
       fieldType: field.fieldType,
       sourceSpan: field.sourceSpan,
       position: field.position,
@@ -311,12 +228,6 @@ export function WorkspaceView({
     })),
     [data.connectedFields],
   );
-
-  // 진행 표시는 단일 축(confirmed/total). 필수/전체 이중 표기는 폐기(재정의 §2-①).
-  const progress = useMemo(() => {
-    if (data.ladder !== "a" || data.connectedFields.length === 0) return null;
-    return computeAuthoringProgress({ tasks: authoringTasks, answers, studioTaskStates, pendingLabels });
-  }, [data.ladder, data.connectedFields.length, authoringTasks, answers, studioTaskStates, pendingLabels]);
 
   const fieldAgentSession = useMemo(() => buildFieldAwareDocumentSession({
     tasks: authoringTasks,
@@ -340,184 +251,38 @@ export function WorkspaceView({
     suggestingLabels,
   ]);
 
-  async function patchAnswer(label: string, entry: { value?: string; status: DraftFieldAnswerStatus }) {
-    const key = answerKey(label);
-    const prev = answersRef.current;
-    if (readOnlyPreview) {
-      const optimistic = optimisticApply(prev, key, entry);
-      setAnswers(optimistic);
-      answersRef.current = optimistic;
-      if (entry.status === "accepted" || entry.status === "edited" || entry.status === "dismissed") {
-        const currentTask = authoringTasks.find((task) => answerKey(task.label) === key);
-        const next = nextIncompleteTask({
-          tasks: authoringTasks,
-          ...(currentTask ? { afterFieldId: currentTask.fieldId } : {}),
-          answers: optimistic,
-          studioTaskStates,
-        });
-        setSelectedFieldId(next?.fieldId ?? null);
-      }
-      return;
-    }
-    if (!data.draftId) return;
-    setAnswers(optimisticApply(prev, key, entry));
-    setPendingLabels((current) => {
-      const next = new Set(current);
-      next.add(key);
-      return next;
-    });
-    try {
-      const response = await fetch(
-        `/api/web/document-drafts/${encodeURIComponent(data.draftId)}/field-answers`,
-        {
-          method: "PATCH",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ answers: { [key]: entry } }),
-        },
-      );
-      const payload = (await response.json()) as ActionResult<{
-        fieldAnswers: DraftFieldAnswers;
-        filledFields: Record<string, string>;
-      }>;
-      if (!response.ok || !payload.ok || !payload.data) {
-        throw new Error(payload.error?.message ?? "필드 답변을 저장하지 못했습니다.");
-      }
-      // 이 응답의 label 항목만 반영한다(전체 맵 교체 금지) — 동시에 다른 필드가 진행 중이면
-      // 그 낙관적 업데이트를 이 응답으로 덮어써 클로버할 수 있기 때문(서버는 요청 시점 스냅샷 기준
-      // 전체 fieldAnswers 를 돌려주므로, 그 사이 도착한 형제 패치의 결과를 모른다).
-      const serverEntry = payload.data.fieldAnswers[key];
-      setAnswers((cur) => {
-        const next = { ...cur };
-        if (serverEntry === undefined) delete next[key];
-        else next[key] = serverEntry;
-        return next;
-      });
-      if (entry.status === "accepted" || entry.status === "edited" || entry.status === "dismissed") {
-        const optimistic = optimisticApply(prev, key, entry);
-        const currentTask = authoringTasks.find((task) => answerKey(task.label) === key);
-        const next = nextIncompleteTask({
-          tasks: authoringTasks,
-          ...(currentTask ? { afterFieldId: currentTask.fieldId } : {}),
-          answers: optimistic,
-          studioTaskStates,
-        });
-        setSelectedFieldId(next?.fieldId ?? null);
-      }
-    } catch (caught) {
-      // 실패한 이 필드(key)만 패치 이전 값으로 되돌린다 — 전체 맵 롤백은 그 사이 완료된
-      // 다른 필드의 성공 결과까지 되돌려버리는 교차-필드 클로버 버그였다.
-      setAnswers((cur) => {
-        const next = { ...cur };
-        if (prev[key] === undefined) delete next[key];
-        else next[key] = prev[key];
-        return next;
-      });
-      toast.error(caught instanceof Error ? caught.message : "필드 답변을 저장하지 못했습니다.");
-    } finally {
-      setPendingLabels((current) => {
-        const next = new Set(current);
-        next.delete(key);
-        return next;
-      });
-    }
-  }
-
   async function requestSuggestion(field: ConnectedDocumentField, sourceText: string) {
-    if (!data.draftId) return;
+    if (!integratedFieldEditor || !data.draftId) return;
     const normalizedSourceText = sourceText.trim();
     const key = answerKey(field.label);
-    if (integratedFieldEditor) {
-      setSuggestingLabels((current) => new Set(current).add(key));
-      try {
-        const run = await studioSurfaceRef.current?.requestFieldSuggestion(
-          field.fieldId,
-          normalizedSourceText || undefined,
-        );
-        if (!run) throw new Error("문서 편집기가 아직 준비되지 않았습니다.");
-        setFieldAgentRuns((current) => new Map(current).set(field.fieldId, run));
-        const suggestion = run.suggestions.find((entry) => entry.status === "pending");
-        if (suggestion) {
-          setAnswers((current) => ({
-            ...current,
-            [key]: {
-              value: suggestion.value,
-              status: "suggested",
-              source: "llm",
-              suggestedValue: suggestion.value,
-              basis: suggestion.rationale,
-              fieldId: field.fieldId,
-              ...(normalizedSourceText ? { suggestionInput: normalizedSourceText } : {}),
-              updatedAt: new Date().toISOString(),
-            },
-          }));
-        } else if (run.status === "empty") {
-          toast.info("확인 가능한 근거로 이 필드의 값을 제안하지 못했습니다.");
-        }
-      } catch (caught) {
-        toast.error(caught instanceof Error ? caught.message : "AI 필드 제안을 만들지 못했습니다.");
-      } finally {
-        setSuggestingLabels((current) => {
-          const next = new Set(current);
-          next.delete(key);
-          return next;
-        });
-      }
-      return;
-    }
-    if (!normalizedSourceText) return;
-    const existing = answersRef.current[key];
-    // 기존 제안을 편집해 다시 보강하는 경우에만 regenerate 로 기록한다.
-    const mode: "generate" | "regenerate" = existing?.value ? "regenerate" : "generate";
-    setSuggestingLabels((current) => {
-      const next = new Set(current);
-      next.add(key);
-      return next;
-    });
+    setSuggestingLabels((current) => new Set(current).add(key));
     try {
-      const response = await fetch(
-        `/api/web/document-drafts/${encodeURIComponent(data.draftId)}/field-suggestions`,
-        {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            labels: [field.label],
-            mode,
-            sourceText: normalizedSourceText,
-          }),
-        },
+      const run = await studioSurfaceRef.current?.requestFieldSuggestion(
+        field.fieldId,
+        normalizedSourceText || undefined,
       );
-      const payload = (await response.json()) as ActionResult<{
-        suggestions: Record<string, {
-          value: string;
-          basis: string;
-          suggestionInput?: string;
-        }>;
-      }>;
-      if (!response.ok || !payload.ok || !payload.data) {
-        throw new Error(payload.error?.message ?? "입력한 내용을 보강하지 못했습니다.");
+      if (!run) throw new Error("문서 편집기가 아직 준비되지 않았습니다.");
+      setFieldAgentRuns((current) => new Map(current).set(field.fieldId, run));
+      const suggestion = run.suggestions.find((entry) => entry.status === "pending");
+      if (suggestion) {
+        setAnswers((current) => ({
+          ...current,
+          [key]: {
+            value: suggestion.value,
+            status: "suggested",
+            source: "llm",
+            suggestedValue: suggestion.value,
+            basis: suggestion.rationale,
+            fieldId: field.fieldId,
+            ...(normalizedSourceText ? { suggestionInput: normalizedSourceText } : {}),
+            updatedAt: new Date().toISOString(),
+          },
+        }));
+      } else if (run.status === "empty") {
+        toast.info("확인 가능한 근거로 이 필드의 값을 제안하지 못했습니다.");
       }
-      // 응답 suggestions 는 이미 서버가 suggested/llm 로 저장한 값이다(저장-반환 일치). 로컬 반영만 한다.
-      const suggestion = payload.data.suggestions[field.label] ?? payload.data.suggestions[key];
-      if (!suggestion) {
-        toast.error("입력한 사실을 유지한 보강안을 만들지 못했습니다. 내용을 조금 더 구체적으로 적어 주세요.");
-        return;
-      }
-      setAnswers((cur) => {
-        const prevEntry = cur[key];
-        const nextEntry: DraftFieldAnswers[string] = {
-          value: suggestion.value,
-          status: "suggested",
-          source: "llm",
-          suggestedValue: suggestion.value,
-          suggestionInput: suggestion.suggestionInput ?? normalizedSourceText,
-          basis: suggestion.basis,
-          updatedAt: new Date().toISOString(),
-        };
-        if (prevEntry?.fieldId !== undefined) nextEntry.fieldId = prevEntry.fieldId;
-        return { ...cur, [key]: nextEntry };
-      });
     } catch (caught) {
-      toast.error(caught instanceof Error ? caught.message : "입력한 내용을 보강하지 못했습니다.");
+      toast.error(caught instanceof Error ? caught.message : "AI 필드 제안을 만들지 못했습니다.");
     } finally {
       setSuggestingLabels((current) => {
         const next = new Set(current);
@@ -568,16 +333,6 @@ export function WorkspaceView({
         else delete nextAnswers[key];
         setAnswers(nextAnswers);
         answersRef.current = nextAnswers;
-        if (action === "dismiss"
-            && !updated.suggestions.some((entry) => entry.status === "pending")) {
-          const next = nextIncompleteTask({
-            tasks: authoringTasks,
-            afterFieldId: run.fieldId,
-            answers: nextAnswers,
-            studioTaskStates,
-          });
-          if (next && next.fieldId !== run.fieldId) handleSelectField(next.fieldId);
-        }
       }
     } catch (caught) {
       if (data.draftId) {
@@ -637,50 +392,16 @@ export function WorkspaceView({
 
   function handleSelectField(fieldId: string) {
     setSelectedFieldId(fieldId);
-    setLocatingFieldId(null);
-    setPanelMode("single");
     if (integratedFieldEditor) void studioSurfaceRef.current?.focusField(fieldId);
-  }
-
-  function openStudio(fieldId?: string) {
-    if (!studioTransport) {
-      toast.error("원본 문서가 준비된 뒤 직접 편집할 수 있습니다.");
-      return;
-    }
-    const target = (fieldId ? taskByFieldId.get(fieldId) : null)
-      ?? studioTasks.find((task) => task.fieldId === selectedFieldId)
-      ?? studioTasks.find((task) => !isAuthoringTaskComplete({ task, answers, studioTaskStates }))
-      ?? studioTasks[0];
-    if (target) setSelectedFieldId(target.fieldId);
-    setStudioSourceKey(sourceKeyForTransport(studioTransport));
-    setAuthoringMode("studio");
-  }
-
-  function setStudioTaskStatus(fieldId: string, status: StudioTaskStatus) {
-    const nextStates = { ...studioTaskStates, [fieldId]: status };
-    setStudioTaskStates(nextStates);
-    const next = nextIncompleteTask({
-      tasks: authoringTasks,
-      afterFieldId: fieldId,
-      answers,
-      studioTaskStates: nextStates,
-    });
-    if (next) setSelectedFieldId(next.fieldId);
   }
 
   function handleStudioSaved(
     document: RhwpWorkingDocument,
-    fieldId: string | null,
-    returnToQuick: boolean,
+    _fieldId: string | null,
+    _returnToQuick: boolean,
   ) {
     setWorkingDocument(document);
-    if (fieldId) setStudioTaskStates((current) => ({ ...current, [fieldId]: "edited" }));
-    if (returnToQuick) setAuthoringMode("quick");
   }
-
-  const handleRhwpAnchorsChange = useCallback((_fieldIds: ReadonlySet<string>) => {
-    setRhwpAnchorsReady(true);
-  }, []);
 
   const handleFieldBindingsResolved = useCallback((resolutions: readonly StudioFieldBindingResolution[]) => {
     setFieldBindingStatuses(new Map(resolutions.map((resolution) => [resolution.fieldId, resolution.status])));
@@ -694,85 +415,12 @@ export function WorkspaceView({
     setFieldBindingsResolved(true);
   }, []);
 
-  const handleStudioFieldSelection = useCallback((target: StudioFieldTargetV1 | null) => {
+  const handleStudioFieldSelection = useCallback((target: StudioFieldTargetV1 | StudioBodyParagraphTargetV1 | null) => {
     if (!target) return;
     const fieldId = fieldIdByTargetRef.current.get(fieldSelectionTargetKey(target));
     if (!fieldId) return;
     setSelectedFieldId(fieldId);
-    setLocatingFieldId(null);
-    setPanelMode("single");
   }, []);
-
-  const handleLocateField = useCallback((anchor: RhwpFieldAnchor) => {
-    setManualAnchors((current) => [...current.filter((entry) => entry.fieldId !== anchor.fieldId), anchor]);
-    setLocatingFieldId(null);
-    toast.success(`'${anchor.label}' 입력 위치를 현재 문서 셀로 지정했습니다.`);
-  }, []);
-
-  const previewCanvas = (
-    <PreviewCanvas
-      grantId={grantId}
-      grantTitle={data.grant.title}
-      pages={data.pages}
-      overlayFields={overlayFields}
-      selectedFieldId={selectedFieldId}
-      onSelectField={handleSelectField}
-      fill
-      rhwpSourceUrl={(workingDocument?.sourceKey === currentStudioSourceKey ? workingPreviewUrl : null) ?? (data.draftId
-        ? `/api/web/document-drafts/${encodeURIComponent(data.draftId)}/source-file?revision=head`
-        : null)}
-      rhwpFields={rhwpFields}
-      manualAnchors={manualAnchors}
-      locatingFieldId={locatingFieldId}
-      onLocateField={handleLocateField}
-      onRhwpAnchorsChange={handleRhwpAnchorsChange}
-      pageImageAccessBizNo={virtualPreview?.bizNo ?? null}
-      pageImageAccessAdminPreview={Boolean(adminPreview)}
-    />
-  );
-
-  const fieldPanel = (
-    <FieldPanel
-      ladder={data.ladder}
-      grantId={grantId}
-      activeDocumentKey={data.activeDocumentKey}
-      connectedFields={data.connectedFields}
-      answers={answers}
-      duplicateLabels={duplicateSet}
-      suggestableLabels={suggestableSet}
-      fieldLessonTips={data.fieldLessonTips}
-      missingFields={data.missingFields}
-      selectedFieldId={selectedFieldId}
-      pendingLabels={pendingLabels}
-      suggestingLabels={suggestingLabels}
-      onSelectField={handleSelectField}
-      patchAnswer={patchAnswer}
-      onAskField={handleAskField}
-      onRequestSuggestion={requestSuggestion}
-      mode={panelMode}
-      draftId={data.draftId}
-      hwpxTemplateAvailable={data.hwpxTemplateAvailable}
-      rhwpAnchorsReady={rhwpAnchorsReady}
-      locatingFieldId={locatingFieldId}
-      manualAnchors={manualAnchors}
-      onStartLocateField={(fieldId) => {
-        setSelectedFieldId(fieldId);
-        setLocatingFieldId(fieldId);
-      }}
-      authoringTasks={authoringTasks}
-      studioTaskStates={studioTaskStates}
-      onOpenStudio={openStudio}
-      onSetStudioTaskStatus={setStudioTaskStatus}
-      workingDocument={workingDocument}
-      studioServerSaved={Boolean(
-        workingDocument
-          ? workingDocument.serverSavedAt
-          : data.headRevision?.savedAt,
-      )}
-      persistedMaterializedAnswers={data.headRevision?.materializedAnswers ?? EMPTY_MATERIALIZED_ANSWERS}
-      readOnlyPreview={Boolean(readOnlyPreview)}
-    />
-  );
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -792,66 +440,10 @@ export function WorkspaceView({
           <h1 className="truncate text-base font-semibold sm:text-lg">{data.grant.title}</h1>
         </div>
         <div className="flex flex-wrap items-center justify-end gap-3">
-          {progress ? (
-            <div className="flex items-center gap-2">
-              <span className="text-xs tabular-nums text-muted-foreground">
-                {progress.confirmed.toLocaleString("ko-KR")}/{progress.total.toLocaleString("ko-KR")} 확인 완료
-              </span>
-              <Progress
-                value={progress.total > 0 ? Math.round((progress.confirmed / progress.total) * 100) : 0}
-                className="w-24"
-                aria-label="확인 완료 진행률"
-              />
-              {!integratedFieldEditor && progress.studio.total > 0 ? (
-                <span className="hidden text-[11px] text-muted-foreground xl:inline">
-                  빠른 작성 {progress.quick.confirmed}/{progress.quick.total} · 문서 편집 {progress.studio.confirmed}/{progress.studio.total}
-                </span>
-              ) : null}
-            </div>
-          ) : null}
-          {canOpenStudio && !integratedFieldEditor ? (
-            <ToggleGroup
-              value={[authoringMode]}
-              onValueChange={(value) => {
-                const next = value.at(-1);
-                if (next === "studio") openStudio();
-                if (next === "quick" && authoringMode === "studio") void studioSurfaceRef.current?.saveAndReturn();
-              }}
-              size="sm"
-              variant="outline"
-              spacing={0}
-              aria-label="문서 작성 방식"
-            >
-              <ToggleGroupItem value="quick">
-                <WandSparkles data-icon="inline-start" aria-hidden />
-                빠른 작성
-              </ToggleGroupItem>
-              <ToggleGroupItem value="studio">
-                <FilePenLine data-icon="inline-start" aria-hidden />
-                문서 직접 편집
-              </ToggleGroupItem>
-            </ToggleGroup>
-          ) : null}
-          {data.ladder === "a" && !integratedFieldEditor && authoringMode === "quick" ? (
-            <ToggleGroup
-              value={[panelMode]}
-              onValueChange={(value) => {
-                const next = value.at(-1);
-                if (next === "single" || next === "list") setPanelMode(next);
-              }}
-              size="sm"
-              variant="outline"
-              spacing={0}
-              aria-label="작성 항목 보기 방식"
-            >
-              <ToggleGroupItem value="single">하나씩</ToggleGroupItem>
-              <ToggleGroupItem value="list">전체 목록</ToggleGroupItem>
-            </ToggleGroup>
-          ) : null}
           {data.documents.length > 1 && data.activeDocumentKey ? (
             <Select
               value={data.activeDocumentKey}
-              disabled={pendingLabels.size > 0 || suggestingLabels.size > 0 || integratedFieldEditor || authoringMode === "studio"}
+              disabled={suggestingLabels.size > 0}
               // Base UI Select 는 items 를 줘야 SelectValue 가 raw value(documentKey) 대신 label 을 렌더한다.
               items={data.documents.map((document) => ({ value: document.documentKey, label: document.label }))}
               onValueChange={(next) => {
@@ -882,16 +474,10 @@ export function WorkspaceView({
 
       {readOnlyPreview ? (
         <div className="border-b border-brand/20 bg-surface-brand px-4 py-2.5 text-sm text-text-nav sm:px-6" role="status">
-          <strong className="text-brand">{adminPreview ? "관리자 빠른 작성 시뮬레이션" : "가상 기업 작성 미리보기"}</strong>
+          <strong className="text-brand">{adminPreview ? "관리자 RHWP 작성 시뮬레이션" : "가상 기업 RHWP 작성 미리보기"}</strong>
           <span className="ml-2">
             {readOnlyPreview.companyName} 기준으로 열었어요. 자동으로 연결 가능한 기업정보만 제안되며, 이 탭에서 바꾼 값은 새로고침하면 초기화되고 실제 회사·초안에는 저장되지 않습니다.
           </span>
-        </div>
-      ) : null}
-
-      {!integratedFieldEditor && authoringMode !== "studio" && data.ladder !== "c" && data.honestNotice ? (
-        <div className="mx-3 mt-3 rounded-[var(--radius-lg)] border border-amber-500/30 bg-amber-500/[0.06] px-4 py-3 text-sm text-amber-800 dark:text-amber-300 lg:mx-4">
-          {data.honestNotice}
         </div>
       ) : null}
 
@@ -909,7 +495,7 @@ export function WorkspaceView({
                 answers={answers}
                 quickFields={quickFields}
                 connectedFields={rhwpFields}
-                manualAnchors={manualAnchors}
+                manualAnchors={EMPTY_RHWP_ANCHORS}
                 duplicateLabels={duplicateSet}
                 workingDocument={workingDocument}
                 headMaterializedAnswers={data.headRevision?.materializedAnswers ?? EMPTY_MATERIALIZED_ANSWERS}
@@ -927,6 +513,9 @@ export function WorkspaceView({
               <FieldAgentRail
                 session={fieldAgentSession}
                 connectedFields={data.connectedFields}
+                {...(readOnlyPreview ? {
+                  assistDisabledMessage: "읽기 전용 시뮬레이션에서는 LLM 제안을 실행하지 않습니다. 필드 위치 확인과 직접 편집은 가능합니다.",
+                } : {})}
                 run={selectedFieldId ? fieldAgentRuns.get(selectedFieldId) ?? null : null}
                 onSelectField={handleSelectField}
                 onRequestSuggestion={requestSuggestion}
@@ -936,6 +525,7 @@ export function WorkspaceView({
                 onDismissSuggestion={(run, suggestion) => void runFieldAgentAction("dismiss", run, suggestion)}
                 documentActions={{
                   ...studioDocumentActions,
+                  saveLabel: readOnlyPreview ? "이 탭에 반영" : "지금 저장",
                   onSave: saveCurrentDocument,
                   onDownload: downloadCurrentDocument,
                 }}
@@ -963,12 +553,12 @@ export function WorkspaceView({
             </div>
             <Button type="button" size="sm" onClick={() => setShowFieldAgent(true)}>
               <WandSparkles data-icon="inline-start" aria-hidden />
-              AI 도우미
+              AI 작성 가이드
             </Button>
           </div>
           <Sheet open={showFieldAgent} onOpenChange={setShowFieldAgent}>
             <SheetContent className="flex w-full flex-col gap-0 p-3 sm:max-w-md xl:hidden">
-              <SheetTitle className="sr-only">AI 필드 도우미</SheetTitle>
+              <SheetTitle className="sr-only">AI 작성 가이드</SheetTitle>
               <SheetDescription className="sr-only">
                 현재 문서의 필드를 선택하고 근거 있는 값을 제안받아 정확한 입력 칸에 반영합니다.
               </SheetDescription>
@@ -976,6 +566,9 @@ export function WorkspaceView({
                 <FieldAgentRail
                   session={fieldAgentSession}
                   connectedFields={data.connectedFields}
+                  {...(readOnlyPreview ? {
+                    assistDisabledMessage: "읽기 전용 시뮬레이션에서는 LLM 제안을 실행하지 않습니다. 필드 위치 확인과 직접 편집은 가능합니다.",
+                  } : {})}
                   run={selectedFieldId ? fieldAgentRuns.get(selectedFieldId) ?? null : null}
                   onSelectField={handleSelectField}
                   onRequestSuggestion={requestSuggestion}
@@ -985,6 +578,7 @@ export function WorkspaceView({
                   onDismissSuggestion={(run, suggestion) => void runFieldAgentAction("dismiss", run, suggestion)}
                   documentActions={{
                     ...studioDocumentActions,
+                    saveLabel: readOnlyPreview ? "이 탭에 반영" : "지금 저장",
                     onSave: saveCurrentDocument,
                     onDownload: downloadCurrentDocument,
                   }}
@@ -1009,8 +603,8 @@ export function WorkspaceView({
         </>
       ) : null}
 
-      {!integratedFieldEditor && studioSourceKey === currentStudioSourceKey && studioTransport ? (
-        <div className={authoringMode === "studio" ? "flex min-h-0 flex-1" : "hidden"}>
+      {integratedRhwpWorkspace && !integratedFieldEditor && studioTransport ? (
+        <div data-document-guided-editor className="flex min-h-0 flex-1 p-3 xl:p-4">
           <RhwpStudioSurface
             key={currentStudioSourceKey}
             ref={studioSurfaceRef}
@@ -1018,29 +612,41 @@ export function WorkspaceView({
             answers={answers}
             quickFields={quickFields}
             connectedFields={rhwpFields}
-            manualAnchors={manualAnchors}
+            manualAnchors={EMPTY_RHWP_ANCHORS}
             duplicateLabels={duplicateSet}
             workingDocument={workingDocument}
             headMaterializedAnswers={data.headRevision?.materializedAnswers ?? EMPTY_MATERIALIZED_ANSWERS}
-            activeTask={studioTasks.find((task) => task.fieldId === selectedFieldId) ?? null}
+            activeTask={null}
             documentAgentAvailable={data.documentAgentAvailable}
+            presentation="document_guided"
             onSaved={handleStudioSaved}
           />
         </div>
       ) : null}
 
-      {integratedFieldEditor || authoringMode === "studio" ? null : data.ladder === "c" ? (
+      {!integratedRhwpWorkspace ? (
         <div className="min-h-0 flex-1 overflow-auto">
           <div className="mx-auto flex w-full max-w-4xl flex-col gap-4 p-4 sm:p-6">
             {data.honestNotice ? (
-              <div className="rounded-[var(--radius-lg)] border border-amber-500/30 bg-amber-500/[0.06] px-4 py-3 text-sm text-amber-800 dark:text-amber-300">
-                {data.honestNotice}
-              </div>
+              <Alert>
+                <AlertTitle>문서 작성 안내</AlertTitle>
+                <AlertDescription>{data.honestNotice}</AlertDescription>
+              </Alert>
             ) : null}
-            {readOnlyPreview ? (
-              <div className="rounded-[var(--radius-lg)] border bg-card px-4 py-5 text-sm text-muted-foreground">
-                읽기 전용 시뮬레이션에서는 저장이나 AI 작성을 실행하지 않습니다. 작성 항목이 준비된 공고에서 입력 흐름을 확인해 주세요.
-              </div>
+            {data.ladder !== "c" ? (
+              <Alert>
+                <AlertTitle>RHWP 문서를 준비하지 못했습니다.</AlertTitle>
+                <AlertDescription>
+                  원본 문서와 초안 연결을 다시 확인한 뒤 새로고침해 주세요. 별도의 보조 입력 화면으로 전환하지 않습니다.
+                </AlertDescription>
+              </Alert>
+            ) : readOnlyPreview ? (
+              <Alert>
+                <AlertTitle>읽기 전용 시뮬레이션</AlertTitle>
+                <AlertDescription>
+                  이 공고는 RHWP 편집을 지원하지 않아 저장이나 AI 작성을 실행하지 않습니다.
+                </AlertDescription>
+              </Alert>
             ) : (
               <ChatPanelView
                 controller={chat}
@@ -1051,19 +657,10 @@ export function WorkspaceView({
             )}
           </div>
         </div>
-      ) : (
-        // 프리뷰를 데스크톱/모바일용으로 두 번 mount하면 원본 파싱·WASM 메모리도 두 배가 된다.
-        // 동일 노드 하나를 반응형 레이아웃만 바꿔 사용한다.
-        <div className="min-h-0 flex-1 overflow-auto p-3 lg:grid lg:grid-cols-[minmax(0,3fr)_minmax(380px,2fr)] lg:gap-4 lg:overflow-hidden lg:p-4">
-          <div className="h-52 overflow-hidden rounded-[var(--radius-xl)] lg:h-auto lg:min-h-0 lg:overflow-visible lg:rounded-none">
-            {previewCanvas}
-          </div>
-          <div className="mt-3 lg:min-h-0 lg:mt-0 lg:overflow-auto">{fieldPanel}</div>
-        </div>
-      )}
+      ) : null}
 
       {/* 1:1 채팅 Dialog 오버레이(§2-④) — 닫으면 확인 루프가 그 자리에 그대로 있다. */}
-      {data.ladder === "a" && !readOnlyPreview ? (
+      {integratedFieldEditor && !readOnlyPreview ? (
         <Dialog open={showChat} onOpenChange={setShowChat}>
           <DialogContent className="flex h-[calc(100dvh-2rem)] w-[calc(100vw-2rem)] max-w-[calc(100vw-2rem)] flex-col gap-0 overflow-hidden p-4 sm:h-[calc(100dvh-3rem)] sm:w-[calc(100vw-3rem)] sm:max-w-7xl sm:p-5">
             <DialogTitle className="sr-only">이 공고에 대해 물어보기</DialogTitle>
@@ -1077,29 +674,25 @@ export function WorkspaceView({
                 variant="front"
                 fillAvailableHeight
                 institutionContact={institutionContact}
-                onApplyFieldProposal={({ fieldId, label, value, runId, suggestionId }) => {
-                  if (integratedFieldEditor) {
-                    if (!data.draftId || !runId || !suggestionId) {
-                      toast.error("현재 문서 revision에 결속된 제안이 아닙니다. 필드 대화를 다시 시작해 주세요.");
-                      return;
-                    }
-                    void fetchFieldAgentRuns(data.draftId)
-                      .then((runs) => {
-                        const run = runs.find((entry) => entry.id === runId && entry.fieldId === fieldId);
-                        const suggestion = run?.suggestions.find((entry) => entry.id === suggestionId);
-                        if (!run || !suggestion || suggestion.value !== value) {
-                          throw new Error("대화에서 만든 제안을 현재 문서 revision에서 찾지 못했습니다.");
-                        }
-                        setFieldAgentRuns((current) => new Map(current).set(run.fieldId, run));
-                        setShowChat(false);
-                        return runFieldAgentAction("apply", run, suggestion);
-                      })
-                      .catch((caught) => {
-                        toast.error(caught instanceof Error ? caught.message : "대화 제안을 문서에 반영하지 못했습니다.");
-                      });
+                onApplyFieldProposal={({ fieldId, value, runId, suggestionId }) => {
+                  if (!data.draftId || !runId || !suggestionId) {
+                    toast.error("현재 문서 revision에 결속된 제안이 아닙니다. 필드 대화를 다시 시작해 주세요.");
                     return;
                   }
-                  void patchAnswer(label, { value, status: "accepted" });
+                  void fetchFieldAgentRuns(data.draftId)
+                    .then((runs) => {
+                      const run = runs.find((entry) => entry.id === runId && entry.fieldId === fieldId);
+                      const suggestion = run?.suggestions.find((entry) => entry.id === suggestionId);
+                      if (!run || !suggestion || suggestion.value !== value) {
+                        throw new Error("대화에서 만든 제안을 현재 문서 revision에서 찾지 못했습니다.");
+                      }
+                      setFieldAgentRuns((current) => new Map(current).set(run.fieldId, run));
+                      setShowChat(false);
+                      return runFieldAgentAction("apply", run, suggestion);
+                    })
+                    .catch((caught) => {
+                      toast.error(caught instanceof Error ? caught.message : "대화 제안을 문서에 반영하지 못했습니다.");
+                    });
                 }}
               />
             </div>

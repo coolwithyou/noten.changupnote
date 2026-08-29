@@ -31,6 +31,7 @@ export function FieldAgentRail({
   onUndoSuggestion,
   onDismissSuggestion,
   documentActions,
+  assistDisabledMessage,
   profileAutofill,
   scheduleTable,
 }: {
@@ -44,9 +45,11 @@ export function FieldAgentRail({
   onUndoSuggestion: (run: FieldAgentRunDto, suggestion: FieldAgentSuggestionDto) => void;
   onDismissSuggestion: (run: FieldAgentRunDto, suggestion: FieldAgentSuggestionDto) => void;
   documentActions?: RhwpStudioDocumentActionState & {
+    saveLabel?: string;
     onSave: () => void;
     onDownload: () => void;
   };
+  assistDisabledMessage?: string;
   profileAutofill?: {
     draftId: string;
     disabled?: boolean | undefined;
@@ -94,11 +97,11 @@ export function FieldAgentRail({
   };
 
   return (
-    <aside className="flex h-full min-h-0 max-h-full flex-col overflow-hidden" aria-label="AI 필드 도우미">
+    <aside className="flex h-full min-h-0 max-h-full flex-col overflow-hidden" aria-label="AI 작성 가이드">
       <Card variant="workspace" className="h-full min-h-0 max-h-full overflow-hidden">
         <CardHeader className="shrink-0 border-b">
           <div className="flex items-center justify-between gap-3">
-            <CardTitle>AI 필드 도우미</CardTitle>
+            <CardTitle>AI 작성 가이드</CardTitle>
             <Badge variant="outline">
               <MapPinCheck aria-hidden />
               {session.boundCount}/{session.totalCount} 위치 확인
@@ -107,6 +110,9 @@ export function FieldAgentRail({
           <CardDescription>
             문서의 실제 입력 칸을 기준으로 값을 확인하고 제안합니다.
           </CardDescription>
+          {assistDisabledMessage ? (
+            <p className="text-xs leading-5 text-muted-foreground">{assistDisabledMessage}</p>
+          ) : null}
           {documentActions ? (
             <div className="flex flex-col gap-2 pt-1">
               <div className="grid grid-cols-2 gap-2">
@@ -120,7 +126,7 @@ export function FieldAgentRail({
                   {documentActions.saving
                     ? <Spinner data-icon="inline-start" />
                     : <Save data-icon="inline-start" aria-hidden />}
-                  {documentActions.saving ? "저장 중…" : "지금 저장"}
+                  {documentActions.saving ? "저장 중…" : (documentActions.saveLabel ?? "지금 저장")}
                 </Button>
                 <Button
                   type="button"
@@ -156,7 +162,7 @@ export function FieldAgentRail({
             onValueChange={(value) => setActiveSection(value as "assist" | "index")}
             className="min-h-0 flex-1 overflow-hidden"
           >
-            <TabsList className="grid w-full shrink-0 grid-cols-2" aria-label="AI 필드 도우미 메뉴">
+            <TabsList className="grid w-full shrink-0 grid-cols-2" aria-label="AI 작성 가이드 메뉴">
               <TabsTrigger value="assist">
                 <Sparkles data-icon="inline-start" aria-hidden />
                 작성 도우미
@@ -189,6 +195,12 @@ export function FieldAgentRail({
                 ) : (
                   <p className="text-sm text-muted-foreground">아직 확인된 값이나 제안이 없습니다.</p>
                 )}
+                {session.selected.guidance ? (
+                  <div className="rounded-lg border bg-muted/30 p-3">
+                    <p className="text-xs font-medium text-muted-foreground">작성 기준</p>
+                    <p className="mt-1 whitespace-pre-wrap text-sm leading-6">{session.selected.guidance}</p>
+                  </div>
+                ) : null}
                 <p className="text-xs leading-5 text-muted-foreground">
                   {assistDescription(session.selected.assistAvailability)}
                 </p>

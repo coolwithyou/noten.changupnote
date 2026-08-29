@@ -2,7 +2,10 @@ import type { DraftFieldAnswers } from "@/lib/server/documents/fieldAnswers";
 import { answerKey } from "./fieldAnswerState";
 import type { DocumentAuthoringTask } from "./documentAuthoring";
 import { workspaceFieldState, type WorkspaceFieldState } from "./workspacePresentation";
-import type { StudioFieldTargetV1 } from "@/lib/rhwp/studioDocumentAgentProtocol";
+import type {
+  StudioBodyParagraphTargetV1,
+  StudioFieldBindingTargetV1,
+} from "@/lib/rhwp/studioDocumentAgentProtocol";
 
 export type FieldBindingStatus = "resolving" | "unique" | "missing" | "ambiguous";
 export type FieldAssistAvailability =
@@ -23,6 +26,7 @@ export interface FieldAwareSessionItem {
   state: WorkspaceFieldState;
   value: string | null;
   basis: string | null;
+  guidance: string | null;
   bindingStatus: FieldBindingStatus;
   assistAvailability: FieldAssistAvailability;
   isSelected: boolean;
@@ -38,7 +42,12 @@ export interface FieldAwareDocumentSessionView {
 }
 
 /** 객체 identity가 아닌 strict 좌표로 Studio selection과 서버 확정 binding을 연결한다. */
-export function fieldSelectionTargetKey(target: StudioFieldTargetV1): string {
+export function fieldSelectionTargetKey(
+  target: StudioFieldBindingTargetV1 | StudioBodyParagraphTargetV1,
+): string {
+  if (target.kind === "body_paragraph" || target.kind === "body_paragraph_text") {
+    return ["body_paragraph", target.section, target.paragraph].join(":");
+  }
   if (target.kind === "form_text") {
     return [target.kind, target.section, target.paragraph, target.fieldId].join(":");
   }
@@ -60,7 +69,7 @@ export function buildFieldAwareDocumentSession(input: {
   answers: DraftFieldAnswers;
   selectedFieldId: string | null;
   bindingStatuses: ReadonlyMap<string, Exclude<FieldBindingStatus, "resolving">>;
-  bindingTargets: ReadonlyMap<string, StudioFieldTargetV1>;
+  bindingTargets: ReadonlyMap<string, StudioFieldBindingTargetV1>;
   bindingsResolved: boolean;
   fieldEditorAgentAvailable: boolean;
   suggestableLabels: ReadonlySet<string>;
@@ -92,6 +101,7 @@ export function buildFieldAwareDocumentSession(input: {
       state: workspaceFieldState(answer),
       value: answer?.status === "dismissed" ? null : answer?.value?.trim() || null,
       basis: answer?.basis?.trim() || null,
+      guidance: task.field.guidance?.trim() || null,
       bindingStatus,
       assistAvailability,
       isSelected: task.fieldId === selectedFieldId,
@@ -111,7 +121,7 @@ function resolveAssistAvailability(input: {
   fieldEditorAgentAvailable: boolean;
   task: DocumentAuthoringTask;
   bindingStatus: FieldBindingStatus;
-  bindingTarget: StudioFieldTargetV1 | null;
+  bindingTarget: StudioFieldBindingTargetV1 | null;
   suggestable: boolean;
 }): FieldAssistAvailability {
   if (!input.fieldEditorAgentAvailable) return "rollout_off";

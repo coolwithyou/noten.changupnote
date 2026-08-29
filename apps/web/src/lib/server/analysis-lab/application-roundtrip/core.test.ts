@@ -4,6 +4,8 @@ import type { RoundtripFieldCandidate } from "@/lib/server/analysis-lab/applicat
 import {
   buildRoundtripFillValues,
   classifyRoundtripDocument,
+  extractLocatedRoundtripFields,
+  extractRhwpStructuralFields,
   generateRoundtripSampleValue,
   assessRoundtripInputField,
   inferRoundtripInputKind,
@@ -112,6 +114,102 @@ assert.equal(assessRoundtripInputField({ label: "자기소개", type: "text", ro
 assert.equal(assessRoundtripInputField({ label: "혁신성*", type: "text", row: 4, required: true }).recommended, true);
 assert.equal(inferRoundtripInputKind("회사소개*", "text"), "textarea");
 assert.equal(inferRoundtripInputKind("창업동기 및 신청사유(*)", "text"), "textarea");
+
+const fixedPlaceholderFields = extractLocatedRoundtripFields([{
+  type: "table",
+  table: {
+    rows: 2,
+    cols: 2,
+    hasHeader: false,
+    cells: [
+      [
+        { text: "신청금액", colSpan: 1, rowSpan: 1 },
+        { text: "금: 백만원", colSpan: 1, rowSpan: 1 },
+      ],
+      [
+        { text: "사전상담", colSpan: 1, rowSpan: 1 },
+        { text: "은행 지점\n( 담당자 ☎ )", colSpan: 1, rowSpan: 1 },
+      ],
+    ],
+  },
+}], "c".repeat(64)).fields;
+for (const ownerLabel of ["신청금액", "사전상담"]) {
+  const owner = fixedPlaceholderFields.find((candidate) => candidate.label === ownerLabel);
+  assert.equal(owner?.empty, true, `${ownerLabel} 값 셀 안내문은 미작성 상태여야 한다`);
+  assert.equal(owner?.recommendedInput, true, `${ownerLabel} 원문 라벨이 입력 후보여야 한다`);
+  assert.match(owner?.inputSignals.join(" ") ?? "", /고정 양식 placeholder/);
+}
+for (const placeholderLabel of ["금: 백만원", "은행 지점\n( 담당자 ☎ )"]) {
+  const placeholder = fixedPlaceholderFields.find((candidate) => candidate.label === placeholderLabel);
+  if (!placeholder) continue;
+  assert.equal(placeholder.recommendedInput, false, `${placeholderLabel} 안내문 자체를 앵커로 쓰면 안 된다`);
+  assert.match(placeholder.inputSignals.join(" "), /앞 라벨/);
+}
+
+const recoveredMergedFields = extractRhwpStructuralFields([{
+  type: "table",
+  table: {
+    rows: 6,
+    cols: 7,
+    hasHeader: true,
+    cells: [
+      [
+        { text: "신청인", colSpan: 1, rowSpan: 3 },
+        { text: "업체명", colSpan: 2, rowSpan: 1 },
+        { text: "", colSpan: 1, rowSpan: 1 },
+        { text: "", colSpan: 3, rowSpan: 1 },
+        { text: "", colSpan: 1, rowSpan: 1 },
+        { text: "", colSpan: 1, rowSpan: 1 },
+        { text: "대표자 성명", colSpan: 2, rowSpan: 1 },
+      ],
+      [
+        { text: "", colSpan: 1, rowSpan: 1 },
+        { text: "생년월일", colSpan: 2, rowSpan: 1 },
+        { text: "", colSpan: 1, rowSpan: 1 },
+        { text: "", colSpan: 3, rowSpan: 1 },
+        { text: "", colSpan: 1, rowSpan: 1 },
+        { text: "", colSpan: 1, rowSpan: 1 },
+        { text: "전화번호(핸드폰)", colSpan: 2, rowSpan: 1 },
+      ],
+      [
+        { text: "", colSpan: 1, rowSpan: 1 },
+        { text: "업태 / 종목", colSpan: 2, rowSpan: 1 },
+        { text: "", colSpan: 1, rowSpan: 1 },
+        { text: "/", colSpan: 2, rowSpan: 1 },
+        { text: "", colSpan: 1, rowSpan: 1 },
+        { text: "종사자수", colSpan: 2, rowSpan: 1 },
+        { text: "", colSpan: 1, rowSpan: 1 },
+      ],
+      [
+        { text: "", colSpan: 1, rowSpan: 1 },
+        { text: "사업체 규모", colSpan: 2, rowSpan: 1 },
+        { text: "", colSpan: 1, rowSpan: 1 },
+        { text: "자산총액", colSpan: 1, rowSpan: 1 },
+        { text: "", colSpan: 1, rowSpan: 1 },
+        { text: "총 매출액(전년도)", colSpan: 2, rowSpan: 1 },
+        { text: "", colSpan: 1, rowSpan: 1 },
+      ],
+      [
+        { text: "□ 신용보증서\n□ 부동산\n(□ 본인 □ 타인)", colSpan: 2, rowSpan: 1 },
+      ],
+      [
+        { text: "조례 시행규칙에 따라 일자리기금 융자를 신청합니다. 서울특별시 용산구청장 귀하", colSpan: 2, rowSpan: 1 },
+      ],
+    ],
+  },
+}], "b".repeat(64), [
+  { ...field({ id: "company", label: "업체명", occurrence: 0 }), location: { blockIndex: 0, row: 0, col: 1, occurrence: 0, pageNumber: null } },
+  { ...field({ id: "birth", label: "생년월일", occurrence: 0 }), location: { blockIndex: 0, row: 1, col: 1, occurrence: 0, pageNumber: null } },
+  { ...field({ id: "employee", label: "종사자수", occurrence: 0 }), location: { blockIndex: 0, row: 2, col: 5, occurrence: 0, pageNumber: null } },
+  { ...field({ id: "assets", label: "자산총액", occurrence: 0 }), location: { blockIndex: 0, row: 3, col: 3, occurrence: 0, pageNumber: null } },
+]);
+assert.deepEqual(
+  recoveredMergedFields.map((candidate) => candidate.label),
+  ["대표자 성명", "전화번호(핸드폰)", "업태 / 종목", "총 매출액(전년도)"],
+  "KorDoc이 빠뜨린 병합 표 오른쪽·placeholder 입력 라벨을 RHWP 후보로 회수해야 한다",
+);
+assert.equal(recoveredMergedFields.every((candidate) => candidate.source === "rhwp-structural"), true);
+assert.equal(recoveredMergedFields.every((candidate) => candidate.writeOperation === "rhwp_field"), true);
 assert.equal(
   isNarrativeInstructionPlaceholder(
     "자기소개",

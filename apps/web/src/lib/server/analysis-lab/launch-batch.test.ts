@@ -24,6 +24,7 @@ import { partitionCohortEntries } from "./batch-plan";
 import { withAnalysisLaunchBatchExecution } from "./launch-batch-context";
 import { parseAnalysisLaunchCliArgs } from "./launch-batch-cli";
 import {
+  classifyAnalysisLaunchTargetStatus,
   selectAnalysisLaunchRetryGrantIds,
   shouldForceExactManifestReanalysis,
 } from "./launch-batch-production";
@@ -81,7 +82,61 @@ const manifest = createAnalysisLaunchManifest({
 test("launch manifest는 inventory drift를 target telemetry로 보존한다", () => {
   assert.equal(manifest.targets[0]?.changedSinceInventory, false);
   assert.equal(manifest.targets[1]?.changedSinceInventory, true);
+  assert.equal(manifest.execution.withApplicationRoundtrip, true);
+  assert.equal(manifest.execution.roundtripModel, "claude-opus-5");
+  assert.equal(manifest.execution.applicationFieldAnalysisVersion, "kordoc-application-roundtrip-v9");
   assert.deepEqual(normalizeAnalysisLaunchManifest(JSON.parse(encodeCanonical(manifest).toString("utf8"))), manifest);
+});
+
+test("정식 launch publishable은 필드 분석 준비도까지 통과해야 한다", () => {
+  assert.equal(classifyAnalysisLaunchTargetStatus({
+    primaryOutcome: "publishable",
+    fieldAnalysis: "ready",
+  }), "publishable");
+  assert.equal(classifyAnalysisLaunchTargetStatus({
+    primaryOutcome: "publishable",
+    fieldAnalysis: "not_applicable",
+  }), "publishable");
+  assert.equal(classifyAnalysisLaunchTargetStatus({
+    primaryOutcome: "publishable",
+    fieldAnalysis: "held",
+  }), "held");
+  assert.equal(classifyAnalysisLaunchTargetStatus({
+    primaryOutcome: "failed",
+    fieldAnalysis: "ready",
+  }), "failed");
+
+  const deepOnly = partitionCohortEntries([{ grantId: GRANT_0 }], new Map([[
+    GRANT_0,
+    {
+      okCurrent: true,
+      okOutdated: false,
+      heldCurrent: false,
+      errorCurrent: false,
+      applicationFieldAnalysisReadyCurrent: false,
+    },
+  ]]), {
+    retryErrors: false,
+    reanalyzeOutdated: false,
+    requireApplicationFieldAnalysis: true,
+  });
+  assert.deepEqual(deepOnly.pending, [{ grantId: GRANT_0 }], "딥분석만 있는 기존 결과는 필드 포함 launch에서 재실행");
+
+  const fieldReady = partitionCohortEntries([{ grantId: GRANT_0 }], new Map([[
+    GRANT_0,
+    {
+      okCurrent: true,
+      okOutdated: false,
+      heldCurrent: false,
+      errorCurrent: false,
+      applicationFieldAnalysisReadyCurrent: true,
+    },
+  ]]), {
+    retryErrors: false,
+    reanalyzeOutdated: false,
+    requireApplicationFieldAnalysis: true,
+  });
+  assert.deepEqual(fieldReady.skippedOk, [{ grantId: GRANT_0 }], "필드 준비도까지 통과한 현행 결과만 스킵");
 });
 
 test("과거 launch manifest는 새 source 정책 필드가 없어도 skip_existing으로 읽는다", () => {
@@ -367,6 +422,9 @@ function launchReceiptTarget(
     runArtifactPath: status === "skipped" ? null : `spike-out/${grantId}.json`,
     runArtifactSha256: status === "skipped" ? null : SHA_A,
     applicationRoundtripStatus: null,
+    applicationDocumentCount: null,
+    fieldReadyDocumentCount: null,
+    recognizedFieldCount: null,
     error: status === "failed" ? "timeout" : null,
   };
 }

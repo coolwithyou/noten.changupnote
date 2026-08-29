@@ -203,4 +203,14 @@ assert.match(listSource, /const deepByGrant = new Map\(stateSnapshot\?\.deepByGr
 const rootLayoutSource = await readFile(new URL("../../app/layout.tsx", import.meta.url), "utf8");
 assert.match(rootLayoutSource, /<html[\s\S]*suppressHydrationWarning/);
 
+const grantDetailPageSource = await readFile(new URL("../../app/grants/[grantId]/page.tsx", import.meta.url), "utf8");
+const grantWorkspacePageSource = await readFile(
+  new URL("../../app/grants/[grantId]/workspace/page.tsx", import.meta.url),
+  "utf8",
+);
+for (const simulationPageSource of [grantDetailPageSource, grantWorkspacePageSource]) {
+  assert.match(simulationPageSource, /requireGrantSimulationAdminIdentity/);
+  assert.match(simulationPageSource, /redirectOnAuthRequired\(error, callbackUrl\)/);
+}
+
 console.log("admin grant simulation list contracts passed");

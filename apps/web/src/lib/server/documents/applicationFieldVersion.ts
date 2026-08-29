@@ -1,6 +1,5 @@
-// v5는 최종 37필드를 만들었지만 DB 저장 경계에서 구조 위치가 잘려 동명 라벨 결속이 소실됐다.
-// occurrence까지 보존한 필드맵을 반드시 재생성하도록 새 immutable parser revision을 사용한다.
-export const APPLICATION_FIELD_PARSER_VERSION = "kordoc-rhwp-application-fields-v6";
+// v8은 표 밖 단일 문단 입력의 prefix/value/suffix와 occurrence를 exact binding까지 보존한다.
+export const APPLICATION_FIELD_PARSER_VERSION = "kordoc-rhwp-application-fields-v8";
 export const APPLICATION_FIELD_PARSER_PREFIX = "kordoc-rhwp-application-fields-";
 
 export function isAutomatedApplicationFieldParserVersion(value: string): boolean {

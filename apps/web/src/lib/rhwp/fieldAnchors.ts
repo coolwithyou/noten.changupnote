@@ -5,6 +5,8 @@ export interface RhwpFieldDescriptor {
   fieldId: string;
   fieldKey?: string | null;
   label: string;
+  /** 사용자 표시명과 달라도 되는 RHWP 원문 라벨. */
+  anchorLabel?: string | null;
   fieldType: string;
   sourceSpan?: string | null;
   position?: Record<string, unknown> | null;
@@ -461,7 +463,8 @@ function enumerateFieldCandidates(
     return context.pageInfoCache.get(pageIndex) ?? null;
   };
   const candidates = new Map<string, Candidate>();
-  for (const [variantIndex, variant] of labelVariants(field.label).entries()) {
+  const anchorLabel = field.anchorLabel?.trim() || field.label;
+  for (const [variantIndex, variant] of labelVariants(anchorLabel).entries()) {
     const hits = [
       ...parseArray<SearchHit>(document.searchAllText(variant, false, true)),
       ...normalizedLayoutHits(document, variant, hintPage, context.cellRunCache),
@@ -484,7 +487,7 @@ function enumerateFieldCandidates(
       if (!labelCell) continue;
       // `(예정지)※해당시 주소 기재`처럼 값 셀 자체에 placeholder가 들어 있는 경우에는
       // 오른쪽/아래 셀을 추측하지 않고 exact하게 그 셀 자체를 입력 대상으로 삼는다.
-      const targetCell = isSelfTargetingPlaceholder(field.label)
+      const targetCell = isSelfTargetingPlaceholder(anchorLabel)
         ? labelCell
         : targetCellForLabel(labelCell, cells);
       if (!targetCell) continue;
@@ -660,9 +663,10 @@ function exactStructuralOccurrence(field: RhwpFieldDescriptor): number | null {
   if (!position) return null;
   const occurrence = position.occurrence;
   const normalizedLabel = position.normalizedLabel;
+  const anchorLabel = field.anchorLabel?.trim() || field.label;
   if (!Number.isSafeInteger(occurrence) || (occurrence as number) < 0) return null;
   if (typeof normalizedLabel !== "string"
-      || normalizedText(normalizedLabel) !== normalizedText(field.label)) return null;
+      || normalizedText(normalizedLabel) !== normalizedText(anchorLabel)) return null;
   return occurrence as number;
 }
 

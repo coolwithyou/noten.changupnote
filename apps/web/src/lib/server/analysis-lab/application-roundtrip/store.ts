@@ -23,6 +23,12 @@ export interface RoundtripRunManifest {
   }>;
 }
 
+export interface RoundtripRunArtifacts {
+  run: ApplicationRoundtripRun;
+  manifest: RoundtripRunManifest;
+  dir: string;
+}
+
 const RUN_ID = /^roundtrip-[0-9TZ.\-]{10,40}-[a-f0-9]{6}$/;
 const FILL_ID = /^fill-[0-9TZ.\-]{10,40}-[a-f0-9]{6}$/;
 
@@ -68,7 +74,7 @@ export async function saveRoundtripRun(input: {
 export async function readRoundtripRunArtifacts(
   grantId: string,
   runId: string,
-): Promise<{ run: ApplicationRoundtripRun; manifest: RoundtripRunManifest; dir: string } | null> {
+): Promise<RoundtripRunArtifacts | null> {
   if (!RUN_ID.test(runId)) return null;
   let groups: string[];
   try {
@@ -90,6 +96,51 @@ export async function readRoundtripRunArtifacts(
     }
   }
   return null;
+}
+
+/** 관리자 로컬 preview가 현재 원본 SHA와 대조할 수 있도록 최신 순 불변 산출물을 읽는다. */
+export async function listRoundtripRunArtifactsForSource(input: {
+  grantId: string;
+  source: string;
+  sourceId: string;
+}): Promise<RoundtripRunArtifacts[]> {
+  const sourceDir = join(
+    applicationRoundtripDir(),
+    `${sanitizeSegment(input.source)}__${sanitizeSegment(input.sourceId)}`,
+  );
+  let entries: string[];
+  try {
+    entries = await readdir(sourceDir);
+  } catch {
+    return [];
+  }
+  const artifacts = await Promise.all(entries
+    .filter((entry) => RUN_ID.test(entry))
+    .map(async (runId): Promise<RoundtripRunArtifacts | null> => {
+      const dir = join(sourceDir, runId);
+      try {
+        const [run, manifest] = await Promise.all([
+          readJson<ApplicationRoundtripRun>(join(dir, "analysis.json")),
+          readJson<RoundtripRunManifest>(join(dir, "manifest.json")),
+        ]);
+        if (
+          run.runId !== runId
+          || manifest.runId !== runId
+          || run.grantId !== input.grantId
+          || manifest.grantId !== input.grantId
+          || run.source !== input.source
+          || manifest.source !== input.source
+          || run.sourceId !== input.sourceId
+          || manifest.sourceId !== input.sourceId
+        ) return null;
+        return { run, manifest, dir };
+      } catch {
+        return null;
+      }
+    }));
+  return artifacts
+    .filter((item): item is RoundtripRunArtifacts => item !== null)
+    .sort((left, right) => right.run.startedAt.localeCompare(left.run.startedAt));
 }
 
 /** 재결속 시 불변 분석 JSON과 함께 복제해야 할 파싱 markdown을 모두 읽는다. */

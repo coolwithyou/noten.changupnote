@@ -76,4 +76,25 @@ assert.equal(fieldAwareHtml.includes("편집본 다운로드"), false, "통합 �
 assert.equal(fieldAwareHtml.includes("AI 작성 제안"), false, "일반 문단 에이전트를 필드 에이전트 CTA로 노출하면 안 됩니다.");
 assert.equal(fieldAwareHtml.includes("저장하고 빠른 작성으로"), false, "통합 화면은 quick-first 복귀 동작을 제공하면 안 됩니다.");
 
+const documentGuidedHtml = renderToStaticMarkup(
+  <RhwpStudioSurface
+    transport={{ mode: "persistent", draftId: "00000000-0000-4000-8000-000000000001" }}
+    answers={{}}
+    quickFields={[]}
+    connectedFields={[]}
+    manualAnchors={[]}
+    duplicateLabels={new Set()}
+    workingDocument={null}
+    headMaterializedAnswers={{}}
+    activeTask={null}
+    documentAgentAvailable
+    presentation="document_guided"
+    onSaved={() => undefined}
+  />,
+);
+assert.ok(documentGuidedHtml.includes("AI 작성 가이드"), "필드가 없는 RHWP도 우측 작성 가이드를 보여야 합니다.");
+assert.ok(documentGuidedHtml.includes("문서 직접 편집기"), "작성 가이드와 RHWP 편집기를 동시에 렌더링해야 합니다.");
+assert.ok(documentGuidedHtml.includes("지금 저장") && documentGuidedHtml.includes("편집본 다운로드"));
+assert.equal(documentGuidedHtml.includes("빠른 작성"), false, "문서 작성 가이드 화면에 quick-first 카피가 남으면 안 됩니다.");
+
 console.log("RhwpStudioSurface dual save actions render test passed");

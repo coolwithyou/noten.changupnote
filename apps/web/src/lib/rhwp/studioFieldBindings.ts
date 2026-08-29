@@ -3,7 +3,11 @@ import {
   type RhwpAnchorDocument,
   type RhwpFieldDescriptor,
 } from "./fieldAnchors";
-import type { StudioFieldTargetV1, StudioFormTextTargetV1 } from "./studioDocumentAgentProtocol";
+import type { StudioFieldBindingTargetV1, StudioFormTextTargetV1 } from "./studioDocumentAgentProtocol";
+import {
+  resolveStudioParagraphFieldBindings,
+  type StudioParagraphFieldDocument,
+} from "./studioParagraphFieldBindings";
 
 interface FormFieldEntry {
   fieldId: number;
@@ -18,10 +22,17 @@ interface FormFieldEntry {
 
 export interface StudioFieldBindingDocument extends RhwpAnchorDocument {
   getFieldList(): string;
+  getSectionCount?(): number;
+  getParagraphCount?(section: number): number;
+  getParagraphLength?(section: number, paragraph: number): number;
+  getTextRange?(section: number, paragraph: number, charOffset: number, count: number): string;
+  getControlTextPositions?(section: number, paragraph: number): string;
+  getFieldInfoAt?(section: number, paragraph: number, charOffset: number): string;
+  getCharPropertiesAt?(section: number, paragraph: number, charOffset: number): string;
 }
 
 export type StudioFieldBindingResolution =
-  | { fieldId: string; status: "unique"; target: StudioFieldTargetV1; candidateCount: 1 }
+  | { fieldId: string; status: "unique"; target: StudioFieldBindingTargetV1; candidateCount: 1 }
   | { fieldId: string; status: "missing"; candidateCount: 0 }
   | { fieldId: string; status: "ambiguous"; candidateCount: number };
 
@@ -34,6 +45,13 @@ export function resolveStudioFieldBindings(
   fields: readonly RhwpFieldDescriptor[],
 ): StudioFieldBindingResolution[] {
   const tableResolutions = resolveRhwpFieldAnchorsExact(document, fields);
+  const paragraphResolutions = isParagraphFieldDocument(document)
+    ? resolveStudioParagraphFieldBindings(document, fields)
+    : fields.map((field) => ({
+        fieldId: field.fieldId,
+        status: "missing" as const,
+        candidateCount: 0 as const,
+      }));
   let formFields: FormFieldEntry[] | null = null;
   const loadFormFields = () => {
     if (formFields) return formFields;
@@ -46,7 +64,10 @@ export function resolveStudioFieldBindings(
     return formFields;
   };
 
-  return tableResolutions.map((table, index) => {
+  const resolved = tableResolutions.map((table, index): StudioFieldBindingResolution => {
+    if (fields[index]?.position?.targetKind === "body_paragraph_text") {
+      return paragraphResolutions[index]!;
+    }
     if (table.status === "unique") {
       const target = table.anchor.target;
       const longText = normalizeFieldType(fields[index]?.fieldType) === "long_text";
@@ -75,7 +96,7 @@ export function resolveStudioFieldBindings(
     if (table.status === "ambiguous") return table;
 
     const field = fields[index]!;
-    const names = new Set([field.fieldKey, field.label]
+    const names = new Set([field.fieldKey, field.anchorLabel, field.label]
       .filter((value): value is string => typeof value === "string" && normalizeName(value).length > 0)
       .map(normalizeName));
     const candidates = loadFormFields()
@@ -99,6 +120,41 @@ export function resolveStudioFieldBindings(
       candidateCount: 1,
     };
   });
+
+  for (let index = 0; index < resolved.length; index += 1) {
+    if (resolved[index]?.status !== "missing") continue;
+    resolved[index] = paragraphResolutions[index]!;
+  }
+
+  // 커서 selection은 문단 좌표까지만 제공하므로 한 문단에 복수 field가 결속되면 모두 보류한다.
+  const paragraphOwners = new Map<string, number[]>();
+  resolved.forEach((resolution, index) => {
+    if (resolution.status !== "unique" || resolution.target.kind !== "body_paragraph_text") return;
+    const key = `${resolution.target.section}:${resolution.target.paragraph}`;
+    const owners = paragraphOwners.get(key) ?? [];
+    owners.push(index);
+    paragraphOwners.set(key, owners);
+  });
+  for (const owners of paragraphOwners.values()) {
+    if (owners.length < 2) continue;
+    for (const index of owners) {
+      resolved[index] = {
+        fieldId: fields[index]!.fieldId,
+        status: "ambiguous",
+        candidateCount: owners.length,
+      };
+    }
+  }
+  return resolved;
+}
+
+function isParagraphFieldDocument(document: StudioFieldBindingDocument): document is StudioFieldBindingDocument & StudioParagraphFieldDocument {
+  return typeof document.getSectionCount === "function"
+    && typeof document.getParagraphCount === "function"
+    && typeof document.getParagraphLength === "function"
+    && typeof document.getTextRange === "function"
+    && typeof document.getControlTextPositions === "function"
+    && typeof document.getFieldInfoAt === "function";
 }
 
 function isSupportedRootFormField(entry: FormFieldEntry): boolean {

@@ -1,5 +1,5 @@
 import { and, eq, inArray } from "drizzle-orm";
-import { getOptionalWebSession } from "./auth/session";
+import { getOptionalWebSession, requireWebSession } from "./auth/session";
 import { getCunoteDb } from "./db/client";
 import * as schema from "./db/schema";
 import {
@@ -24,6 +24,15 @@ export async function getGrantSimulationAdminIdentity(): Promise<GrantSimulation
   return getGrantSimulationAdminIdentityForEmail(
     session?.user.email,
     session?.user.name,
+  );
+}
+
+/** 미로그인과 권한 없음이 같은 404로 뭉개지지 않도록 페이지 진입에서 세션을 먼저 요구한다. */
+export async function requireGrantSimulationAdminIdentity(): Promise<GrantSimulationAdminIdentity | null> {
+  const session = await requireWebSession();
+  return getGrantSimulationAdminIdentityForEmail(
+    session.user.email,
+    session.user.name,
   );
 }
 

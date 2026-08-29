@@ -125,6 +125,52 @@ assert.deepEqual(stackedNarrativeFields.map((field) => field.label), [
 assert.equal(stackedNarrativeFields.some((field) => field.label === "향후 사업추진 일정"), false,
   "구조형 일정표를 장문 텍스트로 덮어쓰지 않는다");
 
+const openParagraphBlocks: IRBlock[] = [
+  { type: "heading", text: "1. 사업체 개요", pageNumber: 2 },
+  { type: "paragraph", text: "가. 기업체명 :", pageNumber: 2 },
+  { type: "paragraph", text: "나. 소 재 지 : ( 본 사 ) (☎ )", pageNumber: 2 },
+  { type: "paragraph", text: "다. 대 표 자 :", pageNumber: 2 },
+  { type: "paragraph", text: "라. 업 종 : 생산품명 :", pageNumber: 2 },
+  { type: "paragraph", text: "마. 기업형태 : 합명, 합자, 주식, 유한, 개인", pageNumber: 2 },
+  { type: "paragraph", text: "바. 창립년월일 :", pageNumber: 2 },
+  { type: "paragraph", text: "사. 수출품생산업체 지정년월일 :    년    월    일 (제      호)", pageNumber: 2 },
+  { type: "paragraph", text: "차. 가입한 협동조합 (명 칭) :", pageNumber: 2 },
+  { type: "paragraph", text: "(가입년월일) :       년       월       일", pageNumber: 2 },
+  { type: "paragraph", text: "카. 자 산 총 액 ( 20 년 월 일 현재 )", pageNumber: 2 },
+  { type: "paragraph", text: "유동자산                         원", pageNumber: 2 },
+  { type: "paragraph", text: "고정자산                         원", pageNumber: 2 },
+  { type: "paragraph", text: "기타원", pageNumber: 2 },
+  { type: "paragraph", text: "계                              원", pageNumber: 2 },
+];
+const openParagraphFields = extractContextualRoundtripFields(openParagraphBlocks, "9".repeat(64));
+assert.deepEqual(openParagraphFields.map((field) => field.label), [
+  "기업체명",
+  "대 표 자",
+  "창립년월일",
+  "수출품생산업체 지정년월일",
+  "가입한 협동조합 (명 칭)",
+  "가입년월일",
+  "유동자산",
+  "고정자산",
+  "기타",
+  "계",
+]);
+assert.ok(openParagraphFields.every((field) => field.location.target?.kind === "paragraph_text"));
+assert.equal(openParagraphFields.some((field) => /소 재 지|업 종|기업형태/u.test(field.label)), false,
+  "한 문단의 복수 필드와 텍스트형 선택지는 자동 paragraph field로 승격하지 않는다");
+const companyParagraph = openParagraphFields.find((field) => field.label === "기업체명")!;
+const assetsParagraph = openParagraphFields.find((field) => field.label === "유동자산")!;
+assert.equal(companyParagraph.location.target?.paragraphPrefix, "가. 기업체명 :");
+assert.equal(companyParagraph.location.target?.paragraphSuffix, "");
+assert.equal(assetsParagraph.location.target?.paragraphSuffix, "원");
+const editedOpenParagraphs = structuredClone(openParagraphBlocks);
+applyContextualEdits(editedOpenParagraphs, prepareContextualEdits(openParagraphFields, {
+  [companyParagraph.fieldInstanceId]: "주식회사 창업노트",
+  [assetsParagraph.fieldInstanceId]: "100000000",
+}, {}));
+assert.equal(editedOpenParagraphs[1]?.text, "가. 기업체명 : 주식회사 창업노트");
+assert.equal(editedOpenParagraphs[11]?.text, "유동자산 100000000 원");
+
 const mergedHeaderNarrativeBlocks: IRBlock[] = [{
   type: "table",
   pageNumber: 3,

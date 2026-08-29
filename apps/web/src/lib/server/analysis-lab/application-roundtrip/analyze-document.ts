@@ -18,6 +18,7 @@ import {
 } from "./field-planner";
 import { finalizeRoundtripFieldCoverage } from "./field-coverage";
 import { extractHwpFormChoiceGroups } from "./hwp-form-controls";
+import { verifyRoundtripParagraphFieldBindings } from "./native-paragraph-bindings";
 
 export interface AnalyzeRoundtripDocumentInput {
   attachmentId: string;
@@ -87,6 +88,15 @@ export async function analyzeRoundtripDocument(
         fields: allFields,
         summary: skippedFieldPlanning(allFields.length, plannerRuntime),
       };
+  if (parsed.fileType === "hwp" || parsed.fileType === "hwpx") {
+    const paragraphBindings = await verifyRoundtripParagraphFieldBindings({
+      body: input.body,
+      fields: planned.fields,
+    });
+    for (const warning of paragraphBindings.warnings) {
+      warnings.push(`FIELD_NATIVE_BINDING_SKIPPED: ${warning}`);
+    }
+  }
   suppressContextBackedFormFields(planned.fields);
   suppressUnsafeKordocHeaderFields(planned.fields);
   const fieldCoverage = finalizeRoundtripFieldCoverage(planned.fields);
@@ -118,7 +128,7 @@ export async function analyzeRoundtripDocument(
       roleSignals: classification.signals,
       fields: planned.fields,
       choiceGroups,
-      emptyFieldCount: planned.fields.filter((field) => field.source === "kordoc-form" && field.empty).length,
+      emptyFieldCount: planned.fields.filter((field) => field.source !== "contextual-region" && field.empty).length,
       recommendedInputFieldCount: planned.fields.filter((field) => field.recommendedInput).length,
       recommendedChoiceGroupCount: choiceGroups.length,
       fieldPlanning: planned.summary,
@@ -147,7 +157,7 @@ function suppressChoiceBackedTextFields(
 function suppressContextBackedFormFields(fields: RoundtripParsedDocument["fields"]): void {
   const contextual = fields.filter((field) => field.source === "contextual-region" && field.recommendedInput);
   for (const field of fields) {
-    if (field.source !== "kordoc-form") continue;
+    if (field.source !== "kordoc-form" && field.source !== "rhwp-structural") continue;
     const duplicate = contextual.find((candidate) => {
       if (candidate.location.blockIndex !== field.location.blockIndex) return false;
       const labelsOverlap = candidate.normalizedLabel === field.normalizedLabel
@@ -165,9 +175,11 @@ function suppressContextBackedFormFields(fields: RoundtripParsedDocument["fields
 }
 
 function suppressUnsafeKordocHeaderFields(fields: RoundtripParsedDocument["fields"]): void {
-  const knownLabels = new Set(fields.map((field) => field.normalizedLabel));
+  const knownLabels = new Set(
+    fields.filter((field) => field.recommendedInput).map((field) => field.normalizedLabel),
+  );
   for (const field of fields) {
-    if (field.source !== "kordoc-form" || !field.recommendedInput) continue;
+    if ((field.source !== "kordoc-form" && field.source !== "rhwp-structural") || !field.recommendedInput) continue;
     const valueLabel = field.originalValue ? normalizeLoose(field.originalValue) : "";
     const valueLooksLikeAnotherLabel = valueLabel.length > 0
       && valueLabel !== field.normalizedLabel

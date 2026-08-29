@@ -1,19 +1,29 @@
 import type { RhwpModule, RhwpDocumentFormat } from "./client";
-import { sha256Hex } from "./documentAgentContract";
+import { canonicalJson, sha256Hex } from "./documentAgentContract";
 import {
+  buildStudioDocumentAgentCommandEvidence,
+  studioApplyTextCommandSchema,
   studioApplyFieldCommandSchema,
+  studioRevertTextCommandSchema,
   studioRevertFieldCommandSchema,
+  type StudioDocumentAgentProtocol,
+  type StudioFieldBindingTargetV1,
   type StudioFieldAgentProtocol,
   type StudioFieldCommandReceiptV1,
   type StudioFieldRestoreFormatV1,
   type StudioFieldTargetV1,
   type StudioFormTextTargetV1,
+  type StudioParagraphFieldTargetV1,
   type StudioTableCellRegionTargetV1,
   type StudioTableCellTextTargetV1,
+  type StudioTextCommandReceiptV1,
 } from "./studioDocumentAgentProtocol";
+import {
+  studioBodyParagraphTargetForField,
+} from "./studioParagraphFieldBindings";
 
 export interface FieldCommandBindingV1 {
-  target: StudioFieldTargetV1;
+  target: StudioFieldBindingTargetV1;
   beforeText: string;
   beforeTextSha256: string;
   formatSha256: string;
@@ -25,7 +35,7 @@ export interface StudioFieldCommandResult {
   format: RhwpDocumentFormat;
   beforeDocumentSha256: string;
   afterDocumentSha256: string;
-  receipt: StudioFieldCommandReceiptV1;
+  receipt: StudioFieldCommandReceiptV1 | StudioTextCommandReceiptV1;
 }
 
 export interface StudioFieldAgentTransaction {
@@ -59,7 +69,7 @@ export class StudioFieldAgentMutationVerificationError extends Error {
 
 interface AppliedEntry {
   commandId: string;
-  binding: FieldCommandBindingV1;
+  binding: NativeFieldBindingV1;
   replacement: string;
   receipt: StudioFieldCommandReceiptV1;
   status: "applied" | "reverted";
@@ -71,9 +81,84 @@ interface AppliedEntry {
  */
 export function createStudioFieldAgentTransaction(input: {
   rhwp: RhwpModule;
-  protocol: StudioFieldAgentProtocol;
+  /** protocol은 기존 native table/form caller 호환용이다. */
+  protocol?: StudioFieldAgentProtocol;
+  fieldProtocol?: StudioFieldAgentProtocol | null;
+  documentProtocol?: StudioDocumentAgentProtocol | null;
   exportCurrentBytes(format: RhwpDocumentFormat): Promise<Uint8Array>;
 }): StudioFieldAgentTransaction {
+  const fieldProtocol = input.fieldProtocol ?? input.protocol ?? null;
+  const documentProtocol = input.documentProtocol ?? null;
+  const native = fieldProtocol
+    ? createNativeStudioFieldAgentTransaction({
+        rhwp: input.rhwp,
+        protocol: fieldProtocol,
+        exportCurrentBytes: input.exportCurrentBytes,
+      })
+    : null;
+  const paragraph = documentProtocol
+    ? createStudioParagraphFieldAgentTransaction({
+        rhwp: input.rhwp,
+        protocol: documentProtocol,
+        exportCurrentBytes: input.exportCurrentBytes,
+      })
+    : null;
+  let latest: { commandId: string; kind: "native" | "paragraph" } | null = null;
+  return {
+    async apply(commandInput) {
+      if (commandInput.binding.target.kind === "body_paragraph_text") {
+        if (!paragraph) throw new Error("Studio body paragraph field capability가 없습니다.");
+        const result = await paragraph.apply(commandInput as ParagraphFieldApplyInput);
+        latest = { commandId: commandInput.commandId, kind: "paragraph" };
+        return result;
+      }
+      if (!native) throw new Error("Studio native field capability가 없습니다.");
+      const result = await native.apply(commandInput as NativeFieldApplyInput);
+      latest = { commandId: commandInput.commandId, kind: "native" };
+      return result;
+    },
+    async revert(commandInput) {
+      const recoveryKind = commandInput.recovery?.binding.target.kind === "body_paragraph_text"
+        ? "paragraph"
+        : commandInput.recovery
+          ? "native"
+          : latest?.commandId === commandInput.commandId
+            ? latest.kind
+            : null;
+      if (recoveryKind === "paragraph") {
+        if (!paragraph) throw new Error("Studio body paragraph field capability가 없습니다.");
+        return paragraph.revert(commandInput as ParagraphFieldRevertInput);
+      }
+      if (recoveryKind === "native") {
+        if (!native) throw new Error("Studio native field capability가 없습니다.");
+        return native.revert(commandInput as NativeFieldRevertInput);
+      }
+      throw new Error("현재 Studio 세션의 가장 최근 필드 적용만 되돌릴 수 있습니다.");
+    },
+  };
+}
+
+type NativeFieldBindingV1 = Omit<FieldCommandBindingV1, "target"> & { target: StudioFieldTargetV1 };
+type ParagraphFieldBindingV1 = Omit<FieldCommandBindingV1, "target"> & { target: StudioParagraphFieldTargetV1 };
+type NativeFieldApplyInput = Parameters<StudioFieldAgentTransaction["apply"]>[0] & { binding: NativeFieldBindingV1 };
+type NativeFieldRevertInput = Parameters<StudioFieldAgentTransaction["revert"]>[0] & {
+  recovery?: NonNullable<Parameters<StudioFieldAgentTransaction["revert"]>[0]["recovery"]> & { binding: NativeFieldBindingV1 };
+};
+type ParagraphFieldApplyInput = Parameters<StudioFieldAgentTransaction["apply"]>[0] & { binding: ParagraphFieldBindingV1 };
+type ParagraphFieldRevertInput = Parameters<StudioFieldAgentTransaction["revert"]>[0] & {
+  recovery?: NonNullable<Parameters<StudioFieldAgentTransaction["revert"]>[0]["recovery"]> & { binding: ParagraphFieldBindingV1 };
+};
+
+interface NativeStudioFieldAgentTransaction {
+  apply(input: NativeFieldApplyInput): Promise<StudioFieldCommandResult>;
+  revert(input: NativeFieldRevertInput): Promise<StudioFieldCommandResult>;
+}
+
+function createNativeStudioFieldAgentTransaction(input: {
+  rhwp: RhwpModule;
+  protocol: StudioFieldAgentProtocol;
+  exportCurrentBytes(format: RhwpDocumentFormat): Promise<Uint8Array>;
+}): NativeStudioFieldAgentTransaction {
   let latest: AppliedEntry | null = null;
   return {
     async apply(commandInput) {
@@ -153,8 +238,9 @@ export function createStudioFieldAgentTransaction(input: {
           commandInput.bytes,
           recovery.binding.target,
         );
-        const appliedBinding: FieldCommandBindingV1 = {
+        const appliedBinding: NativeFieldBindingV1 = {
           ...recovery.binding,
+          target: recovery.binding.target as StudioFieldTargetV1,
           beforeText: recovery.appliedText,
           beforeTextSha256: commandInput.expectedAfterTextSha256,
           formatSha256: beforeEvidence.formatSha256,
@@ -168,7 +254,7 @@ export function createStudioFieldAgentTransaction(input: {
         if (state.format !== commandInput.format || state.documentSha256 !== beforeDocumentSha256) {
           throw new Error("Studio field Undo 기준 문서가 현재 검증 바이트와 다릅니다.");
         }
-        const recoveryInput = {
+        const recoveryInput: Pick<NativeFieldApplyInput, "commandId" | "binding" | "replacement"> = {
           commandId: `${commandInput.commandId}:undo`,
           binding: appliedBinding,
           replacement: recovery.binding.beforeText,
@@ -256,6 +342,268 @@ export function createStudioFieldAgentTransaction(input: {
   };
 }
 
+interface ParagraphAppliedEntry {
+  commandId: string;
+  binding: ParagraphFieldBindingV1;
+  replacement: string;
+  receipt: StudioTextCommandReceiptV1;
+  status: "applied" | "reverted";
+}
+
+function createStudioParagraphFieldAgentTransaction(input: {
+  rhwp: RhwpModule;
+  protocol: StudioDocumentAgentProtocol;
+  exportCurrentBytes(format: RhwpDocumentFormat): Promise<Uint8Array>;
+}) {
+  let latest: ParagraphAppliedEntry | null = null;
+  return {
+    async apply(commandInput: ParagraphFieldApplyInput): Promise<StudioFieldCommandResult> {
+      const beforeDocumentSha256 = await sha256Hex(commandInput.bytes);
+      const evidence = await collectStudioFieldEvidence(input.rhwp, commandInput.bytes, commandInput.binding.target);
+      assertBinding(commandInput.binding, evidence);
+      const state = await input.protocol.getDocumentState();
+      if (state.format !== commandInput.format || state.documentSha256 !== beforeDocumentSha256) {
+        throw new Error("Studio paragraph field 기준 문서가 현재 검증 바이트와 다릅니다.");
+      }
+      const target = studioBodyParagraphTargetForField(commandInput.binding.target);
+      const command = studioApplyTextCommandSchema.parse({
+        schemaVersion: 1,
+        commandId: commandInput.commandId,
+        expectedDocumentEpoch: state.documentEpoch,
+        expectedChangeSeq: state.changeSeq,
+        expectedDocumentSha256: state.documentSha256,
+        target,
+        expectedBeforeSha256: commandInput.binding.beforeTextSha256,
+        expectedFormatSha256: commandInput.binding.formatSha256,
+        expectedAdjacentContextSha256: commandInput.binding.adjacentContextSha256,
+        replacement: commandInput.replacement,
+      });
+      let receipt: StudioTextCommandReceiptV1;
+      try {
+        receipt = await input.protocol.applyTextCommand(command);
+        await assertParagraphApplyReceipt(receipt, commandInput, state, target);
+      } catch (error) {
+        throw new StudioFieldAgentMutationVerificationError(
+          "Studio paragraph field 명령 결과를 안전하게 확인하지 못했습니다.",
+          error,
+        );
+      }
+      try {
+        const result = await verifyCommittedParagraphFieldMutation({
+          ...input,
+          format: commandInput.format,
+          target: commandInput.binding.target,
+          expectedText: commandInput.replacement,
+          expectedFormatSha256: commandInput.binding.formatSha256,
+          expectedAdjacentContextSha256: commandInput.binding.adjacentContextSha256,
+          receipt,
+          beforeDocumentSha256,
+        });
+        latest = {
+          commandId: commandInput.commandId,
+          binding: commandInput.binding,
+          replacement: commandInput.replacement,
+          receipt,
+          status: "applied",
+        };
+        return result;
+      } catch (error) {
+        throw new StudioFieldAgentMutationVerificationError(
+          "Studio paragraph field 적용 뒤 export 검증에 실패했습니다.",
+          error,
+        );
+      }
+    },
+
+    async revert(commandInput: ParagraphFieldRevertInput): Promise<StudioFieldCommandResult> {
+      const entry = latest;
+      if (!entry || entry.status !== "applied" || entry.commandId !== commandInput.commandId) {
+        const recovery = commandInput.recovery;
+        if (!recovery) throw new Error("현재 Studio 세션의 가장 최근 문단 필드 적용만 되돌릴 수 있습니다.");
+        const beforeDocumentSha256 = await sha256Hex(commandInput.bytes);
+        if (beforeDocumentSha256 !== recovery.appliedDocumentSha256
+            || await sha256Hex(recovery.appliedText) !== commandInput.expectedAfterTextSha256) {
+          throw new Error("저장된 문단 필드 revision과 현재 Studio 문서가 달라 Undo를 차단했습니다.");
+        }
+        const appliedTarget = paragraphTargetAfterReplacement(
+          recovery.binding.target,
+          recovery.appliedText.length,
+        );
+        const evidence = await collectStudioFieldEvidence(input.rhwp, commandInput.bytes, appliedTarget);
+        const appliedBinding: ParagraphFieldBindingV1 = {
+          ...recovery.binding,
+          target: appliedTarget,
+          beforeText: recovery.appliedText,
+          beforeTextSha256: commandInput.expectedAfterTextSha256,
+          formatSha256: evidence.formatSha256,
+        };
+        assertBinding(appliedBinding, evidence);
+        if (evidence.formatSha256 !== recovery.binding.formatSha256) {
+          throw new Error("문단 필드의 원래 서식과 현재 서식이 달라 exact Undo를 차단했습니다.");
+        }
+        const state = await input.protocol.getDocumentState();
+        if (state.format !== commandInput.format || state.documentSha256 !== beforeDocumentSha256) {
+          throw new Error("Studio paragraph field Undo 기준 문서가 현재 검증 바이트와 다릅니다.");
+        }
+        const commandId = `${commandInput.commandId}:undo`;
+        const bodyTarget = studioBodyParagraphTargetForField(appliedTarget);
+        const command = studioApplyTextCommandSchema.parse({
+          schemaVersion: 1,
+          commandId,
+          expectedDocumentEpoch: state.documentEpoch,
+          expectedChangeSeq: state.changeSeq,
+          expectedDocumentSha256: state.documentSha256,
+          target: bodyTarget,
+          expectedBeforeSha256: appliedBinding.beforeTextSha256,
+          expectedFormatSha256: appliedBinding.formatSha256,
+          expectedAdjacentContextSha256: appliedBinding.adjacentContextSha256,
+          replacement: recovery.binding.beforeText,
+        });
+        try {
+          const receipt = await input.protocol.applyTextCommand(command);
+          await assertParagraphApplyReceipt(receipt, {
+            ...commandInput,
+            commandId,
+            binding: appliedBinding,
+            replacement: recovery.binding.beforeText,
+          }, state, bodyTarget);
+          return await verifyCommittedParagraphFieldMutation({
+            ...input,
+            format: commandInput.format,
+            target: recovery.binding.target,
+            expectedText: recovery.binding.beforeText,
+            expectedFormatSha256: recovery.binding.formatSha256,
+            expectedAdjacentContextSha256: recovery.binding.adjacentContextSha256,
+            receipt,
+            beforeDocumentSha256,
+          });
+        } catch (error) {
+          throw new StudioFieldAgentMutationVerificationError(
+            "새 Studio 세션에서 저장된 문단 필드 적용을 되돌린 결과를 확인하지 못했습니다.",
+            error,
+          );
+        }
+      }
+
+      const beforeDocumentSha256 = await sha256Hex(commandInput.bytes);
+      const state = await input.protocol.getDocumentState();
+      if (state.format !== commandInput.format
+          || state.documentSha256 !== beforeDocumentSha256
+          || state.documentEpoch !== entry.receipt.documentEpoch
+          || state.changeSeq !== entry.receipt.afterChangeSeq
+          || state.documentSha256 !== entry.receipt.afterDocumentSha256) {
+        throw new Error("문단 필드 적용 뒤 Studio 문서가 변경되어 자동 Undo를 차단했습니다.");
+      }
+      const command = studioRevertTextCommandSchema.parse({
+        schemaVersion: 1,
+        commandId: commandInput.commandId,
+        expectedDocumentEpoch: state.documentEpoch,
+        expectedChangeSeq: state.changeSeq,
+        expectedAfterDocumentSha256: state.documentSha256,
+        expectedAfterSha256: commandInput.expectedAfterTextSha256,
+      });
+      const receipt = await input.protocol.revertTextCommand(command);
+      if (receipt.operation !== "revert"
+          || receipt.commandId !== commandInput.commandId
+          || receipt.beforeDocumentSha256 !== state.documentSha256
+          || receipt.afterTextSha256 !== entry.binding.beforeTextSha256
+          || receipt.formatSha256 !== entry.binding.formatSha256
+          || receipt.adjacentContextSha256 !== entry.binding.adjacentContextSha256
+          || !sameBodyTarget(receipt.target, studioBodyParagraphTargetForField(entry.binding.target))) {
+        throw new Error("Studio paragraph field revert receipt가 승인된 binding과 다릅니다.");
+      }
+      const result = await verifyCommittedParagraphFieldMutation({
+        ...input,
+        format: commandInput.format,
+        target: entry.binding.target,
+        expectedText: entry.binding.beforeText,
+        expectedFormatSha256: entry.binding.formatSha256,
+        expectedAdjacentContextSha256: entry.binding.adjacentContextSha256,
+        receipt,
+        beforeDocumentSha256,
+      });
+      entry.status = "reverted";
+      return result;
+    },
+  };
+}
+
+async function verifyCommittedParagraphFieldMutation(input: {
+  rhwp: RhwpModule;
+  exportCurrentBytes(format: RhwpDocumentFormat): Promise<Uint8Array>;
+  format: RhwpDocumentFormat;
+  target: StudioParagraphFieldTargetV1;
+  expectedText: string;
+  expectedFormatSha256: string;
+  expectedAdjacentContextSha256: string;
+  receipt: StudioTextCommandReceiptV1;
+  beforeDocumentSha256: string;
+}): Promise<StudioFieldCommandResult> {
+  const bytes = await input.exportCurrentBytes(input.format);
+  const afterDocumentSha256 = await sha256Hex(bytes);
+  if (afterDocumentSha256 !== input.receipt.afterDocumentSha256) {
+    throw new Error("Studio paragraph field receipt와 검증 export의 문서 SHA가 다릅니다.");
+  }
+  const afterTarget = paragraphTargetAfterReplacement(input.target, input.expectedText.length);
+  const evidence = await collectStudioFieldEvidence(input.rhwp, bytes, afterTarget);
+  if (evidence.text !== input.expectedText
+      || evidence.textSha256 !== input.receipt.afterTextSha256
+      || evidence.formatSha256 !== input.expectedFormatSha256
+      || evidence.adjacentContextSha256 !== input.expectedAdjacentContextSha256) {
+    throw new Error("Studio paragraph field export/reopen postcondition이 승인된 값과 다릅니다.");
+  }
+  return {
+    bytes,
+    format: input.format,
+    beforeDocumentSha256: input.beforeDocumentSha256,
+    afterDocumentSha256,
+    receipt: input.receipt,
+  };
+}
+
+async function assertParagraphApplyReceipt(
+  receipt: StudioTextCommandReceiptV1,
+  input: { commandId: string; binding: ParagraphFieldBindingV1; replacement: string },
+  state: { documentEpoch: number; changeSeq: number; documentSha256: string; pageCount: number },
+  target: StudioTextCommandReceiptV1["target"],
+): Promise<void> {
+  if (receipt.operation !== "apply"
+      || receipt.commandId !== input.commandId
+      || receipt.documentEpoch !== state.documentEpoch
+      || receipt.beforeChangeSeq !== state.changeSeq
+      || receipt.beforeDocumentSha256 !== state.documentSha256
+      || receipt.beforeTextSha256 !== input.binding.beforeTextSha256
+      || receipt.afterTextSha256 !== await sha256Hex(input.replacement)
+      || receipt.formatSha256 !== input.binding.formatSha256
+      || receipt.adjacentContextSha256 !== input.binding.adjacentContextSha256
+      || receipt.pageCountBefore !== state.pageCount
+      || receipt.pageCountAfter !== state.pageCount
+      || !sameBodyTarget(receipt.target, target)) {
+    throw new Error("Studio paragraph field apply receipt가 승인된 exact binding과 다릅니다.");
+  }
+}
+
+function paragraphTargetAfterReplacement(
+  target: StudioParagraphFieldTargetV1,
+  nextLength: number,
+): StudioParagraphFieldTargetV1 {
+  const suffixLength = target.length - target.valueEnd;
+  const valueEnd = nextLength - suffixLength;
+  if (valueEnd < target.valueStart) throw new Error("문단 필드 replacement가 고정 prefix/suffix보다 짧습니다.");
+  return { ...target, length: nextLength, valueEnd };
+}
+
+function sameBodyTarget(
+  left: StudioTextCommandReceiptV1["target"],
+  right: StudioTextCommandReceiptV1["target"],
+): boolean {
+  return left.kind === right.kind
+    && left.section === right.section
+    && left.paragraph === right.paragraph
+    && left.charOffset === right.charOffset
+    && left.length === right.length;
+}
+
 async function verifyCommittedFieldMutation(input: {
   rhwp: RhwpModule;
   exportCurrentBytes(format: RhwpDocumentFormat): Promise<Uint8Array>;
@@ -293,13 +641,27 @@ export interface FieldEvidence {
   textSha256: string;
   formatSha256: string;
   adjacentContextSha256: string;
+  restoreFormat: StudioFieldRestoreFormatV1 | null;
+}
+
+export interface NativeFieldEvidence extends Omit<FieldEvidence, "restoreFormat"> {
   restoreFormat: StudioFieldRestoreFormatV1;
 }
 
-export async function collectStudioFieldEvidence(
+export function collectStudioFieldEvidence(
   rhwp: RhwpModule,
   bytes: Uint8Array,
   target: StudioFieldTargetV1,
+): Promise<NativeFieldEvidence>;
+export function collectStudioFieldEvidence(
+  rhwp: RhwpModule,
+  bytes: Uint8Array,
+  target: StudioFieldBindingTargetV1,
+): Promise<FieldEvidence>;
+export async function collectStudioFieldEvidence(
+  rhwp: RhwpModule,
+  bytes: Uint8Array,
+  target: StudioFieldBindingTargetV1,
 ): Promise<FieldEvidence> {
   const document = new rhwp.HwpDocument(bytes);
   try {
@@ -313,7 +675,7 @@ export async function collectStudioFieldEvidence(
 export async function collectStudioFieldEvidenceBatch(
   rhwp: RhwpModule,
   bytes: Uint8Array,
-  targets: readonly StudioFieldTargetV1[],
+  targets: readonly StudioFieldBindingTargetV1[],
 ): Promise<Array<FieldEvidence | null>> {
   const document = new rhwp.HwpDocument(bytes);
   try {
@@ -333,8 +695,11 @@ export async function collectStudioFieldEvidenceBatch(
 
 async function collectStudioFieldEvidenceFromDocument(
   document: InstanceType<RhwpModule["HwpDocument"]>,
-  target: StudioFieldTargetV1,
+  target: StudioFieldBindingTargetV1,
 ): Promise<FieldEvidence> {
+  if (target.kind === "body_paragraph_text") {
+    return collectStudioParagraphFieldEvidence(document, target);
+  }
   if (target.kind === "form_text") {
     return await collectStudioFormTextEvidence(document, target);
   }
@@ -408,6 +773,52 @@ async function collectStudioFieldEvidenceFromDocument(
       charShapeIds,
       paraShapeId,
     },
+  };
+}
+
+async function collectStudioParagraphFieldEvidence(
+  document: InstanceType<RhwpModule["HwpDocument"]>,
+  target: StudioParagraphFieldTargetV1,
+): Promise<FieldEvidence> {
+  const length = document.getParagraphLength(target.section, target.paragraph);
+  if (length !== target.length || length < 1 || length > 4_000
+      || target.valueStart > target.valueEnd || target.valueEnd > length) {
+    throw new Error("exact paragraph field 범위가 current paragraph와 다릅니다.");
+  }
+  const controls = JSON.parse(document.getControlTextPositions(target.section, target.paragraph)) as unknown;
+  if (!Array.isArray(controls) || controls.length > 0) {
+    throw new Error("paragraph field 문단에 지원하지 않는 control이 있습니다.");
+  }
+  const text = document.getTextRange(target.section, target.paragraph, 0, length);
+  const charProperties: Record<string, unknown>[] = [];
+  for (let offset = 0; offset < length; offset += 1) {
+    const fieldInfo = JSON.parse(document.getFieldInfoAt(target.section, target.paragraph, offset)) as {
+      inField?: unknown;
+    };
+    if (fieldInfo.inField !== false) throw new Error("paragraph field가 native form field와 겹칩니다.");
+    charProperties.push(readObject(document.getCharPropertiesAt(target.section, target.paragraph, offset)));
+  }
+  const first = charProperties[0]!;
+  const firstCanonical = canonicalJson(first);
+  if (charProperties.some((properties) => canonicalJson(properties) !== firstCanonical)) {
+    throw new Error("paragraph field 문단의 혼합 글자 서식은 자동 입력하지 않습니다.");
+  }
+  const formatSnapshot = {
+    charProperties: first,
+    paragraphProperties: readObject(document.getParaPropertiesAt(target.section, target.paragraph)),
+    style: readObject(document.getStyleAt(target.section, target.paragraph)),
+  };
+  const commandEvidence = await buildStudioDocumentAgentCommandEvidence({
+    document,
+    target: studioBodyParagraphTargetForField(target),
+    formatSnapshot,
+  });
+  return {
+    text,
+    textSha256: await sha256Hex(text),
+    formatSha256: commandEvidence.formatSha256,
+    adjacentContextSha256: commandEvidence.adjacentContextSha256,
+    restoreFormat: null,
   };
 }
 
@@ -802,10 +1213,18 @@ async function fieldNonTargetManifest(
 }
 
 function readId(value: string, key: string): number {
-  const parsed = JSON.parse(value) as Record<string, unknown>;
+  const parsed = readObject(value);
   const id = parsed[key];
   if (!Number.isSafeInteger(id) || (id as number) < 0) throw new Error(`${key}가 올바르지 않습니다.`);
   return id as number;
+}
+
+function readObject(value: string): Record<string, unknown> {
+  const parsed = JSON.parse(value) as unknown;
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("RHWP evidence JSON이 객체가 아닙니다.");
+  }
+  return parsed as Record<string, unknown>;
 }
 
 function stableJson(value: unknown): string {
@@ -830,7 +1249,7 @@ function assertBinding(binding: FieldCommandBindingV1, evidence: FieldEvidence):
 
 function assertApplyReceipt(
   receipt: StudioFieldCommandReceiptV1,
-  input: { commandId: string; binding: FieldCommandBindingV1; replacement: string },
+  input: { commandId: string; binding: NativeFieldBindingV1; replacement: string },
   state: { documentEpoch: number; changeSeq: number; documentSha256: string; pageCount: number },
 ): void {
   if (

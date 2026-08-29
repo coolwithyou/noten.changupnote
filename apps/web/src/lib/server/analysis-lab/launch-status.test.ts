@@ -27,6 +27,7 @@ const manifest: AnalysisLaunchManifest = {
     gitShaAtPreparation: "4".repeat(40),
     withApplicationRoundtrip: true,
     roundtripModel: "claude-opus-5",
+    applicationFieldAnalysisVersion: "kordoc-application-roundtrip-v9",
     concurrency: 2,
     existingRunPolicy: "skip_existing",
   },
@@ -83,6 +84,9 @@ status = applyAnalysisLaunchEvent(status, {
     model: "claude-opus-5",
     documentCount: 1,
     sourceCount: 1,
+    applicationDocumentCount: 1,
+    fieldReadyDocumentCount: 1,
+    recognizedFieldCount: 4,
     errorCode: null,
     error: null,
     costUsd: null,
@@ -90,6 +94,7 @@ status = applyAnalysisLaunchEvent(status, {
 }, new Date("2026-08-18T01:02:00.000Z"));
 assert.equal(status.targets[0]!.status, "held");
 assert.equal(status.targets[0]!.applicationRoundtripStatus, "partial");
+assert.equal(status.targets[0]!.recognizedFieldCount, 4);
 
 const receipt: AnalysisLaunchReceipt = {
   schema: "analysis-launch-receipt-v1",
@@ -109,6 +114,9 @@ const receipt: AnalysisLaunchReceipt = {
       runArtifactPath: "run.json",
       runArtifactSha256: "a".repeat(64),
       applicationRoundtripStatus: "partial",
+      applicationDocumentCount: 1,
+      fieldReadyDocumentCount: 1,
+      recognizedFieldCount: 4,
       error: null,
     },
     {
@@ -118,6 +126,9 @@ const receipt: AnalysisLaunchReceipt = {
       runArtifactPath: null,
       runArtifactSha256: null,
       applicationRoundtripStatus: null,
+      applicationDocumentCount: null,
+      fieldReadyDocumentCount: null,
+      recognizedFieldCount: null,
       error: null,
     },
   ],

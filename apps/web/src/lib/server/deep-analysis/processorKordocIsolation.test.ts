@@ -12,7 +12,7 @@ for (const [name, source] of [["processor", processor], ["worker", worker]] as c
     `${name}는 신규 Kordoc 작업을 만들거나 claim하지 않는다`,
   );
 }
-assert.match(launch, /withApplicationRoundtrip:\s*false/u);
+assert.doesNotMatch(launch, /withApplicationRoundtrip:\s*false/u);
 assert.doesNotMatch(launch, /with-kordoc|roundtrip-model/u);
 
 console.log("deep processor Kordoc isolation tests: ok");

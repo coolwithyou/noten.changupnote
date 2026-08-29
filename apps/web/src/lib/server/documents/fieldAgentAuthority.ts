@@ -9,7 +9,7 @@ import { buildChoiceCellReplacement, extractFieldOptions } from "@/lib/documents
 import { collectStudioFieldEvidence } from "@/lib/rhwp/studioFieldAgentTransaction";
 import { studioFieldDocumentSemanticSha256 } from "@/lib/rhwp/studioFieldDocumentManifest";
 import { resolveStudioFieldBindings } from "@/lib/rhwp/studioFieldBindings";
-import type { StudioFieldTargetV1 } from "@/lib/rhwp/studioDocumentAgentProtocol";
+import type { StudioFieldBindingTargetV1 } from "@/lib/rhwp/studioDocumentAgentProtocol";
 import { isLlmSuggestableLabel } from "./fieldSuggest";
 import { resolveFieldAnswers, type DraftFieldAnswer } from "./fieldAnswers";
 import { loadConnectedDocumentFields, resolveArchiveStorageKey } from "./documentFieldLink";
@@ -27,7 +27,7 @@ export async function rebuildFieldAgentAuthority(input: {
   draftId: string;
   fieldId: string;
   baseRevisionId: string;
-  requestedTarget: StudioFieldTargetV1;
+  requestedTarget: StudioFieldBindingTargetV1;
   access: CompanyAccess;
 }) {
   const db = getCunoteDb();
@@ -78,7 +78,7 @@ export async function rebuildFieldAgentAuthority(input: {
   const options = extractFieldOptions(field.fieldType, field.sourceSpan);
   const rhwp = await loadDocumentAgentCore();
   const document = new rhwp.HwpDocument(revision.body);
-  let target: StudioFieldTargetV1;
+  let target: StudioFieldBindingTargetV1;
   try {
     if (document.pageCount() !== revision.pageCount) {
       throw new FieldAgentAuthorityError("revision_page_count_mismatch", "필드 기준 문서의 페이지 수가 다릅니다.", 409);
@@ -162,7 +162,7 @@ async function semanticSha256(
 function isSupportedField(
   fieldType: string,
   options: readonly string[],
-  target: StudioFieldTargetV1,
+  target: StudioFieldBindingTargetV1,
 ): boolean {
   if (options.length > 0) return true;
   const normalized = fieldType.trim().toLocaleLowerCase("en-US");
@@ -170,8 +170,14 @@ function isSupportedField(
   return !["file", "table", "checkbox", "radio", "select"].includes(normalized);
 }
 
-function sameTarget(left: StudioFieldTargetV1, right: StudioFieldTargetV1): boolean {
+function sameTarget(left: StudioFieldBindingTargetV1, right: StudioFieldBindingTargetV1): boolean {
   if (left.kind !== right.kind || left.section !== right.section) return false;
+  if (left.kind === "body_paragraph_text" && right.kind === "body_paragraph_text") {
+    return left.paragraph === right.paragraph
+      && left.length === right.length
+      && left.valueStart === right.valueStart
+      && left.valueEnd === right.valueEnd;
+  }
   if (left.kind === "form_text" && right.kind === "form_text") {
     return left.paragraph === right.paragraph && left.fieldId === right.fieldId;
   }

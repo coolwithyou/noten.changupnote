@@ -12,8 +12,14 @@
    사용해 문안을 제안한다.
 4. LLM은 문서 좌표를 만들지 않는다. 적용 대상은 RHWP 구조와 서버가 재구성한 exact target,
    또는 사용자의 현재 선택으로 결정한다.
-5. 과거 Kordoc 산출물과 immutable receipt는 감사·복구를 위해 보존하되 신규 공고 분석,
-   신규 workspace admission, 신규 release에는 사용하지 않는다.
+5. 과거 Kordoc 산출물과 immutable receipt는 감사·복구를 위해 보존한다. 2026-08-28부터 정식
+   로컬 구독 대량분석은 검증된 구조 파서를 내부 필드 분석 adapter로 실행하되, 구형 빠른 작성
+   UI나 workspace 진입 시 복구 작업은 되살리지 않는다.
+
+> 2026-08-28 목표 보정: “딥분석과 필드 분석 완전 분리”보다 “앞으로의 정식 대량분석 결과는
+> RHWP field-aware 작성에 바로 쓸 수 있어야 한다”를 우선한다. 따라서 `lab:launch` formal plan은
+> 22축 딥분석과 신청서 필드 분석을 하나의 material manifest에 결속한다. 운영 Cloud Run worker와
+> 사용자 진입 경로에서의 자동 분석은 계속 금지한다.
 
 ## 2. 비목표와 금지 경계
 
@@ -122,18 +128,21 @@
 - program intent가 없으면 `null` 또는 검증된 criteria-only guide로 정직하게 종결한다.
 - release plan hash, before/after hash, rollback이 guide 변경을 포함한다.
 
-### Phase 2 — 신규 Kordoc 실행 차단
+### Phase 2 — 운영·사용자 진입 기반 Kordoc 실행 차단
 
 - production deep processor에서 Kordoc enqueue를 제거한다.
 - Cloud Run main worker에서 application-precompute cycle을 제거한다.
 - 사용자 `field-analysis` 복구 호출을 제거한다.
 - application-precompute worker/backfill CLI를 신규 운영 명령에서 제거한다.
 - 과거 artifact 검증 코드는 `legacy` 경로로만 남긴다.
+- 예외적으로 승인된 로컬 구독 `lab:launch`는 같은 exact target의 신청서 필드 분석 sidecar를
+  필수 실행한다. 이는 사용자 화면의 이미지 기반 빠른 작성 기능이 아니라 RHWP 위치 map 생성이다.
 
 수용 조건:
 
 - 신규 공고 딥분석 한 건이 application-precompute job을 생성하지 않는다.
-- 딥분석 성공/실패 receipt에 신규 Kordoc outcome이 없다.
+- 운영 worker 딥분석 성공/실패 receipt에는 신규 application-precompute outcome이 없다.
+- formal launch receipt에는 필드 분석 상태와 지원 문서 수·준비 문서 수·인식 필드 수가 있다.
 - 운영 worker 실행이 application-precompute heartbeat·claim·비용 ledger를 쓰지 않는다.
 
 ### Phase 3 — RHWP workspace admission 전환
@@ -170,7 +179,7 @@
 
 - 관리자 화면에서 신규 Kordoc queue·비용·빠른 작성 readiness를 제거한다.
 - 일반 운영 가이드를 RHWP/authoring guide 기준으로 갱신한다.
-- 신규 release prepare 기본값과 launch manifest에서 Kordoc 결속을 제거한다.
+- 사용자 선택형 `--with-kordoc` 옵션은 제거하되 formal launch manifest는 필드 분석을 항상 결속한다.
 - 역사 release verifier와 immutable artifact reader는 호환용으로 보존한다.
 - 활성 import와 소비자가 0임을 확인한 뒤 `kordoc` 패키지를 제거한다.
 
@@ -246,7 +255,7 @@ git diff --check
 
 코드 전환 완료는 다음을 모두 만족할 때만 선언한다.
 
-1. 신규 공고 딥분석이 Kordoc job을 만들지 않는다.
+1. 운영 신규 공고 딥분석은 Kordoc job을 만들지 않고, 승인된 로컬 formal launch만 필드 분석을 함께 수행한다.
 2. Kordoc 결과 없이 RHWP workspace가 열린다.
 3. 검증된 authoring guide가 실제 세 agent grounding에 사용된다.
 4. 과거 Kordoc 산출물은 수정·삭제 없이 호환된다.
@@ -259,7 +268,8 @@ git diff --check
 - [x] promotion plan·snapshot·hash·저장·rollback 연결
 - [x] nullable JSONB migration `0077` 생성 및 단일 DDL 확인
 - [x] production deep processor와 worker의 신규 Kordoc enqueue/claim 제거
-- [x] 신규 launch/release Kordoc option·bundle 생성 차단
+- [x] 사용자 선택형 launch/release Kordoc option·bundle 생성 차단
+- [x] 2026-08-28 formal launch에 구독 기반 필드 분석과 준비도 receipt 결속
 - [x] workspace Kordoc status/recovery API 제거와 RHWP ladder B 전환
 - [x] document/field/schedule agent의 verified guide grounding 연결
 - [x] 관리자 Kordoc queue·비용·readiness 활성 표면 제거
@@ -275,3 +285,87 @@ git diff --check
 - [ ] 운영 DB migration 적용 — 별도 승인 필요
 - [ ] 실제 HWP/HWPX 브라우저 UAT — 실행 중인 사용자 서버 필요
 - [ ] 배포·Cloud Run 상태 확인 — 별도 승인 필요
+
+## 10. 사용자 작업공간 통합 보정 (2026-08-28)
+
+### 발견된 문제
+
+- `document-editor-ai-agent`와 RHWP 가이드 전환 커밋은 `main`에 포함돼 있었지만 사용자 화면의
+  단일 구조는 `ladder=a && persistent`에만 연결돼 있었다.
+- 신규 Kordoc 생성을 중단한 뒤 연결 필드가 없는 정상 RHWP 문서는 `ladder=b`가 되므로,
+  `빠른 작성 | 문서 직접 편집` 구형 이중 모드로 다시 내려갔다.
+- `adminPreview=1`은 의도적으로 `local_preview` transport와 AI 비활성 상태를 사용하므로 같은
+  조건에서 우측 작성 가이드가 렌더되지 않았다.
+- 따라서 브랜치 통합 여부와 사용자 진입 구조가 서로 다른 상태였다. 조상 커밋 확인만으로는
+  목표 UI 통합을 증명할 수 없었다.
+
+### 통합 결과
+
+- HWP/HWPX transport가 있으면 필드 결속 유무와 관계없이 RHWP를 즉시 열며, 구형 작성 방식
+  토글이나 페이지 이미지 기반 입력 화면을 거치지 않는다.
+- 역사 `connectedFields`가 있는 persistent draft는 RHWP와 field-aware `AI 작성 가이드` 레일을
+  함께 사용한다.
+- 연결 필드가 없는 persistent draft는 RHWP와 문단·셀 기반 document `AI 작성 가이드` 레일을
+  함께 사용한다.
+- 관리자·가상기업 미리보기도 같은 RHWP+우측 레일 골격을 사용한다. 다만 LLM 호출과 서버 저장은
+  열지 않고, 탭 로컬 반영과 편집본 다운로드만 제공한다.
+- RHWP transport 자체가 없는 비지원 문서만 채팅 fallback을 사용한다. a/b 데이터인데 transport가
+  없으면 별도 입력 UI로 강등하지 않고 연결 오류를 명시한다.
+- `WorkspaceView`는 더 이상 `FieldPanel`, `PreviewCanvas`, quick/studio 모드 토글을 import하거나
+  렌더링하지 않는다.
+
+### 자동 수용 조건
+
+- ladder a persistent: RHWP + field-aware 작성 가이드 동시 렌더
+- ladder b persistent: RHWP + document 작성 가이드 동시 렌더
+- admin/virtual preview: 동일 레이아웃 + LLM 비실행 고지 + 빠른 작성 카피 0건
+- RHWP transport 누락: 페이지 이미지 입력 화면으로 회귀하지 않음
+- 모바일: 동일 작성 가이드를 Sheet로 제공
+
+## 11. 대량분석 필드 준비도 보정 (2026-08-28)
+
+### 실행 계약
+
+- formal `analysis-launch-manifest-v1`은 `withApplicationRoundtrip=true`,
+  `roundtripModel=claude-opus-5`, 현재 `applicationFieldAnalysisVersion`을 반드시 봉인한다.
+- 해당 세 값 중 하나라도 없거나 현재 코드 계약과 다르면 실행 전 fail-closed한다.
+- 기존 현행 딥분석이 publishable이어도 필드 준비도 집계가 없으면 formal launch의 `skip_existing`
+  대상으로 보지 않고 다시 실행한다. 필드 준비도까지 통과한 현행 결과만 스킵한다.
+- 필드 분석은 primary와 같은 `claude-cli` 구독 실행 capability 안에서 target-local sidecar로
+  실행한다. 개별 필드 분석 실패는 다음 target을 막지 않고 그 target만 `held`로 종결한다.
+- HWP/HWPX 지원 양식이 실제로 없는 공고는 `not_applicable`로 정상 종결할 수 있다.
+- 지원 양식이 발견됐는데 안전하게 확정한 필드가 0개이면 primary가 publishable이어도 launch
+  target은 publishable로 승격하지 않는다.
+
+### RHWP 소비 계약
+
+- 필드 산출물이 있으면 persistent draft뿐 아니라 `admin_preview|virtual_preview`도 RHWP native
+  selection event로 현재 셀·필드를 우측 레일에 연결한다.
+- preview에서 필드 인식은 동작하지만 LLM 호출과 서버 저장은 계속 비활성이다. 저장 동작은
+  `이 탭에 반영`으로 표시하고 새로고침 시 초기화한다.
+- 필드 산출물이 없는 과거 분석은 임의 좌표를 추정하지 않고 ladder B로 남긴다. 해당 공고를
+  field-aware로 만들려면 현재 계약으로 새 exact manifest를 준비·승인해 재분석해야 한다.
+- 단, 관리자 로컬 preview에서는 같은 공고의 역사 필드 산출물이 있고 현재 보관 원본 SHA-256과
+  정확히 일치하면 모델 재호출 없이 해당 불변 산출물을 호환 read model로 사용할 수 있다.
+- 서비스 DB의 `grant_document_fields` 영속화는 기존 release/promotion write 승인 경계 밖에서
+  자동 수행하지 않는다. 로컬 immutable field artifact와 운영 materialization을 구분한다.
+
+### 필드 완결성 보정 (v8)
+
+- `kordoc-application-roundtrip-v8`은 KorDoc label-value 추출이 놓치는 병합 표의 오른쪽 끝 라벨과
+  `/` 같은 값 placeholder를 RHWP 구조 후보로 보강한다. 선택지·서명문·조례 본문은 후보에서 제외한다.
+- `kordoc-application-roundtrip-v9`은 표 밖에서도 한 문단에 입력값이 하나뿐인 명시적 양식만
+  `paragraph_text`로 추가한다. Kordoc의 prefix/value/suffix·occurrence를 봉인하고 같은 원본을
+  RHWP core로 다시 열어 들여쓰기·시각 자간을 허용한 native 좌표가 하나인지 확인한다.
+- native 위치가 없거나 중복되고, 제어 개체 또는 혼합 글자서식과 겹치는 후보는 대량분석에서
+  `recommendedInput=false`로 안전 제외한다. 주소+전화번호·업종+생산품명처럼 한 문단의 복수
+  입력값과 텍스트형 선택지는 이번 범위에 포함하지 않는다.
+- LLM이 다듬은 `displayLabel`은 UI에만 쓰고, 원문 검색은 별도 `anchorLabel`과
+  `blockIndex/row/col/occurrence/normalizedLabel`을 사용한다.
+- `recommendedInputFieldCount`와 `anchorReadyInputCount`가 다르거나 `anchorUnreadyInputCount`가 0이
+  아니면 target은 `review_required/held`다. 일부 필드만 보이는 상태를 formal 완료로 승격하지 않는다.
+- v7 불변 산출물은 현재 원본 SHA가 같은 관리자 로컬 preview에서만 호환 투영한다. v8 재사용·release
+  근거로 승격하지 않는다. 이 preview는 모델 호출 없이 현행 parser의 고신호 구조 후보만 겹쳐 읽어
+  값 셀 안내문 앵커를 원문 라벨로 교체하지만, 역사 artifact 자체는 수정하지 않는다.
+- `helperText`는 전체 분석 근거를 클라이언트에 넘기지 않고 짧은 `guidance`로 직렬화해, LLM이 꺼진
+  관리자 미리보기에서도 선택 필드의 `작성 기준`을 보여준다.

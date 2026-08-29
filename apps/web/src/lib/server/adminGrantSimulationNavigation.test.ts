@@ -1,5 +1,17 @@
 import assert from "node:assert/strict";
-import { isGrantSimulationNavigationAllowed } from "../grantSimulationNavigation";
+import {
+  grantSimulationCallbackPath,
+  isGrantSimulationNavigationAllowed,
+} from "../grantSimulationNavigation";
+
+assert.equal(
+  grantSimulationCallbackPath("grant/with space", "detail"),
+  "/grants/grant%2Fwith%20space?adminPreview=1",
+);
+assert.equal(
+  grantSimulationCallbackPath("grant/with space", "workspace"),
+  "/grants/grant%2Fwith%20space/workspace?adminPreview=1",
+);
 
 assert.equal(
   isGrantSimulationNavigationAllowed("dev.changupnote.com", "owner"),
