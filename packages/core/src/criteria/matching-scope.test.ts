@@ -67,6 +67,19 @@ assert.equal(
 );
 assert.equal(
   nonMatchingCriterionReason(criterion(
+    "참여기업 및 모집분야: 토스뱅크 포용금융, 현대홈쇼핑 혁신소재·기술 협업, 기타 협업 가능한 비즈니스",
+    {
+      dimension: "industry",
+      operator: "text_only",
+      kind: "required",
+      value: { note: "수요기업별 협업 제안 주제" },
+    },
+  )),
+  "program_collaboration_theme",
+  "수요기업의 협업 모집 주제는 신청기업 업종 자격조건이 아니다",
+);
+assert.equal(
+  nonMatchingCriterionReason(criterion(
     "정보통신업을 영위하는 중소기업만 신청할 수 있다.",
     {
       dimension: "industry",
@@ -86,6 +99,14 @@ assert.equal(
   })),
   false,
   "신청 시점에 이미 존재하는 제재 상태는 결격으로 보존한다",
+);
+assert.equal(
+  isNonMatchingApplicationCriterion(criterion(
+    "협약예정일 기준 연구개발기관이 금융기관 등의 채무 불이행 중이거나 부채비율이 1,000% 이상인 경우",
+    { dimension: "credit_status", operator: "text_only" },
+  )),
+  false,
+  "협약예정일을 판정 기준일로 쓴 현재 신용·재무 상태를 사후 협약의무로 오인하지 않는다",
 );
 assert.equal(
   isNonMatchingApplicationCriterion(criterion("신청대상은 법인사업자이며 개인사업자는 제외", {

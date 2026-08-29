@@ -21,7 +21,19 @@ export const INDEPENDENT_REVIEW_MANIFEST_SCHEMA = "independent-ai-review-manifes
 export const INDEPENDENT_REVIEW_RESULT_SCHEMA = "independent-ai-review-result-v1";
 export const INDEPENDENT_REVIEW_BUNDLE_SCHEMA = "independent-ai-review-bundle-v1";
 export const INDEPENDENT_REVIEW_COMBINED_RAW_SCHEMA = "independent-ai-review-combined-raw-v1";
-export const INDEPENDENT_REVIEW_AGGREGATE_SCHEMA = "independent-ai-review-aggregate-v1";
+export const INDEPENDENT_REVIEW_AGGREGATE_SCHEMA = "independent-ai-review-aggregate-v2";
+
+export interface IndependentReviewConsensusFinding {
+  sequence: number;
+  kind: "criterion" | "axis";
+  key: number | string;
+  verdict: string;
+  classification: "defect" | "unresolved";
+  codexNote: string | null;
+  grokNote: string | null;
+  codexMatchImpact: string | null;
+  grokMatchImpact: string | null;
+}
 
 interface LaunchTarget {
   sequence: number;
@@ -365,6 +377,7 @@ export async function aggregateIndependentReviews(manifestPath: string) {
     matchImpact?: string;
     note: string | null;
   }> = [];
+  const consensusFindings: IndependentReviewConsensusFinding[] = [];
 
   let criterionTotal = 0;
   let criterionAgreements = 0;
@@ -378,6 +391,7 @@ export async function aggregateIndependentReviews(manifestPath: string) {
     const grokCriteria = indexReviews(grok.criterionReviews, "criterionIndex");
     const codexAxes = indexReviews(codex.axisReviews, "dimension");
     const grokAxes = indexReviews(grok.axisReviews, "dimension");
+    consensusFindings.push(...deriveIndependentReviewConsensus(packet.sequence, codex, grok));
     const disagreements: (typeof comparisons)[number]["disagreements"] = [];
     let sequenceCriterionAgreements = 0;
     let sequenceAxisAgreements = 0;
@@ -440,6 +454,14 @@ export async function aggregateIndependentReviews(manifestPath: string) {
     },
     comparisons,
     priorityFindings,
+    consensus: {
+      defects: consensusFindings.filter((finding) => finding.classification === "defect"),
+      unresolved: consensusFindings.filter((finding) => finding.classification === "unresolved"),
+      defectCount: consensusFindings.filter((finding) => finding.classification === "defect").length,
+      unresolvedCount: consensusFindings.filter((finding) => finding.classification === "unresolved").length,
+      affectedTargets: [...new Set(consensusFindings.map((finding) => finding.sequence))].sort((a, b) => a - b),
+    },
+    admission: buildIndependentReviewAdmission(consensusFindings, heldAudit.length),
     heldAudit,
     policy: { databaseWrites: false, promotion: false, deployment: false },
   };
@@ -448,6 +470,77 @@ export async function aggregateIndependentReviews(manifestPath: string) {
   const aggregatePath = join(outputDir, `${aggregateSha256}.aggregate.json`);
   await writeExactFile(aggregatePath, bytes);
   return { aggregate, aggregateSha256, aggregatePath };
+}
+
+export function deriveIndependentReviewConsensus(
+  sequence: number,
+  codex: Pick<IndependentReviewResult, "criterionReviews" | "axisReviews">,
+  grok: Pick<IndependentReviewResult, "criterionReviews" | "axisReviews">,
+): IndependentReviewConsensusFinding[] {
+  const findings: IndependentReviewConsensusFinding[] = [];
+  const codexCriteria = indexReviews(codex.criterionReviews, "criterionIndex");
+  const grokCriteria = indexReviews(grok.criterionReviews, "criterionIndex");
+  for (const [key, codexReview] of codexCriteria) {
+    const grokReview = grokCriteria.get(key);
+    if (!grokReview || codexReview.verdict !== grokReview.verdict || codexReview.verdict === "correct") {
+      continue;
+    }
+    findings.push({
+      sequence,
+      kind: "criterion",
+      key,
+      verdict: codexReview.verdict,
+      classification: codexReview.verdict === "unsure" ? "unresolved" : "defect",
+      codexNote: codexReview.note,
+      grokNote: grokReview.note,
+      codexMatchImpact: codexReview.matchImpact ?? null,
+      grokMatchImpact: grokReview.matchImpact ?? null,
+    });
+  }
+  const codexAxes = indexReviews(codex.axisReviews, "dimension");
+  const grokAxes = indexReviews(grok.axisReviews, "dimension");
+  for (const [key, codexReview] of codexAxes) {
+    const grokReview = grokAxes.get(key);
+    if (
+      !grokReview
+      || codexReview.verdict !== grokReview.verdict
+      || codexReview.verdict === "confirmed_absent"
+    ) continue;
+    findings.push({
+      sequence,
+      kind: "axis",
+      key,
+      verdict: codexReview.verdict,
+      classification: "defect",
+      codexNote: codexReview.note,
+      grokNote: grokReview.note,
+      codexMatchImpact: codexReview.matchImpact ?? null,
+      grokMatchImpact: grokReview.matchImpact ?? null,
+    });
+  }
+  return findings.sort((left, right) => (
+    left.kind.localeCompare(right.kind) || String(left.key).localeCompare(String(right.key), "en", { numeric: true })
+  ));
+}
+
+function buildIndependentReviewAdmission(
+  consensusFindings: IndependentReviewConsensusFinding[],
+  heldTargets: number,
+) {
+  const defectCount = consensusFindings.filter((finding) => finding.classification === "defect").length;
+  const unresolvedCount = consensusFindings.filter((finding) => finding.classification === "unresolved").length;
+  const reviewedTargetsStatus = defectCount > 0 || unresolvedCount > 0 ? "HOLD" : "PASS";
+  const cohortStatus = reviewedTargetsStatus === "HOLD" || heldTargets > 0 ? "HOLD" : "PASS";
+  return {
+    reviewedTargetsStatus,
+    cohortStatus,
+    reasons: [
+      ...(defectCount > 0 ? [`consensus_defects:${defectCount}`] : []),
+      ...(unresolvedCount > 0 ? [`consensus_unresolved:${unresolvedCount}`] : []),
+      ...(heldTargets > 0 ? [`non_publishable_targets:${heldTargets}`] : []),
+    ],
+    policy: "두 독립 검수자가 같은 비정상 판정을 내린 criterion·빈 축 또는 미해결 판정은 후속 보정과 재검수 전까지 승격을 보류한다.",
+  } as const;
 }
 
 export async function validateAndWrapIndependentReviewResult(options: {

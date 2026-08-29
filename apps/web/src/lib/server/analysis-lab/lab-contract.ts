@@ -30,7 +30,8 @@ import type {
 // v15: 실제 원문 충돌·입력 누락은 보류로 보존하고 canonical 불안만 text_only로 닫는다.
 // v16: 면책 방향 불명확·역할 한정 평가요소의 첫 패스 무손실 표현을 구체화한다.
 // v17: '참여제한 조치 중'을 현재 제재로 인식하고 주관기관을 신청 주체로 보존한다.
-export const ANALYSIS_LAB_PROMPT_VERSION = "lab-deep-v17";
+// v18: 독립 AI 합의 결함에서 확인된 OR 경로·포털 메타데이터·복합 결격·배점 경계를 닫는다.
+export const ANALYSIS_LAB_PROMPT_VERSION = "lab-deep-v18";
 export const ANALYSIS_LAB_DEFAULT_MODEL = "claude-opus-4-8";
 
 /**

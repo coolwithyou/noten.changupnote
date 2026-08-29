@@ -60,7 +60,7 @@ for (const rule of [
 ]) {
   assert.equal(DEEP_ANALYSIS_AUDIT_SYSTEM_PROMPT.includes(rule), true);
 }
-assert.equal(DEEP_ANALYSIS_AUDIT_CONTRACT_VERSION, "deep-analysis-audit-candidates-v7");
+assert.equal(DEEP_ANALYSIS_AUDIT_CONTRACT_VERSION, "deep-analysis-audit-candidates-v8");
 assert.equal(DEEP_ANALYSIS_AUDIT_SCOPE_VERSION, "deep-analysis-match-impacting-scope-v1");
 
 const auditToolSchema = buildDeepAnalysisAuditToolSchema();

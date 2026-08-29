@@ -21,7 +21,7 @@ import {
 import type { DeepAnalysisInputSeal } from "./inputManifest";
 import { sha256Hex, stableJson } from "./sourceRevision";
 
-export const DEEP_ANALYSIS_VALIDATOR_VERSION = "deep-analysis-validator-v10" as const;
+export const DEEP_ANALYSIS_VALIDATOR_VERSION = "deep-analysis-validator-v11" as const;
 
 export type DeepAnalysisValidationIssueCode =
   | "raw_contract_invalid"
@@ -33,6 +33,7 @@ export type DeepAnalysisValidationIssueCode =
   | "canonical_contract_invalid"
   | "semantic_duplicate"
   | "semantic_misattribution"
+  | "high_risk_condition_gap"
   | "logical_conflict"
   | "non_matching_criterion"
   | "input_not_sealed";
@@ -196,6 +197,12 @@ export function validateDeepAnalysisResult(input: {
   validateLocationTenureBusinessAge(validatedCriteria, issues);
   validateApplicationMatchingScope(validatedCriteria, issues);
   validateActorAndTrackScope(validatedCriteria, issues);
+  validateAlternativeApplicantPaths(validatedCriteria, issues);
+  validateStructuredFilterMetadata(input.seal, validatedCriteria, issues);
+  validateProceduralEvidenceChecks(validatedCriteria, issues);
+  validatePriorAwardLosslessScope(validatedCriteria, issues);
+  validateEligibilityRankingSeparation(input.seal, validatedCriteria, issues);
+  validateHighRiskConditionCoverage(input.seal, validatedCriteria, issues);
 
   const criteriaByDimension = new Map<CriterionDimension, DeepAnalysisValidatedCriterion[]>();
   for (const dimension of CRITERION_DIMENSIONS) criteriaByDimension.set(dimension, []);
@@ -238,6 +245,7 @@ export function validateDeepAnalysisResult(input: {
     "canonical_contract_invalid",
     "semantic_duplicate",
     "semantic_misattribution",
+    "high_risk_condition_gap",
     "logical_conflict",
     "non_matching_criterion",
   ]);
@@ -271,10 +279,10 @@ export function validateDeepAnalysisResult(input: {
 }
 
 const LOCATION_TENURE_CONTEXT_PATTERN =
-  /(?:소재|입주|사업장|본사|공장|주소지|거주|이전)/u;
+  /(?:소재|입주(?!\s*신청일)|사업장|본사|공장|주소지|거주|이전)/u;
 const DURATION_PATTERN = /\d+(?:\.\d+)?\s*(?:년|개월|월)\s*(?:이상|이하|초과|미만|이내|경과)?/u;
 const EXPLICIT_BUSINESS_AGE_PATTERN =
-  /(?:업력|사업\s*영위\s*기간|(?:설립|창업|개업)(?:\s*(?:일|한\s*지|된\s*지|후|이후|로부터))?\s*\d|사업\s*개시|사업자\s*등록(?:일)?(?:로부터|후|이후))/u;
+  /(?:업력|사업\s*영위\s*기간|창업\s*일.{0,8}\d|(?:설립|창업|개업)(?:\s*(?:일|한\s*지|된\s*지|후|이후|로부터))?\s*\d|사업\s*개시|사업자\s*등록(?:일)?(?:로부터|후|이후))/u;
 
 /**
  * 소재·입주 기간은 사업체가 존속한 기간의 필요조건처럼 보일 수 있지만, 신청
@@ -315,6 +323,8 @@ function validateApplicationMatchingScope(
     if (!reason) continue;
     const message = reason === "program_job_field"
       ? "Program job/placement field cannot be used as an applicant-company industry criterion; preserve it only in program intent."
+      : reason === "program_collaboration_theme"
+        ? "A demand-company collaboration theme or proposed project field is not the applicant company's industry; preserve an eligibility-impacting project scope as other/text_only, otherwise keep it only in program intent."
       : reason === "unresolved_industry_job_field"
         ? "Unresolved industry-vs-job-field wording cannot become a blocking industry criterion; use input_missing when the disambiguating attachment is absent."
         : `${reason}: application procedure or post-selection obligation cannot be used for company matching; preserve it only in analysis/caution text.`;
@@ -324,6 +334,267 @@ function validateApplicationMatchingScope(
       message,
     });
   }
+}
+
+function validateStructuredFilterMetadata(
+  seal: DeepAnalysisInputSeal,
+  criteria: DeepAnalysisValidatedCriterion[],
+  issues: DeepAnalysisValidationIssue[],
+): void {
+  for (const item of criteria) {
+    const context = criterionEvidenceContext(seal, item);
+    if (
+      item.criterion.dimension === "region"
+      && /source_field\s*:\s*supt_regin/iu.test(context)
+    ) {
+      issues.push({
+        code: "semantic_misattribution",
+        path: `$.criteria[${item.index}]`,
+        message:
+          "K-Startup supt_regin is portal/service-region metadata, not proof of an applicant address requirement. Remove this region criterion unless a separate applicant headquarters, address, or premises sentence exists.",
+      });
+    }
+    if (
+      item.criterion.dimension === "biz_age"
+      && /source_field\s*:\s*biz_enyy/iu.test(context)
+      && /예비창업/u.test(context)
+      && (context.match(/\d+년\s*미만/gu)?.length ?? 0) >= 4
+    ) {
+      issues.push({
+        code: "semantic_misattribution",
+        path: `$.criteria[${item.index}]`,
+        message:
+          "A broad K-Startup biz_enyy category list is search metadata, not a global company-age requirement. Remove this biz_age criterion and use a concrete eligibility sentence if present.",
+      });
+    }
+  }
+}
+
+function validateAlternativeApplicantPaths(
+  criteria: DeepAnalysisValidatedCriterion[],
+  issues: DeepAnalysisValidationIssue[],
+): void {
+  const targetLists = criteria.filter((item) => {
+    if (
+      item.criterion.dimension !== "target_type"
+      || item.criterion.kind !== "required"
+    ) return false;
+    const span = (item.criterion.sourceSpan ?? "").normalize("NFKC");
+    return (span.match(/,/g)?.length ?? 0) >= 2 || /및\s*기타/u.test(span);
+  });
+  for (const item of criteria) {
+    if (item.criterion.kind !== "required") continue;
+    const semantic = criterionSemanticText(item);
+    if (
+      item.criterion.dimension === "industry"
+      && /(?:콘텐츠|영상|영화|제조|개발).{0,24}사업자.{0,60}(?:또는|혹은).{0,80}(?:개인\s*(?:창작자|신청자)|예비창업자)/u.test(semantic)
+    ) {
+      issues.push({
+        code: "semantic_misattribution",
+        path: `$.criteria[${item.index}]`,
+        message:
+          "An industry condition that applies only to one side of a business-or-individual applicant path cannot be published as a global industry requirement. Preserve the complete alternative as other/text_only.",
+      });
+      continue;
+    }
+    if (item.criterion.dimension !== "premises" && item.criterion.dimension !== "biz_age") {
+      continue;
+    }
+    const candidate = normalizeComparableEvidence(item.criterion.sourceSpan);
+    if (candidate.length < 5 || !/(?:기업|사업자|창업자)$/u.test(candidate)) continue;
+    const containingTarget = targetLists.find((target) => {
+      const whole = normalizeComparableEvidence(target.criterion.sourceSpan);
+      return whole.length > candidate.length * 1.5 && whole.includes(candidate);
+    });
+    if (!containingTarget) continue;
+    issues.push({
+      code: "semantic_misattribution",
+      path: `$.criteria[${item.index}]`,
+      message:
+        `This ${item.criterion.dimension} requirement is only one item in the alternative applicant list at $.criteria[${containingTarget.index}], not a global requirement. Remove the standalone criterion and preserve the complete OR path.`,
+    });
+  }
+}
+
+function criterionEvidenceContext(
+  seal: DeepAnalysisInputSeal,
+  item: DeepAnalysisValidatedCriterion,
+): string {
+  return item.evidenceRefs.map((ref) => {
+    const chunk = seal.chunks.find((candidate) => candidate.id === ref.chunkId);
+    if (!chunk) return "";
+    const relativeStart = Math.max(0, ref.startChar - chunk.startChar);
+    const relativeEnd = Math.max(relativeStart, ref.endChar - chunk.startChar);
+    const lineStart = chunk.text.lastIndexOf("\n", relativeStart - 1) + 1;
+    const nextBreak = chunk.text.indexOf("\n", relativeEnd);
+    const lineEnd = nextBreak < 0 ? chunk.text.length : nextBreak;
+    return chunk.text.slice(lineStart, lineEnd);
+  }).join("\n").normalize("NFKC");
+}
+
+function validateProceduralEvidenceChecks(
+  criteria: DeepAnalysisValidatedCriterion[],
+  issues: DeepAnalysisValidationIssue[],
+): void {
+  for (const item of criteria) {
+    if (item.criterion.dimension !== "founder_trait") continue;
+    const text = criterionSemanticText(item);
+    if (!/외국인.{0,24}증명서.{0,40}유효기간.{0,24}확인/u.test(text)) continue;
+    if (/(?:신청|지원)\s*(?:불가|제외)|탈락|유효기간.{0,12}(?:이상|이하|초과|미만)/u.test(text)) {
+      continue;
+    }
+    issues.push({
+      code: "semantic_misattribution",
+      path: `$.criteria[${item.index}]`,
+      message:
+        "Checking a foreign-owner certificate's validity without an explicit pass/fail fact or threshold is an application procedure, not a founder_trait requirement.",
+    });
+  }
+}
+
+function validatePriorAwardLosslessScope(
+  criteria: DeepAnalysisValidatedCriterion[],
+  issues: DeepAnalysisValidationIssue[],
+): void {
+  for (const item of criteria) {
+    if (
+      item.criterion.dimension !== "prior_award"
+      || item.criterion.operator === "text_only"
+    ) continue;
+    const text = criterionSemanticText(item);
+    const sameItem = /동일\s*\(?\s*유사\s*\)?\s*(?:아이템|과제|품목)/u.test(text);
+    const calendarScope = /[’']?\d{2,4}\s*[~∼-]\s*[’']?\d{2,4}\s*년/u.test(text)
+      || /[’']?\d{2,4}\s*년도?.{0,80}[’']?\d{2,4}\s*년도?/u.test(text);
+    const nonCanonicalException = /(?:단|다만).{0,120}(?:참가|신청).{0,24}(?:가능|할\s*수)/u.test(text);
+    if (!sameItem || (!calendarScope && !nonCanonicalException)) continue;
+    issues.push({
+      code: "canonical_contract_invalid",
+      path: `$.criteria[${item.index}]`,
+      message:
+        "A same/similar-item prior-award rule with calendar-year scope or a non-canonical competition exception cannot be represented by programs/states alone; preserve the full exclusion as other/text_only.",
+    });
+  }
+}
+
+function validateEligibilityRankingSeparation(
+  seal: DeepAnalysisInputSeal,
+  criteria: DeepAnalysisValidatedCriterion[],
+  issues: DeepAnalysisValidationIssue[],
+): void {
+  const requiredBusinessAge = criteria.some((item) => (
+    item.criterion.dimension === "biz_age" && item.criterion.kind === "required"
+  ));
+  const preferredBusinessAge = criteria.some((item) => (
+    item.criterion.dimension === "biz_age" && item.criterion.kind === "preferred"
+  ));
+  if (!requiredBusinessAge || preferredBusinessAge) return;
+  const text = sealedEvidenceText(seal);
+  const keywordPattern = /(?:입주신청일\s*기준\s*창업일|업력)/gu;
+  for (const match of text.matchAll(keywordPattern)) {
+    const window = text.slice(match.index ?? 0, (match.index ?? 0) + 900);
+    const scoreCount = window.match(/\d+(?:\.\d+)?\s*점/gu)?.length ?? 0;
+    const tierCount = window.match(/\d+년\s*(?:이내|초과)/gu)?.length ?? 0;
+    if (scoreCount < 3 || tierCount < 3) continue;
+    issues.push({
+      code: "high_risk_condition_gap",
+      path: "$.criteria.biz_age",
+      message:
+        "The source contains multiple company-age scoring tiers, but only a required biz_age criterion was emitted. Keep the eligibility bound and emit the ranking tiers separately as preferred criteria.",
+    });
+    return;
+  }
+}
+
+function validateHighRiskConditionCoverage(
+  seal: DeepAnalysisInputSeal,
+  criteria: DeepAnalysisValidatedCriterion[],
+  issues: DeepAnalysisValidationIssue[],
+): void {
+  const text = sealedEvidenceText(seal);
+  const creditRule = /부도.{0,80}금융기관.{0,40}채무\s*불이행\s*중/u.test(text);
+  if (creditRule) {
+    const flags = new Set(criteria
+      .filter((item) => item.criterion.dimension === "credit_status")
+      .flatMap((item) => stringArray(
+        isRecord(item.canonicalCriterion.value) ? item.canonicalCriterion.value.flags : [],
+      )));
+    const losslessText = criteria.some((item) => (
+      item.criterion.dimension === "credit_status"
+      && item.criterion.operator === "text_only"
+      && /부도.{0,80}채무\s*불이행/u.test(criterionSemanticText(item))
+    ));
+    if (!losslessText && (!flags.has("bond_default") || !flags.has("loan_default"))) {
+      issues.push({
+        code: "high_risk_condition_gap",
+        path: "$.criteria.credit_status",
+        message:
+          "The source explicitly excludes both bond default and financial-institution debt default, but the credit_status criteria do not preserve both conditions.",
+      });
+    }
+  }
+
+  const financialRulePattern = /부채\s*비율.{0,30}1[\s,]?000\s*%\s*이상.{0,80}(?:완전\s*자본\s*잠식|완전자본\s*잠식)/u;
+  const financialRuleMatch = financialRulePattern.exec(text);
+  if (financialRuleMatch) {
+    const financialWindow = text.slice(
+      financialRuleMatch.index,
+      financialRuleMatch.index + financialRuleMatch[0].length + 240,
+    );
+    const hasNonCanonicalException = /(?:관리규정|규정).{0,40}예외\s*인정|예외\s*인정/u.test(financialWindow);
+    const covered = criteria.some((item) => {
+      if (item.criterion.dimension !== "financial_health") return false;
+      if (item.criterion.operator === "text_only") {
+        const semantic = criterionSemanticText(item);
+        return /1[\s,]?000\s*%/u.test(semantic)
+          && /완전\s*자본\s*잠식|완전자본\s*잠식/u.test(semantic)
+          && (!hasNonCanonicalException || /예외/u.test(semantic));
+      }
+      if (hasNonCanonicalException) return false;
+      const value = isRecord(item.canonicalCriterion.value) ? item.canonicalCriterion.value : {};
+      const threshold = isRecord(value.debt_ratio_pct_threshold)
+        ? value.debt_ratio_pct_threshold.value
+        : null;
+      return threshold === 1_000 && stringArray(value.impairment_excluded).includes("full");
+    });
+    if (!covered) {
+      issues.push({
+        code: "high_risk_condition_gap",
+        path: "$.criteria.financial_health",
+        message:
+          "The source explicitly excludes debt ratio at or above 1000% or full capital impairment, but the financial_health criteria do not preserve both conditions and their exception scope.",
+      });
+    }
+  }
+
+  if (/추진\s*목적에\s*부합되지\s*않는\s*아이템/u.test(text)) {
+    const covered = criteria.some((item) => (
+      item.criterion.dimension === "other"
+      && item.criterion.kind === "exclusion"
+      && /추진\s*목적에\s*부합되지\s*않는\s*아이템/u.test(criterionSemanticText(item))
+    ));
+    if (!covered) {
+      issues.push({
+        code: "high_risk_condition_gap",
+        path: "$.criteria.other",
+        message:
+          "The source explicitly excludes items that do not fit the competition purpose; preserve this application-impacting item-scope rule as other/text_only exclusion.",
+      });
+    }
+  }
+}
+
+function sealedEvidenceText(seal: DeepAnalysisInputSeal): string {
+  return seal.chunks.map((chunk) => chunk.text).join("\n").normalize("NFKC").replace(/\s+/g, " ");
+}
+
+function criterionSemanticText(item: DeepAnalysisValidatedCriterion): string {
+  const valueNote = isRecord(item.criterion.value) && typeof item.criterion.value.note === "string"
+    ? item.criterion.value.note
+    : "";
+  return `${item.criterion.sourceSpan ?? ""} ${item.criterion.note ?? ""} ${valueNote}`
+    .normalize("NFKC")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 const STARTUP_STAGE_TARGETS = new Set([

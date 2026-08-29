@@ -252,6 +252,369 @@ assert.equal(validateDeepAnalysisResult({
   ], axes(["biz_age"])),
 }).valid, true, "별도의 설립 기간 근거가 명시된 실제 업력 조건은 보존한다");
 
+const serviceRegionSpan = "지원지역: 대구";
+const serviceRegionSeal = sealDeepAnalysisInput({
+  grantId: "grant-service-region-metadata",
+  sourceRevisionSha256: "6".repeat(64),
+  structuredText: `${serviceRegionSpan} (source_field: supt_regin)`,
+  attachments: [],
+});
+const serviceRegionValidation = validateDeepAnalysisResult({
+  seal: serviceRegionSeal,
+  result: result([
+    criterion({
+      dimension: "region",
+      operator: "in",
+      kind: "required",
+      value: { regions: ["27"] },
+      sourceSpan: serviceRegionSpan,
+    }),
+  ], axes(["region"])),
+});
+assert.equal(serviceRegionValidation.valid, false, "포털 지원지역만으로 신청기업 소재지를 제한할 수 없다");
+assert.equal(
+  serviceRegionValidation.issues.some((issue) => (
+    issue.code === "semantic_misattribution" && issue.message.includes("supt_regin")
+  )),
+  true,
+);
+
+const collaborationThemeSpan =
+  "참여기업 및 모집분야: 토스뱅크 포용금융, 현대홈쇼핑 혁신소재·기술 협업, 기타 협업 가능한 비즈니스";
+const collaborationThemeSeal = sealDeepAnalysisInput({
+  grantId: "grant-collaboration-theme",
+  sourceRevisionSha256: "5".repeat(64),
+  structuredText: collaborationThemeSpan,
+  attachments: [],
+});
+const collaborationThemeValidation = validateDeepAnalysisResult({
+  seal: collaborationThemeSeal,
+  result: result([
+    criterion({
+      dimension: "industry",
+      operator: "text_only",
+      kind: "required",
+      value: { note: "수요기업별 협업 제안 주제" },
+      sourceSpan: collaborationThemeSpan,
+    }),
+  ], axes(["industry"])),
+});
+assert.equal(collaborationThemeValidation.valid, false, "협업 모집 주제는 신청기업 업종이 아니다");
+assert.equal(
+  collaborationThemeValidation.issues.some((issue) => (
+    issue.code === "non_matching_criterion" && issue.message.includes("collaboration theme")
+  )),
+  true,
+);
+
+const alternativeApplicantSpan =
+  "서울창업허브 창동 입주기업, 1인 창조기업, 졸업기업 및 기타 예비·초기 창업기업";
+const alternativeApplicantSeal = sealDeepAnalysisInput({
+  grantId: "grant-alternative-applicant-path",
+  sourceRevisionSha256: "a".repeat(64),
+  structuredText: alternativeApplicantSpan,
+  attachments: [],
+});
+const alternativeApplicantValidation = validateDeepAnalysisResult({
+  seal: alternativeApplicantSeal,
+  result: result([
+    criterion({
+      dimension: "target_type",
+      operator: "in",
+      kind: "required",
+      value: {
+        targets: ["서울창업허브 창동 입주기업", "1인 창조기업", "졸업기업", "예비·초기 창업기업"],
+        list_semantics: "closed",
+      },
+      sourceSpan: alternativeApplicantSpan,
+    }),
+    criterion({
+      dimension: "premises",
+      operator: "text_only",
+      kind: "required",
+      value: { note: "서울창업허브 창동 입주기업" },
+      sourceSpan: "서울창업허브 창동 입주기업",
+    }),
+    criterion({
+      dimension: "biz_age",
+      operator: "text_only",
+      kind: "required",
+      value: { note: "예비·초기 창업기업" },
+      sourceSpan: "예비·초기 창업기업",
+    }),
+  ], axes(["target_type", "premises", "biz_age"])),
+});
+assert.deepEqual(
+  alternativeApplicantValidation.issues
+    .filter((issue) => issue.code === "semantic_misattribution")
+    .map((issue) => issue.path),
+  ["$.criteria[1]", "$.criteria[2]"],
+  "OR 신청대상 중 입주·창업단계 한 경로를 전역 필수조건으로 분리할 수 없다",
+);
+
+const businessOrCreatorSpan =
+  "콘텐츠 제작 사업자 또는 주민등록상 제주특별자치도에 거주하는 개인 창작자";
+const businessOrCreatorSeal = sealDeepAnalysisInput({
+  grantId: "grant-business-or-creator",
+  sourceRevisionSha256: "b".repeat(64),
+  structuredText: businessOrCreatorSpan,
+  attachments: [],
+});
+const businessOrCreatorValidation = validateDeepAnalysisResult({
+  seal: businessOrCreatorSeal,
+  result: result([
+    criterion({
+      dimension: "industry",
+      operator: "in",
+      kind: "required",
+      value: { tags: ["콘텐츠 제작업"] },
+      sourceSpan: businessOrCreatorSpan,
+    }),
+  ], axes(["industry"])),
+});
+assert.equal(
+  businessOrCreatorValidation.issues.some((issue) => (
+    issue.code === "semantic_misattribution" && issue.message.includes("business-or-individual")
+  )),
+  true,
+  "사업자 OR 개인 창작자 경로의 업종을 개인에게 전역 적용할 수 없다",
+);
+
+const certificateCheckSpan =
+  "외국인이 업주인 경우 사후 유지관리의무 2년 준수여부 확인을 위하여 외국인증명서의 유효기간 등을 확인함";
+const certificateCheckSeal = sealDeepAnalysisInput({
+  grantId: "grant-certificate-check",
+  sourceRevisionSha256: "4".repeat(64),
+  structuredText: certificateCheckSpan,
+  attachments: [],
+});
+const certificateCheckValidation = validateDeepAnalysisResult({
+  seal: certificateCheckSeal,
+  result: result([
+    criterion({
+      dimension: "founder_trait",
+      operator: "text_only",
+      kind: "required",
+      value: { note: certificateCheckSpan },
+      sourceSpan: certificateCheckSpan,
+    }),
+  ], axes(["founder_trait"])),
+});
+assert.equal(certificateCheckValidation.valid, false, "판정 기준 없는 증명서 확인 절차는 대표자 자격이 아니다");
+assert.equal(
+  certificateCheckValidation.issues.some((issue) => (
+    issue.code === "semantic_misattribution" && issue.message.includes("application procedure")
+  )),
+  true,
+);
+
+const priorAwardCalendarSpan =
+  "동일(유사) 아이템으로 ’20∼’25년도 물산업 창업대전 또는 ’26년도 타 기관 창업경진대회 수상자는 제외한다. 단, ’26년도 AX 아이디어 경진대회 물 관련 수상자는 참가할 수 있다.";
+const priorAwardCalendarSeal = sealDeepAnalysisInput({
+  grantId: "grant-prior-award-calendar-scope",
+  sourceRevisionSha256: "3".repeat(64),
+  structuredText: priorAwardCalendarSpan,
+  attachments: [],
+});
+const lossyPriorAwardValidation = validateDeepAnalysisResult({
+  seal: priorAwardCalendarSeal,
+  result: result([
+    criterion({
+      dimension: "prior_award",
+      operator: "in",
+      kind: "exclusion",
+      value: {
+        scope: "program",
+        programs: ["물산업 창업대전", "타 기관 창업경진대회"],
+        states: ["completed"],
+      },
+      sourceSpan: priorAwardCalendarSpan,
+    }),
+  ], axes(["prior_award"])),
+});
+assert.equal(lossyPriorAwardValidation.valid, false, "달력연도·동일아이템·대회 예외를 programs만으로 축약할 수 없다");
+assert.equal(
+  lossyPriorAwardValidation.issues.some((issue) => (
+    issue.code === "canonical_contract_invalid" && issue.message.includes("calendar-year scope")
+  )),
+  true,
+);
+
+const highRiskExclusionSpan =
+  "참여제한: 협약예정일 기준 연구개발기관 등이 부도 및 금융기관 등의 채무 불이행 중이거나, 최근 재무제표 부채비율이 1,000% 이상이거나 완전자본 잠식상태인 경우. 단, 관리규정에 따른 예외 인정.";
+const highRiskExclusionSeal = sealDeepAnalysisInput({
+  grantId: "grant-high-risk-exclusion-gap",
+  sourceRevisionSha256: "2".repeat(64),
+  structuredText: highRiskExclusionSpan,
+  attachments: [],
+});
+const highRiskExclusionValidation = validateDeepAnalysisResult({
+  seal: highRiskExclusionSeal,
+  result: result([], axes()),
+});
+assert.equal(highRiskExclusionValidation.valid, false, "명시적 신용·재무 결격을 빈 축으로 통과시킬 수 없다");
+assert.deepEqual(
+  new Set(highRiskExclusionValidation.issues
+    .filter((issue) => issue.code === "high_risk_condition_gap")
+    .map((issue) => issue.path)),
+  new Set(["$.criteria.credit_status", "$.criteria.financial_health"]),
+);
+const lossyFinancialException = validateDeepAnalysisResult({
+  seal: highRiskExclusionSeal,
+  result: result([
+    criterion({
+      dimension: "credit_status",
+      operator: "in",
+      kind: "exclusion",
+      value: { flags: ["bond_default", "loan_default"] },
+      sourceSpan: highRiskExclusionSpan,
+    }),
+    criterion({
+      dimension: "financial_health",
+      operator: "gte",
+      kind: "exclusion",
+      value: {
+        debt_ratio_pct_threshold: { value: 1_000, inclusive: true },
+        impairment_excluded: ["full"],
+      },
+      sourceSpan: highRiskExclusionSpan,
+    }),
+  ], axes(["credit_status", "financial_health"])),
+});
+assert.equal(
+  lossyFinancialException.issues.some((issue) => (
+    issue.code === "high_risk_condition_gap" && issue.path === "$.criteria.financial_health"
+  )),
+  true,
+  "비정형 규정 예외를 버린 구조화 재무결격은 통과할 수 없다",
+);
+const losslessHighRiskExclusion = validateDeepAnalysisResult({
+  seal: highRiskExclusionSeal,
+  result: result([
+    criterion({
+      dimension: "credit_status",
+      operator: "text_only",
+      kind: "exclusion",
+      value: { note: highRiskExclusionSpan },
+      sourceSpan: highRiskExclusionSpan,
+    }),
+    criterion({
+      dimension: "financial_health",
+      operator: "text_only",
+      kind: "exclusion",
+      value: { note: highRiskExclusionSpan },
+      sourceSpan: highRiskExclusionSpan,
+    }),
+  ], axes(["credit_status", "financial_health"])),
+});
+assert.equal(
+  losslessHighRiskExclusion.valid,
+  true,
+  `신용·재무 결격과 비정형 예외를 text_only로 무손실 보존하면 통과한다: ${JSON.stringify(losslessHighRiskExclusion.issues)}`,
+);
+
+const itemPurposeSpan = "신청 제외대상: 본 대회 추진 목적에 부합되지 않는 아이템";
+const itemPurposeSeal = sealDeepAnalysisInput({
+  grantId: "grant-item-purpose-gap",
+  sourceRevisionSha256: "1".repeat(64),
+  structuredText: itemPurposeSpan,
+  attachments: [],
+});
+const itemPurposeGap = validateDeepAnalysisResult({
+  seal: itemPurposeSeal,
+  result: result([], axes()),
+});
+assert.equal(
+  itemPurposeGap.issues.some((issue) => (
+    issue.code === "high_risk_condition_gap" && issue.path === "$.criteria.other"
+  )),
+  true,
+  "명시적 아이템 목적 부합 제외조건은 other/text_only로 보존해야 한다",
+);
+assert.equal(validateDeepAnalysisResult({
+  seal: itemPurposeSeal,
+  result: result([
+    criterion({
+      dimension: "other",
+      operator: "text_only",
+      kind: "exclusion",
+      value: { note: itemPurposeSpan },
+      sourceSpan: itemPurposeSpan,
+    }),
+  ], axes(["other"])),
+}).valid, true, "아이템 목적 제외조건을 명시적으로 보존하면 통과한다");
+
+const businessAgeEligibilitySpan = "사업자가 공고일 기준 설립일로부터 만 7년 이내인 국내 창업기업이다.";
+const businessAgeScoringSpan =
+  "입주신청일 기준 창업일: 3년 이내 20점, 3년 초과 5년 이내 10점, 5년 초과 7년 이내 5점";
+const businessAgeScoringSeal = sealDeepAnalysisInput({
+  grantId: "grant-business-age-ranking-gap",
+  sourceRevisionSha256: "0".repeat(64),
+  structuredText: `${businessAgeEligibilitySpan}\n${businessAgeScoringSpan}`,
+  attachments: [],
+});
+const businessAgeRankingGap = validateDeepAnalysisResult({
+  seal: businessAgeScoringSeal,
+  result: result([
+    criterion({
+      dimension: "biz_age",
+      operator: "lte",
+      kind: "required",
+      value: { max_months: 84 },
+      sourceSpan: businessAgeEligibilitySpan,
+      note: businessAgeScoringSpan,
+    }),
+  ], axes(["biz_age"])),
+});
+assert.equal(
+  businessAgeRankingGap.issues.some((issue) => (
+    issue.code === "high_risk_condition_gap" && issue.path === "$.criteria.biz_age"
+  )),
+  true,
+  "필수 업력 상한 note에 배점 구간을 합쳐 preferred 추출을 생략할 수 없다",
+);
+const separatedBusinessAgeRanking = validateDeepAnalysisResult({
+  seal: businessAgeScoringSeal,
+  result: result([
+    criterion({
+      dimension: "biz_age",
+      operator: "lte",
+      kind: "required",
+      value: { max_months: 84 },
+      sourceSpan: businessAgeEligibilitySpan,
+    }),
+    criterion({
+      dimension: "biz_age",
+      operator: "lte",
+      kind: "preferred",
+      value: { max_months: 36 },
+      sourceSpan: businessAgeScoringSpan,
+      note: "3년 이내 20점",
+    }),
+    criterion({
+      dimension: "biz_age",
+      operator: "between",
+      kind: "preferred",
+      value: { min_months: 37, max_months: 60 },
+      sourceSpan: businessAgeScoringSpan,
+      note: "3년 초과 5년 이내 10점",
+    }),
+    criterion({
+      dimension: "biz_age",
+      operator: "between",
+      kind: "preferred",
+      value: { min_months: 61, max_months: 84 },
+      sourceSpan: businessAgeScoringSpan,
+      note: "5년 초과 7년 이내 5점",
+    }),
+  ], axes(["biz_age"])),
+});
+assert.equal(
+  separatedBusinessAgeRanking.valid,
+  true,
+  `필수 업력과 preferred 배점 구간을 분리하면 통과한다: ${JSON.stringify(separatedBusinessAgeRanking.issues)}`,
+);
+
 const invalidTargetTypeListSemanticsValidation = validateDeepAnalysisResult({
   seal,
   result: result([criterion({

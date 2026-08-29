@@ -892,7 +892,21 @@ export const DEEP_ANALYSIS_ELIGIBILITY_EXCEPTION_RULE =
 export const DEEP_ANALYSIS_STRUCTURED_TARGET_RULE =
   "sealed structured source의 rawPayload.trgetNm은 Bizinfo가 제공한 공식 신청대상 필드다. 이 값이 '중소기업'처럼 지원대상을 구체적으로 명시하면 첨부 본문에 같은 문장이 반복되지 않아도 해당 축 criterion의 유효한 근거로 사용하고, 첨부에 없다는 이유만으로 inspected_no_condition이나 unsure로 낮추지 마라. 다만 structured 신청대상과 공고 본문·첨부의 명시 조건이 서로 충돌하면 임의로 선택하지 말고 ambiguous로 남겨라. 특히 본문의 신청·추천 대상 문장이 규모를 한정하지 않고 기업·기관 등으로 열려 있으며 신청서의 신청주체 선택란도 대기업·중소기업·대학·공공기관처럼 structured target보다 넓은 유형을 명시하면, 그 선택란은 단독 자격근거가 아니라 본문과 결합해 structured target 충돌을 입증하는 근거다. 이 경우 structured target만으로 size required criterion을 만들지 마라.";
 export const DEEP_ANALYSIS_STRUCTURED_FILTER_METADATA_RULE =
-  "K-Startup의 rawPayload.biz_enyy와 biz_trgt_age처럼 포털 검색용 범주를 넓게 열거한 필드는 그 자체를 신청자격 상·하한으로 만들지 마라. 지원 가능한 모든 업력 또는 연령 범주를 사실상 전부 나열하면 비제한 검색 메타데이터이므로 criterion이나 ambiguous 근거가 아니다. 신청대상·신청자격 본문에 명시된 구체 조건이 있으면 그 문장을 우선하고, 양쪽이 모두 실제 자격 문장인데 충돌할 때만 ambiguous로 남겨라.";
+  "K-Startup의 rawPayload.biz_enyy와 biz_trgt_age처럼 포털 검색용 범주를 넓게 열거한 필드는 그 자체를 신청자격 상·하한으로 만들지 마라. 지원 가능한 모든 업력 또는 연령 범주를 사실상 전부 나열하면 비제한 검색 메타데이터이므로 criterion이나 ambiguous 근거가 아니다. rawPayload.supt_regin(입력의 source_field: supt_regin)은 사업·운영기관의 서비스 권역 또는 포털 분류일 수 있으므로 그 값만으로 신청기업 소재지 region criterion을 만들지 마라. 신청대상·신청자격 본문에 신청자 주소지·본사·사업장 소재지가 명시된 경우에만 region 자격으로 만들고, 양쪽이 모두 실제 자격 문장인데 충돌할 때만 ambiguous로 남겨라.";
+export const DEEP_ANALYSIS_ALTERNATIVE_PATH_SCOPE_RULE =
+  "신청자격이 A 또는 B, 쉼표 열거, 트랙별 경로처럼 대안(OR)으로 열려 있으면 한 경로의 속성을 모든 신청자에게 적용되는 독립 required criterion으로 승격하지 마라. 서로 다른 22축이 섞인 대안은 현재 criterion 계약으로 논리식을 무손실 표현할 수 없으므로 dimension=other, operator=text_only 한 건에 전체 OR 경로와 적용 범위를 보존한다. 예: '입주기업, 졸업기업 및 기타 예비·초기 창업기업'에서 입주 여부와 예비·초기 업력을 별도 전역 필수조건으로 만들면 안 되고, '콘텐츠 제작 사업자 또는 제주 거주 개인 창작자'에서 콘텐츠 업종을 개인 창작자에게까지 적용하면 안 된다.";
+export const DEEP_ANALYSIS_PROGRAM_THEME_BOUNDARY_RULE =
+  "수요기업별 협업 모집분야, 해결과제, 도입기술, 개발대상 품목, 출품작 장르·형식은 신청기업의 KSIC·업태·종목이 아니다. 신청기업이 그 업종을 실제로 영위해야 한다는 문장이 없으면 industry criterion으로 만들지 마라. 제안 아이템·작품이 특정 주제나 유형이어야 해서 신청 가능성에 영향을 주면 other/text_only로 전체 과제 범위를 보존하고, 단순 사업 방향이면 program_intent에만 기록한다.";
+export const DEEP_ANALYSIS_PROCEDURAL_EVIDENCE_CHECK_RULE =
+  "증명서·확인서의 유효기간이나 제출 여부를 확인한다는 절차 문구만 있고 어떤 사실이 필수인지, 어떤 값이면 탈락하는지가 명시되지 않으면 자격 criterion이 아니다. 외국인 업주의 증명서 유효기간 확인처럼 확인 목적만 적힌 문구를 founder_trait required로 만들지 말고 신청 체크사항에만 보존한다. 문서가 증명하는 실질 사실과 합격·탈락 효과가 명시된 경우에만 그 사실의 축으로 추출한다.";
+export const DEEP_ANALYSIS_PRIOR_AWARD_LOSSLESS_RULE =
+  "prior_award 결격에 동일·유사 아이템, 특정 달력연도 구간, 주최기관, 팀원 전체 적용, 별도 대회 수상 예외가 결합되면 programs나 states 일부만 구조화하지 마라. 현재 value가 모든 한정과 예외를 표현하지 못하면 other/text_only exclusion 한 건에 전체 조건과 예외를 무손실 보존한다. 명시된 달력연도 범위를 최근 N년 within으로 바꾸거나, 예외를 note에만 남긴 채 구조화 결격을 발행하지 마라.";
+export const DEEP_ANALYSIS_ITEM_SCOPE_EXCLUSION_RULE =
+  "'본 대회 추진 목적에 부합되지 않는 아이템', 공모분야 밖 과제처럼 신청 아이템의 적합성을 명시적으로 제외하는 문구는 회사 속성이 아니어도 신청 가능성을 바꾸는 조건이다. 포괄적 '기타 부적합' 재량 문구와 구분하여 other/text_only exclusion으로 원문 범위를 보존한다.";
+export const DEEP_ANALYSIS_ELIGIBILITY_RANKING_SEPARATION_RULE =
+  "같은 사실이 자격 상한과 평가 배점에 모두 쓰여도 required 한 건의 note에 합치지 마라. 자격 충족 여부를 바꾸는 required criterion과 순위·점수를 바꾸는 preferred criterion을 별도로 만든다. 예: 업력 7년 이내 필수조건과 3년 이내 20점·3년 초과 5년 이내 10점·5년 초과 7년 이내 5점은 biz_age required 한 건과 구간별 preferred 배점으로 분리한다.";
+export const DEEP_ANALYSIS_HIGH_RISK_EXCLUSION_COMPLETENESS_RULE =
+  "출력 직전 신청제한·참여제한·지원제외·자격제한 절을 다시 훑고 부도·금융기관 채무불이행·파산·회생, 부채비율·자본잠식, 세금체납·참여제한 조건이 해당 축 criteria에 모두 있는지 대조한다. 같은 문장의 '또는' 조건과 단서·예외도 빠짐없이 보존하며, 서류 제출 요구만 추출하고 그 서류가 확인하는 명시적 결격을 누락하지 마라.";
 export const DEEP_ANALYSIS_SCORING_TABLE_COMPLETENESS_RULE =
   "선정평가표·평가기준·배점표는 표 제목만 보지 말고 모든 평가항목, 하위 배점 행, 가점 행을 끝까지 검사한다. 점수를 바꾸는 서로 다른 사실은 각각 preferred criterion으로 보존하고 가장 가까운 22축에 배치한다. 안전한 canonical 값이 없으면 other/text_only와 원문 note로 남긴다. 같은 표의 다른 행을 추출했다는 이유로 외국어 홈페이지, 홍보자료, 인증, 사업장, 수출실적 같은 독립 배점 행을 생략하지 마라.";
 export const DEEP_ANALYSIS_LOCALITY_PREMISES_RULE =
@@ -958,7 +972,11 @@ export const DEEP_ANALYSIS_SYSTEM_PROMPT = [
   DEEP_ANALYSIS_ELIGIBILITY_EXCEPTION_RULE,
   DEEP_ANALYSIS_STRUCTURED_TARGET_RULE,
   DEEP_ANALYSIS_STRUCTURED_FILTER_METADATA_RULE,
+  DEEP_ANALYSIS_ALTERNATIVE_PATH_SCOPE_RULE,
+  DEEP_ANALYSIS_PROGRAM_THEME_BOUNDARY_RULE,
+  DEEP_ANALYSIS_PROCEDURAL_EVIDENCE_CHECK_RULE,
   DEEP_ANALYSIS_SCORING_TABLE_COMPLETENESS_RULE,
+  DEEP_ANALYSIS_ELIGIBILITY_RANKING_SEPARATION_RULE,
   DEEP_ANALYSIS_LOCALITY_PREMISES_RULE,
   DEEP_ANALYSIS_COMPOUND_PREDICATE_RULE,
   DEEP_ANALYSIS_CONDITIONAL_INDUSTRY_RULE,
@@ -967,6 +985,9 @@ export const DEEP_ANALYSIS_SYSTEM_PROMPT = [
   DEEP_ANALYSIS_ELIGIBILITY_CALCULATION_RULE,
   DEEP_ANALYSIS_FUTURE_REGION_ALTERNATIVE_RULE,
   DEEP_ANALYSIS_ACTOR_TRACK_SCOPE_RULE,
+  DEEP_ANALYSIS_PRIOR_AWARD_LOSSLESS_RULE,
+  DEEP_ANALYSIS_ITEM_SCOPE_EXCLUSION_RULE,
+  DEEP_ANALYSIS_HIGH_RISK_EXCLUSION_COMPLETENESS_RULE,
   DEEP_ANALYSIS_FINANCIAL_THRESHOLD_RULE,
   DEEP_ANALYSIS_RANKING_ACTOR_RULE,
   "지역 코드는 한국 시도 행정코드 2자리(서울 11, 부산 26, 대구 27, 인천 28, 광주 29, 대전 30, 울산 31, 세종 36, 경기 41, 강원 42, 충북 43, 충남 44, 전북 45, 전남 46, 경북 47, 경남 48, 제주 50)를 사용한다.",

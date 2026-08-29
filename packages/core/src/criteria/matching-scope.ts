@@ -6,6 +6,7 @@ export type NonMatchingCriterionReason =
   | "application_duplicate_support_declaration"
   | "eligibility_calculation_instruction"
   | "program_job_field"
+  | "program_collaboration_theme"
   | "unresolved_industry_job_field"
   | "post_selection_obligation";
 
@@ -33,10 +34,18 @@ const PLAN_VS_EXECUTION_PATTERN =
   /(?:신청서|계획서).{0,40}(?:수행\s*내용|실제\s*수행).{0,24}(?:상이|불일치)|(?:수행\s*내용|실제\s*수행).{0,40}(?:신청서|계획서).{0,24}(?:상이|불일치)/u;
 const CURRENT_SANCTION_STATUS_PATTERN =
   /참여\s*제한\s*(?:조치\s*)?중|제재\s*(?:중|조치\s*대상)|현재.{0,20}(?:제한|금지)/u;
+const CURRENT_COMPANY_STATE_DIMENSIONS = new Set<GrantCriterion["dimension"]>([
+  "business_status",
+  "credit_status",
+  "financial_health",
+  "tax_compliance",
+]);
 const ELIGIBILITY_CALCULATION_PATTERN =
   /다수(?:의)?\s*사업자등록증.{0,80}창업여부\s*기준표.{0,80}(?:신청\s*자격|적합\s*여부|창업\s*여부).{0,40}(?:결정|확인|판정)/u;
 const PROGRAM_JOB_FIELD_PATTERN =
   /(?:모집|지원|배치|인턴|일경험)\s*(?:대상\s*)?(?:직무|직종)|직무\s*분야|인력\s*수요|청년.{0,24}(?:부여|배치|수행).{0,12}직무/u;
+const PROGRAM_COLLABORATION_THEME_PATTERN =
+  /(?:수요기업|참여기업).{0,40}(?:협업|모집)\s*(?:분야|주제)|(?:협업|제안)\s*(?:아이템|주제|분야)|기타\s*협업\s*가능한\s*비즈니스/u;
 const UNRESOLVED_INDUSTRY_JOB_FIELD_PATTERN =
   /(?:업종.{0,60}(?:직무|직종|일경험).{0,60}(?:불명확|모호|확정되지|구분.{0,8}(?:어렵|불가))|(?:직무|직종|일경험).{0,60}업종.{0,60}(?:불명확|모호|확정되지|구분.{0,8}(?:어렵|불가)))/u;
 
@@ -61,6 +70,9 @@ export function nonMatchingCriterionReason(
     ].filter(Boolean).join(" "));
     if (PROGRAM_JOB_FIELD_PATTERN.test(text)) {
       return "program_job_field";
+    }
+    if (PROGRAM_COLLABORATION_THEME_PATTERN.test(semanticText)) {
+      return "program_collaboration_theme";
     }
     if (
       criterion.operator === "text_only"
@@ -89,6 +101,8 @@ export function nonMatchingCriterionReason(
   if (
     PLAN_VS_EXECUTION_PATTERN.test(text)
     || (
+      !CURRENT_COMPANY_STATE_DIMENSIONS.has(criterion.dimension)
+      &&
       POST_SELECTION_CONTEXT_PATTERN.test(text)
       && POST_SELECTION_BREACH_PATTERN.test(text)
       && !CURRENT_SANCTION_STATUS_PATTERN.test(text)
