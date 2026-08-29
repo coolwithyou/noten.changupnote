@@ -104,9 +104,18 @@ interface IndependentReviewManifest {
     runArtifactSha256: string;
     error: string | null;
   }>;
+  selection: {
+    mode: "full_receipt" | "exact_sequences";
+    requestedSequences: number[];
+    excludedReceiptSequences: number[];
+    reason: string | null;
+  };
 }
 
-export async function prepareIndependentReviewPackets(launchReceiptPath: string) {
+export async function prepareIndependentReviewPackets(
+  launchReceiptPath: string,
+  options: { sequences?: readonly number[]; selectionReason?: string } = {},
+) {
   const root = findMonorepoRoot();
   const absoluteReceiptPath = resolve(root, launchReceiptPath);
   const receiptBytes = await readFile(absoluteReceiptPath);
@@ -114,6 +123,16 @@ export async function prepareIndependentReviewPackets(launchReceiptPath: string)
   const receipt = JSON.parse(receiptBytes.toString("utf8")) as LaunchReceipt;
   if (receipt.schema !== "analysis-launch-receipt-v1" || !Array.isArray(receipt.targets)) {
     throw new Error("analysis-launch-receipt-v1 형식이 아닙니다.");
+  }
+  const receiptSequences = [...receipt.targets]
+    .map((target) => target.sequence)
+    .sort((a, b) => a - b);
+  const requestedSequences = normalizeReviewSequences(options.sequences, receiptSequences);
+  const selectedSequenceSet = new Set(requestedSequences);
+  const isSubset = requestedSequences.length !== receiptSequences.length;
+  const selectionReason = options.selectionReason?.trim() || null;
+  if (isSubset && selectionReason === null) {
+    throw new Error("부분 독립 검수에는 --selection-reason이 필요합니다.");
   }
 
   const { rubric, guideSha256 } = await loadGuideRubric();
@@ -138,7 +157,9 @@ export async function prepareIndependentReviewPackets(launchReceiptPath: string)
     error: string | null;
   }> = [];
 
-  for (const target of [...receipt.targets].sort((a, b) => a.sequence - b.sequence)) {
+  for (const target of [...receipt.targets]
+    .filter((candidate) => selectedSequenceSet.has(candidate.sequence))
+    .sort((a, b) => a.sequence - b.sequence)) {
     const runPath = resolve(root, target.runArtifactPath);
     const runBytes = await readFile(runPath);
     const actualRunSha256 = sha256(runBytes);
@@ -224,6 +245,12 @@ export async function prepareIndependentReviewPackets(launchReceiptPath: string)
     },
     packets: packetEntries,
     heldTargets,
+    selection: {
+      mode: isSubset ? "exact_sequences" : "full_receipt",
+      requestedSequences,
+      excludedReceiptSequences: receiptSequences.filter((sequence) => !selectedSequenceSet.has(sequence)),
+      reason: selectionReason,
+    },
   };
   const manifestBytes = canonicalBytes(manifest);
   const manifestSha256 = sha256(manifestBytes);
@@ -233,6 +260,33 @@ export async function prepareIndependentReviewPackets(launchReceiptPath: string)
     if (!current || !current.equals(manifestBytes)) throw error;
   });
   return { manifest, manifestSha256, manifestPath, outputDir };
+}
+
+export function normalizeReviewSequences(
+  requested: readonly number[] | undefined,
+  receiptSequences: readonly number[],
+): number[] {
+  const available = [...receiptSequences].sort((a, b) => a - b);
+  if (available.length === 0 || new Set(available).size !== available.length) {
+    throw new Error("launch receipt sequence 집합이 비었거나 중복됐습니다.");
+  }
+  if (available.some((sequence) => !Number.isSafeInteger(sequence) || sequence < 0)) {
+    throw new Error("launch receipt sequence는 0 이상의 정수여야 합니다.");
+  }
+  if (requested === undefined) return available;
+  if (
+    requested.length === 0
+    || new Set(requested).size !== requested.length
+    || requested.some((sequence) => !Number.isSafeInteger(sequence) || sequence < 0)
+  ) {
+    throw new Error("독립 검수 sequence는 중복 없는 0 이상의 정수여야 합니다.");
+  }
+  const availableSet = new Set(available);
+  const selected = [...requested].sort((a, b) => a - b);
+  if (selected.some((sequence) => !availableSet.has(sequence))) {
+    throw new Error("launch receipt에 없는 sequence는 독립 검수할 수 없습니다.");
+  }
+  return selected;
 }
 
 export async function writeIndependentReviewBundle(manifestPath: string) {

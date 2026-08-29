@@ -13,6 +13,14 @@ function option(name: string): string | null {
   return process.argv.slice(2).find((arg) => arg.startsWith(prefix))?.slice(prefix.length) ?? null;
 }
 
+function parseSequences(value: string | null): number[] | undefined {
+  if (value === null) return undefined;
+  if (!/^\d+(,\d+)*$/u.test(value)) {
+    throw new Error("--sequences는 0 이상의 정수를 쉼표로 구분해야 합니다.");
+  }
+  return value.split(",").map((item) => Number.parseInt(item, 10));
+}
+
 async function main() {
   const aggregateManifest = option("aggregate-manifest");
   if (aggregateManifest) {
@@ -39,7 +47,12 @@ async function main() {
   }
   const launchReceipt = option("launch-receipt");
   if (launchReceipt) {
-    const prepared = await prepareIndependentReviewPackets(launchReceipt);
+    const sequences = parseSequences(option("sequences"));
+    const selectionReason = option("selection-reason");
+    const prepared = await prepareIndependentReviewPackets(launchReceipt, {
+      ...(sequences === undefined ? {} : { sequences }),
+      ...(selectionReason === null ? {} : { selectionReason }),
+    });
     console.log(JSON.stringify({
       manifestSha256: prepared.manifestSha256,
       manifestPath: prepared.manifestPath,

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { deriveIndependentReviewConsensus } from "./independent-review-packet";
+import { deriveIndependentReviewConsensus, normalizeReviewSequences } from "./independent-review-packet";
 
 const findings = deriveIndependentReviewConsensus(7, {
   criterionReviews: [
@@ -36,6 +36,17 @@ assert.deepEqual(
     ["criterion", 3, "unsure", "unresolved"],
   ],
   "양쪽이 같은 정상 판정을 한 항목과 단독 결함은 합의 결함에서 제외한다",
+);
+
+assert.deepEqual(normalizeReviewSequences(undefined, [2, 0, 1]), [0, 1, 2]);
+assert.deepEqual(normalizeReviewSequences([7, 0, 2], [0, 1, 2, 7]), [0, 2, 7]);
+assert.throws(
+  () => normalizeReviewSequences([0, 0], [0, 1]),
+  /중복 없는 0 이상의 정수/,
+);
+assert.throws(
+  () => normalizeReviewSequences([3], [0, 1]),
+  /receipt에 없는 sequence/,
 );
 
 console.log("independent-review-packet tests passed");
