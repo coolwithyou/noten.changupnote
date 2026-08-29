@@ -32,7 +32,7 @@ export interface AnalysisLaunchManifest {
   readonly schema: "analysis-launch-manifest-v1";
   readonly preparedAt: string;
   readonly source: {
-    readonly kind: "formal_plan" | "authoring_guide_adoption";
+    readonly kind: "formal_plan" | "authoring_guide_adoption" | "independent_review_repair";
     readonly seriesId: string;
     readonly planSha256: string;
     readonly planArtifactSha256: string;
@@ -213,6 +213,63 @@ export function createAuthoringGuideRerunAnalysisLaunchManifest(input: {
   });
   if (manifest.targets.some((target) => target.changedSinceInventory)) {
     throw new Error("작성 가이드 재분석 target input/attachment가 adoption manifest와 달라졌습니다.");
+  }
+  return manifest;
+}
+
+export function createIndependentReviewRepairAnalysisLaunchManifest(input: {
+  readonly aggregateSha256: string;
+  readonly targets: readonly {
+    readonly originalSequence: number;
+    readonly grantId: string;
+    readonly source: string;
+    readonly inputSha256: string;
+    readonly attachmentManifestSha256: string;
+  }[];
+  readonly preparedTargets: readonly AnalysisLaunchPreparedTarget[];
+  readonly provenance: AnalysisLaunchManifestPreparationInput["provenance"];
+  readonly concurrency: number;
+  readonly now: Date;
+}): AnalysisLaunchManifest {
+  const aggregateSha256 = exactSha(input.aggregateSha256, "aggregateSha256");
+  if (input.targets.length === 0) throw new Error("독립 검수 합의 결함 재분석 대상이 없습니다.");
+  const originalSequences = input.targets.map((target) => target.originalSequence);
+  if (
+    originalSequences.some((sequence) => !Number.isSafeInteger(sequence) || sequence < 0)
+    || new Set(originalSequences).size !== originalSequences.length
+    || originalSequences.some((sequence, index) => index > 0 && sequence <= originalSequences[index - 1]!)
+  ) {
+    throw new Error("독립 검수 합의 결함 원본 sequence는 중복 없이 오름차순이어야 합니다.");
+  }
+  const manifest = createAnalysisLaunchManifestFromInventory({
+    inventory: {
+      seriesId: `independent-review-repair-${aggregateSha256.slice(0, 16)}`,
+      planSha256: aggregateSha256,
+      planArtifactSha256: aggregateSha256,
+      model: DEEP_REPAIR_PREPARATION_POLICY.model,
+      targets: input.targets.map((target, sequence) => ({
+        sequence,
+        grantId: target.grantId,
+        stratum: `${requireNonEmpty(target.source, "target.source")}/independent-review-repair/original-${target.originalSequence}`,
+        inputSha256: target.inputSha256,
+        attachmentManifestSha256: target.attachmentManifestSha256,
+      })),
+    },
+    sequenceFrom: 0,
+    sequenceTo: input.targets.length - 1,
+    preparedTargets: input.preparedTargets,
+    provenance: input.provenance,
+    withApplicationRoundtrip: true,
+    roundtripModel: APPLICATION_ROUNDTRIP_ADOPTED_MODEL,
+    concurrency: input.concurrency,
+    now: input.now,
+  }, {
+    sourceKind: "independent_review_repair",
+    adoptionManifestSha256: null,
+    existingRunPolicy: "rerun_exact_targets",
+  });
+  if (manifest.targets.some((target) => target.changedSinceInventory)) {
+    throw new Error("독립 검수 합의 결함 target input/attachment가 원본 launch와 달라졌습니다.");
   }
   return manifest;
 }
@@ -402,6 +459,8 @@ export function normalizeAnalysisLaunchManifest(value: unknown): AnalysisLaunchM
   const existingRunPolicy = execution.existingRunPolicy === undefined
     ? "skip_existing"
     : execution.existingRunPolicy;
+  const planSha256 = exactSha(String(source.planSha256), "planSha256");
+  const planArtifactSha256 = exactSha(String(source.planArtifactSha256), "planArtifactSha256");
   const adoptionManifestSha256 = source.adoptionManifestSha256 === undefined
     || source.adoptionManifestSha256 === null
     ? null
@@ -418,13 +477,26 @@ export function normalizeAnalysisLaunchManifest(value: unknown): AnalysisLaunchM
     || (sourceKind === "authoring_guide_adoption"
       && (
         adoptionManifestSha256 === null
-        || adoptionManifestSha256 !== source.planSha256
-        || adoptionManifestSha256 !== source.planArtifactSha256
+        || adoptionManifestSha256 !== planSha256
+        || adoptionManifestSha256 !== planArtifactSha256
         || existingRunPolicy !== "rerun_exact_targets"
         || withApplicationRoundtrip
         || applicationFieldAnalysisVersion !== null
       ))
-    || (sourceKind !== "formal_plan" && sourceKind !== "authoring_guide_adoption")
+    || (sourceKind === "independent_review_repair"
+      && (
+        adoptionManifestSha256 !== null
+        || planSha256 !== planArtifactSha256
+        || existingRunPolicy !== "rerun_exact_targets"
+        || !withApplicationRoundtrip
+        || roundtripModel !== APPLICATION_ROUNDTRIP_ADOPTED_MODEL
+        || applicationFieldAnalysisVersion !== APPLICATION_ROUNDTRIP_VERSION
+      ))
+    || (
+      sourceKind !== "formal_plan"
+      && sourceKind !== "authoring_guide_adoption"
+      && sourceKind !== "independent_review_repair"
+    )
     || (existingRunPolicy !== "skip_existing" && existingRunPolicy !== "rerun_exact_targets")
   ) {
     throw new Error("launch source/existing run 정책 결속이 잘못됐습니다.");
@@ -438,8 +510,8 @@ export function normalizeAnalysisLaunchManifest(value: unknown): AnalysisLaunchM
     source: Object.freeze({
       kind: sourceKind,
       seriesId: exactSeries(source.seriesId),
-      planSha256: exactSha(String(source.planSha256), "planSha256"),
-      planArtifactSha256: exactSha(String(source.planArtifactSha256), "planArtifactSha256"),
+      planSha256,
+      planArtifactSha256,
       adoptionManifestSha256,
       sequenceFrom,
       sequenceTo,
@@ -619,7 +691,7 @@ export function assertAnalysisLaunchExecutionContract(input: {
     || input.manifest.execution.promptVersion !== ANALYSIS_LAB_PROMPT_VERSION
     || input.manifest.execution.validatorVersion !== DEEP_ANALYSIS_VALIDATOR_VERSION
     || (
-      input.manifest.source.kind === "formal_plan"
+      input.manifest.source.kind !== "authoring_guide_adoption"
       && input.manifest.execution.applicationFieldAnalysisVersion !== APPLICATION_ROUNDTRIP_VERSION
     )
   ) {

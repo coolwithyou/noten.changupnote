@@ -13,6 +13,7 @@ import {
   createAuthoringGuideRerunAnalysisLaunchManifest,
   createAnalysisLaunchGrant,
   createAnalysisLaunchManifest,
+  createIndependentReviewRepairAnalysisLaunchManifest,
   encodeCanonical,
   normalizeAnalysisLaunchGrant,
   normalizeAnalysisLaunchManifest,
@@ -29,6 +30,8 @@ import {
   shouldForceExactManifestReanalysis,
 } from "./launch-batch-production";
 import { parseAuthoringGuideRerunLaunchCliArgs } from "./authoring-guide-rerun-launch-cli";
+import { parseIndependentReviewRepairLaunchCliArgs } from "./independent-review-repair-launch-cli";
+import { normalizeIndependentReviewRepairAggregate } from "./independent-review-repair-launch";
 
 const SHA_A = "a".repeat(64);
 const SHA_B = "b".repeat(64);
@@ -258,6 +261,104 @@ test("작성 가이드 adoption 재분석은 source-sealed rerun만 exact 기존
   );
 });
 
+test("독립 검수 합의 결함 재분석은 exact 원본 대상과 RHWP 필드 분석을 함께 봉인한다", () => {
+  const repair = createIndependentReviewRepairAnalysisLaunchManifest({
+    aggregateSha256: SHA_D,
+    targets: [
+      {
+        originalSequence: 3,
+        grantId: GRANT_0,
+        source: "kstartup",
+        inputSha256: SHA_A,
+        attachmentManifestSha256: SHA_B,
+      },
+      {
+        originalSequence: 27,
+        grantId: GRANT_1,
+        source: "bizinfo",
+        inputSha256: SHA_B,
+        attachmentManifestSha256: SHA_C,
+      },
+    ],
+    preparedTargets: [
+      { grantId: GRANT_0, inputSha256: SHA_A, attachmentManifestSha256: SHA_B },
+      { grantId: GRANT_1, inputSha256: SHA_B, attachmentManifestSha256: SHA_C },
+    ],
+    provenance: {
+      gitSha: GIT_A,
+      packageRuntimeSha256: SHA_C,
+      validatorVersion: DEEP_ANALYSIS_VALIDATOR_VERSION,
+    },
+    concurrency: 2,
+    now: new Date("2026-08-29T00:00:00.000Z"),
+  });
+  assert.equal(repair.source.kind, "independent_review_repair");
+  assert.equal(repair.source.planSha256, SHA_D);
+  assert.equal(repair.source.planArtifactSha256, SHA_D);
+  assert.equal(repair.source.adoptionManifestSha256, null);
+  assert.equal(repair.execution.existingRunPolicy, "rerun_exact_targets");
+  assert.equal(repair.execution.withApplicationRoundtrip, true);
+  assert.equal(repair.execution.roundtripModel, "claude-opus-5");
+  assert.equal(repair.execution.applicationFieldAnalysisVersion, "kordoc-application-roundtrip-v9");
+  assert.match(repair.targets[0]!.stratum, /original-3$/);
+  assert.match(repair.targets[1]!.stratum, /original-27$/);
+  assert.deepEqual(
+    normalizeAnalysisLaunchManifest(JSON.parse(encodeCanonical(repair).toString("utf8"))),
+    repair,
+  );
+
+  assert.throws(() => createIndependentReviewRepairAnalysisLaunchManifest({
+    aggregateSha256: SHA_D,
+    targets: [{
+      originalSequence: 3,
+      grantId: GRANT_0,
+      source: "kstartup",
+      inputSha256: SHA_A,
+      attachmentManifestSha256: SHA_B,
+    }],
+    preparedTargets: [{ grantId: GRANT_0, inputSha256: SHA_C, attachmentManifestSha256: SHA_B }],
+    provenance: {
+      gitSha: GIT_A,
+      packageRuntimeSha256: SHA_C,
+      validatorVersion: DEEP_ANALYSIS_VALIDATOR_VERSION,
+    },
+    concurrency: 1,
+    now: new Date("2026-08-29T00:00:00.000Z"),
+  }), /원본 launch와 달라졌습니다/);
+});
+
+test("독립 검수 repair aggregate는 합의된 결함 sequence와 HOLD만 허용한다", () => {
+  const aggregate = {
+    schema: "independent-ai-review-aggregate-v2",
+    manifestSha256: SHA_A,
+    launchReceiptSha256: SHA_B,
+    consensus: {
+      defectCount: 2,
+      unresolvedCount: 0,
+      affectedTargets: [3, 27],
+      defects: [
+        { sequence: 27, classification: "defect" },
+        { sequence: 3, classification: "defect" },
+      ],
+      unresolved: [],
+    },
+    admission: {
+      reviewedTargetsStatus: "HOLD",
+      reasons: ["consensus_defects:2"],
+    },
+    policy: { databaseWrites: false, promotion: false, deployment: false },
+  };
+  assert.deepEqual(normalizeIndependentReviewRepairAggregate(aggregate).consensus.affectedTargets, [3, 27]);
+  assert.throws(() => normalizeIndependentReviewRepairAggregate({
+    ...aggregate,
+    consensus: {
+      ...aggregate.consensus,
+      unresolvedCount: 1,
+      unresolved: [{ sequence: 3, classification: "unresolved" }],
+    },
+  }), /미합의 판정/);
+});
+
 test("cohort grant는 manifest 전체를 한 번 승인하고 만료/sequence authority를 만들지 않는다", () => {
   const grant = createAnalysisLaunchGrant({
     manifestSha256: SHA_D,
@@ -362,6 +463,16 @@ test("launch CLI는 prepare/grant/run의 권한 단계를 분리한다", () => {
     `--adoption-manifest=${SHA_A}`,
     "--concurrency=3",
   ]), { adoptionManifestSha256: SHA_A, concurrency: 3 });
+  assert.deepEqual(parseIndependentReviewRepairLaunchCliArgs([
+    "--aggregate=spike-out/review.aggregate.json",
+    "--concurrency=2",
+  ]), {
+    aggregatePath: "spike-out/review.aggregate.json",
+    concurrency: 2,
+  });
+  assert.throws(() => parseIndependentReviewRepairLaunchCliArgs([
+    "--aggregate=spike-out/review.json",
+  ]));
 });
 
 function adoptionItem(

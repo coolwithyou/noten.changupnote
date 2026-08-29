@@ -88,6 +88,7 @@
     "lab:ai-review": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/analysis-lab/ai-review-cli.ts",
     "lab:independent-review": "TSX_TSCONFIG_PATH=apps/web/tsconfig.json node --env-file-if-exists=.env --env-file-if-exists=.env.local --import tsx apps/web/src/lib/server/analysis-lab/independent-review-cli.ts",
     "lab:independent-review:codex": "TSX_TSCONFIG_PATH=apps/web/tsconfig.json node --env-file-if-exists=.env --env-file-if-exists=.env.local --import tsx apps/web/src/lib/server/analysis-lab/independent-review-codex-cli.ts",
+    "lab:independent-review:repair:prepare": "pnpm verify:package-runtime-freshness && tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/analysis-lab/independent-review-repair-launch-cli.ts",
     "lab:independent-review:test": "TSX_TSCONFIG_PATH=apps/web/tsconfig.json node --import tsx apps/web/src/lib/server/analysis-lab/independent-review-packet.test.ts",
     "lab:ai-review:test": "TSX_TSCONFIG_PATH=apps/web/tsconfig.json node --import tsx apps/web/src/lib/server/analysis-lab/ai-review-compare.test.ts && TSX_TSCONFIG_PATH=apps/web/tsconfig.json node --import tsx apps/web/src/lib/server/analysis-lab/run-review-policy.test.ts",
     "lab:audit:test": "TSX_TSCONFIG_PATH=apps/web/tsconfig.json node --import tsx apps/web/src/lib/server/analysis-lab/audited-reviews.test.ts",
