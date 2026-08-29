@@ -1,8 +1,8 @@
 /** formal deep-primary repair experiment에만 쓰는 고정 통계/층화 계약. */
-export const ACTIVE_DEEP_REPAIR_SERIES_ID = "deep-v24" as const;
+export const ACTIVE_DEEP_REPAIR_SERIES_ID = "deep-v25" as const;
 export const ACTIVE_DEEP_REPAIR_STRATA_VERSION = "deep-repair-strata-v3" as const;
-export const DEEP_REPAIR_PLANNING_PRIMARY_SEED = 20260817;
-export const DEEP_REPAIR_PLANNING_SUPPLEMENTAL_SEED = 20260818;
+export const DEEP_REPAIR_PLANNING_PRIMARY_SEED = 20260829;
+export const DEEP_REPAIR_PLANNING_SUPPLEMENTAL_SEED = 20260830;
 export const DEEP_REPAIR_FORMAL_MIN_SAMPLE_SIZE = 15;
 export const DEEP_REPAIR_FORMAL_MAX_SAMPLE_SIZE = 30;
 export const DEEP_REPAIR_FORMAL_SUPPORTED_STRATA = Object.freeze([
