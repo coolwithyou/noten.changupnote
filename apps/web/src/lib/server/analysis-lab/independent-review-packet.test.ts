@@ -1,5 +1,10 @@
 import assert from "node:assert/strict";
-import { deriveIndependentReviewConsensus, normalizeReviewSequences } from "./independent-review-packet";
+import {
+  buildIndependentReviewSystemPrompt,
+  deriveIndependentReviewConsensus,
+  deriveSingleIndependentReviewFindings,
+  normalizeReviewSequences,
+} from "./independent-review-packet";
 
 const findings = deriveIndependentReviewConsensus(7, {
   criterionReviews: [
@@ -36,6 +41,34 @@ assert.deepEqual(
     ["criterion", 3, "unsure", "unresolved"],
   ],
   "양쪽이 같은 정상 판정을 한 항목과 단독 결함은 합의 결함에서 제외한다",
+);
+
+const codexOnlyFindings = deriveSingleIndependentReviewFindings(8, {
+  criterionReviews: [
+    { criterionIndex: 0, verdict: "correct", note: null },
+    { criterionIndex: 1, verdict: "needs_edit", note: "범위 손실" },
+    { criterionIndex: 2, verdict: "unsure", note: "원문 모호" },
+  ],
+  axisReviews: [
+    { dimension: "region", verdict: "confirmed_absent", note: null },
+    { dimension: "credit_status", verdict: "missed_condition", note: "채무불이행 누락" },
+  ],
+});
+
+assert.deepEqual(
+  codexOnlyFindings.map((finding) => [finding.kind, finding.key, finding.verdict, finding.classification]),
+  [
+    ["axis", "credit_status", "missed_condition", "defect"],
+    ["criterion", 1, "needs_edit", "defect"],
+    ["criterion", 2, "unsure", "unresolved"],
+  ],
+  "Codex 단독 검수에서는 모든 비정상 판정을 보류 finding으로 보존한다",
+);
+
+assert.match(
+  buildIndependentReviewSystemPrompt("검수 기준서"),
+  /명시적 '선정된'을 completed로 표현한 결과를 수행완료 오분류로 감사하지 마라/,
+  "독립 검수자가 창업노트 prior_award 상태 계약을 공유해야 한다",
 );
 
 assert.deepEqual(normalizeReviewSequences(undefined, [2, 0, 1]), [0, 1, 2]);

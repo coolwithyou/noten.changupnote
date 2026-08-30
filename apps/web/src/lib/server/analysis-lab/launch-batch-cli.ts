@@ -8,7 +8,7 @@ import {
 } from "./launch-batch-production";
 
 const SHA256 = /^[a-f0-9]{64}$/;
-const USAGE = `pnpm lab:launch:prepare -- --series=deep-v25 --sequences=0-29 --concurrency=2
+const USAGE = `pnpm lab:launch:prepare -- --series=deep-v26 --sequences=0-29 --concurrency=2
 pnpm lab:launch:grant -- --manifest=<sha256> --approved-by=<actor>
 pnpm lab:launch -- --grant=<sha256> [--retry-errors]`;
 

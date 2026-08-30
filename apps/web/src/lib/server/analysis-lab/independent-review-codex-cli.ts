@@ -2,8 +2,11 @@ import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { basename, dirname, join, resolve } from "node:path";
+import { basename, join, resolve } from "node:path";
 import {
+  INDEPENDENT_REVIEW_MANIFEST_SCHEMA,
+  LEGACY_INDEPENDENT_REVIEW_MANIFEST_SCHEMA,
+  reviewResultRoot,
   validateAndWrapIndependentReviewResult,
   writeIndependentReviewResult,
 } from "./independent-review-packet";
@@ -16,7 +19,7 @@ interface ManifestPacket {
 }
 
 interface ReviewManifest {
-  schema: "independent-ai-review-manifest-v1";
+  schema: typeof INDEPENDENT_REVIEW_MANIFEST_SCHEMA | typeof LEGACY_INDEPENDENT_REVIEW_MANIFEST_SCHEMA;
   packets: ManifestPacket[];
 }
 
@@ -32,7 +35,10 @@ async function main() {
   const manifestPath = resolve(root, manifestArg);
   const manifestBytes = await readFile(manifestPath);
   const manifest = JSON.parse(manifestBytes.toString("utf8")) as ReviewManifest;
-  if (manifest.schema !== "independent-ai-review-manifest-v1") throw new Error("독립 검수 manifest 형식이 아닙니다.");
+  if (
+    manifest.schema !== INDEPENDENT_REVIEW_MANIFEST_SCHEMA
+    && manifest.schema !== LEGACY_INDEPENDENT_REVIEW_MANIFEST_SCHEMA
+  ) throw new Error("독립 검수 manifest 형식이 아닙니다.");
   const addressedSha = basename(manifestPath).replace(/\.manifest\.json$/, "");
   if (sha256(manifestBytes) !== addressedSha) throw new Error("manifest content address가 일치하지 않습니다.");
 
@@ -43,7 +49,7 @@ async function main() {
   const version = await runCommand("codex", ["--version"], root);
   if (version.code !== 0) throw new Error("Codex 버전을 확인하지 못했습니다.");
   const reviewerModel = "gpt-5.6-sol";
-  const outputDir = dirname(manifestPath);
+  const outputDir = reviewResultRoot(manifestPath, addressedSha, manifest.schema);
   const rawDir = join(outputDir, "codex", "raw");
   const resultDir = join(outputDir, "codex", "results");
   const schemaDir = join(outputDir, "codex", "schemas");

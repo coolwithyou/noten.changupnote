@@ -33,6 +33,7 @@ import { parseAuthoringGuideRerunLaunchCliArgs } from "./authoring-guide-rerun-l
 import { parseIndependentReviewRepairLaunchCliArgs } from "./independent-review-repair-launch-cli";
 import {
   normalizeIndependentReviewRepairAggregate,
+  resolveIndependentReviewManifestPath,
   selectIndependentReviewRepairSequences,
 } from "./independent-review-repair-launch";
 
@@ -366,6 +367,24 @@ test("독립 검수 repair aggregate는 합의된 결함 sequence와 HOLD만 허
       unresolved: [{ sequence: 3, classification: "unresolved" }],
     },
   }), /미합의 판정/);
+});
+
+test("Codex-only review-runs aggregate는 상위 불변 manifest를 정확히 찾는다", () => {
+  assert.equal(
+    resolveIndependentReviewManifestPath(
+      `/tmp/review/${SHA_A}/review-runs/${SHA_B}/${SHA_C}.aggregate.json`,
+      SHA_B,
+    ),
+    `/tmp/review/${SHA_A}/${SHA_B}.manifest.json`,
+  );
+  assert.equal(
+    resolveIndependentReviewManifestPath(
+      `/tmp/review/${SHA_A}/${SHA_C}.aggregate.json`,
+      SHA_B,
+    ),
+    `/tmp/review/${SHA_A}/${SHA_B}.manifest.json`,
+    "역사 v1 aggregate의 기존 동일 디렉터리 배치도 유지한다",
+  );
 });
 
 test("cohort grant는 manifest 전체를 한 번 승인하고 만료/sequence authority를 만들지 않는다", () => {

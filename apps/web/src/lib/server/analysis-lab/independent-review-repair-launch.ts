@@ -1,3 +1,4 @@
+import { basename, dirname, join } from "node:path";
 import { INDEPENDENT_REVIEW_AGGREGATE_SCHEMA } from "./independent-review-packet";
 
 export interface IndependentReviewRepairAggregate {
@@ -12,6 +13,22 @@ export interface IndependentReviewRepairAggregate {
 }
 
 const SHA256 = /^[a-f0-9]{64}$/u;
+
+export function resolveIndependentReviewManifestPath(
+  aggregatePath: string,
+  manifestSha256: string,
+): string {
+  const manifestName = `${manifestSha256}.manifest.json`;
+  const aggregateDirectory = dirname(aggregatePath);
+  const reviewRunsDirectory = dirname(aggregateDirectory);
+  if (
+    basename(aggregateDirectory) === manifestSha256
+    && basename(reviewRunsDirectory) === "review-runs"
+  ) {
+    return join(dirname(reviewRunsDirectory), manifestName);
+  }
+  return join(aggregateDirectory, manifestName);
+}
 
 export function normalizeIndependentReviewRepairAggregate(
   value: unknown,

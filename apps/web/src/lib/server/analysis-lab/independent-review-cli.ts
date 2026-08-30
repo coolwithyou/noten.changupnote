@@ -1,9 +1,7 @@
 import { resolve } from "node:path";
 import {
   aggregateIndependentReviews,
-  importGrokCombinedReview,
   prepareIndependentReviewPackets,
-  writeIndependentReviewBundle,
   validateAndWrapIndependentReviewResult,
   writeIndependentReviewResult,
 } from "./independent-review-packet";
@@ -33,18 +31,6 @@ async function main() {
     }, null, 2));
     return;
   }
-  const grokCombined = option("grok-combined");
-  const grokManifest = option("manifest");
-  if (grokCombined || grokManifest) {
-    if (!grokCombined || !grokManifest) throw new Error("--grok-combined와 --manifest를 함께 지정해야 합니다.");
-    console.log(JSON.stringify(await importGrokCombinedReview(grokManifest, grokCombined), null, 2));
-    return;
-  }
-  const bundleManifest = option("bundle-manifest");
-  if (bundleManifest) {
-    console.log(JSON.stringify(await writeIndependentReviewBundle(bundleManifest), null, 2));
-    return;
-  }
   const launchReceipt = option("launch-receipt");
   if (launchReceipt) {
     const sequences = parseSequences(option("sequences"));
@@ -68,15 +54,15 @@ async function main() {
   const reviewer = option("reviewer");
   const reviewerModel = option("reviewer-model");
   const outputPath = option("output");
-  if (!packetPath || !rawResultPath || !outputPath || !reviewerModel || (reviewer !== "codex" && reviewer !== "grok")) {
-    throw new Error("--launch-receipt, --bundle-manifest, --grok-combined/--manifest, --aggregate-manifest 또는 --packet/--raw-result/--reviewer/--reviewer-model/--output 조합이 필요합니다.");
+  if (!packetPath || !rawResultPath || !outputPath || !reviewerModel || reviewer !== "codex") {
+    throw new Error("--launch-receipt, --aggregate-manifest 또는 --packet/--raw-result/--reviewer=codex/--reviewer-model/--output 조합이 필요합니다.");
   }
   const result = await validateAndWrapIndependentReviewResult({
     packetPath: resolve(packetPath),
     rawResultPath: resolve(rawResultPath),
     reviewer,
     reviewerModel,
-    reviewerTransport: reviewer === "codex" ? "codex-cli" : "grok-bot",
+    reviewerTransport: "codex-cli",
   });
   await writeIndependentReviewResult(resolve(outputPath), result);
   console.log(JSON.stringify({ outputPath: resolve(outputPath), sequence: result.sequence, reviewer: result.reviewer }));

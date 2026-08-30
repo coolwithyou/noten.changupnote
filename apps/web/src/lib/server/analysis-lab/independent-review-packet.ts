@@ -13,15 +13,18 @@ import {
   renderCriterionForPrompt,
   validateAiReviewPayload,
 } from "./ai-review";
+import { DEEP_ANALYSIS_PRIOR_AWARD_STATE_RULE } from "../deep-analysis/extractor";
 import { DIMENSION_LABELS } from "./diff";
 import { findMonorepoRoot } from "./run-store";
 
-export const INDEPENDENT_REVIEW_PACKET_SCHEMA = "independent-ai-review-packet-v1";
-export const INDEPENDENT_REVIEW_MANIFEST_SCHEMA = "independent-ai-review-manifest-v1";
+export const INDEPENDENT_REVIEW_PACKET_SCHEMA = "independent-ai-review-packet-v2";
+export const INDEPENDENT_REVIEW_MANIFEST_SCHEMA = "independent-ai-review-manifest-v2";
+export const LEGACY_INDEPENDENT_REVIEW_MANIFEST_SCHEMA = "independent-ai-review-manifest-v1";
 export const INDEPENDENT_REVIEW_RESULT_SCHEMA = "independent-ai-review-result-v1";
 export const INDEPENDENT_REVIEW_BUNDLE_SCHEMA = "independent-ai-review-bundle-v1";
 export const INDEPENDENT_REVIEW_COMBINED_RAW_SCHEMA = "independent-ai-review-combined-raw-v1";
 export const INDEPENDENT_REVIEW_AGGREGATE_SCHEMA = "independent-ai-review-aggregate-v2";
+export const INDEPENDENT_REVIEW_POLICY_VERSION = "codex-only-v1";
 
 export interface IndependentReviewConsensusFinding {
   sequence: number;
@@ -65,6 +68,7 @@ export interface IndependentReviewPacket {
   runArtifactSha256: string;
   inputSha256: string;
   promptVersion: typeof AI_REVIEW_PROMPT_VERSION;
+  reviewPolicyVersion: typeof INDEPENDENT_REVIEW_POLICY_VERSION;
   guideSha256: string;
   systemPrompt: string;
   userMessage: string;
@@ -87,8 +91,21 @@ export interface IndependentReviewResult {
 }
 
 interface IndependentReviewManifest {
-  schema: typeof INDEPENDENT_REVIEW_MANIFEST_SCHEMA;
+  schema: typeof INDEPENDENT_REVIEW_MANIFEST_SCHEMA | typeof LEGACY_INDEPENDENT_REVIEW_MANIFEST_SCHEMA;
   launchReceiptSha256: string;
+  reviewPolicyVersion?: typeof INDEPENDENT_REVIEW_POLICY_VERSION;
+  reviewers: Array<{
+    reviewer: "codex" | "grok";
+    transport: "codex-cli" | "grok-bot";
+    auth: string;
+    model: string;
+  }>;
+  policy: {
+    reviewerMode?: "codex-only";
+    databaseWrites: false;
+    promotion: false;
+    deployment: false;
+  };
   packets: Array<{
     sequence: number;
     grantId: string;
@@ -136,7 +153,7 @@ export async function prepareIndependentReviewPackets(
   }
 
   const { rubric, guideSha256 } = await loadGuideRubric();
-  const systemPrompt = buildSystemPrompt(rubric);
+  const systemPrompt = buildIndependentReviewSystemPrompt(rubric);
   const outputDir = join(root, "spike-out", "analysis-lab", "independent-review", launchReceiptSha256);
   const packetDir = join(outputDir, "packets");
   await mkdir(packetDir, { recursive: true });
@@ -202,6 +219,7 @@ export async function prepareIndependentReviewPackets(
       runArtifactSha256: target.runArtifactSha256,
       inputSha256: run.inputSha256,
       promptVersion: AI_REVIEW_PROMPT_VERSION,
+      reviewPolicyVersion: INDEPENDENT_REVIEW_POLICY_VERSION,
       guideSha256,
       systemPrompt,
       userMessage,
@@ -231,12 +249,13 @@ export async function prepareIndependentReviewPackets(
     launchManifestSha256: receipt.manifestSha256,
     launchGrantSha256: receipt.grantSha256,
     promptVersion: AI_REVIEW_PROMPT_VERSION,
+    reviewPolicyVersion: INDEPENDENT_REVIEW_POLICY_VERSION,
     guideSha256,
     reviewers: [
       { reviewer: "codex", transport: "codex-cli", auth: "chatgpt-subscription", model: "gpt-5.6-sol" },
-      { reviewer: "grok", transport: "grok-bot", auth: "signed-in-desktop-app", model: "provider-managed-default" },
     ],
     policy: {
+      reviewerMode: "codex-only",
       publishableTargets: "full-independent-review",
       nonPublishableTargets: "deterministic-hold-audit-only",
       databaseWrites: false,
@@ -298,7 +317,9 @@ export async function writeIndependentReviewBundle(manifestPath: string) {
     schema: string;
     packets: Array<{ sequence: number; path: string; sha256: string }>;
   };
-  if (manifest.schema !== INDEPENDENT_REVIEW_MANIFEST_SCHEMA) throw new Error("독립 검수 manifest 형식이 아닙니다.");
+  if (manifest.schema !== LEGACY_INDEPENDENT_REVIEW_MANIFEST_SCHEMA) {
+    throw new Error("Grok bundle은 역사 v1 manifest에서만 만들 수 있습니다.");
+  }
   const packets = [];
   for (const entry of manifest.packets) {
     const packetBytes = await readFile(resolve(root, entry.path));
@@ -334,6 +355,9 @@ export async function writeIndependentReviewBundle(manifestPath: string) {
 export async function importGrokCombinedReview(manifestPath: string, combinedRawPath: string) {
   const root = findMonorepoRoot();
   const { manifest, manifestSha256, absoluteManifestPath } = await readVerifiedManifest(manifestPath);
+  if (manifest.schema !== LEGACY_INDEPENDENT_REVIEW_MANIFEST_SCHEMA) {
+    throw new Error("Grok 검수 import는 역사 v1 manifest에서만 허용됩니다.");
+  }
   const absoluteCombinedPath = resolve(root, combinedRawPath);
   const combinedBytes = await readFile(absoluteCombinedPath);
   const combinedSha256 = sha256(combinedBytes);
@@ -400,7 +424,8 @@ export async function importGrokCombinedReview(manifestPath: string, combinedRaw
 export async function aggregateIndependentReviews(manifestPath: string) {
   const root = findMonorepoRoot();
   const { manifest, manifestSha256, absoluteManifestPath } = await readVerifiedManifest(manifestPath);
-  const outputDir = dirname(absoluteManifestPath);
+  const outputDir = reviewResultRoot(absoluteManifestPath, manifestSha256, manifest.schema);
+  const reviewMode = resolveIndependentReviewMode(manifest);
   const reviewerSummaries: Record<string, {
     model: string;
     transport: string;
@@ -410,9 +435,9 @@ export async function aggregateIndependentReviews(manifestPath: string) {
   const comparisons: Array<{
     sequence: number;
     criterionTotal: number;
-    criterionAgreements: number;
+    criterionAgreements: number | null;
     axisTotal: number;
-    axisAgreements: number;
+    axisAgreements: number | null;
     disagreements: Array<{
       kind: "criterion" | "axis";
       key: number | string;
@@ -439,31 +464,36 @@ export async function aggregateIndependentReviews(manifestPath: string) {
   let axisAgreements = 0;
   for (const packet of [...manifest.packets].sort((a, b) => a.sequence - b.sequence)) {
     const codex = await readBoundReview(outputDir, packet, manifest.launchReceiptSha256, "codex");
-    const grok = await readBoundReview(outputDir, packet, manifest.launchReceiptSha256, "grok");
-    for (const review of [codex, grok]) addReviewerSummary(reviewerSummaries, review);
+    addReviewerSummary(reviewerSummaries, codex);
     const codexCriteria = indexReviews(codex.criterionReviews, "criterionIndex");
-    const grokCriteria = indexReviews(grok.criterionReviews, "criterionIndex");
     const codexAxes = indexReviews(codex.axisReviews, "dimension");
-    const grokAxes = indexReviews(grok.axisReviews, "dimension");
-    consensusFindings.push(...deriveIndependentReviewConsensus(packet.sequence, codex, grok));
     const disagreements: (typeof comparisons)[number]["disagreements"] = [];
     let sequenceCriterionAgreements = 0;
     let sequenceAxisAgreements = 0;
 
-    for (const [key, codexReview] of codexCriteria) {
-      const grokReview = grokCriteria.get(key);
-      if (!grokReview) throw new Error(`sequence ${packet.sequence} Grok criterion ${key} 누락`);
-      if (codexReview.verdict === grokReview.verdict) sequenceCriterionAgreements += 1;
-      else disagreements.push(toDisagreement("criterion", key, codexReview, grokReview));
-    }
-    for (const [key, codexReview] of codexAxes) {
-      const grokReview = grokAxes.get(key);
-      if (!grokReview) throw new Error(`sequence ${packet.sequence} Grok axis ${key} 누락`);
-      if (codexReview.verdict === grokReview.verdict) sequenceAxisAgreements += 1;
-      else disagreements.push(toDisagreement("axis", key, codexReview, grokReview));
+    if (reviewMode === "codex-only") {
+      consensusFindings.push(...deriveSingleIndependentReviewFindings(packet.sequence, codex));
+    } else {
+      const grok = await readBoundReview(outputDir, packet, manifest.launchReceiptSha256, "grok");
+      addReviewerSummary(reviewerSummaries, grok);
+      collectPriorityFindings(priorityFindings, packet.sequence, grok);
+      const grokCriteria = indexReviews(grok.criterionReviews, "criterionIndex");
+      const grokAxes = indexReviews(grok.axisReviews, "dimension");
+      consensusFindings.push(...deriveIndependentReviewConsensus(packet.sequence, codex, grok));
+      for (const [key, codexReview] of codexCriteria) {
+        const grokReview = grokCriteria.get(key);
+        if (!grokReview) throw new Error(`sequence ${packet.sequence} Grok criterion ${key} 누락`);
+        if (codexReview.verdict === grokReview.verdict) sequenceCriterionAgreements += 1;
+        else disagreements.push(toDisagreement("criterion", key, codexReview, grokReview));
+      }
+      for (const [key, codexReview] of codexAxes) {
+        const grokReview = grokAxes.get(key);
+        if (!grokReview) throw new Error(`sequence ${packet.sequence} Grok axis ${key} 누락`);
+        if (codexReview.verdict === grokReview.verdict) sequenceAxisAgreements += 1;
+        else disagreements.push(toDisagreement("axis", key, codexReview, grokReview));
+      }
     }
     collectPriorityFindings(priorityFindings, packet.sequence, codex);
-    collectPriorityFindings(priorityFindings, packet.sequence, grok);
     criterionTotal += codexCriteria.size;
     criterionAgreements += sequenceCriterionAgreements;
     axisTotal += codexAxes.size;
@@ -471,9 +501,9 @@ export async function aggregateIndependentReviews(manifestPath: string) {
     comparisons.push({
       sequence: packet.sequence,
       criterionTotal: codexCriteria.size,
-      criterionAgreements: sequenceCriterionAgreements,
+      criterionAgreements: reviewMode === "codex-only" ? null : sequenceCriterionAgreements,
       axisTotal: codexAxes.size,
-      axisAgreements: sequenceAxisAgreements,
+      axisAgreements: reviewMode === "codex-only" ? null : sequenceAxisAgreements,
       disagreements,
     });
   }
@@ -494,28 +524,35 @@ export async function aggregateIndependentReviews(manifestPath: string) {
     reviewedTargets: manifest.packets.length,
     heldTargets: heldAudit.length,
     reviewerSummaries,
+    reviewMode,
     agreement: {
+      applicability: reviewMode === "codex-only" ? "not-applicable" : "dual-reviewer",
       criterion: {
-        agreed: criterionAgreements,
+        agreed: reviewMode === "codex-only" ? null : criterionAgreements,
         total: criterionTotal,
-        rate: criterionTotal === 0 ? null : criterionAgreements / criterionTotal,
+        rate: reviewMode === "codex-only" || criterionTotal === 0
+          ? null
+          : criterionAgreements / criterionTotal,
       },
       axis: {
-        agreed: axisAgreements,
+        agreed: reviewMode === "codex-only" ? null : axisAgreements,
         total: axisTotal,
-        rate: axisTotal === 0 ? null : axisAgreements / axisTotal,
+        rate: reviewMode === "codex-only" || axisTotal === 0
+          ? null
+          : axisAgreements / axisTotal,
       },
     },
     comparisons,
     priorityFindings,
     consensus: {
+      basis: reviewMode === "codex-only" ? "single-independent-reviewer" : "dual-reviewer-consensus",
       defects: consensusFindings.filter((finding) => finding.classification === "defect"),
       unresolved: consensusFindings.filter((finding) => finding.classification === "unresolved"),
       defectCount: consensusFindings.filter((finding) => finding.classification === "defect").length,
       unresolvedCount: consensusFindings.filter((finding) => finding.classification === "unresolved").length,
       affectedTargets: [...new Set(consensusFindings.map((finding) => finding.sequence))].sort((a, b) => a - b),
     },
-    admission: buildIndependentReviewAdmission(consensusFindings, heldAudit.length),
+    admission: buildIndependentReviewAdmission(consensusFindings, heldAudit.length, reviewMode),
     heldAudit,
     policy: { databaseWrites: false, promotion: false, deployment: false },
   };
@@ -524,6 +561,44 @@ export async function aggregateIndependentReviews(manifestPath: string) {
   const aggregatePath = join(outputDir, `${aggregateSha256}.aggregate.json`);
   await writeExactFile(aggregatePath, bytes);
   return { aggregate, aggregateSha256, aggregatePath };
+}
+
+export function deriveSingleIndependentReviewFindings(
+  sequence: number,
+  review: Pick<IndependentReviewResult, "criterionReviews" | "axisReviews">,
+): IndependentReviewConsensusFinding[] {
+  const findings: IndependentReviewConsensusFinding[] = [];
+  for (const [key, item] of indexReviews(review.criterionReviews, "criterionIndex")) {
+    if (item.verdict === "correct") continue;
+    findings.push({
+      sequence,
+      kind: "criterion",
+      key,
+      verdict: item.verdict,
+      classification: item.verdict === "unsure" ? "unresolved" : "defect",
+      codexNote: item.note,
+      grokNote: null,
+      codexMatchImpact: item.matchImpact ?? null,
+      grokMatchImpact: null,
+    });
+  }
+  for (const [key, item] of indexReviews(review.axisReviews, "dimension")) {
+    if (item.verdict === "confirmed_absent") continue;
+    findings.push({
+      sequence,
+      kind: "axis",
+      key,
+      verdict: item.verdict,
+      classification: "defect",
+      codexNote: item.note,
+      grokNote: null,
+      codexMatchImpact: item.matchImpact ?? null,
+      grokMatchImpact: null,
+    });
+  }
+  return findings.sort((left, right) => (
+    left.kind.localeCompare(right.kind) || String(left.key).localeCompare(String(right.key), "en", { numeric: true })
+  ));
 }
 
 export function deriveIndependentReviewConsensus(
@@ -580,6 +655,7 @@ export function deriveIndependentReviewConsensus(
 function buildIndependentReviewAdmission(
   consensusFindings: IndependentReviewConsensusFinding[],
   heldTargets: number,
+  reviewMode: "codex-only" | "dual-legacy",
 ) {
   const defectCount = consensusFindings.filter((finding) => finding.classification === "defect").length;
   const unresolvedCount = consensusFindings.filter((finding) => finding.classification === "unresolved").length;
@@ -593,7 +669,9 @@ function buildIndependentReviewAdmission(
       ...(unresolvedCount > 0 ? [`consensus_unresolved:${unresolvedCount}`] : []),
       ...(heldTargets > 0 ? [`non_publishable_targets:${heldTargets}`] : []),
     ],
-    policy: "두 독립 검수자가 같은 비정상 판정을 내린 criterion·빈 축 또는 미해결 판정은 후속 보정과 재검수 전까지 승격을 보류한다.",
+    policy: reviewMode === "codex-only"
+      ? "Codex 독립 검수의 비정상 criterion·빈 축 또는 미해결 판정은 후속 보정과 재검수 전까지 승격을 보류한다."
+      : "두 독립 검수자가 같은 비정상 판정을 내린 criterion·빈 축 또는 미해결 판정은 후속 보정과 재검수 전까지 승격을 보류한다.",
   } as const;
 }
 
@@ -652,6 +730,15 @@ function buildIndependentReviewUserMessage(
   ].join("\n");
 }
 
+export function buildIndependentReviewSystemPrompt(rubric: string): string {
+  return [
+    buildSystemPrompt(rubric),
+    "",
+    "[창업노트 현재 매처 계약 — 독립 검수 필수 규칙]",
+    `- ${DEEP_ANALYSIS_PRIOR_AWARD_STATE_RULE}`,
+  ].join("\n");
+}
+
 function canonicalBytes(value: unknown): Buffer {
   return Buffer.from(`${canonicalJson(value)}\n`, "utf8");
 }
@@ -688,8 +775,39 @@ async function readVerifiedManifest(manifestPath: string): Promise<{
   const addressedSha256 = basename(absoluteManifestPath).replace(/\.manifest\.json$/, "");
   if (manifestSha256 !== addressedSha256) throw new Error("manifest content address가 일치하지 않습니다.");
   const manifest = JSON.parse(bytes.toString("utf8")) as IndependentReviewManifest;
-  if (manifest.schema !== INDEPENDENT_REVIEW_MANIFEST_SCHEMA) throw new Error("독립 검수 manifest 형식이 아닙니다.");
+  if (
+    manifest.schema !== INDEPENDENT_REVIEW_MANIFEST_SCHEMA
+    && manifest.schema !== LEGACY_INDEPENDENT_REVIEW_MANIFEST_SCHEMA
+  ) throw new Error("독립 검수 manifest 형식이 아닙니다.");
   return { manifest, manifestSha256, absoluteManifestPath };
+}
+
+function resolveIndependentReviewMode(manifest: IndependentReviewManifest): "codex-only" | "dual-legacy" {
+  const reviewers = manifest.reviewers.map((reviewer) => reviewer.reviewer).sort();
+  if (
+    manifest.schema === INDEPENDENT_REVIEW_MANIFEST_SCHEMA
+    && manifest.reviewPolicyVersion === INDEPENDENT_REVIEW_POLICY_VERSION
+    && manifest.policy.reviewerMode === "codex-only"
+    && reviewers.length === 1
+    && reviewers[0] === "codex"
+  ) return "codex-only";
+  if (
+    manifest.schema === LEGACY_INDEPENDENT_REVIEW_MANIFEST_SCHEMA
+    && reviewers.length === 2
+    && reviewers[0] === "codex"
+    && reviewers[1] === "grok"
+  ) return "dual-legacy";
+  throw new Error("독립 검수 reviewer 정책이 지원되는 codex-only 또는 역사 dual-review 형식이 아닙니다.");
+}
+
+export function reviewResultRoot(
+  manifestPath: string,
+  manifestSha256: string,
+  schema: string,
+): string {
+  return schema === INDEPENDENT_REVIEW_MANIFEST_SCHEMA
+    ? join(dirname(manifestPath), "review-runs", manifestSha256)
+    : dirname(manifestPath);
 }
 
 async function writeExactFile(path: string, bytes: Buffer): Promise<void> {

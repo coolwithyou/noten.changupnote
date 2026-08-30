@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
-import { basename, dirname, isAbsolute, relative, resolve, sep } from "node:path";
+import { basename, isAbsolute, relative, resolve, sep } from "node:path";
 import type { LabRun } from "./lab-contract";
 import { prepareLabAnalysis } from "./analyze";
 import { readCurrentDeepRepairExecutionProvenance } from "./deep-repair-runtime-provenance";
@@ -16,8 +16,14 @@ import {
 } from "./launch-batch-artifacts";
 import {
   normalizeIndependentReviewRepairAggregate,
+  resolveIndependentReviewManifestPath,
   selectIndependentReviewRepairSequences,
 } from "./independent-review-repair-launch";
+import {
+  INDEPENDENT_REVIEW_MANIFEST_SCHEMA,
+  INDEPENDENT_REVIEW_PACKET_SCHEMA,
+  LEGACY_INDEPENDENT_REVIEW_MANIFEST_SCHEMA,
+} from "./independent-review-packet";
 import { findMonorepoRoot } from "./run-store";
 
 const SHA256 = /^[a-f0-9]{64}$/u;
@@ -31,6 +37,9 @@ interface ReviewManifestPacket {
 }
 
 interface ReviewManifest {
+  readonly schema:
+    | typeof INDEPENDENT_REVIEW_MANIFEST_SCHEMA
+    | typeof LEGACY_INDEPENDENT_REVIEW_MANIFEST_SCHEMA;
   readonly launchReceiptPath: string;
   readonly launchReceiptSha256: string;
   readonly launchManifestSha256: string;
@@ -69,9 +78,10 @@ export async function prepareIndependentReviewRepairLaunchManifest(input: {
     aggregate,
     input.originalSequences,
   );
-  const reviewManifestPath = resolve(
-    dirname(aggregatePath),
-    `${aggregate.manifestSha256}.manifest.json`,
+  const reviewManifestPath = resolveInside(
+    resolve(repositoryRoot, "spike-out", "analysis-lab", "independent-review"),
+    resolveIndependentReviewManifestPath(aggregatePath, aggregate.manifestSha256),
+    "review manifest",
   );
   const reviewManifestBytes = await readFile(reviewManifestPath);
   if (sha256(reviewManifestBytes) !== aggregate.manifestSha256) {
@@ -155,7 +165,11 @@ export async function prepareIndependentReviewRepairLaunchManifest(input: {
     }
     const packet = object(parseJson(packetBytes, "packet"), "packet");
     if (
-      packet.schema !== "independent-ai-review-packet-v1"
+      packet.schema !== (
+        reviewManifest.schema === INDEPENDENT_REVIEW_MANIFEST_SCHEMA
+          ? INDEPENDENT_REVIEW_PACKET_SCHEMA
+          : "independent-ai-review-packet-v1"
+      )
       || packet.sequence !== originalSequence
       || packet.grantId !== sourceTarget.grantId
       || packet.runId !== packetEntry.runId
@@ -228,13 +242,17 @@ export async function prepareIndependentReviewRepairLaunchManifest(input: {
 function normalizeReviewManifest(value: unknown): ReviewManifest {
   const manifest = object(value, "review manifest");
   if (
-    manifest.schema !== "independent-ai-review-manifest-v1"
+    (
+      manifest.schema !== INDEPENDENT_REVIEW_MANIFEST_SCHEMA
+      && manifest.schema !== LEGACY_INDEPENDENT_REVIEW_MANIFEST_SCHEMA
+    )
     || typeof manifest.launchReceiptPath !== "string"
     || !Array.isArray(manifest.packets)
   ) {
     throw new Error("독립 검수 manifest 형식이 아닙니다.");
   }
   return {
+    schema: manifest.schema,
     launchReceiptPath: requireString(manifest.launchReceiptPath, "launchReceiptPath"),
     launchReceiptSha256: sha(manifest.launchReceiptSha256, "launchReceiptSha256"),
     launchManifestSha256: sha(manifest.launchManifestSha256, "launchManifestSha256"),
