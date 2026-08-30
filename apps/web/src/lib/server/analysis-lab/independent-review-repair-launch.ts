@@ -1,4 +1,5 @@
 import { basename, dirname, join } from "node:path";
+import { stableJson } from "@/lib/server/deep-analysis/sourceRevision";
 import { INDEPENDENT_REVIEW_AGGREGATE_SCHEMA } from "./independent-review-packet";
 
 export interface IndependentReviewRepairAggregate {
@@ -23,6 +24,44 @@ export interface IndependentReviewRepairAggregate {
 }
 
 const SHA256 = /^[a-f0-9]{64}$/u;
+const MAX_PRIOR_REPAIR_INSTRUCTION_CHARS = 80_000;
+
+export function buildIndependentReviewRepairInstruction(input: {
+  readonly aggregateSha256: string;
+  readonly findings: readonly Record<string, unknown>[];
+  readonly priorTaskInstruction?: string | null;
+}): string {
+  const aggregateSha256 = sha(input.aggregateSha256, "aggregateSha256");
+  if (input.findings.length === 0) {
+    throw new Error("독립 검수 repair finding이 없습니다.");
+  }
+  const priorTaskInstruction = input.priorTaskInstruction?.trim() || null;
+  if (
+    priorTaskInstruction
+    && priorTaskInstruction.length > MAX_PRIOR_REPAIR_INSTRUCTION_CHARS
+  ) {
+    throw new Error("누적 독립 검수 repair 지시가 허용 길이를 초과했습니다.");
+  }
+  return [
+    "아래 공고 입력을 22축 전체에 대해 처음부터 다시 분석하라.",
+    "Codex 독립 검수가 원문과 직전 결과를 대조해 아래 결함을 확정했다.",
+    "각 finding의 원문 인용과 수정 이유를 직접 다시 확인하고, note뿐 아니라 실제 criterion value·operator·축 상태에 반영하라.",
+    "삭제 지시는 해당 criterion을 만들지 말고, OR 관계·예외·경계값은 원문 의미를 손실 없이 보존하라.",
+    "지적된 결함 외의 22축과 프로그램 의도를 생략하거나 원문 밖 사실을 추가하지 마라.",
+    ...(priorTaskInstruction
+      ? [
+          "이전 검수에서 이미 확정된 아래 repair 지시도 모두 유지하라. 최신 finding만 고치면서 이전 수정사항을 되돌리면 안 된다.",
+          "<<<PRIOR_VERIFIED_REPAIR_INSTRUCTION>>>",
+          priorTaskInstruction,
+          "<<<END_PRIOR_VERIFIED_REPAIR_INSTRUCTION>>>",
+        ]
+      : []),
+    `independent_review_aggregate_sha256=${aggregateSha256}`,
+    "<<<VERIFIED_CODEX_REVIEW_FINDINGS>>>",
+    stableJson(input.findings),
+    "<<<END_VERIFIED_CODEX_REVIEW_FINDINGS>>>",
+  ].join("\n");
+}
 
 export function resolveIndependentReviewManifestPath(
   aggregatePath: string,

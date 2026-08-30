@@ -35,6 +35,7 @@ import {
 import { parseAuthoringGuideRerunLaunchCliArgs } from "./authoring-guide-rerun-launch-cli";
 import { parseIndependentReviewRepairLaunchCliArgs } from "./independent-review-repair-launch-cli";
 import {
+  buildIndependentReviewRepairInstruction,
   normalizeIndependentReviewRepairAggregate,
   resolveIndependentReviewManifestPath,
   selectIndependentReviewRepairSequences,
@@ -386,6 +387,27 @@ test("독립 검수 repair aggregate는 합의된 결함 sequence와 HOLD만 허
   });
   assert.deepEqual(withUnresolved.consensus.affectedTargets, [3, 27]);
   assert.deepEqual(withUnresolved.consensus.unresolvedTargets, [14]);
+});
+
+test("독립 검수 repair 지시는 이전 확정 결함을 누적해 회귀를 막는다", () => {
+  const prior = buildIndependentReviewRepairInstruction({
+    aggregateSha256: SHA_A,
+    findings: [{ kind: "axis", key: "business_status", verdict: "missed_condition" }],
+  });
+  const cumulative = buildIndependentReviewRepairInstruction({
+    aggregateSha256: SHA_B,
+    findings: [{ kind: "criterion", key: 7, verdict: "needs_edit" }],
+    priorTaskInstruction: prior,
+  });
+  assert.match(cumulative, /이전 수정사항을 되돌리면 안 된다/);
+  assert.match(cumulative, /business_status/);
+  assert.match(cumulative, /criterion/);
+  assert.ok(cumulative.indexOf(prior) < cumulative.indexOf(`independent_review_aggregate_sha256=${SHA_B}`));
+  assert.throws(() => buildIndependentReviewRepairInstruction({
+    aggregateSha256: SHA_C,
+    findings: [{ kind: "axis", key: "region", verdict: "missed_condition" }],
+    priorTaskInstruction: "가".repeat(80_001),
+  }), /허용 길이를 초과/);
 });
 
 test("Codex-only review-runs aggregate는 상위 불변 manifest를 정확히 찾는다", () => {

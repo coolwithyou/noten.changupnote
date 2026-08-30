@@ -15,6 +15,7 @@ import {
   type AnalysisLaunchManifest,
 } from "./launch-batch-artifacts";
 import {
+  buildIndependentReviewRepairInstruction,
   normalizeIndependentReviewRepairAggregate,
   resolveIndependentReviewManifestPath,
   selectIndependentReviewRepairSequences,
@@ -25,7 +26,6 @@ import {
   LEGACY_INDEPENDENT_REVIEW_MANIFEST_SCHEMA,
 } from "./independent-review-packet";
 import { findMonorepoRoot } from "./run-store";
-import { stableJson } from "@/lib/server/deep-analysis/sourceRevision";
 
 const SHA256 = /^[a-f0-9]{64}$/u;
 
@@ -225,14 +225,16 @@ export async function prepareIndependentReviewRepairLaunchManifest(input: {
       throw new Error(`원본 sequence ${originalSequence} runId가 review packet과 다릅니다.`);
     }
     const findings = findingsBySequence.get(originalSequence) ?? [];
+    const priorRepair = sourceTarget.reviewRepair ?? null;
     const reviewRepair = findings.length > 0
       ? Object.freeze({
           sourceRunId: run.runId,
           reviewModel: aggregate.reviewerModel,
-          blockingCount: findings.length,
+          blockingCount: findings.length + (priorRepair?.blockingCount ?? 0),
           taskInstruction: buildIndependentReviewRepairInstruction({
             aggregateSha256,
             findings,
+            ...(priorRepair ? { priorTaskInstruction: priorRepair.taskInstruction } : {}),
           }),
         })
       : null;
@@ -274,23 +276,6 @@ export async function prepareIndependentReviewRepairLaunchManifest(input: {
     aggregateSha256,
     originalSequences,
   });
-}
-
-function buildIndependentReviewRepairInstruction(input: {
-  aggregateSha256: string;
-  findings: readonly Record<string, unknown>[];
-}): string {
-  return [
-    "아래 공고 입력을 22축 전체에 대해 처음부터 다시 분석하라.",
-    "Codex 독립 검수가 원문과 직전 결과를 대조해 아래 결함을 확정했다.",
-    "각 finding의 원문 인용과 수정 이유를 직접 다시 확인하고, note뿐 아니라 실제 criterion value·operator·축 상태에 반영하라.",
-    "삭제 지시는 해당 criterion을 만들지 말고, OR 관계·예외·경계값은 원문 의미를 손실 없이 보존하라.",
-    "지적된 결함 외의 22축과 프로그램 의도를 생략하거나 원문 밖 사실을 추가하지 마라.",
-    `independent_review_aggregate_sha256=${input.aggregateSha256}`,
-    "<<<VERIFIED_CODEX_REVIEW_FINDINGS>>>",
-    stableJson(input.findings),
-    "<<<END_VERIFIED_CODEX_REVIEW_FINDINGS>>>",
-  ].join("\n");
 }
 
 function normalizeReviewManifest(value: unknown): ReviewManifest {
