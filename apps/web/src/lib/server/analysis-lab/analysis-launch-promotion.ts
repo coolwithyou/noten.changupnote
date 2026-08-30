@@ -234,10 +234,20 @@ export async function verifyAnalysisLaunchPromotionSourceArtifactDetailed(
     return { ok: false, changed: ["analysis_launch_evidence"] };
   }
   try {
+    const loadCurrent = dependencies?.loadCurrentGrantEvidence
+      ?? ((run: LabRun) => loadCurrentGrantEvidence(run, dependencies?.now ?? new Date()));
     const cohort = await loadAnalysisLaunchPromotionCohort({
       launchReceiptSha256s: [evidence.launchReceiptSha256],
       grantIds: [artifact.grantId],
-      ...(dependencies ? { dependencies } : {}),
+      dependencies: {
+        ...dependencies,
+        // release prepare가 만든 approved item 자체는 source drift가 아니다. 별도 deep run,
+        // dedup, 원문/첨부 변화는 그대로 current-state 차단 조건으로 유지한다.
+        loadCurrentGrantEvidence: async (run) => ({
+          ...await loadCurrent(run),
+          hasPromotionItem: false,
+        }),
+      },
     });
     const candidate = cohort.candidates[0];
     if (!candidate) return { ok: false, changed: ["analysis_launch_candidate"] };
