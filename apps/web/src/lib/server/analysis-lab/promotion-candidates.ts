@@ -85,6 +85,13 @@ export async function verifyPromotionReleaseSources(
           "./deep-repair-promotion"
         );
         result = await verifyDeepRepairPromotionSourceArtifactDetailed(artifact);
+      } else if (
+        artifact.localLabEvidence?.reviewMethod === "analysis_launch_independent_review"
+      ) {
+        const { verifyAnalysisLaunchPromotionSourceArtifactDetailed } = await import(
+          "./analysis-launch-promotion"
+        );
+        result = await verifyAnalysisLaunchPromotionSourceArtifactDetailed(artifact);
       } else {
         result = await verifyPromotionSourceArtifact(artifact);
       }
@@ -113,6 +120,12 @@ export async function verifyPromotionSourceArtifact(
   if (artifact.localLabEvidence?.reviewMethod === "deep_repair_receipt") {
     const { verifyDeepRepairPromotionSourceArtifact } = await import("./deep-repair-promotion");
     return verifyDeepRepairPromotionSourceArtifact(artifact);
+  }
+  if (artifact.localLabEvidence?.reviewMethod === "analysis_launch_independent_review") {
+    const { verifyAnalysisLaunchPromotionSourceArtifactDetailed } = await import(
+      "./analysis-launch-promotion"
+    );
+    return verifyAnalysisLaunchPromotionSourceArtifactDetailed(artifact);
   }
   let readRunImpl = deps.readRunImpl;
   if (!readRunImpl) ({ readLabRun: readRunImpl } = await import("./run-store"));

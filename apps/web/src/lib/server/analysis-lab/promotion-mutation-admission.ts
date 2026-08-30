@@ -33,6 +33,62 @@ export function assertReceiptBackedPromotionMutationAdmitted(
     manifest.sourceArtifacts.map((source) => [source.grantId, source]),
   );
   for (const item of manifest.plans) {
+    if (item.promotionPlan.origin === "analysis_launch") {
+      const readiness = item.analysisLaunchReadiness;
+      const source = sourceByGrantId.get(item.grantId);
+      const evidence = source?.localLabEvidence;
+      const launch = evidence?.analysisLaunch;
+      const application = source?.applicationPrecompute;
+      const launchApplication = application?.launchAdmission;
+      const applicationNotApplicableWithoutArtifact =
+        readiness?.applicationRoundtripStatus === "not_applicable"
+        && readiness.applicationRoundtripRunId === null
+        && readiness.applicationDocumentCount === 0
+        && readiness.fieldReadyDocumentCount === 0
+        && readiness.recognizedFieldCount === 0;
+      if (
+        item.promotionPlan.auditState !== "analysis_launch_independent_review"
+        || !readiness
+        || (readiness.disposition !== "ready" && readiness.disposition !== "conditional")
+        || readiness.reasons.length > 0
+      ) {
+        throw new PromotionMutationAdmissionError(
+          `${item.grantId}의 analysis-launch readiness가 안전하지 않습니다`,
+        );
+      }
+      if (
+        !source
+        || source.runId !== item.promotionPlan.runId
+        || evidence?.reviewMethod !== "analysis_launch_independent_review"
+        || !launch
+        || launch.launchReceiptSha256 !== readiness.launchReceiptSha256
+        || launch.independentReviewAggregateSha256 !== readiness.independentReviewAggregateSha256
+        || launch.sourceRevisionSha256 !== readiness.sourceRevisionSha256
+        || (!applicationNotApplicableWithoutArtifact && (
+          !application
+          || !launchApplication
+          || launchApplication.launchReceiptSha256 !== launch.launchReceiptSha256
+          || launchApplication.independentReviewAggregateSha256
+            !== launch.independentReviewAggregateSha256
+          || launchApplication.runArtifactSha256 !== source.runSha256
+        ))
+        || (applicationNotApplicableWithoutArtifact && application !== undefined)
+      ) {
+        throw new PromotionMutationAdmissionError(
+          `${item.grantId}의 launch/run/review/revision 결속이 불완전합니다`,
+        );
+      }
+      if (
+        evidence.inputSha256 !== readiness.inputSha256
+        || launch.attachmentManifestSha256 !== readiness.attachmentManifestSha256
+        || source.sourceRevisionSha256 !== readiness.sourceRevisionSha256
+      ) {
+        throw new PromotionMutationAdmissionError(
+          `${item.grantId}의 input/attachment/revision이 다릅니다`,
+        );
+      }
+      continue;
+    }
     if (
       item.promotionPlan.origin !== "deep_repair"
       || item.promotionPlan.auditState !== "deep_repair_receipt"

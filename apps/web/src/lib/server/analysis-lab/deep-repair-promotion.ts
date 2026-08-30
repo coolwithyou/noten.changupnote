@@ -79,7 +79,7 @@ export interface DeepRepairPromotionReadinessItem {
   readiness: DeepRepairPromotionReadiness;
 }
 
-interface CurrentGrantEvidence {
+export interface CurrentGrantEvidence {
   sourceRevisionSha256: string;
   inputSha256: string;
   attachmentManifestSha256: string;
@@ -661,7 +661,7 @@ async function loadAndVerifyTarget(input: {
   };
 }
 
-async function loadCurrentGrantEvidence(run: LabRun, now: Date): Promise<CurrentGrantEvidence> {
+export async function loadCurrentGrantEvidence(run: LabRun, now: Date): Promise<CurrentGrantEvidence> {
   const db = getCunoteDb();
   const storage = createR2ObjectStorageFromEnv();
   if (!storage) throw new Error("current source revision 검증에 R2 환경변수가 필요합니다.");

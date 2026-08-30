@@ -54,7 +54,7 @@ import { buildGrantAuthoringGuide } from "./authoring-guide";
 // ---- 대상 선정 (사람 우선 dedupe — confirmations-cli 규칙의 순수화) -------------------
 
 /** 검수 확정의 출처 — 사람 전수 검수(human) / AI 검수 + 감사 완료 병합(audited). */
-export type PromotionOrigin = "human" | "audited" | "pending" | "deep_repair";
+export type PromotionOrigin = "human" | "audited" | "pending" | "deep_repair" | "analysis_launch";
 
 /**
  * 질문 provenance 의 감사 상태 — 스키마 계약(B-4 계획 §2).
@@ -66,6 +66,7 @@ export type PromotionAuditState =
   | "ai_audit_concur"
   | "deterministic_contract"
   | "deep_repair_receipt"
+  | "analysis_launch_independent_review"
   | "mixed_resolution";
 
 export interface PromotionAuditedSourceEvidence {
@@ -364,6 +365,8 @@ export function planGrantPromotion(input: {
   deterministicResolvedCriterionIndexes?: number[];
   /** 사람/AI 검수를 가장하지 않는 봉인된 deep-repair terminal receipt provenance. */
   deepRepairReceiptSha256?: string;
+  /** formal launch receipt와 target별 독립 검수 PASS provenance. */
+  analysisLaunchReceiptSha256?: string;
   /** <runId>.confirmations.json 사이드카(없으면 null) — 병합 규칙은 confirmations.ts 그대로. */
   sidecar: LabConfirmationsFile | null;
 }): GrantPromotionPlan {
@@ -379,6 +382,7 @@ export function planGrantPromotion(input: {
     audit: input.audit,
     overlay: input.overlay,
     deepRepairReceiptSha256: input.deepRepairReceiptSha256,
+    analysisLaunchReceiptSha256: input.analysisLaunchReceiptSha256,
   });
   const reviewRisk = input.review
     ? assessPromotionReviewRisk({ run: mergedRun, review: input.review })
@@ -445,6 +449,8 @@ export function planGrantPromotion(input: {
           : "ai_audit_concur"
         : input.origin === "deep_repair"
           ? "deep_repair_receipt"
+          : input.origin === "analysis_launch"
+            ? "analysis_launch_independent_review"
         : "mixed_resolution";
   const criterionStableKeys = conversion.criteria.map(criterionStableKey);
   const resolutionByIndex = new Map(resolutions.map((item) => [item.criterionIndex, item]));
@@ -529,6 +535,7 @@ function questionAuditState(
     overlay?: HumanReviewOverlay | null | undefined;
     deterministicResolvedCriterionIndexes?: number[] | undefined;
     deepRepairReceiptSha256?: string | undefined;
+    analysisLaunchReceiptSha256?: string | undefined;
   },
   resolution: CriterionResolution,
 ): PromotionAuditState {
@@ -539,6 +546,9 @@ function questionAuditState(
   if (input.origin === "audited") return "ai_audit_concur";
   if (input.origin === "deep_repair" && input.deepRepairReceiptSha256) {
     return "deep_repair_receipt";
+  }
+  if (input.origin === "analysis_launch" && input.analysisLaunchReceiptSha256) {
+    return "analysis_launch_independent_review";
   }
   const overlayDecision = input.overlay?.items.some((item) =>
     item.itemKind === "criterion"

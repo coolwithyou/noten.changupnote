@@ -61,7 +61,9 @@ export interface PromotionAggregateEvidence {
 function claimsSealedEvidence(item: PromotionReleasePlanItem): boolean {
   return item.deepAnalysisReadiness !== undefined
     || item.promotionPlan.origin === "deep_repair"
-    || item.promotionPlan.auditState === "deep_repair_receipt";
+    || item.promotionPlan.auditState === "deep_repair_receipt"
+    || item.promotionPlan.origin === "analysis_launch"
+    || item.promotionPlan.auditState === "analysis_launch_independent_review";
 }
 
 function acceptsSealedEvidence(item: PromotionReleasePlanItem): boolean {

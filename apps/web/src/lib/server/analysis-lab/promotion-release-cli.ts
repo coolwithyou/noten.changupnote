@@ -3,6 +3,11 @@ import { and, eq, inArray } from "drizzle-orm";
 import { applyPublishGuards } from "./promote";
 import { assertReceiptBackedPromotionMutationAdmitted } from "./promotion-mutation-admission";
 import { loadDeepRepairPromotionCohort } from "./deep-repair-promotion";
+import { loadAnalysisLaunchPromotionCohort } from "./analysis-launch-promotion";
+import {
+  prepareAnalysisLaunchPromotionApplicationPrecomputeBundle,
+  writePreparedPromotionApplicationPrecomputeBundle,
+} from "./application-precompute-release";
 import {
   assertPromotionReleaseContinuationBinding,
   assertManifestConfirmation,
@@ -213,7 +218,11 @@ async function assertPreparedRevisionCanAdvance(input: {
 
 async function prepare(): Promise<number> {
   const series = readArg("series")?.trim();
-  const cohort = readArg("cohort")?.trim() || series;
+  const launchReceiptSha256s = (readArg("launch-receipts") ?? "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+  const cohort = readArg("cohort")?.trim() || series || "analysis-launch";
   const actor = readArg("actor")?.trim();
   const exactGrantIds = (readArg("grantIds") ?? "")
     .split(",")
@@ -223,9 +232,9 @@ async function prepare(): Promise<number> {
   if (hasFlag("require-kordoc")) {
     throw new Error("--require-kordoc은 RHWP 작성 가이드 전환으로 폐기됐습니다.");
   }
-  if (!series) {
+  if (Boolean(series) === (launchReceiptSha256s.length > 0)) {
     throw new Error(
-      "신규 release 준비는 receipt 기반 exact cohort만 허용합니다. --series와 --grantIds exact CSV가 필요합니다.",
+      "신규 release 준비는 --series 또는 --launch-receipts 중 하나와 --grantIds exact CSV가 필요합니다.",
     );
   }
   if (!cohort) throw new Error("--cohort가 필요합니다.");
@@ -238,11 +247,18 @@ async function prepare(): Promise<number> {
     throw new Error("자동 대상 선정을 하지 않습니다. --grantIds exact CSV가 필요합니다.");
   }
   const build = readPromotionBuildProvenance();
-  const deepRepairCohort = await loadDeepRepairPromotionCohort({
-    seriesId: series,
-    grantIds: exactGrantIds,
-  });
-  const excluded = [...deepRepairCohort.adminReview, ...deepRepairCohort.held];
+  const deepRepairCohort = series
+    ? await loadDeepRepairPromotionCohort({ seriesId: series, grantIds: exactGrantIds })
+    : null;
+  const analysisLaunchCohort = launchReceiptSha256s.length > 0
+    ? await loadAnalysisLaunchPromotionCohort({
+        launchReceiptSha256s,
+        grantIds: exactGrantIds,
+      })
+    : null;
+  const excluded = deepRepairCohort
+    ? [...deepRepairCohort.adminReview, ...deepRepairCohort.held]
+    : [];
   if (excluded.length > 0) {
     throw new Error(
       `exact cohort에 자동 release 불가 대상이 있습니다: ${excluded
@@ -250,7 +266,7 @@ async function prepare(): Promise<number> {
         .join(", ")}`,
     );
   }
-  const candidates = deepRepairCohort.candidates;
+  const candidates = deepRepairCohort?.candidates ?? analysisLaunchCohort?.candidates ?? [];
   if (candidates.length === 0) throw new Error("확정된 promotion candidate가 0건입니다.");
   const guarded = applyPublishGuards(candidates.map((candidate) => candidate.plan));
   if (guarded.refused.length > 0) {
@@ -271,7 +287,7 @@ async function prepare(): Promise<number> {
     );
   }
   const unsafePlans = guarded.publishable.filter((plan) =>
-    (plan.origin === "deep_repair"
+    ((plan.origin === "deep_repair" || plan.origin === "analysis_launch")
       ? plan.conversion.dropped !== (plan.scopeRejectedCriterionIndexes?.length ?? -1)
       : plan.conversion.dropped > 0 || plan.droppedQuestionCandidates > 0)
     || promotionPlanHasUnsafeUnresolvedCriteria(plan));
@@ -304,7 +320,13 @@ async function prepare(): Promise<number> {
     candidates.map((candidate) => [candidate.plan.grantId, candidate]),
   );
   const deepRepairReadinessByGrantId = new Map(
-    deepRepairCohort.candidates.map((candidate) => [
+    (deepRepairCohort?.candidates ?? []).map((candidate) => [
+      candidate.plan.grantId,
+      candidate.readiness,
+    ]),
+  );
+  const analysisLaunchReadinessByGrantId = new Map(
+    (analysisLaunchCohort?.candidates ?? []).map((candidate) => [
       candidate.plan.grantId,
       candidate.readiness,
     ]),
@@ -330,6 +352,9 @@ async function prepare(): Promise<number> {
       ...(deepRepairReadinessByGrantId.has(plan.grantId)
         ? { deepRepairReadiness: deepRepairReadinessByGrantId.get(plan.grantId)! }
         : {}),
+      ...(analysisLaunchReadinessByGrantId.has(plan.grantId)
+        ? { analysisLaunchReadiness: analysisLaunchReadinessByGrantId.get(plan.grantId)! }
+        : {}),
       transport: candidateByGrantId.get(plan.grantId)?.source.run.transport ?? "api",
       costUsd: candidateByGrantId.get(plan.grantId)?.source.run.costUsd ?? null,
     });
@@ -338,7 +363,32 @@ async function prepare(): Promise<number> {
   const now = new Date();
   const releaseId = readArg("releaseId")?.trim()
     || releaseIdFor(cohort, revision, now, build.gitCommit);
-  const sourceArtifacts = candidates.map((candidate) => candidate.sourceArtifact);
+  const preparedApplicationBundles = analysisLaunchCohort
+    ? await Promise.all(analysisLaunchCohort.candidates.flatMap((candidate) => {
+        if (!candidate.source.run.applicationRoundtrip?.runId) return [];
+        return [async () => {
+        const sourceEvidence = candidate.sourceArtifact.localLabEvidence?.analysisLaunch;
+        if (!sourceEvidence) {
+          throw new Error(`analysis-launch source evidence가 없습니다: ${candidate.plan.grantId}`);
+        }
+        return prepareAnalysisLaunchPromotionApplicationPrecomputeBundle({
+          releaseId,
+          labRun: candidate.source.run,
+          sourceEvidence,
+          runArtifactSha256: candidate.sourceArtifact.runSha256,
+        });
+        }];
+      }).map((prepare) => prepare()))
+    : [];
+  const applicationBundleByGrantId = new Map(
+    preparedApplicationBundles.map((bundle) => [bundle.evidence.grantId, bundle]),
+  );
+  const sourceArtifacts = candidates.map((candidate) => ({
+    ...candidate.sourceArtifact,
+    ...(applicationBundleByGrantId.has(candidate.plan.grantId)
+      ? { applicationPrecompute: applicationBundleByGrantId.get(candidate.plan.grantId)!.evidence }
+      : {}),
+  }));
   const continuation = await assertPreparedRevisionCanAdvance({
     cohort,
     revision,
@@ -368,6 +418,7 @@ async function prepare(): Promise<number> {
   });
   // 파일 또는 DB를 쓰기 전에 현재 mutation admission과 동일한 receipt 결속을 증명한다.
   assertReceiptBackedPromotionMutationAdmitted(manifest);
+  await Promise.all(preparedApplicationBundles.map(writePreparedPromotionApplicationPrecomputeBundle));
   await writeImmutablePromotionArtifact(
     promotionReleaseArtifactPath(releaseId, "manifest.json"),
     manifest,
@@ -406,22 +457,53 @@ async function prepare(): Promise<number> {
   console.log(
     `[release] 대상 ${manifest.plans.length}건 · 조건부 ${manifest.plans.filter(
       (item) => item.promotionPlan.reviewRisk?.disposition === "conditional"
-        || item.deepRepairReadiness?.disposition === "conditional",
+        || item.deepRepairReadiness?.disposition === "conditional"
+        || item.analysisLaunchReadiness?.disposition === "conditional",
     ).length}건 · canary ${manifest.canaryGrantIds.join(", ")}`,
   );
   console.log(`[release] 검증된 공고 작성 가이드 ${manifest.plans.filter((item) => item.promotionPlan.authoringGuide).length}/${manifest.plans.length}`);
   return 0;
 }
 
-async function inspectDeepRepairCohort(): Promise<number> {
+async function inspectReceiptBackedCohort(): Promise<number> {
   const series = readArg("series")?.trim();
+  const launchReceiptSha256s = (readArg("launch-receipts") ?? "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
   const grantIds = (readArg("grantIds") ?? "")
     .split(",")
     .map((value) => value.trim())
     .filter(Boolean);
-  if (!series) throw new Error("--inspect에는 --series가 필요합니다.");
+  if (Boolean(series) === (launchReceiptSha256s.length > 0)) {
+    throw new Error("--inspect에는 --series 또는 --launch-receipts 중 하나가 필요합니다.");
+  }
   if (grantIds.length === 0) throw new Error("--inspect에는 --grantIds exact CSV가 필요합니다.");
-  const cohort = await loadDeepRepairPromotionCohort({ seriesId: series, grantIds });
+  if (launchReceiptSha256s.length > 0) {
+    const cohort = await loadAnalysisLaunchPromotionCohort({ launchReceiptSha256s, grantIds });
+    console.log(JSON.stringify({
+      launchReceiptSha256s: cohort.launchReceiptSha256s,
+      candidates: cohort.candidates.map((candidate) => ({
+        sequence: candidate.sourceArtifact.localLabEvidence?.analysisLaunch?.launchSequence,
+        grantId: candidate.plan.grantId,
+        runId: candidate.plan.runId,
+        runSha256: candidate.sourceArtifact.runSha256,
+        disposition: candidate.readiness.disposition,
+        reasons: candidate.readiness.reasons,
+        unresolvedAxes: candidate.readiness.unresolvedAxes,
+        sourceRevisionSha256: candidate.readiness.sourceRevisionSha256,
+        inputSha256: candidate.readiness.inputSha256,
+        attachmentManifestSha256: candidate.readiness.attachmentManifestSha256,
+        launchReceiptSha256: candidate.readiness.launchReceiptSha256,
+        independentReviewAggregateSha256:
+          candidate.readiness.independentReviewAggregateSha256,
+        applicationRoundtrip: candidate.source.run.applicationRoundtrip,
+        criteriaCount: candidate.plan.criteria.length,
+      })),
+    }, null, 2));
+    return 0;
+  }
+  const cohort = await loadDeepRepairPromotionCohort({ seriesId: series!, grantIds });
   console.log(JSON.stringify({
     seriesId: cohort.seriesId,
     proposalSha256: cohort.proposalSha256,
@@ -561,7 +643,7 @@ async function approve(): Promise<number> {
 }
 
 async function main(): Promise<number> {
-  if (hasFlag("inspect")) return inspectDeepRepairCohort();
+  if (hasFlag("inspect")) return inspectReceiptBackedCohort();
   if (hasFlag("prepare")) return prepare();
   if (hasFlag("approve")) return approve();
   throw new Error("--prepare 또는 --approve 중 하나가 필요합니다.");

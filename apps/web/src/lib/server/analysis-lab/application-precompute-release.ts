@@ -19,11 +19,14 @@ import { admitApplicationRoundtripRelease } from "./application-roundtrip/releas
 import type { ApplicationRoundtripReleaseAdmission } from "./application-roundtrip/release-admission";
 import { analysisLabDir, findMonorepoRoot } from "./run-store";
 import { isPublishableLabRun } from "./run-outcome";
+import type { VerifiedAnalysisLaunchSourceEvidence } from "./promotion-release";
 
 export const PROMOTION_APPLICATION_PRECOMPUTE_SCHEMA =
   "promotion-application-precompute-v2" as const;
 export const LEGACY_PROMOTION_APPLICATION_PRECOMPUTE_SCHEMA =
   "promotion-application-precompute-v1" as const;
+export const ANALYSIS_LAUNCH_PROMOTION_APPLICATION_PRECOMPUTE_SCHEMA =
+  "promotion-application-precompute-v3" as const;
 
 export interface PromotionApplicationPrecomputeAdmissionEvidence {
   receiptSchema: ApplicationRoundtripReleaseAdmission["receiptSchema"];
@@ -42,10 +45,22 @@ export interface PromotionApplicationPrecomputeAdmissionEvidence {
   reasonCodes: ApplicationRoundtripReleaseAdmission["reasonCodes"];
 }
 
+export interface PromotionApplicationPrecomputeLaunchEvidence {
+  launchReceiptSha256: string;
+  launchManifestSha256: string;
+  launchGrantSha256: string;
+  launchSequence: number;
+  independentReviewManifestSha256: string;
+  independentReviewAggregateSha256: string;
+  runArtifactSha256: string;
+  applicationFieldAnalysisVersion: string;
+}
+
 export interface PromotionApplicationPrecomputeEvidence {
   schema:
     | typeof PROMOTION_APPLICATION_PRECOMPUTE_SCHEMA
-    | typeof LEGACY_PROMOTION_APPLICATION_PRECOMPUTE_SCHEMA;
+    | typeof LEGACY_PROMOTION_APPLICATION_PRECOMPUTE_SCHEMA
+    | typeof ANALYSIS_LAUNCH_PROMOTION_APPLICATION_PRECOMPUTE_SCHEMA;
   releaseId: string;
   grantId: string;
   parentLabRunId: string;
@@ -61,6 +76,8 @@ export interface PromotionApplicationPrecomputeEvidence {
   reviewRequiredDocumentCount: number;
   /** v2부터 deep receipt와 Kordoc canary/policy receipt의 exact 결속을 봉인한다. */
   canaryAdmission?: PromotionApplicationPrecomputeAdmissionEvidence;
+  /** v3: formal launch receipt와 target별 독립 검수 PASS 결속. */
+  launchAdmission?: PromotionApplicationPrecomputeLaunchEvidence;
 }
 
 export interface BundledPromotionApplicationPrecompute {
@@ -243,6 +260,105 @@ export async function preparePromotionApplicationPrecomputeBundle(input: {
   return { evidence, analysisBody, manifestBody };
 }
 
+/** formal launch에 내장된 RHWP 필드 분석을 release 번들로 복제한다. */
+export async function prepareAnalysisLaunchPromotionApplicationPrecomputeBundle(input: {
+  releaseId: string;
+  labRun: LabRun;
+  sourceEvidence: VerifiedAnalysisLaunchSourceEvidence;
+  runArtifactSha256: string;
+}): Promise<PreparedPromotionApplicationPrecomputeBundle> {
+  assertSafeReleaseSegment(input.releaseId, "releaseId");
+  const reference = input.labRun.applicationRoundtrip;
+  if (
+    !isPublishableLabRun(input.labRun)
+    || !reference?.runId
+    || reference.transport !== "claude-cli"
+    || reference.model !== APPLICATION_ROUNDTRIP_ADOPTED_MODEL
+    || input.sourceEvidence.applicationFieldAnalysisVersion !== APPLICATION_ROUNDTRIP_VERSION
+    || input.sourceEvidence.attachmentManifestSha256 !== input.labRun.attachmentManifestSha256
+  ) {
+    throw new Error(`formal launch RHWP field binding이 불완전합니다: ${input.labRun.grantId}`);
+  }
+  const artifacts = await readRoundtripRunArtifacts(input.labRun.grantId, reference.runId);
+  if (!artifacts) {
+    throw new Error(`formal launch RHWP field artifact를 찾지 못했습니다: ${input.labRun.grantId}`);
+  }
+  if (
+    artifacts.run.version !== APPLICATION_ROUNDTRIP_VERSION
+    || artifacts.run.parentLabRunId !== input.labRun.runId
+    || artifacts.run.grantId !== input.labRun.grantId
+    || artifacts.run.transport !== "claude-cli"
+    || artifacts.run.requestedModel !== APPLICATION_ROUNDTRIP_ADOPTED_MODEL
+    || artifacts.run.error !== null
+    || (artifacts.run.failureCode ?? null) !== null
+    || artifacts.manifest.runId !== artifacts.run.runId
+    || artifacts.manifest.grantId !== artifacts.run.grantId
+  ) {
+    throw new Error(`formal launch RHWP field provenance가 다릅니다: ${input.labRun.grantId}`);
+  }
+  const applicationDocuments = artifacts.run.documents.filter((document) =>
+    document.role === "application_form"
+    || document.role === "business_plan"
+    || document.role === "mixed_form");
+  const materializableDocuments = applicationDocuments.filter((document) => {
+    const classification = classifyApplicationPrecomputeDocument(document);
+    return classification.materialize
+      && document.fieldPlanning.status === "llm"
+      && document.fieldPlanning.transport === "claude-cli"
+      && document.fieldPlanning.requestedModel === APPLICATION_ROUNDTRIP_ADOPTED_MODEL
+      && (document.fieldPlanning.failureCode ?? null) === null;
+  });
+  if (applicationDocuments.length > 0 && materializableDocuments.length === 0) {
+    throw new Error(
+      `formal launch가 자동 materialize 가능한 RHWP 필드를 확정하지 못했습니다: ${input.labRun.grantId}`,
+    );
+  }
+  const status: PromotionApplicationPrecomputeEvidence["status"] = applicationDocuments.length === 0
+    ? "not_applicable"
+    : reference.status === "partial"
+      ? "conditional"
+      : "ready";
+  if (
+    (status === "ready" || status === "conditional")
+    && ((reference.fieldReadyDocumentCount ?? 0) === 0 || (reference.recognizedFieldCount ?? 0) === 0)
+  ) {
+    throw new Error(`formal launch RHWP 필드 집계가 비었습니다: ${input.labRun.grantId}`);
+  }
+  const reviewRequiredDocumentCount = applicationDocuments.filter((document) =>
+    classifyApplicationPrecomputeDocument(document).status === "review_required").length;
+  const [analysisBody, manifestBody] = await Promise.all([
+    readFile(join(artifacts.dir, "analysis.json")),
+    readFile(join(artifacts.dir, "manifest.json")),
+  ]);
+  const evidence: PromotionApplicationPrecomputeEvidence = {
+    schema: ANALYSIS_LAUNCH_PROMOTION_APPLICATION_PRECOMPUTE_SCHEMA,
+    releaseId: input.releaseId,
+    grantId: input.labRun.grantId,
+    parentLabRunId: input.labRun.runId,
+    roundtripRunId: artifacts.run.runId,
+    status,
+    transport: "claude-cli",
+    model: APPLICATION_ROUNDTRIP_ADOPTED_MODEL,
+    analysisSha256: sha256(analysisBody),
+    manifestSha256: sha256(manifestBody),
+    sourceCount: artifacts.run.sourceCount ?? artifacts.run.documents.length,
+    documentCount: artifacts.run.documents.length,
+    materializableDocumentCount: materializableDocuments.length,
+    reviewRequiredDocumentCount,
+    launchAdmission: {
+      launchReceiptSha256: input.sourceEvidence.launchReceiptSha256,
+      launchManifestSha256: input.sourceEvidence.launchManifestSha256,
+      launchGrantSha256: input.sourceEvidence.launchGrantSha256,
+      launchSequence: input.sourceEvidence.launchSequence,
+      independentReviewManifestSha256: input.sourceEvidence.independentReviewManifestSha256,
+      independentReviewAggregateSha256: input.sourceEvidence.independentReviewAggregateSha256,
+      runArtifactSha256: input.runArtifactSha256,
+      applicationFieldAnalysisVersion: input.sourceEvidence.applicationFieldAnalysisVersion,
+    },
+  };
+  return { evidence, analysisBody, manifestBody };
+}
+
 export async function writePreparedPromotionApplicationPrecomputeBundle(
   prepared: PreparedPromotionApplicationPrecomputeBundle,
 ): Promise<void> {
@@ -298,7 +414,8 @@ export async function readBundledPromotionApplicationPrecompute(
     throw new Error(`release Kordoc artifact provenance가 일치하지 않습니다: ${evidence.grantId}`);
   }
   if (
-    evidence.schema === LEGACY_PROMOTION_APPLICATION_PRECOMPUTE_SCHEMA
+    (evidence.schema === LEGACY_PROMOTION_APPLICATION_PRECOMPUTE_SCHEMA
+      || evidence.schema === ANALYSIS_LAUNCH_PROMOTION_APPLICATION_PRECOMPUTE_SCHEMA)
     && run.parentLabRunId !== evidence.parentLabRunId
   ) {
     throw new Error(`legacy release Kordoc parent provenance가 일치하지 않습니다: ${evidence.grantId}`);
@@ -324,6 +441,7 @@ export function validatePromotionApplicationPrecomputeEvidence(
   if (
     evidence.schema !== PROMOTION_APPLICATION_PRECOMPUTE_SCHEMA
       && evidence.schema !== LEGACY_PROMOTION_APPLICATION_PRECOMPUTE_SCHEMA
+      && evidence.schema !== ANALYSIS_LAUNCH_PROMOTION_APPLICATION_PRECOMPUTE_SCHEMA
   ) {
     throw new Error("Kordoc release evidence schema가 올바르지 않습니다.");
   }
@@ -348,11 +466,40 @@ export function validatePromotionApplicationPrecomputeEvidence(
   }
   if (evidence.schema === PROMOTION_APPLICATION_PRECOMPUTE_SCHEMA) {
     validateCanaryAdmissionEvidence(evidence.canaryAdmission, evidence);
+    if (evidence.launchAdmission !== undefined) {
+      throw new Error("Kordoc v2 evidence에는 launch admission을 기록할 수 없습니다.");
+    }
+  } else if (evidence.schema === ANALYSIS_LAUNCH_PROMOTION_APPLICATION_PRECOMPUTE_SCHEMA) {
+    validateLaunchAdmissionEvidence(evidence.launchAdmission, evidence);
+    if (evidence.canaryAdmission !== undefined) {
+      throw new Error("formal launch RHWP evidence에는 canary admission을 기록할 수 없습니다.");
+    }
   } else if (evidence.status === "conditional" || evidence.canaryAdmission !== undefined) {
     throw new Error("legacy Kordoc release evidence에는 canary admission을 기록할 수 없습니다.");
   }
   assertSafeReleaseSegment(evidence.releaseId, "releaseId");
   assertSafeReleaseSegment(evidence.grantId, "grantId");
+}
+
+function validateLaunchAdmissionEvidence(
+  value: PromotionApplicationPrecomputeLaunchEvidence | undefined,
+  evidence: { schema?: unknown },
+): void {
+  if (
+    !value
+    || !isSha256(value.launchReceiptSha256)
+    || !isSha256(value.launchManifestSha256)
+    || !isSha256(value.launchGrantSha256)
+    || !Number.isInteger(value.launchSequence)
+    || value.launchSequence < 0
+    || !isSha256(value.independentReviewManifestSha256)
+    || !isSha256(value.independentReviewAggregateSha256)
+    || !isSha256(value.runArtifactSha256)
+    || value.applicationFieldAnalysisVersion !== APPLICATION_ROUNDTRIP_VERSION
+    || evidence.schema !== ANALYSIS_LAUNCH_PROMOTION_APPLICATION_PRECOMPUTE_SCHEMA
+  ) {
+    throw new Error("formal launch RHWP evidence 결속이 올바르지 않습니다.");
+  }
 }
 
 function assertRoundtripProvenance(

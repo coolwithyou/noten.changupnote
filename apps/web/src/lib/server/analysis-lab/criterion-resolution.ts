@@ -16,7 +16,8 @@ export type CriterionResolutionState =
   | "confirmed_wrong"
   | "pending"
   | "unaudited_correct"
-  | "deep_repair_receipt";
+  | "deep_repair_receipt"
+  | "analysis_launch_reviewed";
 
 export interface CriterionResolution {
   criterionIndex: number;
@@ -41,6 +42,11 @@ export function resolveCriterionStates(input: {
    * 사람 검수나 독립 감사를 가장하지 않고 별도 resolution provenance로 기록한다.
    */
   deepRepairReceiptSha256?: string | null | undefined;
+  /**
+   * formal launch run을 독립 Codex 검수까지 통과한 뒤 채택한 경우의 launch receipt.
+   * deep-repair 역사 receipt와 구분해 release provenance를 그대로 보존한다.
+   */
+  analysisLaunchReceiptSha256?: string | null | undefined;
 }): CriterionResolution[] {
   const humanByIndex = new Map(
     (input.humanReview?.criterionReviews ?? []).map((item) => [item.criterionIndex, item]),
@@ -102,6 +108,15 @@ export function resolveCriterionStates(input: {
       };
     }
 
+    if (input.analysisLaunchReceiptSha256) {
+      return {
+        criterionIndex,
+        state: "analysis_launch_reviewed",
+        decidedBy: input.analysisLaunchReceiptSha256,
+        note: null,
+      };
+    }
+
     const ai = aiByIndex.get(criterionIndex);
     if (ai?.verdict === "correct" && !audit) {
       return {
@@ -124,7 +139,8 @@ export function publishesCriterion(state: CriterionResolutionState): boolean {
   return state === "confirmed_correct"
     || state === "unaudited_correct"
     || state === "pending"
-    || state === "deep_repair_receipt";
+    || state === "deep_repair_receipt"
+    || state === "analysis_launch_reviewed";
 }
 
 export function criterionNeedsReview(state: CriterionResolutionState): boolean {
@@ -134,7 +150,9 @@ export function criterionNeedsReview(state: CriterionResolutionState): boolean {
 }
 
 export function publishesConfirmationQuestion(state: CriterionResolutionState): boolean {
-  return state === "confirmed_correct" || state === "deep_repair_receipt";
+  return state === "confirmed_correct"
+    || state === "deep_repair_receipt"
+    || state === "analysis_launch_reviewed";
 }
 
 function fromVerdict(

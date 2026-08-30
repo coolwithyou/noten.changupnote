@@ -43,9 +43,16 @@ release 준비와 승인은 추적 파일 변경이 없는 정확한 build tree�
 
 ## 3. 입력 경로
 
-신규 release는 봉인된 `deep_repair` series의 exact grantId 집합만 사용합니다. collect/
-reconcile, Kordoc, legacy review·audit·confirmations 파일을 요구하지 않고 terminal receipt를
-직접 검증합니다. 자동 후보 선정은 없으며 `--series`와 `--grantIds`를 모두 명시합니다.
+신규 release는 다음 두 exact receipt 경로 중 하나만 사용합니다.
+
+- 봉인된 `deep_repair` series: `--series`와 `--grantIds`를 명시합니다.
+- 정식 런치와 독립 AI 검수를 모두 마친 결과: 기여하는 모든
+  `analysis-launch-receipt-v1` SHA를 `--launch-receipts`로, exact 대상은 `--grantIds`로
+  명시합니다. 각 공고에서 독립 검수 결함이 없는 leaf가 정확히 하나여야 하며, formal RHWP
+  필드 분석 산출물이 release bundle에 함께 봉인됩니다.
+
+두 입력을 섞거나 자동으로 후보를 추가하지 않습니다. collect/reconcile와 legacy
+review·audit·confirmations 파일은 신규 release 입력이 아닙니다.
 
 ## 4. 과거 주간 검수 진단(승격 입력 아님)
 
@@ -70,6 +77,15 @@ evaluator hash를 재현하고 현재 공개·접수·revision/input/attachment�
 pnpm lab:release -- \
   --inspect \
   --series=<deep-repair-series> \
+  --grantIds=<exact-grant-id-csv>
+```
+
+정식 런치 결과는 다음처럼 점검합니다.
+
+```bash
+pnpm lab:release -- \
+  --inspect \
+  --launch-receipts=<launch-receipt-sha256-csv> \
   --grantIds=<exact-grant-id-csv>
 ```
 
@@ -100,6 +116,12 @@ pnpm lab:release -- \
   --revision=1 \
   --actor=<준비자>
 ```
+
+정식 런치 결과는 `--series` 대신 `--launch-receipts`를 사용합니다. 이 경로는 launch
+manifest/grant/run과 Codex 구독 독립 검수 aggregate, 현재 source revision/input/attachment,
+RHWP 필드 분석 run을 교차 검증하고 `promotion-application-precompute-v3` bundle을 생성합니다.
+검수 결함, source drift, 중복 분석, 접수 마감, 필드 산출물 결속 누락 중 하나라도 있으면
+release 준비 전에 중단합니다.
 
 이 경로는 deep receipt를 criterion resolution provenance로 기록합니다. legacy AI 검수,
 블라인드 감사, confirmations, Kordoc 완료로 표기하지 않습니다.

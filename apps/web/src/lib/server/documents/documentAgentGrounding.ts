@@ -238,7 +238,10 @@ export async function loadVerifiedDeepSources(grantId: string): Promise<{
   let authoringGuideStatus: "verified" | "unavailable" | "binding_mismatch" = "unavailable";
   if (isGrantAuthoringGuideV1(snapshot.authoringGuide)) {
     const expectedInputSha256 = artifact.inputSha256 ?? artifact.localLabEvidence?.inputSha256 ?? null;
-    const expectedAttachmentManifestSha256 = artifact.localLabEvidence?.deepRepair?.attachmentManifestSha256 ?? null;
+    const expectedAttachmentManifestSha256 =
+      artifact.localLabEvidence?.deepRepair?.attachmentManifestSha256
+      ?? artifact.localLabEvidence?.analysisLaunch?.attachmentManifestSha256
+      ?? null;
     const guide = snapshot.authoringGuide;
     const guideBound = authoringGuideMatchesSource({
       guide,

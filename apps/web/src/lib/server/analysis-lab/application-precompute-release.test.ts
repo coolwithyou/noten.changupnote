@@ -12,8 +12,10 @@ import type { LabRun } from "@/lib/server/analysis-lab/lab-contract";
 import {
   buildPromotionApplicationPrecomputeReceipt,
   bundlePromotionApplicationPrecompute,
+  prepareAnalysisLaunchPromotionApplicationPrecomputeBundle,
   readBundledPromotionApplicationPrecompute,
   verifyPromotionApplicationPrecomputeReceipt,
+  writePreparedPromotionApplicationPrecomputeBundle,
 } from "./application-precompute-release";
 import { analysisLabDir } from "./run-store";
 
@@ -21,9 +23,11 @@ const grantId = "00000000-0000-4000-8000-000000000777";
 const parentLabRunId = "run-2026-08-09T000000.000Z-a1b2c3";
 const roundtripRunId = "roundtrip-2026-08-09T000001.000Z-d4e5f6";
 const releaseId = "deep-kordoc-portable-test-r1";
+const launchReleaseId = "deep-launch-portable-test-r1";
 const sourceGroup = "test__kordoc-portable";
 const roundtripDir = join(analysisLabDir(), "application-roundtrip", sourceGroup, roundtripRunId);
 const releaseDir = join(analysisLabDir(), "releases", releaseId);
+const launchReleaseDir = join(analysisLabDir(), "releases", launchReleaseId);
 const proposalRoot = join(analysisLabDir(), "application-roundtrip", "proposals");
 const receiptRoot = join(analysisLabDir(), "application-roundtrip", "canary-receipts");
 const deepReceiptSha256 = "d".repeat(64);
@@ -33,6 +37,7 @@ let receiptFixturePath = join(receiptRoot, "missing.json");
 await Promise.all([
   rm(roundtripDir, { recursive: true, force: true }),
   rm(releaseDir, { recursive: true, force: true }),
+  rm(launchReleaseDir, { recursive: true, force: true }),
 ]);
 
 try {
@@ -144,6 +149,33 @@ try {
   assert.equal(bundled.run.runId, roundtripRunId);
   assert.equal(bundled.manifest.attachments[0]?.sourceSha256, "a".repeat(64));
 
+  const launchPrepared = await prepareAnalysisLaunchPromotionApplicationPrecomputeBundle({
+    releaseId: launchReleaseId,
+    labRun: labRun(),
+    runArtifactSha256: "9".repeat(64),
+    sourceEvidence: {
+      schema: "verified-analysis-launch-source-v1",
+      launchReceiptSha256: "1".repeat(64),
+      launchManifestSha256: "2".repeat(64),
+      launchGrantSha256: "3".repeat(64),
+      launchSequence: 0,
+      independentReviewManifestSha256: "4".repeat(64),
+      independentReviewAggregateSha256: "5".repeat(64),
+      attachmentManifestSha256: "c".repeat(64),
+      sourceRevisionSha256: "6".repeat(64),
+      executionGitSha: "7".repeat(40),
+      packageRuntimeSha256: "8".repeat(64),
+      validatorVersion: "deep-analysis-validator-v14",
+      applicationFieldAnalysisVersion: APPLICATION_ROUNDTRIP_VERSION,
+    },
+  });
+  assert.equal(launchPrepared.evidence.schema, "promotion-application-precompute-v3");
+  assert.equal(launchPrepared.evidence.status, "ready");
+  assert.equal(launchPrepared.evidence.launchAdmission?.runArtifactSha256, "9".repeat(64));
+  await writePreparedPromotionApplicationPrecomputeBundle(launchPrepared);
+  const launchBundled = await readBundledPromotionApplicationPrecompute(launchPrepared.evidence);
+  assert.equal(launchBundled.run.parentLabRunId, parentLabRunId);
+
   const precomputeReceipt = buildPromotionApplicationPrecomputeReceipt({
     evidence,
     applied: { materialized: 1, reused: 0, protected: 0, terminalOnly: 0, fields: 1 },
@@ -184,6 +216,7 @@ try {
   await Promise.all([
     rm(roundtripDir, { recursive: true, force: true }),
     rm(releaseDir, { recursive: true, force: true }),
+    rm(launchReleaseDir, { recursive: true, force: true }),
     rm(proposalFixturePath, { force: true }),
     rm(receiptFixturePath, { force: true }),
   ]);
@@ -206,6 +239,7 @@ function labRun(): LabRun {
     inputBlocks: [],
     inputTotalChars: 1,
     inputSha256: "b".repeat(64),
+    attachmentManifestSha256: "c".repeat(64),
     usage: null,
     costUsd: null,
     analysisMarkdown: "test",
@@ -214,6 +248,21 @@ function labRun(): LabRun {
     axisAssessments: [],
     taxonomyProposals: [],
     dimensionDiffs: [],
+    primaryValidationOutcome: "publishable",
+    matchingReadiness: "ready",
+    applicationRoundtrip: {
+      status: "complete",
+      runId: roundtripRunId,
+      transport: "claude-cli",
+      model: APPLICATION_ROUNDTRIP_ADOPTED_MODEL,
+      documentCount: 1,
+      sourceCount: 1,
+      applicationDocumentCount: 1,
+      fieldReadyDocumentCount: 1,
+      recognizedFieldCount: 1,
+      errorCode: null,
+      error: null,
+    },
     error: null,
   };
 }
@@ -228,7 +277,7 @@ function roundtripRun(): ApplicationRoundtripRun {
     title: "Kordoc release 테스트",
     engine: "kordoc",
     engineVersion: "test",
-    parentLabRunId: null,
+    parentLabRunId,
     transport: "claude-cli",
     requestedModel: APPLICATION_ROUNDTRIP_ADOPTED_MODEL,
     timeoutMs: 900_000,
