@@ -25,6 +25,23 @@ const header = field({
 });
 assert.equal(finalizeRoundtripFieldCoverage([header]).status, "complete");
 
+const fixedMarker = field({
+  id: "fixed-marker",
+  label: "자체 지표",
+  displayLabel: "자체 지표 (고정 표기 '-')",
+  originalValue: "-",
+  helperText: "문서에 고정된 기호이며 입력 영역이 아닙니다.",
+  empty: true,
+  recommendedInput: false,
+  analysisSource: "llm",
+  llmConfidence: 0.72,
+});
+assert.equal(
+  finalizeRoundtripFieldCoverage([fixedMarker]).status,
+  "complete",
+  "고정 대시와 비입력 설명이 함께 있으면 저신뢰 LLM 후보도 안전하게 제외해야 한다",
+);
+
 const titleCell = field({
   id: "title-cell",
   label: "상생형 창업벤처기업 지원사업 지원기업 사업계획서",
@@ -137,14 +154,19 @@ function field(input: {
   signals?: string[];
   targetText?: string;
   targetKind?: "table_cell" | "block_text" | "paragraph_text";
+  displayLabel?: string;
+  originalValue?: string;
+  helperText?: string;
+  analysisSource?: RoundtripFieldCandidate["analysisSource"];
+  llmConfidence?: number;
 }): RoundtripFieldCandidate {
   const targetText = input.targetText;
   return {
     fieldInstanceId: input.id,
     label: input.label,
-    displayLabel: input.label,
+    displayLabel: input.displayLabel ?? input.label,
     normalizedLabel: input.label.normalize("NFKC").replace(/[※*★\s]/g, "").toLowerCase(),
-    originalValue: input.empty === false ? targetText ?? "기존값" : "",
+    originalValue: input.originalValue ?? (input.empty === false ? targetText ?? "기존값" : ""),
     type: "text",
     required: input.required ?? false,
     empty: input.empty ?? true,
@@ -156,11 +178,11 @@ function field(input: {
     source: input.source ?? "kordoc-form",
     inputKind: input.writeOperation === "toggle_text_choice" ? "multiple_choice" : "textarea",
     writeOperation: input.writeOperation ?? "kordoc_field",
-    helperText: null,
+    helperText: input.helperText ?? null,
     unit: null,
     options: [],
-    analysisSource: "heuristic",
-    llmConfidence: null,
+    analysisSource: input.analysisSource ?? "heuristic",
+    llmConfidence: input.llmConfidence ?? null,
     location: {
       blockIndex: 1,
       row: 1,

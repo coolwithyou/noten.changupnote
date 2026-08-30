@@ -327,7 +327,7 @@ async function executePreparedLabAnalysisInternal(
   if (
     transport !== "claude-cli"
     || (launchBinding
-      ? hasLaunchBatchExecutionViolation(opts, launchBinding)
+      ? hasLaunchBatchExecutionViolation(grantId, opts, launchBinding)
       : hasReceiptBoundDeepOnlyViolation(opts))
   ) {
     throw new AnalysisLabDeepOnlyExecutionError();
@@ -541,15 +541,31 @@ function hasReceiptBoundDeepOnlyViolation(opts: LabAnalysisOverrides | undefined
     || opts?.reviewRepair !== undefined;
 }
 
-function hasLaunchBatchExecutionViolation(
+export function hasLaunchBatchExecutionViolation(
+  grantId: string,
   opts: LabAnalysisOverrides | undefined,
   binding: NonNullable<ReturnType<typeof currentAnalysisLaunchBatchExecutionBinding>>,
 ): boolean {
-  return opts?.reuseApplicationRoundtripRunId !== undefined
-    || opts?.taskInstruction !== undefined
-    || opts?.reviewRepair !== undefined
+  if (
+    opts?.reuseApplicationRoundtripRunId !== undefined
     || (opts?.withApplicationRoundtrip === true) !== binding.withApplicationRoundtrip
-    || (opts?.roundtripModel ?? null) !== binding.roundtripModel;
+    || (opts?.roundtripModel ?? null) !== binding.roundtripModel
+  ) {
+    return true;
+  }
+  const target = binding.targets.get(grantId);
+  if (!target) return true;
+  if (!target.reviewRepair) {
+    return opts?.taskInstruction !== undefined || opts?.reviewRepair !== undefined;
+  }
+  const repair = opts?.reviewRepair;
+  return opts?.taskInstruction !== target.reviewRepair.taskInstruction
+    || !repair
+    || repair.sourceRunId !== target.reviewRepair.sourceRunId
+    || repair.reviewModel !== target.reviewRepair.reviewModel
+    || repair.blockingCount !== target.reviewRepair.blockingCount
+    || repair.auditModel !== null
+    || repair.adjudicationModel !== null;
 }
 
 function numericMetadataValue(

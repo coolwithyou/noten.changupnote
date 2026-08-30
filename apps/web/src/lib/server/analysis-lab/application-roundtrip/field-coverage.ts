@@ -8,6 +8,9 @@ const COLLAPSED_CONTEXT_LENGTH = 400;
 const GENERIC_CHOICE_COLLAPSED_LENGTH = 120;
 const GENERIC_CHOICE_LABEL = /^선택항목\d+$/;
 const EXPLICIT_REJECTION_SIGNAL = /(표 머리글|표 첫 행의 긴 제목 가능성|표 첫 행의 머리글 가능성|단위 가능성|목차 제목|고정 날짜 문구|제목·설명문|값 placeholder|양식 개체로 대체|구조가 더 구체적인|머리글을 값으로 오인|선택지 위치가 없는|LLM 맥락 판정: 입력 대상 아님|RHWP native 문단 결속 불가로 안전 제외)/;
+const FIXED_MARKER_VALUE = /^[-‐‑‒–—―]$/u;
+const FIXED_MARKER_SIGNAL = /(?:고정.{0,12}(?:표기|문자|값|기호|마커)|(?:표기|문자|값|기호|마커).{0,12}고정)/u;
+const NON_INPUT_SIGNAL = /(?:입력\s*(?:대상|영역|항목)(?:이|가)?\s*(?:아님|아닙|아니|제외)|비입력\s*(?:대상|영역|항목)|작성\s*(?:대상|영역|항목)(?:이|가)?\s*(?:아님|아닙|아니|제외))/u;
 
 /**
  * 후보 판정의 마지막 seam. 구조적으로 안전하지 않은 거대 후보는 제외하고,
@@ -105,6 +108,17 @@ function suppressCollapsedContextualFields(
 
 function hasResolvedRejection(field: RoundtripFieldCandidate): boolean {
   if (field.analysisSource === "llm" && (field.llmConfidence ?? 0) >= 0.75) return true;
+  const explanatoryText = [field.displayLabel, field.helperText]
+    .filter((value): value is string => typeof value === "string")
+    .join(" ")
+    .normalize("NFKC");
+  if (
+    FIXED_MARKER_VALUE.test(field.originalValue.normalize("NFKC").trim())
+    && FIXED_MARKER_SIGNAL.test(explanatoryText)
+    && NON_INPUT_SIGNAL.test(explanatoryText)
+  ) {
+    return true;
+  }
   return field.inputSignals.some((signal) => EXPLICIT_REJECTION_SIGNAL.test(signal));
 }
 

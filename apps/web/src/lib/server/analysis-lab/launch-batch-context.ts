@@ -4,6 +4,12 @@ export interface AnalysisLaunchTargetBinding {
   readonly grantId: string;
   readonly inputSha256: string;
   readonly attachmentManifestSha256: string;
+  readonly reviewRepair?: {
+    readonly sourceRunId: string;
+    readonly reviewModel: string;
+    readonly blockingCount: number;
+    readonly taskInstruction: string;
+  };
 }
 
 export interface AnalysisLaunchBatchExecutionBinding {
@@ -64,7 +70,25 @@ function normalizeBinding(
       target.attachmentManifestSha256,
       `${grantId}.attachmentManifestSha256`,
     );
-    targets.set(grantId, Object.freeze({ ...target }));
+    const reviewRepair = target.reviewRepair;
+    if (
+      reviewRepair
+      && (
+        reviewRepair.sourceRunId.trim() === ""
+        || reviewRepair.reviewModel.trim() === ""
+        || !Number.isSafeInteger(reviewRepair.blockingCount)
+        || reviewRepair.blockingCount < 1
+        || reviewRepair.taskInstruction.trim() === ""
+      )
+    ) {
+      throw new Error(`launch batch ${grantId}.reviewRepair binding이 잘못됐습니다.`);
+    }
+    targets.set(grantId, Object.freeze({
+      grantId,
+      inputSha256: target.inputSha256,
+      attachmentManifestSha256: target.attachmentManifestSha256,
+      ...(reviewRepair ? { reviewRepair: Object.freeze({ ...reviewRepair }) } : {}),
+    }));
   }
   return Object.freeze({ ...binding, targets });
 }

@@ -22,7 +22,10 @@ import {
   type AnalysisLaunchReceiptTarget,
 } from "./launch-batch-artifacts";
 import { partitionCohortEntries } from "./batch-plan";
-import { withAnalysisLaunchBatchExecution } from "./launch-batch-context";
+import {
+  currentAnalysisLaunchBatchExecutionBinding,
+  withAnalysisLaunchBatchExecution,
+} from "./launch-batch-context";
 import { parseAnalysisLaunchCliArgs } from "./launch-batch-cli";
 import {
   classifyAnalysisLaunchTargetStatus,
@@ -36,6 +39,7 @@ import {
   resolveIndependentReviewManifestPath,
   selectIndependentReviewRepairSequences,
 } from "./independent-review-repair-launch";
+import { hasLaunchBatchExecutionViolation } from "./analyze";
 
 const SHA_A = "a".repeat(64);
 const SHA_B = "b".repeat(64);
@@ -474,6 +478,65 @@ test("launch capability는 cohort target만 열고 target source drift는 그 ta
       transport: "claude-cli",
       promptVersion: ANALYSIS_LAB_PROMPT_VERSION,
     }), AnalysisLabExecutionBindingMismatchError);
+  });
+});
+
+test("launch capability는 manifest에 exact 결속된 독립 검수 복구 지시만 허용한다", async () => {
+  const reviewRepair = {
+    sourceRunId: "run-source",
+    reviewModel: "gpt-5.6-sol",
+    blockingCount: 2,
+    taskInstruction: "검증된 결함 두 건만 원문에 맞게 수정",
+  } as const;
+  await withAnalysisLaunchBatchExecution({
+    grantSha256: SHA_D,
+    manifestSha256: SHA_C,
+    model: "claude-opus-5",
+    transport: "claude-cli",
+    promptVersion: ANALYSIS_LAB_PROMPT_VERSION,
+    withApplicationRoundtrip: true,
+    roundtripModel: "claude-opus-5",
+    targets: new Map([
+      [GRANT_0, {
+        grantId: GRANT_0,
+        inputSha256: SHA_A,
+        attachmentManifestSha256: SHA_B,
+        reviewRepair,
+      }],
+      [GRANT_1, {
+        grantId: GRANT_1,
+        inputSha256: SHA_B,
+        attachmentManifestSha256: SHA_C,
+      }],
+    ]),
+  }, async () => {
+    const binding = currentAnalysisLaunchBatchExecutionBinding();
+    assert.ok(binding);
+    const exact = {
+      transport: "claude-cli" as const,
+      model: "claude-opus-5",
+      withApplicationRoundtrip: true,
+      roundtripModel: "claude-opus-5",
+      taskInstruction: reviewRepair.taskInstruction,
+      reviewRepair: {
+        sourceRunId: reviewRepair.sourceRunId,
+        reviewModel: reviewRepair.reviewModel,
+        auditModel: null,
+        adjudicationModel: null,
+        blockingCount: reviewRepair.blockingCount,
+      },
+    };
+    assert.equal(hasLaunchBatchExecutionViolation(GRANT_0, exact, binding), false);
+    assert.equal(hasLaunchBatchExecutionViolation(GRANT_0, {
+      ...exact,
+      taskInstruction: `${reviewRepair.taskInstruction} 임의 확장`,
+    }, binding), true);
+    assert.equal(hasLaunchBatchExecutionViolation(GRANT_0, {
+      ...exact,
+      reviewRepair: { ...exact.reviewRepair, auditModel: "grok" },
+    }, binding), true);
+    assert.equal(hasLaunchBatchExecutionViolation(GRANT_1, exact, binding), true);
+    assert.equal(hasLaunchBatchExecutionViolation("missing", exact, binding), true);
   });
 });
 
