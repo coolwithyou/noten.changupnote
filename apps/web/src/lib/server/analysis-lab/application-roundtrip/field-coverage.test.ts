@@ -25,6 +25,19 @@ const header = field({
 });
 assert.equal(finalizeRoundtripFieldCoverage([header]).status, "complete");
 
+const titleCell = field({
+  id: "title-cell",
+  label: "상생형 창업벤처기업 지원사업 지원기업 사업계획서",
+  empty: true,
+  recommendedInput: false,
+  signals: ["사업계획 서술 라벨", "표 첫 행의 긴 제목 가능성", "표 첫 행의 머리글 가능성"],
+});
+assert.equal(
+  finalizeRoundtripFieldCoverage([titleCell]).status,
+  "complete",
+  "표 첫 행 제목을 미해결 입력 후보로 남기면 안 된다",
+);
+
 const collapsed = field({
   id: "collapsed-choice",
   label: "선택 항목 1",
@@ -40,6 +53,20 @@ assert.equal(partial.status, "partial");
 assert.equal(partial.structuralWarningCount, 1);
 assert.equal(collapsed.recommendedInput, false, "문서 전체가 접힌 거대 선택 후보는 빠른 작성에서 제외해야 한다");
 assert.equal(collapsed.inputLikelihood, 0.1);
+
+const compactCollapsed = field({
+  id: "compact-collapsed-choice",
+  label: "선택 항목 1",
+  source: "contextual-region",
+  empty: false,
+  recommendedInput: true,
+  inputLikelihood: 0.97,
+  writeOperation: "toggle_text_choice",
+  targetText: `${"□ 정산 항목 ".repeat(20)}후속 안내`,
+});
+const compactPartial = finalizeRoundtripFieldCoverage([accepted, compactCollapsed]);
+assert.equal(compactPartial.status, "partial");
+assert.equal(compactCollapsed.recommendedInput, false, "120자 이상 접힌 선택 묶음도 안전 제외해야 한다");
 
 const structural = field({
   id: "representative-name",

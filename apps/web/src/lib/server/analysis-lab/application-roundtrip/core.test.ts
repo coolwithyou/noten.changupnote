@@ -92,6 +92,19 @@ assert.equal(
   "독립 개인정보 동의서를 신청서로 오인하면 안 된다",
 );
 
+const agreementOnly = classifyRoundtripDocument({
+  filename: "붙임_2._제조데이터_AI_활용_컨설팅_협약서.hwpx",
+  markdown: "신청기업 대표자 담당자 연락처 사업자등록번호".repeat(15),
+  fields: Array.from({ length: 16 }, (_, index) =>
+    field({ id: `agreement-${index}`, label: `협약 항목 ${index}`, occurrence: index })),
+  formConfidence: 0.7,
+});
+assert.equal(
+  agreementOnly.role,
+  "evidence",
+  "선정 이후 협약서를 최초 신청 양식으로 오인하면 안 된다",
+);
+
 const plan = classifyRoundtripDocument({
   filename: "붙임2 사업계획서 양식.hwpx",
   markdown: "사업개요\n문제인식\n실현가능성\n성장전략\n시장현황\n추진계획",

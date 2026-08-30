@@ -275,6 +275,12 @@ test("독립 검수 합의 결함 재분석은 exact 원본 대상과 RHWP 필�
         source: "kstartup",
         inputSha256: SHA_A,
         attachmentManifestSha256: SHA_B,
+        reviewRepair: {
+          sourceRunId: "run-source-3",
+          reviewModel: "gpt-5.6-sol",
+          blockingCount: 2,
+          taskInstruction: "검증된 결함 두 건을 원문에 맞게 수정",
+        },
       },
       {
         originalSequence: 27,
@@ -305,6 +311,8 @@ test("독립 검수 합의 결함 재분석은 exact 원본 대상과 RHWP 필�
   assert.equal(repair.execution.roundtripModel, "claude-opus-5");
   assert.equal(repair.execution.applicationFieldAnalysisVersion, "kordoc-application-roundtrip-v9");
   assert.match(repair.targets[0]!.stratum, /original-3$/);
+  assert.equal(repair.targets[0]!.reviewRepair?.blockingCount, 2);
+  assert.match(repair.targets[0]!.reviewRepair?.taskInstruction ?? "", /결함 두 건/);
   assert.match(repair.targets[1]!.stratum, /original-27$/);
   assert.deepEqual(
     normalizeAnalysisLaunchManifest(JSON.parse(encodeCanonical(repair).toString("utf8"))),
@@ -350,6 +358,10 @@ test("독립 검수 repair aggregate는 합의된 결함 sequence와 HOLD만 허
       reviewedTargetsStatus: "HOLD",
       reasons: ["consensus_defects:2"],
     },
+    reviewerSummaries: {
+      codex: { model: "gpt-5.6-sol" },
+    },
+    heldAudit: [],
     policy: { databaseWrites: false, promotion: false, deployment: false },
   };
   const normalized = normalizeIndependentReviewRepairAggregate(aggregate);
@@ -359,14 +371,17 @@ test("독립 검수 repair aggregate는 합의된 결함 sequence와 HOLD만 허
     () => selectIndependentReviewRepairSequences(normalized, [14]),
     /합의 결함 대상이 아닌 sequence/,
   );
-  assert.throws(() => normalizeIndependentReviewRepairAggregate({
+  const withUnresolved = normalizeIndependentReviewRepairAggregate({
     ...aggregate,
     consensus: {
       ...aggregate.consensus,
       unresolvedCount: 1,
-      unresolved: [{ sequence: 3, classification: "unresolved" }],
+      affectedTargets: [3, 14, 27],
+      unresolved: [{ sequence: 14, classification: "unresolved" }],
     },
-  }), /미합의 판정/);
+  });
+  assert.deepEqual(withUnresolved.consensus.affectedTargets, [3, 27]);
+  assert.deepEqual(withUnresolved.consensus.unresolvedTargets, [14]);
 });
 
 test("Codex-only review-runs aggregate는 상위 불변 manifest를 정확히 찾는다", () => {
@@ -498,8 +513,13 @@ test("launch CLI는 prepare/grant/run의 권한 단계를 분리한다", () => {
   ]), {
     aggregatePath: "spike-out/review.aggregate.json",
     originalSequences: [14, 3],
+    includeNonPublishable: false,
     concurrency: 2,
   });
+  assert.equal(parseIndependentReviewRepairLaunchCliArgs([
+    "--aggregate=spike-out/review.aggregate.json",
+    "--include-non-publishable=true",
+  ]).includeNonPublishable, true);
   assert.throws(() => parseIndependentReviewRepairLaunchCliArgs([
     "--aggregate=spike-out/review.json",
   ]));

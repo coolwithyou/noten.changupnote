@@ -71,6 +71,23 @@ assert.match(editedTable.cells[1]![3]!.text, /\[참고\] 분류표 참조$/);
 assert.match(edited[2]!.text!, /^AI 문서 자동화 기술/);
 assert.match(edited[2]!.text!, /\(정량 지표\)/);
 
+const choiceUnderHeaderBlocks: IRBlock[] = [{
+  type: "table",
+  pageNumber: 1,
+  table: {
+    rows: 2,
+    cols: 5,
+    hasHeader: true,
+    cells: [
+      row("기관명", "성명", "소속 / 직책", "동의여부", "서명"),
+      row("", "", "", "□ 동의 / □ 거부", ""),
+    ],
+  },
+}];
+const choiceUnderHeader = extractContextualRoundtripFields(choiceUnderHeaderBlocks, "b".repeat(64));
+assert.equal(choiceUnderHeader[0]?.label, "동의여부", "같은 행 라벨이 없으면 열 머리글을 선택 필드 라벨로 사용");
+assert.equal(choiceUnderHeader[0]?.inputKind, "single_choice");
+
 const narrativeTableBlocks: IRBlock[] = [{
   type: "table",
   pageNumber: 3,

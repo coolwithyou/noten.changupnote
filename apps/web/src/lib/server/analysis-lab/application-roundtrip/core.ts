@@ -11,7 +11,7 @@ import type {
 const APPLICATION_FILENAME = /(신청서|지원서|참가신청|입주신청|등록신청|신청양식|제출서류)/i;
 const PLAN_FILENAME = /(사업\s*계획서|수행\s*계획서|제안서|발표자료|사업계획)/i;
 const ANNOUNCEMENT_FILENAME = /(공고문|모집공고|모집요강|사업공고|공고서|안내문|시행계획)/i;
-const EVIDENCE_FILENAME = /(동의서|서약서|확약서|증빙|체크리스트|개인정보|위임장|명부)/i;
+const EVIDENCE_FILENAME = /(동의서|서약서|확약서|협약서|증빙|체크리스트|개인정보|위임장|명부)/i;
 const FOLLOWUP_REPORT_FILENAME = /((결과|정산|실적|완료|중간)\s*보고서|성과\s*보고서)/i;
 const GUIDANCE_FILENAME = /(관리\s*지침|운영\s*지침|업무\s*지침|운영\s*요령|공통\s*요령|관련\s*법령|시행\s*(?:령|규칙)|운영\s*규정|공통\s*규정|법(?=[\s._()\[\]-]|$)|가이드라인|매뉴얼)/i;
 

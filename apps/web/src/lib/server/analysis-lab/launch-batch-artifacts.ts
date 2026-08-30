@@ -26,6 +26,12 @@ export interface AnalysisLaunchManifestTarget {
   readonly inventoryInputSha256: string;
   readonly inventoryAttachmentManifestSha256: string;
   readonly changedSinceInventory: boolean;
+  readonly reviewRepair?: {
+    readonly sourceRunId: string;
+    readonly reviewModel: string;
+    readonly blockingCount: number;
+    readonly taskInstruction: string;
+  };
 }
 
 export interface AnalysisLaunchManifest {
@@ -225,6 +231,12 @@ export function createIndependentReviewRepairAnalysisLaunchManifest(input: {
     readonly source: string;
     readonly inputSha256: string;
     readonly attachmentManifestSha256: string;
+    readonly reviewRepair?: {
+      readonly sourceRunId: string;
+      readonly reviewModel: string;
+      readonly blockingCount: number;
+      readonly taskInstruction: string;
+    } | null;
   }[];
   readonly preparedTargets: readonly AnalysisLaunchPreparedTarget[];
   readonly provenance: AnalysisLaunchManifestPreparationInput["provenance"];
@@ -271,7 +283,15 @@ export function createIndependentReviewRepairAnalysisLaunchManifest(input: {
   if (manifest.targets.some((target) => target.changedSinceInventory)) {
     throw new Error("독립 검수 합의 결함 target input/attachment가 원본 launch와 달라졌습니다.");
   }
-  return manifest;
+  return normalizeAnalysisLaunchManifest({
+    ...manifest,
+    targets: manifest.targets.map((target, index) => ({
+      ...target,
+      ...(input.targets[index]?.reviewRepair
+        ? { reviewRepair: input.targets[index]!.reviewRepair }
+        : {}),
+    })),
+  });
 }
 
 function createAnalysisLaunchManifestFromInventory(
@@ -421,6 +441,9 @@ export function normalizeAnalysisLaunchManifest(value: unknown): AnalysisLaunchM
     ) {
       throw new Error("launch target changedSinceInventory가 SHA 비교와 다릅니다.");
     }
+    const reviewRepair = target.reviewRepair === undefined
+      ? undefined
+      : normalizeLaunchReviewRepair(target.reviewRepair, `targets[${index}].reviewRepair`);
     return Object.freeze({
       sequence,
       grantId: exactUuid(target.grantId, "grantId"),
@@ -430,6 +453,7 @@ export function normalizeAnalysisLaunchManifest(value: unknown): AnalysisLaunchM
       inventoryInputSha256,
       inventoryAttachmentManifestSha256,
       changedSinceInventory,
+      ...(reviewRepair ? { reviewRepair } : {}),
     });
   });
   if (new Set(targets.map((target) => target.grantId)).size !== targets.length) {
@@ -456,6 +480,9 @@ export function normalizeAnalysisLaunchManifest(value: unknown): AnalysisLaunchM
   }
   if (execution.transport !== "claude-cli") throw new Error("launch transport는 claude-cli여야 합니다.");
   const sourceKind = source.kind === undefined ? "formal_plan" : source.kind;
+  if (sourceKind !== "independent_review_repair" && targets.some((target) => target.reviewRepair)) {
+    throw new Error("독립 검수 repair 외 launch에는 reviewRepair 지시를 결속할 수 없습니다.");
+  }
   const existingRunPolicy = execution.existingRunPolicy === undefined
     ? "skip_existing"
     : execution.existingRunPolicy;
@@ -912,6 +939,21 @@ function nullableNonNegativeInteger(value: unknown, field: string): number | nul
 function requireNonEmpty(value: unknown, field: string): string {
   if (typeof value !== "string" || value.trim() === "") throw new Error(`${field}는 비어 있을 수 없습니다.`);
   return value;
+}
+
+function normalizeLaunchReviewRepair(
+  value: unknown,
+  field: string,
+): NonNullable<AnalysisLaunchManifestTarget["reviewRepair"]> {
+  const record = object(value, field);
+  const blockingCount = integer(record.blockingCount, `${field}.blockingCount`);
+  if (blockingCount < 1) throw new Error(`${field}.blockingCount는 1 이상이어야 합니다.`);
+  return Object.freeze({
+    sourceRunId: requireNonEmpty(record.sourceRunId, `${field}.sourceRunId`),
+    reviewModel: requireNonEmpty(record.reviewModel, `${field}.reviewModel`),
+    blockingCount,
+    taskInstruction: requireNonEmpty(record.taskInstruction, `${field}.taskInstruction`),
+  });
 }
 
 function exactString(value: string, field: string): string {

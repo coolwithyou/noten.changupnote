@@ -5,8 +5,9 @@ import type {
 } from "@/lib/server/analysis-lab/application-roundtrip/contract";
 
 const COLLAPSED_CONTEXT_LENGTH = 400;
+const GENERIC_CHOICE_COLLAPSED_LENGTH = 120;
 const GENERIC_CHOICE_LABEL = /^선택항목\d+$/;
-const EXPLICIT_REJECTION_SIGNAL = /(표 머리글|단위 가능성|목차 제목|고정 날짜 문구|제목·설명문|값 placeholder|양식 개체로 대체|구조가 더 구체적인|머리글을 값으로 오인|선택지 위치가 없는|LLM 맥락 판정: 입력 대상 아님|RHWP native 문단 결속 불가로 안전 제외)/;
+const EXPLICIT_REJECTION_SIGNAL = /(표 머리글|표 첫 행의 긴 제목 가능성|표 첫 행의 머리글 가능성|단위 가능성|목차 제목|고정 날짜 문구|제목·설명문|값 placeholder|양식 개체로 대체|구조가 더 구체적인|머리글을 값으로 오인|선택지 위치가 없는|LLM 맥락 판정: 입력 대상 아님|RHWP native 문단 결속 불가로 안전 제외)/;
 
 /**
  * 후보 판정의 마지막 seam. 구조적으로 안전하지 않은 거대 후보는 제외하고,
@@ -91,7 +92,7 @@ function suppressCollapsedContextualFields(
     if (field.source !== "contextual-region" || field.writeOperation !== "toggle_text_choice") continue;
     const targetLength = field.location.target?.expectedText.length ?? field.originalValue.length;
     const collapsed = targetLength >= COLLAPSED_CONTEXT_LENGTH
-      || (GENERIC_CHOICE_LABEL.test(field.normalizedLabel) && targetLength >= 160);
+      || (GENERIC_CHOICE_LABEL.test(field.normalizedLabel) && targetLength >= GENERIC_CHOICE_COLLAPSED_LENGTH);
     if (!collapsed) continue;
     field.recommendedInput = false;
     field.inputLikelihood = Math.min(field.inputLikelihood, 0.1);

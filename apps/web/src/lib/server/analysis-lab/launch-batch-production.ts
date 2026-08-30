@@ -280,6 +280,16 @@ export async function runApprovedAnalysisLaunchBatch(input: {
             const run = await runLabAnalysis(grantId, {
               ...overrides,
               signal: executionSignal,
+              ...(target.reviewRepair ? {
+                taskInstruction: target.reviewRepair.taskInstruction,
+                reviewRepair: {
+                  sourceRunId: target.reviewRepair.sourceRunId,
+                  reviewModel: target.reviewRepair.reviewModel,
+                  auditModel: null,
+                  adjudicationModel: null,
+                  blockingCount: target.reviewRepair.blockingCount,
+                },
+              } : {}),
             });
             const absolutePath = labRunFilePath(run.source, run.sourceId, run.runId);
             const artifactBytes = await readFile(absolutePath);

@@ -1143,7 +1143,13 @@ function hasKStartupOpenTargetSummaryEvidence(input: {
   for (let index = 0; index < lines.length; index += 1) {
     const line = normalizeEvidence(lines[index] ?? "");
     const short = /^신청대상 요약:\s*(.*?)\s*\(source_field:\s*aply_trgt\)$/u.exec(line)?.[1];
-    if (short && normalizeEvidence(short) === input.sourceSpan) return true;
+    if (
+      short
+      && (
+        normalizeEvidence(short) === input.sourceSpan
+        || normalizeEvidence(`신청대상 요약: ${short}`) === input.sourceSpan
+      )
+    ) return true;
     if (line !== "## 신청대상 요약") continue;
     const sourceField = normalizeEvidence(lines[index + 1] ?? "");
     if (sourceField !== "source_field: aply_trgt") continue;

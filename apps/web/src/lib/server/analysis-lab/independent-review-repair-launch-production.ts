@@ -25,6 +25,7 @@ import {
   LEGACY_INDEPENDENT_REVIEW_MANIFEST_SCHEMA,
 } from "./independent-review-packet";
 import { findMonorepoRoot } from "./run-store";
+import { stableJson } from "@/lib/server/deep-analysis/sourceRevision";
 
 const SHA256 = /^[a-f0-9]{64}$/u;
 
@@ -51,6 +52,7 @@ export async function prepareIndependentReviewRepairLaunchManifest(input: {
   readonly aggregatePath: string;
   readonly concurrency: number;
   readonly originalSequences?: readonly number[];
+  readonly includeNonPublishable?: boolean;
   readonly preparedAt?: Date;
   readonly repositoryRoot?: string;
 }): Promise<{
@@ -77,6 +79,7 @@ export async function prepareIndependentReviewRepairLaunchManifest(input: {
   const originalSequences = selectIndependentReviewRepairSequences(
     aggregate,
     input.originalSequences,
+    input.includeNonPublishable ?? false,
   );
   const reviewManifestPath = resolveInside(
     resolve(repositoryRoot, "spike-out", "analysis-lab", "independent-review"),
@@ -136,6 +139,14 @@ export async function prepareIndependentReviewRepairLaunchManifest(input: {
   }
 
   const packetBySequence = new Map(reviewManifest.packets.map((packet) => [packet.sequence, packet]));
+  const heldBySequence = new Map(aggregate.heldAudit.map((item) => [item.sequence, item]));
+  const findingsBySequence = new Map<number, Record<string, unknown>[]>();
+  for (const finding of aggregate.consensus.defects) {
+    const sequence = Number(finding.sequence);
+    const findings = findingsBySequence.get(sequence) ?? [];
+    findings.push(finding);
+    findingsBySequence.set(sequence, findings);
+  }
   const sourceTargetBySequence = new Map(sourceManifest.targets.map((target) => [target.sequence, target]));
   const receiptTargetBySequence = new Map(receipt.targets.map((target) => [target.sequence, target]));
   const repairTargets = [];
@@ -144,42 +155,55 @@ export async function prepareIndependentReviewRepairLaunchManifest(input: {
     const sourceTarget = sourceTargetBySequence.get(originalSequence);
     const receiptTarget = receiptTargetBySequence.get(originalSequence);
     if (
-      !packetEntry
-      || !sourceTarget
+      !sourceTarget
       || !receiptTarget
-      || packetEntry.grantId !== sourceTarget.grantId
       || receiptTarget.grantId !== sourceTarget.grantId
-      || receiptTarget.status !== "publishable"
       || receiptTarget.runArtifactPath === null
       || receiptTarget.runArtifactSha256 === null
     ) {
-      throw new Error(`원본 sequence ${originalSequence}의 publishable launch 결속이 없습니다.`);
+      throw new Error(`원본 sequence ${originalSequence}의 launch 결속이 없습니다.`);
     }
-    const packetBytes = await readFile(resolveInside(
-      repositoryRoot,
-      resolve(repositoryRoot, packetEntry.path),
-      `sequence ${originalSequence} packet`,
-    ));
-    if (sha256(packetBytes) !== packetEntry.sha256) {
-      throw new Error(`원본 sequence ${originalSequence} packet SHA가 다릅니다.`);
-    }
-    const packet = object(parseJson(packetBytes, "packet"), "packet");
-    if (
-      packet.schema !== (
-        reviewManifest.schema === INDEPENDENT_REVIEW_MANIFEST_SCHEMA
-          ? INDEPENDENT_REVIEW_PACKET_SCHEMA
-          : "independent-ai-review-packet-v1"
-      )
-      || packet.sequence !== originalSequence
-      || packet.grantId !== sourceTarget.grantId
-      || packet.runId !== packetEntry.runId
-      || packet.launchReceiptSha256 !== reviewManifest.launchReceiptSha256
-      || packet.launchManifestSha256 !== reviewManifest.launchManifestSha256
-      || packet.runArtifactPath !== receiptTarget.runArtifactPath
-      || packet.runArtifactSha256 !== receiptTarget.runArtifactSha256
-      || packet.inputSha256 !== sourceTarget.inputSha256
-    ) {
-      throw new Error(`원본 sequence ${originalSequence} packet 결속이 다릅니다.`);
+    if (receiptTarget.status === "publishable") {
+      if (!packetEntry || packetEntry.grantId !== sourceTarget.grantId) {
+        throw new Error(`원본 sequence ${originalSequence}의 publishable review packet이 없습니다.`);
+      }
+      const packetBytes = await readFile(resolveInside(
+        repositoryRoot,
+        resolve(repositoryRoot, packetEntry.path),
+        `sequence ${originalSequence} packet`,
+      ));
+      if (sha256(packetBytes) !== packetEntry.sha256) {
+        throw new Error(`원본 sequence ${originalSequence} packet SHA가 다릅니다.`);
+      }
+      const packet = object(parseJson(packetBytes, "packet"), "packet");
+      if (
+        packet.schema !== (
+          reviewManifest.schema === INDEPENDENT_REVIEW_MANIFEST_SCHEMA
+            ? INDEPENDENT_REVIEW_PACKET_SCHEMA
+            : "independent-ai-review-packet-v1"
+        )
+        || packet.sequence !== originalSequence
+        || packet.grantId !== sourceTarget.grantId
+        || packet.runId !== packetEntry.runId
+        || packet.launchReceiptSha256 !== reviewManifest.launchReceiptSha256
+        || packet.launchManifestSha256 !== reviewManifest.launchManifestSha256
+        || packet.runArtifactPath !== receiptTarget.runArtifactPath
+        || packet.runArtifactSha256 !== receiptTarget.runArtifactSha256
+        || packet.inputSha256 !== sourceTarget.inputSha256
+      ) {
+        throw new Error(`원본 sequence ${originalSequence} packet 결속이 다릅니다.`);
+      }
+    } else {
+      const held = heldBySequence.get(originalSequence);
+      if (
+        !held
+        || held.grantId !== sourceTarget.grantId
+        || held.status !== receiptTarget.status
+        || held.runArtifactPath !== receiptTarget.runArtifactPath
+        || held.runArtifactSha256 !== receiptTarget.runArtifactSha256
+      ) {
+        throw new Error(`원본 sequence ${originalSequence} non-publishable audit 결속이 다릅니다.`);
+      }
     }
     const runBytes = await readFile(resolveInside(
       repositoryRoot,
@@ -191,21 +215,34 @@ export async function prepareIndependentReviewRepairLaunchManifest(input: {
     }
     const run = parseJson(runBytes, "run") as LabRun;
     if (
-      run.runId !== packetEntry.runId
-      || run.grantId !== sourceTarget.grantId
+      run.grantId !== sourceTarget.grantId
       || run.inputSha256 !== sourceTarget.inputSha256
       || run.attachmentManifestSha256 !== sourceTarget.attachmentManifestSha256
-      || run.source !== packet.source
-      || run.sourceId !== packet.sourceId
     ) {
       throw new Error(`원본 sequence ${originalSequence} run/input 결속이 다릅니다.`);
     }
+    if (packetEntry && receiptTarget.status === "publishable" && run.runId !== packetEntry.runId) {
+      throw new Error(`원본 sequence ${originalSequence} runId가 review packet과 다릅니다.`);
+    }
+    const findings = findingsBySequence.get(originalSequence) ?? [];
+    const reviewRepair = findings.length > 0
+      ? Object.freeze({
+          sourceRunId: run.runId,
+          reviewModel: aggregate.reviewerModel,
+          blockingCount: findings.length,
+          taskInstruction: buildIndependentReviewRepairInstruction({
+            aggregateSha256,
+            findings,
+          }),
+        })
+      : null;
     repairTargets.push(Object.freeze({
       originalSequence,
       grantId: sourceTarget.grantId,
       source: requireString(run.source, "run.source"),
       inputSha256: sourceTarget.inputSha256,
       attachmentManifestSha256: sourceTarget.attachmentManifestSha256,
+      reviewRepair,
     }));
   }
 
@@ -237,6 +274,23 @@ export async function prepareIndependentReviewRepairLaunchManifest(input: {
     aggregateSha256,
     originalSequences,
   });
+}
+
+function buildIndependentReviewRepairInstruction(input: {
+  aggregateSha256: string;
+  findings: readonly Record<string, unknown>[];
+}): string {
+  return [
+    "아래 공고 입력을 22축 전체에 대해 처음부터 다시 분석하라.",
+    "Codex 독립 검수가 원문과 직전 결과를 대조해 아래 결함을 확정했다.",
+    "각 finding의 원문 인용과 수정 이유를 직접 다시 확인하고, note뿐 아니라 실제 criterion value·operator·축 상태에 반영하라.",
+    "삭제 지시는 해당 criterion을 만들지 말고, OR 관계·예외·경계값은 원문 의미를 손실 없이 보존하라.",
+    "지적된 결함 외의 22축과 프로그램 의도를 생략하거나 원문 밖 사실을 추가하지 마라.",
+    `independent_review_aggregate_sha256=${input.aggregateSha256}`,
+    "<<<VERIFIED_CODEX_REVIEW_FINDINGS>>>",
+    stableJson(input.findings),
+    "<<<END_VERIFIED_CODEX_REVIEW_FINDINGS>>>",
+  ].join("\n");
 }
 
 function normalizeReviewManifest(value: unknown): ReviewManifest {

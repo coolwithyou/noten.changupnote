@@ -404,6 +404,24 @@ assert.match(
     "exact span에서 라벨이 빠져도 source_field=aply_trgt 결속으로 열린 목록을 보존한다",
   );
 
+  const [labeledKstartupSummaryCriterion] = normalizeCriteria([{
+    dimension: "target_type",
+    kind: "required",
+    operator: "in",
+    value: {
+      targets: ["일반기업"],
+      list_semantics: "closed",
+    },
+    confidence: 0.9,
+    source_span: "신청대상 요약: 일반기업",
+    note: "포털 신청대상 요약 분류이므로 목록 밖 유형을 자동 탈락시키지 않는다.",
+  }], "신청대상 요약: 일반기업 (source_field: aply_trgt)");
+  assert.equal(
+    (labeledKstartupSummaryCriterion?.value as { list_semantics?: string }).list_semantics,
+    "open",
+    "라벨까지 포함한 exact span도 source_field=aply_trgt 결속으로 열린 목록을 보존한다",
+  );
+
   const longKstartupSummary = [
     "청소년", "대학생", "일반인", "대학", "연구기관", "일반기업", "1인 창조기업",
     "협동조합", "비영리법인", "공공기관", "중소기업", "중견기업", "대기업",

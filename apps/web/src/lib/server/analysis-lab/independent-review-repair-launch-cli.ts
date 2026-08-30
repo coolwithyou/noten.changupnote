@@ -3,11 +3,12 @@ import { closeCunoteDb } from "@/lib/server/db/client";
 import { loadAnalysisLabEnv } from "@/lib/server/loadMonorepoEnv";
 import { prepareIndependentReviewRepairLaunchManifest } from "./independent-review-repair-launch-production";
 
-const USAGE = "pnpm lab:independent-review:repair:prepare -- --aggregate=<aggregate.json> [--original-sequences=3,14] [--concurrency=1-4]";
+const USAGE = "pnpm lab:independent-review:repair:prepare -- --aggregate=<aggregate.json> [--original-sequences=3,14] [--include-non-publishable=true] [--concurrency=1-4]";
 
 export function parseIndependentReviewRepairLaunchCliArgs(argv: readonly string[]): {
   readonly aggregatePath: string;
   readonly originalSequences?: readonly number[];
+  readonly includeNonPublishable: boolean;
   readonly concurrency: number;
 } {
   const args = argv[0] === "--" ? argv.slice(1) : [...argv];
@@ -18,7 +19,7 @@ export function parseIndependentReviewRepairLaunchCliArgs(argv: readonly string[
     const key = arg.slice(0, separator);
     const value = arg.slice(separator + 1).trim();
     if (
-      !new Set(["--aggregate", "--original-sequences", "--concurrency"]).has(key)
+      !new Set(["--aggregate", "--original-sequences", "--include-non-publishable", "--concurrency"]).has(key)
       || !value
       || values.has(key)
     ) {
@@ -29,6 +30,7 @@ export function parseIndependentReviewRepairLaunchCliArgs(argv: readonly string[
   const aggregatePath = values.get("--aggregate");
   const rawSequences = values.get("--original-sequences");
   const originalSequences = rawSequences?.split(",").map((value) => Number(value));
+  const includeNonPublishable = values.get("--include-non-publishable") ?? "false";
   const concurrency = Number(values.get("--concurrency") ?? "2");
   if (
     !aggregatePath
@@ -41,12 +43,14 @@ export function parseIndependentReviewRepairLaunchCliArgs(argv: readonly string[
     || !Number.isSafeInteger(concurrency)
     || concurrency < 1
     || concurrency > 4
+    || (includeNonPublishable !== "true" && includeNonPublishable !== "false")
   ) {
     throw new Error(USAGE);
   }
   return {
     aggregatePath,
     ...(originalSequences ? { originalSequences } : {}),
+    includeNonPublishable: includeNonPublishable === "true",
     concurrency,
   };
 }

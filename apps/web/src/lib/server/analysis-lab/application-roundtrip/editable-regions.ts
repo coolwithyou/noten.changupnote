@@ -211,7 +211,9 @@ function extractTableContextualFields(
 
       const choiceOptions = parseTextChoiceOptions(text, sourceSha256, blockIndex, rowIndex, colIndex);
       if (choiceOptions.length >= 2) {
-        const label = findRowLabel(table, rowIndex, colIndex) ?? `선택 항목 ${rowIndex + 1}`;
+        const label = findRowLabel(table, rowIndex, colIndex)
+          ?? findColumnHeader(table, rowIndex, colIndex)
+          ?? `선택 항목 ${rowIndex + 1}`;
         const inputKind = inferChoiceInputKind(label, choiceOptions);
         fields.push(createContextualField({
           sourceSha256,
