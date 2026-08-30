@@ -20,9 +20,12 @@ import {
 } from "@cunote/core";
 import type { DeepAnalysisInputSeal } from "./inputManifest";
 import { sha256Hex, stableJson } from "./sourceRevision";
-import { isConjunctiveCertificationMembership } from "./criterion-semantics";
+import {
+  isConjunctiveCertificationMembership,
+  isLossyStructuredPriorAward,
+} from "./criterion-semantics";
 
-export const DEEP_ANALYSIS_VALIDATOR_VERSION = "deep-analysis-validator-v13" as const;
+export const DEEP_ANALYSIS_VALIDATOR_VERSION = "deep-analysis-validator-v14" as const;
 
 export type DeepAnalysisValidationIssueCode =
   | "raw_contract_invalid"
@@ -1110,6 +1113,20 @@ function validateMatcherSemanticCompleteness(
   ) {
     reject(
       "Conjunctive or nested certification requirements cannot be represented as an OR certs membership list; preserve the complete predicate as certification/text_only.",
+      ".operator",
+    );
+  }
+
+  if (
+    criterion.dimension === "prior_award"
+    && isLossyStructuredPriorAward({
+      operator: criterion.operator,
+      value,
+      sourceSpan: criterion.sourceSpan,
+    })
+  ) {
+    reject(
+      "Program-history structure cannot preserve a current-project similarity qualifier or the same responsible person's participation; preserve the complete predicate as prior_award/text_only.",
       ".operator",
     );
   }

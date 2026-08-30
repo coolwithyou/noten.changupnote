@@ -33,3 +33,30 @@ export function isConjunctiveCertificationMembership(input: {
   return NESTED_CERTIFICATION_REQUIREMENT_PATTERN.test(sourceSpan)
     || EXPLICIT_COMPOUND_CERTIFICATION_PATTERN.test(sourceSpan);
 }
+
+const PRIOR_AWARD_ACTOR_CONTINUITY_PATTERN =
+  /(?:해당|당시|종전|기존)\s*(?:지원)?\s*과제(?:의)?\s*(?:연구개발)?책임자.{0,40}(?:신청|참여|수행)/u;
+const PRIOR_AWARD_RELATIONAL_SCOPE_PATTERN =
+  /(?:본|해당|신청)\s*과제와\s*(?:동일|유사)(?:한)?\s*(?:분야|기술|품목|주제)/u;
+
+/**
+ * prior_award의 programs/states/within은 사업 이력만 표현한다. 원문이 당시
+ * 책임자의 연속 참여나 현재 과제와의 분야·기술 유사성까지 요구하면 이 구조값만으로
+ * 자동 매칭할 수 없으므로 전체 조건을 text_only로 보존해야 한다.
+ */
+export function isLossyStructuredPriorAward(input: {
+  operator: string;
+  value: unknown;
+  sourceSpan: string | null;
+}): boolean {
+  if (input.operator === "text_only" || !input.sourceSpan || !isRecord(input.value)) {
+    return false;
+  }
+  const sourceSpan = input.sourceSpan.normalize("NFKC").replace(/\s+/gu, " ").trim();
+  if (PRIOR_AWARD_ACTOR_CONTINUITY_PATTERN.test(sourceSpan)) return true;
+  const scope = typeof input.value.scope === "string" ? input.value.scope : null;
+  const hasProgramScope = scope === "program"
+    || scope === "program_type"
+    || stringArray(input.value.programs).length > 0;
+  return hasProgramScope && PRIOR_AWARD_RELATIONAL_SCOPE_PATTERN.test(sourceSpan);
+}

@@ -205,6 +205,48 @@ assert.equal(validateDeepAnalysisResult({
     sourceSpan: alternativeCertificationSpan,
   })], axes(["certification"])),
 }).valid, true, "명시적 OR 인증 목록은 정상 구조값으로 통과한다");
+
+const qualifiedPriorAwardSpan =
+  "부품국산화 지원사업으로 본 과제와 유사한 분야에서 최근 3년 내 과제를 성공한 주관연구개발기관과 해당 과제의 연구책임자가 신청한 경우 0.5%";
+const qualifiedPriorAwardSeal = sealDeepAnalysisInput({
+  grantId: "grant-qualified-prior-award",
+  sourceRevisionSha256: "1".repeat(64),
+  structuredText: qualifiedPriorAwardSpan,
+  attachments: [],
+});
+const qualifiedPriorAward = criterion({
+  dimension: "prior_award",
+  operator: "in",
+  kind: "preferred",
+  value: {
+    scope: "program",
+    programs: ["부품국산화 지원사업"],
+    states: ["completed"],
+    within: { value: 3, unit: "year" },
+  },
+  sourceSpan: qualifiedPriorAwardSpan,
+});
+const qualifiedPriorAwardValidation = validateDeepAnalysisResult({
+  seal: qualifiedPriorAwardSeal,
+  result: result([qualifiedPriorAward], axes(["prior_award"])),
+});
+assert.equal(qualifiedPriorAwardValidation.valid, false);
+assert.equal(
+  qualifiedPriorAwardValidation.issues.some((issue) => (
+    issue.code === "canonical_contract_invalid"
+    && issue.message.includes("prior_award/text_only")
+  )),
+  true,
+  "유사 분야·동일 연구책임자 조건을 programs/states/within만으로 내보내면 차단한다",
+);
+assert.equal(validateDeepAnalysisResult({
+  seal: qualifiedPriorAwardSeal,
+  result: result([{
+    ...qualifiedPriorAward,
+    operator: "text_only",
+    value: { note: qualifiedPriorAwardSpan },
+  }], axes(["prior_award"])),
+}).valid, true, "복합 사업 이력을 prior_award/text_only로 무손실 보존하면 통과한다");
 assert.equal(
   (openTargetTypeValidation.criteria[0]?.criterion.value as Record<string, unknown>).list_semantics,
   "open",

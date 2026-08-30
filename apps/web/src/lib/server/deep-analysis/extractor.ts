@@ -38,7 +38,10 @@ import {
   EXECUTION_TIMEOUT_HEADER,
   hasExecutionScopedTimeout,
 } from "./fetchTimeout";
-import { isConjunctiveCertificationMembership } from "./criterion-semantics";
+import {
+  isConjunctiveCertificationMembership,
+  isLossyStructuredPriorAward,
+} from "./criterion-semantics";
 
 export const ANALYSIS_LAB_TOOL_NAME = "emit_deep_grant_analysis";
 
@@ -399,11 +402,21 @@ export function normalizeCriteria(rows: unknown, inputText: string): DeepAnalysi
     let rawValue = row.value;
     if (
       spanCheck.verified
-      && isConjunctiveCertificationMembership({
-        operator,
-        value: rawValue,
-        sourceSpan,
-      })
+      && (
+        isConjunctiveCertificationMembership({
+          operator,
+          value: rawValue,
+          sourceSpan,
+        })
+        || (
+          dimension === "prior_award"
+          && isLossyStructuredPriorAward({
+            operator,
+            value: rawValue,
+            sourceSpan,
+          })
+        )
+      )
     ) {
       operator = "text_only";
       rawValue = { note: sourceSpan };
@@ -913,7 +926,7 @@ export const DEEP_ANALYSIS_PROGRAM_THEME_BOUNDARY_RULE =
 export const DEEP_ANALYSIS_PROCEDURAL_EVIDENCE_CHECK_RULE =
   "증명서·확인서의 유효기간이나 제출 여부를 확인한다는 절차 문구만 있고 어떤 사실이 필수인지, 어떤 값이면 탈락하는지가 명시되지 않으면 자격 criterion이 아니다. 외국인 업주의 증명서 유효기간 확인처럼 확인 목적만 적힌 문구를 founder_trait required로 만들지 말고 신청 체크사항에만 보존한다. 문서가 증명하는 실질 사실과 합격·탈락 효과가 명시된 경우에만 그 사실의 축으로 추출한다.";
 export const DEEP_ANALYSIS_PRIOR_AWARD_LOSSLESS_RULE =
-  "prior_award 결격에 동일·유사 아이템, 특정 달력연도 구간, 주최기관, 팀원 전체 적용, 별도 대회 수상 예외가 결합되면 programs나 states 일부만 구조화하지 마라. 현재 value가 모든 한정과 예외를 표현하지 못하면 other/text_only exclusion 한 건에 전체 조건과 예외를 무손실 보존한다. 명시된 달력연도 범위를 최근 N년 within으로 바꾸거나, 예외를 note에만 남긴 채 구조화 결격을 발행하지 마라.";
+  "prior_award 조건에 동일·유사 아이템·분야·기술, 특정 달력연도 구간, 주최기관, 팀원 전체 적용, 당시·해당 과제 연구책임자의 동반 신청, 별도 대회 수상 예외가 결합되면 programs·states·within 일부만 구조화하지 마라. required·exclusion·preferred 모두 현재 value가 모든 한정과 예외를 표현하지 못하면 prior_award/text_only 한 건에 전체 조건과 예외를 무손실 보존한다. 명시된 달력연도 범위를 최근 N년 within으로 바꾸거나, matcher가 읽지 않는 note에만 유사 분야·동일 책임자 같은 제약을 남긴 채 구조화 조건을 발행하지 마라.";
 export const DEEP_ANALYSIS_ITEM_SCOPE_EXCLUSION_RULE =
   "'본 대회 추진 목적에 부합되지 않는 아이템', 공모분야 밖 과제처럼 신청 아이템의 적합성을 명시적으로 제외하는 문구는 회사 속성이 아니어도 신청 가능성을 바꾸는 조건이다. 포괄적 '기타 부적합' 재량 문구와 구분하여 other/text_only exclusion으로 원문 범위를 보존한다.";
 export const DEEP_ANALYSIS_ELIGIBILITY_RANKING_SEPARATION_RULE =

@@ -488,6 +488,45 @@ assert.match(
     "in",
     "명시적인 OR 인증 목록은 기존 구조화를 유지한다",
   );
+
+  const qualifiedPriorAwardSpan =
+    "부품국산화 지원사업으로 본 과제와 유사한 분야에서 최근 3년 내 과제를 성공한 주관연구개발기관과 해당 과제의 연구책임자가 신청한 경우 0.5%";
+  const [qualifiedPriorAward] = normalizeCriteria([{
+    dimension: "prior_award",
+    kind: "preferred",
+    operator: "in",
+    value: {
+      scope: "program",
+      programs: ["부품국산화 지원사업"],
+      states: ["completed"],
+      within: { value: 3, unit: "year" },
+    },
+    confidence: 0.9,
+    source_span: qualifiedPriorAwardSpan,
+    note: "유사 분야 및 동일 연구책임자 조건",
+  }], qualifiedPriorAwardSpan);
+  assert.equal(qualifiedPriorAward?.operator, "text_only");
+  assert.deepEqual(
+    qualifiedPriorAward?.value,
+    { note: qualifiedPriorAwardSpan },
+    "사업 이력 구조값이 유사 분야·동일 책임자 조건을 담지 못하면 전체 조건을 보존한다",
+  );
+
+  const simplePriorAwardSpan = "최근 3년 내 구매조건부사업 과제를 성공한 기업은 0.5% 가점";
+  const [simplePriorAward] = normalizeCriteria([{
+    dimension: "prior_award",
+    kind: "preferred",
+    operator: "in",
+    value: {
+      scope: "program",
+      programs: ["구매조건부사업"],
+      states: ["completed"],
+      within: { value: 3, unit: "year" },
+    },
+    confidence: 0.9,
+    source_span: simplePriorAwardSpan,
+  }], simplePriorAwardSpan);
+  assert.equal(simplePriorAward?.operator, "in", "단순 사업 이력은 구조화를 유지한다");
 }
 
 assert.match(
