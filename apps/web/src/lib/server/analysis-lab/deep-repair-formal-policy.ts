@@ -1,5 +1,5 @@
 /** formal deep-primary repair experiment에만 쓰는 고정 통계/층화 계약. */
-export const ACTIVE_DEEP_REPAIR_SERIES_ID = "deep-v26" as const;
+export const ACTIVE_DEEP_REPAIR_SERIES_ID = "deep-v27" as const;
 export const ACTIVE_DEEP_REPAIR_STRATA_VERSION = "deep-repair-strata-v3" as const;
 export const DEEP_REPAIR_PLANNING_PRIMARY_SEED = 20260830;
 export const DEEP_REPAIR_PLANNING_SUPPLEMENTAL_SEED = 20260831;
