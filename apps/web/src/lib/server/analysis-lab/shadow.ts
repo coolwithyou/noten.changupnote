@@ -33,6 +33,7 @@ import { selectReviewedRuns } from "./reviewed-runs";
 import { analysisLabDir } from "./run-store";
 import { verifyPromotionReleaseSources } from "./promotion-candidates";
 import {
+  isAnalysisLaunchAcceptedPlan,
   isUnexplainedPromotionShadowTransition,
   promotionReleaseArtifactPath,
   pseudonymizePromotionCompanyKey,
@@ -332,7 +333,9 @@ async function mainReleaseShadow(options: ShadowOptions, releaseId: string): Pro
       });
       const before = compactShadowMatch(beforeMatch, entry.criteria);
       const after = compactShadowMatch(afterMatch, plan.criteria);
-      if (isUnexplainedPromotionShadowTransition(before, after)) {
+      if (isUnexplainedPromotionShadowTransition(before, after, {
+        independentlyReviewed: isAnalysisLaunchAcceptedPlan(plan),
+      })) {
         guardIssues.push(`${plan.grantId}:${company.key}:unexplained_transition`);
       }
       if (

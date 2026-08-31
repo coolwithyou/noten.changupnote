@@ -569,14 +569,17 @@ interface PromotionShadowState {
 
 /**
  * 판정(pass/fail) 없이 결과가 바뀌면 원칙적으로 차단한다. 단, eligibility는
- * conditional로 유지되는 두 안전한 전환은 설명 가능하다.
+ * 다음 안전한 전환은 설명 가능하다.
  * - 새 hard unknown 근거가 늘어 needs_profile_input→needs_core_review로 보수화
  * - 비구조 text-only를 질문 가능한 criterion으로 바꿔 needs_core_review→needs_profile_input
  *   (unknown hard를 줄이지 않아 조건 삭제에 의한 상태 개선은 허용하지 않는다)
+ * - exact 독립 검수에 결속된 분석이 새 hard unknown 근거를 추가해 eligible→conditional로
+ *   보수화. 이 예외는 ineligible 전환이나 unknown 감소에는 적용하지 않는다.
  */
 export function isUnexplainedPromotionShadowTransition(
   before: PromotionShadowState,
   after: PromotionShadowState,
+  options: { independentlyReviewed?: boolean } = {},
 ): boolean {
   const changed =
     before.eligibility !== after.eligibility || before.tier !== after.tier;
@@ -593,7 +596,14 @@ export function isUnexplainedPromotionShadowTransition(
     && before.tier === "needs_core_review"
     && after.tier === "needs_profile_input"
     && after.unknownHard >= before.unknownHard;
-  return !explainedConditionalReview && !explainedActionableProfileInput;
+  const explainedReviewedConservativeDowngrade =
+    options.independentlyReviewed === true
+    && before.eligibility === "eligible"
+    && after.eligibility === "conditional"
+    && after.unknownHard > before.unknownHard;
+  return !explainedConditionalReview
+    && !explainedActionableProfileInput
+    && !explainedReviewedConservativeDowngrade;
 }
 
 export function createPromotionReleaseManifest(

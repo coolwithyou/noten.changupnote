@@ -778,6 +778,52 @@ assert.equal(
 
   assert.equal(
     isUnexplainedPromotionShadowTransition({
+      eligibility: "eligible",
+      tier: "recommendable",
+      decided: 1,
+      unknownHard: 0,
+    }, {
+      eligibility: "conditional",
+      tier: "needs_profile_input",
+      decided: 0,
+      unknownHard: 1,
+    }),
+    true,
+    "독립 검수 결속이 없으면 보수적 eligibility 하향도 차단한다",
+  );
+  assert.equal(
+    isUnexplainedPromotionShadowTransition({
+      eligibility: "eligible",
+      tier: "recommendable",
+      decided: 1,
+      unknownHard: 0,
+    }, {
+      eligibility: "conditional",
+      tier: "needs_profile_input",
+      decided: 0,
+      unknownHard: 1,
+    }, { independentlyReviewed: true }),
+    false,
+    "독립 검수된 분석이 새 hard unknown 근거로 eligible을 conditional로 보수화할 수 있다",
+  );
+  assert.equal(
+    isUnexplainedPromotionShadowTransition({
+      eligibility: "eligible",
+      tier: "recommendable",
+      decided: 1,
+      unknownHard: 0,
+    }, {
+      eligibility: "ineligible",
+      tier: "not_recommended",
+      decided: 0,
+      unknownHard: 1,
+    }, { independentlyReviewed: true }),
+    true,
+    "독립 검수 결속이 있어도 판정 근거 없는 ineligible 전환은 차단한다",
+  );
+
+  assert.equal(
+    isUnexplainedPromotionShadowTransition({
       eligibility: "conditional",
       tier: "needs_core_review",
       decided: 0,
