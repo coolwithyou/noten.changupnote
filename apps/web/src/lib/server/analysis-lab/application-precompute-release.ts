@@ -203,10 +203,7 @@ export async function preparePromotionApplicationPrecomputeBundle(input: {
   const materializableDocuments = applicationDocuments.filter((document) => {
     const classification = classifyApplicationPrecomputeDocument(document);
     return classification.materialize
-      && document.fieldPlanning.status === "llm"
-      && document.fieldPlanning.transport === "claude-cli"
-      && document.fieldPlanning.requestedModel === APPLICATION_ROUNDTRIP_ADOPTED_MODEL
-      && (document.fieldPlanning.failureCode ?? null) === null;
+      && hasReleaseEligibleFieldPlanning(document.fieldPlanning);
   });
   const reviewRequiredDocumentCount = applicationDocuments.filter((document) =>
     classifyApplicationPrecomputeDocument(document).status === "review_required").length;
@@ -303,10 +300,7 @@ export async function prepareAnalysisLaunchPromotionApplicationPrecomputeBundle(
   const materializableDocuments = applicationDocuments.filter((document) => {
     const classification = classifyApplicationPrecomputeDocument(document);
     return classification.materialize
-      && document.fieldPlanning.status === "llm"
-      && document.fieldPlanning.transport === "claude-cli"
-      && document.fieldPlanning.requestedModel === APPLICATION_ROUNDTRIP_ADOPTED_MODEL
-      && (document.fieldPlanning.failureCode ?? null) === null;
+      && hasReleaseEligibleFieldPlanning(document.fieldPlanning);
   });
   if (applicationDocuments.length > 0 && materializableDocuments.length === 0) {
     throw new Error(
@@ -357,6 +351,32 @@ export async function prepareAnalysisLaunchPromotionApplicationPrecomputeBundle(
     },
   };
   return { evidence, analysisBody, manifestBody };
+}
+
+/**
+ * 구독 실행에서 모든 후보가 결정 규칙으로 종결되면 모델 요청 자체가 없으므로 planner는
+ * `skipped`를 기록한다. 이는 fallback이나 미분석이 아니라 LLM 경계 후보 0건의 정상 종결이다.
+ * release는 그 경우에도 후보 전수가 결정적으로 분류됐다는 계수 결속을 확인한 뒤 허용한다.
+ */
+function hasReleaseEligibleFieldPlanning(
+  planning: ApplicationRoundtripRun["documents"][number]["fieldPlanning"],
+): boolean {
+  if (
+    planning.transport !== "claude-cli"
+    || planning.requestedModel !== APPLICATION_ROUNDTRIP_ADOPTED_MODEL
+    || (planning.failureCode ?? null) !== null
+  ) {
+    return false;
+  }
+  if (planning.status === "llm") return true;
+  if (planning.status !== "skipped") return false;
+
+  const candidateCount = planning.candidateCount;
+  return candidateCount > 0
+    && (planning.llmCandidateCount ?? 0) === 0
+    && planning.deterministicDecisionCount === candidateCount
+    && planning.acceptedCount + planning.rejectedCount === candidateCount
+    && (planning.requestCount ?? 0) === 0;
 }
 
 export async function writePreparedPromotionApplicationPrecomputeBundle(

@@ -172,6 +172,61 @@ try {
   assert.equal(launchPrepared.evidence.schema, "promotion-application-precompute-v3");
   assert.equal(launchPrepared.evidence.status, "ready");
   assert.equal(launchPrepared.evidence.launchAdmission?.runArtifactSha256, "9".repeat(64));
+
+  const deterministicRun = roundtripRun();
+  deterministicRun.documents[0]!.fieldPlanning = {
+    ...deterministicRun.documents[0]!.fieldPlanning,
+    status: "skipped",
+    model: null,
+    durationMs: 0,
+    warning: "판정할 경계 후보가 없습니다.",
+    requestCount: 0,
+    inputTokens: 0,
+    outputTokens: 0,
+    llmCandidateCount: 0,
+    deterministicDecisionCount: 1,
+  };
+  deterministicRun.documents[0]!.fields[0]!.analysisSource = "heuristic";
+  deterministicRun.documents[0]!.fields[0]!.llmConfidence = null;
+  await writeFile(join(roundtripDir, "analysis.json"), `${JSON.stringify(deterministicRun, null, 2)}\n`);
+  const deterministicPrepared = await prepareAnalysisLaunchPromotionApplicationPrecomputeBundle({
+    releaseId: launchReleaseId,
+    labRun: labRun(),
+    runArtifactSha256: "a".repeat(64),
+    sourceEvidence: {
+      ...launchPrepared.evidence.launchAdmission!,
+      schema: "verified-analysis-launch-source-v1",
+      attachmentManifestSha256: "c".repeat(64),
+      sourceRevisionSha256: "6".repeat(64),
+      executionGitSha: "7".repeat(40),
+      packageRuntimeSha256: "8".repeat(64),
+      validatorVersion: "deep-analysis-validator-v14",
+    },
+  });
+  assert.equal(deterministicPrepared.evidence.materializableDocumentCount, 1);
+
+  deterministicRun.documents[0]!.fieldPlanning.deterministicDecisionCount = 0;
+  await writeFile(join(roundtripDir, "analysis.json"), `${JSON.stringify(deterministicRun, null, 2)}\n`);
+  await assert.rejects(
+    () => prepareAnalysisLaunchPromotionApplicationPrecomputeBundle({
+      releaseId: launchReleaseId,
+      labRun: labRun(),
+      runArtifactSha256: "b".repeat(64),
+      sourceEvidence: {
+        ...launchPrepared.evidence.launchAdmission!,
+        schema: "verified-analysis-launch-source-v1",
+        attachmentManifestSha256: "c".repeat(64),
+        sourceRevisionSha256: "6".repeat(64),
+        executionGitSha: "7".repeat(40),
+        packageRuntimeSha256: "8".repeat(64),
+        validatorVersion: "deep-analysis-validator-v14",
+      },
+    }),
+    /자동 materialize 가능한 RHWP 필드를 확정하지 못했습니다/,
+    "skipped planner의 결정 규칙 계수가 후보 전수를 덮지 않으면 release를 차단한다",
+  );
+  await writeFile(join(roundtripDir, "analysis.json"), analysisBody);
+
   await writePreparedPromotionApplicationPrecomputeBundle(launchPrepared);
   const launchBundled = await readBundledPromotionApplicationPrecompute(launchPrepared.evidence);
   assert.equal(launchBundled.run.parentLabRunId, parentLabRunId);
