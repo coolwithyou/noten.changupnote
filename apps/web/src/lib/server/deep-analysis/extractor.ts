@@ -900,7 +900,7 @@ export const CONFIRMATION_PROMPT_RULES = [
 export const DEEP_ANALYSIS_BUSINESS_CREDIT_AXIS_RULE =
   "business_status는 active/closed 같은 사업자등록상 운영 상태만 뜻한다. 지급불능·부도·파산·회생·법정관리·청산은 credit_status 플래그로만 표현하고, 동일 사실을 business_status criterion이나 condition_found로 중복 표현하지 마라. 예: 원문이 '부도 또는 파산기업(예정 포함)'이면 credit_status의 bond_default/bankruptcy_filed만 추출하고, 다른 휴업·폐업 근거가 없는 한 business_status는 inspected_no_condition이다.";
 export const DEEP_ANALYSIS_SIZE_TARGET_AXIS_RULE =
-  "중소기업·중견기업·대기업 같은 법정 기업 규모 분류는 size로만 표현한다. target_type은 개인사업자·법인사업자·협동조합·비영리법인처럼 신청 주체의 법적 형태나 역할 유형에만 사용한다. 동일한 규모 문구를 size와 target_type에 중복 criterion이나 condition_found로 만들지 마라. 법인인감 날인, 회사명·대표자 기재, 제출서식 같은 작성·제출 방식만으로 법인사업자 전용이라고 추정하지 마라. 개인사업자 배제나 법인만 신청 가능하다는 명시적 자격 문장이 없으면 target_type 조건이 아니다.";
+  "중소기업·중견기업·대기업 같은 법정 기업 규모 분류는 size로만 표현한다. target_type은 개인사업자·법인사업자·협동조합·비영리법인처럼 신청 주체의 법적 형태나 역할 유형에만 사용한다. 동일한 규모 문구를 size와 target_type에 중복 criterion이나 condition_found로 만들지 마라. 독립 검수에서도 '지원대상: 중소기업'처럼 지원대상·신청대상 라벨 아래에 규모만 적힌 문구는 target_type 누락 근거가 아니며, target_type은 confirmed_absent로 판정하고 size의 기존 criterion 또는 axis assessment만 검토한다. 법인인감 날인, 회사명·대표자 기재, 제출서식 같은 작성·제출 방식만으로 법인사업자 전용이라고 추정하지 마라. 개인사업자 배제나 법인만 신청 가능하다는 명시적 자격 문장이 없으면 target_type 조건이 아니다.";
 export const DEEP_ANALYSIS_TARGET_TYPE_LIST_SEMANTICS_RULE =
   "신청대상 유형 열거에 '등', '예:', '포함하되 이에 한정되지 않음', '주로', '중심으로'처럼 예시임을 나타내는 표현이 있으면 target_type value.list_semantics=\"open\"으로 둔다. '다음 각 호에 한함', '아래 유형만', '이외 신청 불가'처럼 완전 열거가 명시됐거나, 지원대상·신청자격 문장이 신청 가능한 유형을 유한 목록으로 열거하면서 예시 표지가 없으면 list_semantics=\"closed\"로 둔다. open 목록 밖 유형을 자동 탈락시키지 마라.";
 export const DEEP_ANALYSIS_SOURCE_SPAN_CONTIGUITY_RULE =

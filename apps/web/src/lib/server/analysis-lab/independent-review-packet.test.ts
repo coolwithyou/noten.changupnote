@@ -79,6 +79,7 @@ assert.match(independentSystemPrompt, /source_field: supt_regin.*region criterio
 assert.match(independentSystemPrompt, /서로 다른 22축이 섞인 대안.*other.*text_only/);
 assert.match(independentSystemPrompt, /본 사업 선정 후의 협약 이행.*criterion으로 만들지 말고/);
 assert.match(independentSystemPrompt, /중소기업·중견기업·대기업 같은 법정 기업 규모 분류는 size로만/);
+assert.match(independentSystemPrompt, /지원대상: 중소기업.*target_type 누락 근거가 아니며.*confirmed_absent/);
 assert.match(independentSystemPrompt, /순수 창작물.*현재 또는 과거 수혜 사실이 아니므로|표절·도용 금지/);
 assert.match(independentSystemPrompt, /공고명·사업목적·모집안내.*실제 신청기업의 산업 범위다/);
 assert.match(independentSystemPrompt, /제출서류 목록은 정보수집·증빙 요구일 뿐/);
@@ -103,6 +104,7 @@ const reviewAxes = deriveIndependentReviewAxes({
 assert.equal(reviewAxes.includes("size"), false, "criterion이 있는 축은 빈 축 검수 대상이 아니다");
 assert.equal(reviewAxes.includes("biz_age"), false, "ambiguous 축을 누락 결함으로 재판정하지 않는다");
 assert.equal(reviewAxes.includes("region"), false, "input_missing 축을 누락 결함으로 재판정하지 않는다");
+assert.equal(reviewAxes.includes("target_type"), true, "size가 미해결이어도 별개인 target_type의 조건 없음 판정은 검수한다");
 assert.equal(reviewAxes.includes("industry"), true, "실제 조건 없음으로 종결한 축은 전수 검수한다");
 assert.equal(reviewAxes.length, CRITERION_DIMENSIONS.length - 3);
 
