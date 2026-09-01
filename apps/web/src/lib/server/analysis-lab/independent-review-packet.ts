@@ -13,7 +13,16 @@ import {
   renderCriterionForPrompt,
   validateAiReviewPayload,
 } from "./ai-review";
-import { DEEP_ANALYSIS_PRIOR_AWARD_STATE_RULE } from "../deep-analysis/extractor";
+import {
+  DEEP_ANALYSIS_ACTOR_TRACK_SCOPE_RULE,
+  DEEP_ANALYSIS_ALTERNATIVE_PATH_SCOPE_RULE,
+  DEEP_ANALYSIS_APPLICATION_MATCHING_SCOPE_RULE,
+  DEEP_ANALYSIS_ELIGIBILITY_RANKING_SEPARATION_RULE,
+  DEEP_ANALYSIS_PRIOR_AWARD_STATE_RULE,
+  DEEP_ANALYSIS_STRUCTURED_FILTER_METADATA_RULE,
+  DEEP_ANALYSIS_STRUCTURED_TARGET_RULE,
+  DEEP_ANALYSIS_TARGET_TYPE_LIST_SEMANTICS_RULE,
+} from "../deep-analysis/extractor";
 import { DIMENSION_LABELS } from "./diff";
 import { findMonorepoRoot } from "./run-store";
 
@@ -24,7 +33,8 @@ export const INDEPENDENT_REVIEW_RESULT_SCHEMA = "independent-ai-review-result-v1
 export const INDEPENDENT_REVIEW_BUNDLE_SCHEMA = "independent-ai-review-bundle-v1";
 export const INDEPENDENT_REVIEW_COMBINED_RAW_SCHEMA = "independent-ai-review-combined-raw-v1";
 export const INDEPENDENT_REVIEW_AGGREGATE_SCHEMA = "independent-ai-review-aggregate-v2";
-export const INDEPENDENT_REVIEW_POLICY_VERSION = "codex-only-v1";
+export const INDEPENDENT_REVIEW_POLICY_VERSION = "codex-only-v2";
+export const LEGACY_INDEPENDENT_REVIEW_POLICY_VERSION = "codex-only-v1";
 
 export interface IndependentReviewConsensusFinding {
   sequence: number;
@@ -93,7 +103,9 @@ export interface IndependentReviewResult {
 interface IndependentReviewManifest {
   schema: typeof INDEPENDENT_REVIEW_MANIFEST_SCHEMA | typeof LEGACY_INDEPENDENT_REVIEW_MANIFEST_SCHEMA;
   launchReceiptSha256: string;
-  reviewPolicyVersion?: typeof INDEPENDENT_REVIEW_POLICY_VERSION;
+  reviewPolicyVersion?:
+    | typeof INDEPENDENT_REVIEW_POLICY_VERSION
+    | typeof LEGACY_INDEPENDENT_REVIEW_POLICY_VERSION;
   reviewers: Array<{
     reviewer: "codex" | "grok";
     transport: "codex-cli" | "grok-bot";
@@ -203,7 +215,7 @@ export async function prepareIndependentReviewPackets(
     if (input.inputSha256 !== run.inputSha256) {
       throw new Error(`sequence ${target.sequence} 원문 input SHA 드리프트`);
     }
-    const emptyAxes = deriveEmptyAxes(run);
+    const emptyAxes = deriveIndependentReviewAxes(run);
     const userMessage = buildIndependentReviewUserMessage(input.text, run, emptyAxes);
     const packet: IndependentReviewPacket = {
       schema: INDEPENDENT_REVIEW_PACKET_SCHEMA,
@@ -736,7 +748,45 @@ export function buildIndependentReviewSystemPrompt(rubric: string): string {
     "",
     "[창업노트 현재 매처 계약 — 독립 검수 필수 규칙]",
     `- ${DEEP_ANALYSIS_PRIOR_AWARD_STATE_RULE}`,
+    `- ${DEEP_ANALYSIS_TARGET_TYPE_LIST_SEMANTICS_RULE}`,
+    `- ${DEEP_ANALYSIS_STRUCTURED_TARGET_RULE}`,
+    `- ${DEEP_ANALYSIS_STRUCTURED_FILTER_METADATA_RULE}`,
+    `- ${DEEP_ANALYSIS_ALTERNATIVE_PATH_SCOPE_RULE}`,
+    `- ${DEEP_ANALYSIS_ACTOR_TRACK_SCOPE_RULE}`,
+    `- ${DEEP_ANALYSIS_APPLICATION_MATCHING_SCOPE_RULE}`,
+    `- ${DEEP_ANALYSIS_ELIGIBILITY_RANKING_SEPARATION_RULE}`,
   ].join("\n");
+}
+
+/**
+ * 런칭 독립 검수는 실제로 `조건 없음`으로 종결한 축만 누락 검수한다.
+ * ambiguous/input_missing은 추출기가 의도적으로 보존한 미해결 상태이며 promotion readiness가
+ * 별도로 결속한다. 이를 이분법(confirmed_absent/missed_condition) 검수에 다시 넣으면 정직한
+ * 보류를 누락 결함으로 오인해 같은 입력을 반복 repair하게 된다.
+ *
+ * 구 런처럼 assessment가 없는 축은 안전하게 검수 대상에 유지한다. condition_found인데
+ * criterion이 없는 비정상 축도 reviewer가 누락을 잡을 수 있도록 유지한다.
+ */
+export function deriveIndependentReviewAxes(
+  run: {
+    runId: string;
+    criteria: ReadonlyArray<Pick<LabRun["criteria"][number], "dimension">>;
+    dimensionDiffs: ReadonlyArray<Pick<LabRun["dimensionDiffs"][number], "dimension" | "proposed">>;
+    axisAssessments: ReadonlyArray<LabRun["axisAssessments"][number]>;
+  },
+): CriterionDimension[] {
+  const emptyAxes = deriveEmptyAxes(run);
+  const assessments = new Map<CriterionDimension, LabRun["axisAssessments"][number]>();
+  for (const assessment of run.axisAssessments) {
+    if (assessments.has(assessment.dimension)) {
+      throw new Error(`독립 검수 축 평가 중복: ${assessment.dimension} (${run.runId})`);
+    }
+    assessments.set(assessment.dimension, assessment);
+  }
+  return emptyAxes.filter((dimension) => {
+    const status = assessments.get(dimension)?.status;
+    return status !== "ambiguous" && status !== "input_missing";
+  });
 }
 
 function canonicalBytes(value: unknown): Buffer {
@@ -786,7 +836,10 @@ function resolveIndependentReviewMode(manifest: IndependentReviewManifest): "cod
   const reviewers = manifest.reviewers.map((reviewer) => reviewer.reviewer).sort();
   if (
     manifest.schema === INDEPENDENT_REVIEW_MANIFEST_SCHEMA
-    && manifest.reviewPolicyVersion === INDEPENDENT_REVIEW_POLICY_VERSION
+    && (
+      manifest.reviewPolicyVersion === INDEPENDENT_REVIEW_POLICY_VERSION
+      || manifest.reviewPolicyVersion === LEGACY_INDEPENDENT_REVIEW_POLICY_VERSION
+    )
     && manifest.policy.reviewerMode === "codex-only"
     && reviewers.length === 1
     && reviewers[0] === "codex"

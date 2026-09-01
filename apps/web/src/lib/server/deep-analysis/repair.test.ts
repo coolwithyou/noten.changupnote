@@ -88,7 +88,7 @@ const validation = {
     ].map((dimension) => [dimension, []]),
   ) as never,
 };
-assert.equal(DEEP_ANALYSIS_REPAIR_VERSION, "deep-analysis-repair-v5");
+assert.equal(DEEP_ANALYSIS_REPAIR_VERSION, "deep-analysis-repair-v6");
 assert.equal(
   findExactEvidenceSpanCandidates(requestedSpan, execution.evidenceText).length,
   2,
@@ -142,6 +142,9 @@ assert.ok(Math.abs((repaired.result.costUsd ?? 0) - 0.3) < 1e-9);
 assert.match(repairInstruction, /validator 실패/);
 assert.match(repairInstruction, /exactCandidates/);
 assert.match(repairInstruction, /axis_criterion_mismatch/);
+assert.match(repairInstruction, /source_field: aply_trgt/);
+assert.match(repairInstruction, /biz_enyy/);
+assert.match(repairInstruction, /서로 다른 22축이 섞인 대안/);
 const failedResultBlock =
   /<<<FAILED_RESULT_TO_REPAIR>>>\n([\s\S]+)\n<<<END_FAILED_RESULT_TO_REPAIR>>>/
     .exec(repairInput)?.[1];

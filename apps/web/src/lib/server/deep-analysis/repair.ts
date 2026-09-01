@@ -16,6 +16,9 @@ import type {
 } from "./analyzer";
 import { sumDeepAnalysisActualCosts } from "./costPolicy";
 import {
+  DEEP_ANALYSIS_ALTERNATIVE_PATH_SCOPE_RULE,
+  DEEP_ANALYSIS_STRUCTURED_FILTER_METADATA_RULE,
+  DEEP_ANALYSIS_TARGET_TYPE_LIST_SEMANTICS_RULE,
   findExactEvidenceSpanCandidates,
   runDeepGrantAnalysis,
 } from "./extractor";
@@ -27,7 +30,7 @@ import {
   type DeepAnalysisValidationResult,
 } from "./validator";
 
-export const DEEP_ANALYSIS_REPAIR_VERSION = "deep-analysis-repair-v5" as const;
+export const DEEP_ANALYSIS_REPAIR_VERSION = "deep-analysis-repair-v6" as const;
 export const DEEP_ANALYSIS_AUDIT_RETRY_FEEDBACK_VERSION =
   "deep-analysis-audit-retry-feedback-v1" as const;
 
@@ -216,6 +219,9 @@ export async function repairDeepAnalysisExecution(input: {
       "모든 source_span은 원문 영역에서 공백과 문장부호까지 글자 그대로 복사한다.",
       "evidenceRepairHints가 있는 source_span 오류는 해당 exactCandidates 중 criterion을 충분히 뒷받침하는 가장 짧은 후보 하나를 한 글자도 바꾸지 말고 사용하며, 서로 다른 후보를 합치거나 다시 쓰지 마라.",
       "axis_criterion_mismatch에서 실제 조건이 있으면 같은 축 criterion을 만들고 condition_found를 유지하며, 실제 조건이 없으면 criterion을 만들지 말고 inspected_no_condition으로 고쳐라.",
+      `list_semantics 또는 포털 구조화 필드 관련 semantic_misattribution은 다음 계약으로 고쳐라: ${DEEP_ANALYSIS_TARGET_TYPE_LIST_SEMANTICS_RULE}`,
+      DEEP_ANALYSIS_STRUCTURED_FILTER_METADATA_RULE,
+      `신청자 대안 경로를 한 조건으로 평탄화하지 마라: ${DEEP_ANALYSIS_ALTERNATIVE_PATH_SCOPE_RULE}`,
       "직전 결과 일부만 패치하지 말고 완전한 tool 결과 전체를 다시 반환한다.",
     ].join(" "),
   });

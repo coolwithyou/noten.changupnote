@@ -200,7 +200,11 @@ export async function loadGuideRubric(): Promise<{ rubric: string; guideSha256: 
  * CRITERION_DIMENSIONS − 제안 축 집합과 같다). 예약 2축(premises/export_performance)은
  * criteria 에 나올 수 없어 항상 빈 축에 포함된다 — 사람 시트와 동일.
  */
-export function deriveEmptyAxes(run: LabRun): CriterionDimension[] {
+export function deriveEmptyAxes(run: {
+  runId: string;
+  criteria: ReadonlyArray<Pick<LabRun["criteria"][number], "dimension">>;
+  dimensionDiffs: ReadonlyArray<Pick<LabRun["dimensionDiffs"][number], "dimension" | "proposed">>;
+}): CriterionDimension[] {
   const proposed = new Set(run.criteria.map((criterion) => criterion.dimension));
   const empty = CRITERION_DIMENSIONS.filter((dimension) => !proposed.has(dimension));
   // 저장된 dimensionDiffs 와의 교차 검증(있을 때만) — 규칙 드리프트를 조기에 드러낸다.

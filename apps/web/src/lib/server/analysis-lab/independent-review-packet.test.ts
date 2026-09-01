@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
+import { CRITERION_DIMENSIONS } from "@cunote/contracts";
 import {
   buildIndependentReviewSystemPrompt,
+  deriveIndependentReviewAxes,
   deriveIndependentReviewConsensus,
   deriveSingleIndependentReviewFindings,
   normalizeReviewSequences,
@@ -69,6 +71,48 @@ assert.match(
   buildIndependentReviewSystemPrompt("검수 기준서"),
   /명시적 '선정된'을 completed로 표현한 결과를 수행완료 오분류로 감사하지 마라/,
   "독립 검수자가 창업노트 prior_award 상태 계약을 공유해야 한다",
+);
+const independentSystemPrompt = buildIndependentReviewSystemPrompt("검수 기준서");
+assert.match(independentSystemPrompt, /source_field: aply_trgt.*list_semantics=open/);
+assert.match(independentSystemPrompt, /biz_enyy.*비제한 검색 메타데이터/);
+assert.match(independentSystemPrompt, /source_field: supt_regin.*region criterion을 만들지 마라/);
+assert.match(independentSystemPrompt, /서로 다른 22축이 섞인 대안.*other.*text_only/);
+assert.match(independentSystemPrompt, /본 사업 선정 후의 협약 이행.*criterion으로 만들지 말고/);
+
+const reviewAxes = deriveIndependentReviewAxes({
+  runId: "run-unresolved-axis-regression",
+  criteria: [{ dimension: "size" }],
+  dimensionDiffs: [],
+  axisAssessments: CRITERION_DIMENSIONS.map((dimension) => ({
+    dimension,
+    status: dimension === "biz_age"
+      ? "ambiguous" as const
+      : dimension === "region"
+        ? "input_missing" as const
+        : dimension === "size"
+          ? "condition_found" as const
+          : "inspected_no_condition" as const,
+    confidence: 0.9,
+    comment: null,
+  })),
+});
+assert.equal(reviewAxes.includes("size"), false, "criterion이 있는 축은 빈 축 검수 대상이 아니다");
+assert.equal(reviewAxes.includes("biz_age"), false, "ambiguous 축을 누락 결함으로 재판정하지 않는다");
+assert.equal(reviewAxes.includes("region"), false, "input_missing 축을 누락 결함으로 재판정하지 않는다");
+assert.equal(reviewAxes.includes("industry"), true, "실제 조건 없음으로 종결한 축은 전수 검수한다");
+assert.equal(reviewAxes.length, CRITERION_DIMENSIONS.length - 3);
+
+assert.throws(
+  () => deriveIndependentReviewAxes({
+    runId: "run-duplicate-axis",
+    criteria: [],
+    dimensionDiffs: [],
+    axisAssessments: [
+      { dimension: "region", status: "ambiguous", confidence: 0.5, comment: null },
+      { dimension: "region", status: "input_missing", confidence: 0.5, comment: null },
+    ],
+  }),
+  /독립 검수 축 평가 중복/,
 );
 
 assert.deepEqual(normalizeReviewSequences(undefined, [2, 0, 1]), [0, 1, 2]);
