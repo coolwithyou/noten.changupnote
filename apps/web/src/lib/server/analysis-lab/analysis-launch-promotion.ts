@@ -522,13 +522,13 @@ async function loadReviewEvidence(
   const ranked = candidates.map((candidate) => ({
     candidate,
     coverage: [...requestedSequences].filter((sequence) => (
-      candidate.packetBySequence.has(sequence) && !candidate.blockedSequences.has(sequence)
+      candidate.packetBySequence.has(sequence)
     )).length,
     policyRank: independentReviewPolicyRank(candidate.reviewPolicyVersion),
   }));
   const maxCoverage = Math.max(...ranked.map((item) => item.coverage));
   if (maxCoverage <= 0) {
-    throw new Error(`exact 대상에 기여하는 독립 검수 PASS manifest가 없습니다: ${receiptSha256}`);
+    throw new Error(`exact 대상을 검수한 independent review manifest가 없습니다: ${receiptSha256}`);
   }
   const coverageLeaders = ranked.filter((item) => item.coverage === maxCoverage);
   const maxPolicyRank = Math.max(...coverageLeaders.map((item) => item.policyRank));

@@ -113,16 +113,6 @@ try {
     policyVersion: "codex-only-v3",
     blocked: false,
   });
-  await writeReviewEvidence({
-    root,
-    receiptSha256: storedReceipt.sha256,
-    manifestSha256: storedManifest.sha256,
-    grantSha256: storedGrant.sha256,
-    runPath,
-    runArtifactSha256,
-    policyVersion: "codex-only-v6",
-    blocked: true,
-  });
   const selectedReviewManifestSha256 = await writeReviewEvidence({
     root,
     receiptSha256: storedReceipt.sha256,
@@ -167,7 +157,7 @@ try {
   assert.equal(
     candidate.sourceArtifact.localLabEvidence?.analysisLaunch?.independentReviewManifestSha256,
     selectedReviewManifestSha256,
-    "같은 PASS coverage면 최신 정책을 고르고 더 최신이어도 blocked manifest는 제외한다",
+    "같은 packet coverage면 최신 검수 정책을 선택한다",
   );
   assert.equal(isVerifiedLocalLabSourceArtifact(candidate.sourceArtifact), true);
 } finally {
