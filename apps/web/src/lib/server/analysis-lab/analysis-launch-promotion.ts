@@ -88,6 +88,7 @@ interface ReviewManifestPacket {
 interface ReviewEvidence {
   manifestSha256: string;
   aggregateSha256: string;
+  reviewPolicyVersion: string;
   packetBySequence: Map<number, ReviewManifestPacket>;
   comparisonBySequence: Map<number, { criterionTotal: number; axisTotal: number }>;
   blockedSequences: Set<number>;
@@ -120,7 +121,9 @@ export async function loadAnalysisLaunchPromotionCohort(input: {
   const receiptSha256s = normalizeExactShaList(input.launchReceiptSha256s, "launch receipt");
   const requestedGrantIds = normalizeExactGrantIds(input.grantIds);
   const root = input.dependencies?.repositoryRoot ?? findMonorepoRoot();
-  const launches = await Promise.all(receiptSha256s.map((sha256) => loadLaunch(root, sha256)));
+  const launches = await Promise.all(
+    receiptSha256s.map((sha256) => loadLaunch(root, sha256, requestedGrantIds)),
+  );
   const loadedByGrant = new Map<string, LoadedTarget[]>();
 
   for (const launch of launches) {
@@ -408,7 +411,11 @@ function guardAnalysisLaunchPromotionPlan(
   };
 }
 
-async function loadLaunch(root: string, receiptSha256: string): Promise<LoadedLaunch> {
+async function loadLaunch(
+  root: string,
+  receiptSha256: string,
+  requestedGrantIds: readonly string[],
+): Promise<LoadedLaunch> {
   const receipt = normalizeAnalysisLaunchReceipt(
     await readAnalysisLaunchArtifact("receipts", receiptSha256, root),
   );
@@ -435,7 +442,7 @@ async function loadLaunch(root: string, receiptSha256: string): Promise<LoadedLa
     receiptSha256,
     receipt,
     manifest,
-    review: await loadReviewEvidence(root, receiptSha256, receipt),
+    review: await loadReviewEvidence(root, receiptSha256, receipt, requestedGrantIds),
   };
 }
 
@@ -496,15 +503,50 @@ async function loadReviewEvidence(
   root: string,
   receiptSha256: string,
   receipt: AnalysisLaunchReceipt,
+  requestedGrantIds: readonly string[],
 ): Promise<ReviewEvidence> {
   const reviewRoot = join(root, "spike-out", "analysis-lab", "independent-review", receiptSha256);
   const manifestFiles = (await readdir(reviewRoot))
     .filter((name) => /^[a-f0-9]{64}\.manifest\.json$/u.test(name))
     .sort();
-  if (manifestFiles.length !== 1) {
-    throw new Error(`independent review manifest가 하나로 확정되지 않습니다: ${receiptSha256}`);
+  if (manifestFiles.length === 0) {
+    throw new Error(`independent review manifest가 없습니다: ${receiptSha256}`);
   }
-  const manifestFile = manifestFiles[0]!;
+  const candidates = await Promise.all(manifestFiles.map((manifestFile) => (
+    loadReviewEvidenceManifest(root, receiptSha256, receipt, reviewRoot, manifestFile)
+  )));
+  const requestedSequences = new Set(receipt.targets
+    .filter((target) => target.status === "publishable" && requestedGrantIds.includes(target.grantId))
+    .map((target) => target.sequence));
+  const ranked = candidates.map((candidate) => ({
+    candidate,
+    coverage: [...requestedSequences].filter((sequence) => (
+      candidate.packetBySequence.has(sequence) && !candidate.blockedSequences.has(sequence)
+    )).length,
+    policyRank: independentReviewPolicyRank(candidate.reviewPolicyVersion),
+  }));
+  const maxCoverage = Math.max(...ranked.map((item) => item.coverage));
+  if (maxCoverage <= 0) {
+    throw new Error(`exact 대상에 기여하는 독립 검수 PASS manifest가 없습니다: ${receiptSha256}`);
+  }
+  const coverageLeaders = ranked.filter((item) => item.coverage === maxCoverage);
+  const maxPolicyRank = Math.max(...coverageLeaders.map((item) => item.policyRank));
+  const selected = coverageLeaders.filter((item) => item.policyRank === maxPolicyRank);
+  if (selected.length !== 1) {
+    throw new Error(
+      `동일 coverage와 정책 버전의 독립 검수 manifest가 둘 이상입니다: ${receiptSha256}`,
+    );
+  }
+  return selected[0]!.candidate;
+}
+
+async function loadReviewEvidenceManifest(
+  root: string,
+  receiptSha256: string,
+  receipt: AnalysisLaunchReceipt,
+  reviewRoot: string,
+  manifestFile: string,
+): Promise<ReviewEvidence> {
   const manifestSha256 = manifestFile.slice(0, 64);
   const manifestBytes = await readFile(join(reviewRoot, manifestFile));
   if (sha256(manifestBytes) !== manifestSha256) {
@@ -608,10 +650,18 @@ async function loadReviewEvidence(
   return {
     manifestSha256,
     aggregateSha256,
+    reviewPolicyVersion: typeof manifest.reviewPolicyVersion === "string"
+      ? manifest.reviewPolicyVersion
+      : "codex-only-v0",
     packetBySequence,
     comparisonBySequence,
     blockedSequences,
   };
+}
+
+function independentReviewPolicyRank(value: string): number {
+  const matched = /^codex-only-v(\d+)$/u.exec(value);
+  return matched ? Number.parseInt(matched[1]!, 10) : 0;
 }
 
 function normalizeExactShaList(values: readonly string[], label: string): string[] {

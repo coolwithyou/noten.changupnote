@@ -110,6 +110,28 @@ try {
     grantSha256: storedGrant.sha256,
     runPath,
     runArtifactSha256,
+    policyVersion: "codex-only-v3",
+    blocked: false,
+  });
+  await writeReviewEvidence({
+    root,
+    receiptSha256: storedReceipt.sha256,
+    manifestSha256: storedManifest.sha256,
+    grantSha256: storedGrant.sha256,
+    runPath,
+    runArtifactSha256,
+    policyVersion: "codex-only-v6",
+    blocked: true,
+  });
+  const selectedReviewManifestSha256 = await writeReviewEvidence({
+    root,
+    receiptSha256: storedReceipt.sha256,
+    manifestSha256: storedManifest.sha256,
+    grantSha256: storedGrant.sha256,
+    runPath,
+    runArtifactSha256,
+    policyVersion: "codex-only-v5",
+    blocked: false,
   });
 
   const cohort = await loadAnalysisLaunchPromotionCohort({
@@ -140,6 +162,11 @@ try {
   assert.equal(
     candidate.sourceArtifact.localLabEvidence?.analysisLaunch?.launchReceiptSha256,
     storedReceipt.sha256,
+  );
+  assert.equal(
+    candidate.sourceArtifact.localLabEvidence?.analysisLaunch?.independentReviewManifestSha256,
+    selectedReviewManifestSha256,
+    "같은 PASS coverage면 최신 정책을 고르고 더 최신이어도 blocked manifest는 제외한다",
   );
   assert.equal(isVerifiedLocalLabSourceArtifact(candidate.sourceArtifact), true);
 } finally {
@@ -215,7 +242,9 @@ async function writeReviewEvidence(input: {
   grantSha256: string;
   runPath: string;
   runArtifactSha256: string;
-}): Promise<void> {
+  policyVersion: string;
+  blocked: boolean;
+}): Promise<string> {
   const reviewRoot = join(
     input.root,
     "spike-out",
@@ -242,6 +271,7 @@ async function writeReviewEvidence(input: {
     launchReceiptSha256: input.receiptSha256,
     launchManifestSha256: input.manifestSha256,
     launchGrantSha256: input.grantSha256,
+    reviewPolicyVersion: input.policyVersion,
     reviewers: [{
       reviewer: "codex",
       model: "gpt-5.6-sol",
@@ -269,7 +299,12 @@ async function writeReviewEvidence(input: {
       codex: { model: "gpt-5.6-sol", transport: "codex-cli" },
     },
     comparisons: [{ sequence: 0, criterionTotal: 1, axisTotal: 21 }],
-    consensus: { defects: [], unresolved: [] },
+    consensus: {
+      defects: input.blocked
+        ? [{ sequence: 0, classification: "defect", kind: "criterion", key: 0 }]
+        : [],
+      unresolved: [],
+    },
     heldAudit: [],
   };
   const aggregateBytes = Buffer.from(JSON.stringify(aggregateBody));
@@ -277,6 +312,7 @@ async function writeReviewEvidence(input: {
   const aggregateDir = join(reviewRoot, "review-runs", reviewManifestSha256);
   await mkdir(aggregateDir, { recursive: true });
   await writeFile(join(aggregateDir, `${aggregateSha256}.aggregate.json`), aggregateBytes);
+  return reviewManifestSha256;
 }
 
 function sha256(value: Buffer): string {
