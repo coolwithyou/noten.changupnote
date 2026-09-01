@@ -540,7 +540,7 @@ async function mainRelease(releaseId: string): Promise<number> {
     sourceArtifactByGrantId.get(item.grantId)?.applicationPrecompute !== undefined);
   const applicationStorage = createR2ObjectStorageFromEnv();
   if (requiresApplicationPrecompute && !applicationStorage) {
-    throw new Error("Kordoc release artifact 반영에 필요한 R2 설정이 없습니다.");
+    throw new Error("RHWP 작성 가이드 release artifact 반영에 필요한 R2 설정이 없습니다.");
   }
 
   const statusUpdated = await db
@@ -583,10 +583,10 @@ async function mainRelease(releaseId: string): Promise<number> {
                 : {}),
             });
             if (!prepared) {
-              throw new Error(`release Kordoc 증거와 LabRun 참조가 일치하지 않습니다: ${grantId}`);
+              throw new Error(`release RHWP 작성 가이드 증거와 LabRun 참조가 일치하지 않습니다: ${grantId}`);
             }
             console.log(
-              `[promote] Kordoc 선분석 준비: ${grantId} · `
+              `[promote] RHWP 작성 가이드 준비: ${grantId} · `
                 + `surface ${prepared.surfaces.length} · model ${evidence.model}`,
             );
             return { prepared, evidence };
