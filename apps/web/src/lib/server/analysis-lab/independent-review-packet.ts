@@ -26,10 +26,11 @@ export const INDEPENDENT_REVIEW_RESULT_SCHEMA = "independent-ai-review-result-v1
 export const INDEPENDENT_REVIEW_BUNDLE_SCHEMA = "independent-ai-review-bundle-v1";
 export const INDEPENDENT_REVIEW_COMBINED_RAW_SCHEMA = "independent-ai-review-combined-raw-v1";
 export const INDEPENDENT_REVIEW_AGGREGATE_SCHEMA = "independent-ai-review-aggregate-v2";
-export const INDEPENDENT_REVIEW_POLICY_VERSION = "codex-only-v4";
+export const INDEPENDENT_REVIEW_POLICY_VERSION = "codex-only-v5";
 export const LEGACY_INDEPENDENT_REVIEW_POLICY_VERSION = "codex-only-v1";
 export const LEGACY_INDEPENDENT_REVIEW_POLICY_VERSION_V2 = "codex-only-v2";
 export const LEGACY_INDEPENDENT_REVIEW_POLICY_VERSION_V3 = "codex-only-v3";
+export const LEGACY_INDEPENDENT_REVIEW_POLICY_VERSION_V4 = "codex-only-v4";
 
 export interface IndependentReviewConsensusFinding {
   sequence: number;
@@ -102,7 +103,8 @@ interface IndependentReviewManifest {
     | typeof INDEPENDENT_REVIEW_POLICY_VERSION
     | typeof LEGACY_INDEPENDENT_REVIEW_POLICY_VERSION
     | typeof LEGACY_INDEPENDENT_REVIEW_POLICY_VERSION_V2
-    | typeof LEGACY_INDEPENDENT_REVIEW_POLICY_VERSION_V3;
+    | typeof LEGACY_INDEPENDENT_REVIEW_POLICY_VERSION_V3
+    | typeof LEGACY_INDEPENDENT_REVIEW_POLICY_VERSION_V4;
   reviewers: Array<{
     reviewer: "codex" | "grok";
     transport: "codex-cli" | "grok-bot";
@@ -703,6 +705,16 @@ export async function validateAndWrapIndependentReviewResult(options: {
   const emptyAxes = axisProperty.items.properties.dimension.enum;
   const checked = validateAiReviewPayload(raw, criterionCount, emptyAxes);
   if (!checked.ok) throw new Error(`${options.reviewer} 검수 응답 검증 실패: ${checked.reason}`);
+  const unsupportedTargetType = checked.axisReviews.find((review) => (
+    review.dimension === "target_type"
+    && review.verdict === "missed_condition"
+    && isSizeOnlyTargetTypeEvidence(review.note)
+  ));
+  if (unsupportedTargetType) {
+    throw new Error(
+      `${options.reviewer} 검수 응답 검증 실패: 기업 규모 문구만으로 target_type 누락을 판정했습니다.`,
+    );
+  }
   return {
     schema: INDEPENDENT_REVIEW_RESULT_SCHEMA,
     reviewer: options.reviewer,
@@ -717,6 +729,13 @@ export async function validateAndWrapIndependentReviewResult(options: {
     criterionReviews: checked.criterionReviews,
     axisReviews: checked.axisReviews,
   };
+}
+
+export function isSizeOnlyTargetTypeEvidence(note: string | null): boolean {
+  if (!note) return false;
+  const hasSize = /(?:예비|소상공인|소기업|중소기업|중견기업|대기업)/u.test(note);
+  const hasTargetType = /(?:개인사업자|법인사업자|협동조합|비영리(?:법인|단체)?|주관기관|수행기관|참여기관|공급기업|수혜기업|도입기업)/u.test(note);
+  return hasSize && !hasTargetType;
 }
 
 function buildIndependentReviewUserMessage(
@@ -831,6 +850,7 @@ function resolveIndependentReviewMode(manifest: IndependentReviewManifest): "cod
       || manifest.reviewPolicyVersion === LEGACY_INDEPENDENT_REVIEW_POLICY_VERSION
       || manifest.reviewPolicyVersion === LEGACY_INDEPENDENT_REVIEW_POLICY_VERSION_V2
       || manifest.reviewPolicyVersion === LEGACY_INDEPENDENT_REVIEW_POLICY_VERSION_V3
+      || manifest.reviewPolicyVersion === LEGACY_INDEPENDENT_REVIEW_POLICY_VERSION_V4
     )
     && manifest.policy.reviewerMode === "codex-only"
     && reviewers.length === 1

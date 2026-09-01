@@ -5,6 +5,7 @@ import {
   deriveIndependentReviewAxes,
   deriveIndependentReviewConsensus,
   deriveSingleIndependentReviewFindings,
+  isSizeOnlyTargetTypeEvidence,
   normalizeReviewSequences,
 } from "./independent-review-packet";
 
@@ -83,6 +84,9 @@ assert.match(independentSystemPrompt, /지원대상: 중소기업.*target_type �
 assert.match(independentSystemPrompt, /순수 창작물.*현재 또는 과거 수혜 사실이 아니므로|표절·도용 금지/);
 assert.match(independentSystemPrompt, /공고명·사업목적·모집안내.*실제 신청기업의 산업 범위다/);
 assert.match(independentSystemPrompt, /제출서류 목록은 정보수집·증빙 요구일 뿐/);
+assert.equal(isSizeOnlyTargetTypeEvidence('"지원대상: 중소기업"'), true);
+assert.equal(isSizeOnlyTargetTypeEvidence("중소기업 중 법인사업자만 신청 가능"), false);
+assert.equal(isSizeOnlyTargetTypeEvidence("비영리단체만 신청 가능"), false);
 
 const reviewAxes = deriveIndependentReviewAxes({
   runId: "run-unresolved-axis-regression",

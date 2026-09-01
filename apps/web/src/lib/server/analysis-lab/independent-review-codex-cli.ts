@@ -125,6 +125,7 @@ async function runPacket(options: {
     `오직 ${packetPath} 파일을 읽고 packet.systemPrompt를 최상위 검수 규칙으로, packet.userMessage를 검수 입력으로 사용하라.`,
     "다른 리뷰 결과, Codex/Grok 산출물, 사람 판정 파일은 읽지 마라.",
     "packet.outputSchema를 만족하는 JSON 객체 하나만 최종 응답으로 반환하라.",
+    "최종 응답 직전 축간 계약을 다시 확인하라: 중소기업·중견기업·대기업 같은 규모 문구만으로 target_type missed_condition을 만들면 안 된다.",
     "note가 필요 없는 correct 또는 confirmed_absent 항목도 JSON schema 충족을 위해 note를 빈 문자열로 넣어라.",
     "파일을 수정하거나 DB·배포·네트워크 작업을 하지 마라.",
   ].join("\n");
