@@ -157,8 +157,9 @@ try {
   assert.equal(candidate.plan.origin, "analysis_launch");
   assert.equal(candidate.plan.auditState, "analysis_launch_independent_review");
   assert.ok(candidate.plan.resolutions.every((item) => item.state === "analysis_launch_reviewed"));
-  assert.equal(candidate.readiness.disposition, "ready");
+  assert.equal(candidate.readiness.disposition, "conditional");
   assert.equal(candidate.readiness.reasons.length, 0);
+  assert.deepEqual(candidate.readiness.unresolvedAxes, [{ dimension: "size", status: "ambiguous" }]);
   assert.equal(
     candidate.sourceArtifact.localLabEvidence?.analysisLaunch?.launchReceiptSha256,
     storedReceipt.sha256,
@@ -205,12 +206,17 @@ function fixtureRun(): LabRun {
       spanVerified: true,
       note: null,
     }],
-    axisAssessments: [],
+    axisAssessments: [{
+      dimension: "size",
+      status: "ambiguous",
+      confidence: 0.5,
+      comment: "본문과 구조화 필드 충돌",
+    }],
     taxonomyProposals: [],
     dimensionDiffs: [],
     primaryRepairCount: 0,
     primaryValidationOutcome: "publishable",
-    matchingReadiness: "ready",
+    matchingReadiness: "conditional",
     primaryRepairProvenance: {
       deterministicPrimaryRepairCount: 0,
       modelPrimaryRepairCount: 0,
@@ -298,7 +304,7 @@ async function writeReviewEvidence(input: {
     reviewerSummaries: {
       codex: { model: "gpt-5.6-sol", transport: "codex-cli" },
     },
-    comparisons: [{ sequence: 0, criterionTotal: 1, axisTotal: 21 }],
+    comparisons: [{ sequence: 0, criterionTotal: 1, axisTotal: 20 }],
     consensus: {
       defects: input.blocked
         ? [{ sequence: 0, classification: "defect", kind: "criterion", key: 0 }]

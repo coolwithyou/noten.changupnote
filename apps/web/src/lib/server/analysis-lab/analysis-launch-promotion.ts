@@ -10,6 +10,7 @@ import {
   INDEPENDENT_REVIEW_AGGREGATE_SCHEMA,
   INDEPENDENT_REVIEW_MANIFEST_SCHEMA,
   INDEPENDENT_REVIEW_PACKET_SCHEMA,
+  deriveIndependentReviewAxes,
 } from "./independent-review-packet";
 import {
   normalizeAnalysisLaunchGrant,
@@ -475,7 +476,7 @@ async function loadAndVerifyTarget(
     || run.promptVersion !== launch.manifest.execution.promptVersion
     || run.transport !== launch.manifest.execution.transport
     || comparison?.criterionTotal !== run.criteria.length
-    || (comparison.criterionTotal + comparison.axisTotal) < 22
+    || comparison?.axisTotal !== deriveIndependentReviewAxes(run).length
   ) {
     throw new Error(`launch run/manifest/review exact binding이 다릅니다: ${target.grantId}`);
   }
