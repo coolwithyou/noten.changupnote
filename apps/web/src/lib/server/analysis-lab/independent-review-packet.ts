@@ -14,14 +14,7 @@ import {
   validateAiReviewPayload,
 } from "./ai-review";
 import {
-  DEEP_ANALYSIS_ACTOR_TRACK_SCOPE_RULE,
-  DEEP_ANALYSIS_ALTERNATIVE_PATH_SCOPE_RULE,
-  DEEP_ANALYSIS_APPLICATION_MATCHING_SCOPE_RULE,
-  DEEP_ANALYSIS_ELIGIBILITY_RANKING_SEPARATION_RULE,
-  DEEP_ANALYSIS_PRIOR_AWARD_STATE_RULE,
-  DEEP_ANALYSIS_STRUCTURED_FILTER_METADATA_RULE,
-  DEEP_ANALYSIS_STRUCTURED_TARGET_RULE,
-  DEEP_ANALYSIS_TARGET_TYPE_LIST_SEMANTICS_RULE,
+  DEEP_ANALYSIS_REVIEW_ALIGNMENT_RULES,
 } from "../deep-analysis/extractor";
 import { DIMENSION_LABELS } from "./diff";
 import { findMonorepoRoot } from "./run-store";
@@ -33,8 +26,9 @@ export const INDEPENDENT_REVIEW_RESULT_SCHEMA = "independent-ai-review-result-v1
 export const INDEPENDENT_REVIEW_BUNDLE_SCHEMA = "independent-ai-review-bundle-v1";
 export const INDEPENDENT_REVIEW_COMBINED_RAW_SCHEMA = "independent-ai-review-combined-raw-v1";
 export const INDEPENDENT_REVIEW_AGGREGATE_SCHEMA = "independent-ai-review-aggregate-v2";
-export const INDEPENDENT_REVIEW_POLICY_VERSION = "codex-only-v2";
+export const INDEPENDENT_REVIEW_POLICY_VERSION = "codex-only-v3";
 export const LEGACY_INDEPENDENT_REVIEW_POLICY_VERSION = "codex-only-v1";
+export const LEGACY_INDEPENDENT_REVIEW_POLICY_VERSION_V2 = "codex-only-v2";
 
 export interface IndependentReviewConsensusFinding {
   sequence: number;
@@ -105,7 +99,8 @@ interface IndependentReviewManifest {
   launchReceiptSha256: string;
   reviewPolicyVersion?:
     | typeof INDEPENDENT_REVIEW_POLICY_VERSION
-    | typeof LEGACY_INDEPENDENT_REVIEW_POLICY_VERSION;
+    | typeof LEGACY_INDEPENDENT_REVIEW_POLICY_VERSION
+    | typeof LEGACY_INDEPENDENT_REVIEW_POLICY_VERSION_V2;
   reviewers: Array<{
     reviewer: "codex" | "grok";
     transport: "codex-cli" | "grok-bot";
@@ -747,14 +742,7 @@ export function buildIndependentReviewSystemPrompt(rubric: string): string {
     buildSystemPrompt(rubric),
     "",
     "[창업노트 현재 매처 계약 — 독립 검수 필수 규칙]",
-    `- ${DEEP_ANALYSIS_PRIOR_AWARD_STATE_RULE}`,
-    `- ${DEEP_ANALYSIS_TARGET_TYPE_LIST_SEMANTICS_RULE}`,
-    `- ${DEEP_ANALYSIS_STRUCTURED_TARGET_RULE}`,
-    `- ${DEEP_ANALYSIS_STRUCTURED_FILTER_METADATA_RULE}`,
-    `- ${DEEP_ANALYSIS_ALTERNATIVE_PATH_SCOPE_RULE}`,
-    `- ${DEEP_ANALYSIS_ACTOR_TRACK_SCOPE_RULE}`,
-    `- ${DEEP_ANALYSIS_APPLICATION_MATCHING_SCOPE_RULE}`,
-    `- ${DEEP_ANALYSIS_ELIGIBILITY_RANKING_SEPARATION_RULE}`,
+    ...DEEP_ANALYSIS_REVIEW_ALIGNMENT_RULES.map((rule) => `- ${rule}`),
   ].join("\n");
 }
 
@@ -839,6 +827,7 @@ function resolveIndependentReviewMode(manifest: IndependentReviewManifest): "cod
     && (
       manifest.reviewPolicyVersion === INDEPENDENT_REVIEW_POLICY_VERSION
       || manifest.reviewPolicyVersion === LEGACY_INDEPENDENT_REVIEW_POLICY_VERSION
+      || manifest.reviewPolicyVersion === LEGACY_INDEPENDENT_REVIEW_POLICY_VERSION_V2
     )
     && manifest.policy.reviewerMode === "codex-only"
     && reviewers.length === 1

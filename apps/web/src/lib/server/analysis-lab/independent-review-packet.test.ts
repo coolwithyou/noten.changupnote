@@ -78,6 +78,10 @@ assert.match(independentSystemPrompt, /biz_enyy.*비제한 검색 메타데이�
 assert.match(independentSystemPrompt, /source_field: supt_regin.*region criterion을 만들지 마라/);
 assert.match(independentSystemPrompt, /서로 다른 22축이 섞인 대안.*other.*text_only/);
 assert.match(independentSystemPrompt, /본 사업 선정 후의 협약 이행.*criterion으로 만들지 말고/);
+assert.match(independentSystemPrompt, /중소기업·중견기업·대기업 같은 법정 기업 규모 분류는 size로만/);
+assert.match(independentSystemPrompt, /순수 창작물.*현재 또는 과거 수혜 사실이 아니므로|표절·도용 금지/);
+assert.match(independentSystemPrompt, /공고명·사업목적·모집안내.*실제 신청기업의 산업 범위다/);
+assert.match(independentSystemPrompt, /제출서류 목록은 정보수집·증빙 요구일 뿐/);
 
 const reviewAxes = deriveIndependentReviewAxes({
   runId: "run-unresolved-axis-regression",
