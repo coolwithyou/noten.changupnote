@@ -126,6 +126,7 @@ async function runPacket(options: {
     "다른 리뷰 결과, Codex/Grok 산출물, 사람 판정 파일은 읽지 마라.",
     "packet.outputSchema를 만족하는 JSON 객체 하나만 최종 응답으로 반환하라.",
     "최종 응답 직전 축간 계약을 다시 확인하라: 중소기업·중견기업·대기업 같은 규모 문구만으로 target_type missed_condition을 만들면 안 된다.",
+    "K-Startup 포털 메타데이터 계약을 다시 확인하라: source_field biz_trgt_age의 범주 열거와 supt_regin=전국은 누락 조건이 아니며, aply_trgt 요약 목록은 반드시 open이다.",
     "note가 필요 없는 correct 또는 confirmed_absent 항목도 JSON schema 충족을 위해 note를 빈 문자열로 넣어라.",
     "파일을 수정하거나 DB·배포·네트워크 작업을 하지 마라.",
   ].join("\n");

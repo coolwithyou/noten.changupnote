@@ -26,11 +26,12 @@ export const INDEPENDENT_REVIEW_RESULT_SCHEMA = "independent-ai-review-result-v1
 export const INDEPENDENT_REVIEW_BUNDLE_SCHEMA = "independent-ai-review-bundle-v1";
 export const INDEPENDENT_REVIEW_COMBINED_RAW_SCHEMA = "independent-ai-review-combined-raw-v1";
 export const INDEPENDENT_REVIEW_AGGREGATE_SCHEMA = "independent-ai-review-aggregate-v2";
-export const INDEPENDENT_REVIEW_POLICY_VERSION = "codex-only-v5";
+export const INDEPENDENT_REVIEW_POLICY_VERSION = "codex-only-v6";
 export const LEGACY_INDEPENDENT_REVIEW_POLICY_VERSION = "codex-only-v1";
 export const LEGACY_INDEPENDENT_REVIEW_POLICY_VERSION_V2 = "codex-only-v2";
 export const LEGACY_INDEPENDENT_REVIEW_POLICY_VERSION_V3 = "codex-only-v3";
 export const LEGACY_INDEPENDENT_REVIEW_POLICY_VERSION_V4 = "codex-only-v4";
+export const LEGACY_INDEPENDENT_REVIEW_POLICY_VERSION_V5 = "codex-only-v5";
 
 export interface IndependentReviewConsensusFinding {
   sequence: number;
@@ -104,7 +105,8 @@ interface IndependentReviewManifest {
     | typeof LEGACY_INDEPENDENT_REVIEW_POLICY_VERSION
     | typeof LEGACY_INDEPENDENT_REVIEW_POLICY_VERSION_V2
     | typeof LEGACY_INDEPENDENT_REVIEW_POLICY_VERSION_V3
-    | typeof LEGACY_INDEPENDENT_REVIEW_POLICY_VERSION_V4;
+    | typeof LEGACY_INDEPENDENT_REVIEW_POLICY_VERSION_V4
+    | typeof LEGACY_INDEPENDENT_REVIEW_POLICY_VERSION_V5;
   reviewers: Array<{
     reviewer: "codex" | "grok";
     transport: "codex-cli" | "grok-bot";
@@ -715,6 +717,40 @@ export async function validateAndWrapIndependentReviewResult(options: {
       `${options.reviewer} 검수 응답 검증 실패: 기업 규모 문구만으로 target_type 누락을 판정했습니다.`,
     );
   }
+  const structuredMetadataAxis = checked.axisReviews.find((review) => (
+    review.verdict === "missed_condition"
+    && (
+      (review.dimension === "region" && isNonRestrictiveRegionEvidence(review.note))
+      || (
+        review.dimension === "founder_age"
+        && isStructuredAgeMetadataEvidence(review.note, packet.userMessage)
+      )
+    )
+  ));
+  if (structuredMetadataAxis) {
+    throw new Error(
+      `${options.reviewer} 검수 응답 검증 실패: 비제한 포털 메타데이터를 ${structuredMetadataAxis.dimension} 누락으로 판정했습니다.`,
+    );
+  }
+  const runBytes = await readFile(resolve(findMonorepoRoot(), packet.runArtifactPath));
+  if (sha256(runBytes) !== packet.runArtifactSha256) {
+    throw new Error(`${options.reviewer} 검수 응답 검증 실패: run artifact SHA가 packet 결속과 다릅니다.`);
+  }
+  const run = JSON.parse(runBytes.toString("utf8")) as LabRun;
+  const closedPortalTarget = checked.criterionReviews.find((review) => {
+    if (review.verdict === "correct") return false;
+    const criterion = run.criteria[review.criterionIndex];
+    if (!criterion || criterion.dimension !== "target_type") return false;
+    const value = criterion.value as { list_semantics?: unknown };
+    return value.list_semantics === "open"
+      && isKstartupSummaryTargetSpan(criterion.sourceSpan, packet.userMessage)
+      && /(?:list_semantics\s*=\s*["']?closed|완전\s*열거|폐쇄\s*목록)/iu.test(review.note ?? "");
+  });
+  if (closedPortalTarget) {
+    throw new Error(
+      `${options.reviewer} 검수 응답 검증 실패: K-Startup aply_trgt 요약을 closed 목록으로 판정했습니다.`,
+    );
+  }
   return {
     schema: INDEPENDENT_REVIEW_RESULT_SCHEMA,
     reviewer: options.reviewer,
@@ -736,6 +772,36 @@ export function isSizeOnlyTargetTypeEvidence(note: string | null): boolean {
   const hasSize = /(?:예비|소상공인|소기업|중소기업|중견기업|대기업)/u.test(note);
   const hasTargetType = /(?:개인사업자|법인사업자|협동조합|비영리(?:법인|단체)?|주관기관|수행기관|참여기관|공급기업|수혜기업|도입기업)/u.test(note);
   return hasSize && !hasTargetType;
+}
+
+export function isNonRestrictiveRegionEvidence(note: string | null): boolean {
+  if (!note || !/전국/u.test(note)) return false;
+  return !/(?:서울|부산|대구|인천|광주|대전|울산|세종|경기|강원|충북|충남|전북|전남|경북|경남|제주|특별시|광역시|특별자치|도내|관내|제외|이외|한정)/u.test(note);
+}
+
+export function isStructuredAgeMetadataEvidence(note: string | null, userMessage: string): boolean {
+  if (!note) return false;
+  const normalizedNote = normalizeEvidence(note);
+  return userMessage.split("\n").some((line) => {
+    if (!line.includes("source_field: biz_trgt_age")) return false;
+    const structuredValue = line.replace(/\s*\(source_field:\s*biz_trgt_age\)\s*$/u, "");
+    const normalizedLine = normalizeEvidence(structuredValue);
+    return normalizedLine.includes(normalizedNote) || normalizedNote.includes(normalizedLine);
+  });
+}
+
+export function isKstartupSummaryTargetSpan(sourceSpan: string | null, userMessage: string): boolean {
+  if (!sourceSpan) return false;
+  const normalizedSpan = normalizeEvidence(sourceSpan);
+  return userMessage.split("\n").some((line) => (
+    line.includes("source_field: aply_trgt")
+    && !line.includes("source_field: aply_trgt_ctnt")
+    && normalizeEvidence(line).includes(normalizedSpan)
+  ));
+}
+
+function normalizeEvidence(value: string): string {
+  return value.replace(/[\s"'“”‘’]/gu, "").replace(/[,:：]/gu, "");
 }
 
 function buildIndependentReviewUserMessage(
@@ -851,6 +917,7 @@ function resolveIndependentReviewMode(manifest: IndependentReviewManifest): "cod
       || manifest.reviewPolicyVersion === LEGACY_INDEPENDENT_REVIEW_POLICY_VERSION_V2
       || manifest.reviewPolicyVersion === LEGACY_INDEPENDENT_REVIEW_POLICY_VERSION_V3
       || manifest.reviewPolicyVersion === LEGACY_INDEPENDENT_REVIEW_POLICY_VERSION_V4
+      || manifest.reviewPolicyVersion === LEGACY_INDEPENDENT_REVIEW_POLICY_VERSION_V5
     )
     && manifest.policy.reviewerMode === "codex-only"
     && reviewers.length === 1

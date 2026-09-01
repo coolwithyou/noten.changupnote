@@ -5,7 +5,10 @@ import {
   deriveIndependentReviewAxes,
   deriveIndependentReviewConsensus,
   deriveSingleIndependentReviewFindings,
+  isKstartupSummaryTargetSpan,
+  isNonRestrictiveRegionEvidence,
   isSizeOnlyTargetTypeEvidence,
+  isStructuredAgeMetadataEvidence,
   normalizeReviewSequences,
 } from "./independent-review-packet";
 
@@ -87,6 +90,22 @@ assert.match(independentSystemPrompt, /제출서류 목록은 정보수집·증�
 assert.equal(isSizeOnlyTargetTypeEvidence('"지원대상: 중소기업"'), true);
 assert.equal(isSizeOnlyTargetTypeEvidence("중소기업 중 법인사업자만 신청 가능"), false);
 assert.equal(isSizeOnlyTargetTypeEvidence("비영리단체만 신청 가능"), false);
+assert.equal(isNonRestrictiveRegionEvidence('"전국 소재 창업 7년 미만 스타트업"'), true);
+assert.equal(isNonRestrictiveRegionEvidence("전국 중 제주 소재 기업"), false);
+assert.equal(
+  isStructuredAgeMetadataEvidence(
+    "대상 연령: 만 20세 미만,만 20세 이상 ~ 만 39세 이하,만 40세 이상",
+    "대상 연령: 만 20세 미만,만 20세 이상 ~ 만 39세 이하,만 40세 이상 (source_field: biz_trgt_age)",
+  ),
+  true,
+);
+assert.equal(
+  isKstartupSummaryTargetSpan(
+    "신청대상 요약: 일반기업",
+    "신청대상 요약: 일반기업 (source_field: aply_trgt)\n신청대상 상세: 스타트업 (source_field: aply_trgt_ctnt)",
+  ),
+  true,
+);
 
 const reviewAxes = deriveIndependentReviewAxes({
   runId: "run-unresolved-axis-regression",
