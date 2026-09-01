@@ -1,7 +1,8 @@
 import { and, eq, inArray } from "drizzle-orm";
+import { readFile } from "node:fs/promises";
 import { verifyPromotionApplicationPrecomputeReceipt } from "./application-precompute-release";
 import {
-  promotionReleaseArtifactPath,
+  promotionVerificationArtifactPath,
   readPromotionReleaseManifest,
   writeImmutablePromotionArtifact,
 } from "./promotion-release";
@@ -112,9 +113,72 @@ function readArg(name: string): string | undefined {
   return process.argv.find((argument) => argument.startsWith(prefix))?.slice(prefix.length);
 }
 
+export function parsePromotionVerificationAttempt(value: string | undefined): number {
+  if (value === undefined) return 1;
+  if (!/^\d+$/u.test(value)) {
+    throw new Error("--attempt는 1 이상의 정수여야 합니다.");
+  }
+  const attempt = Number(value);
+  if (!Number.isSafeInteger(attempt) || attempt < 1) {
+    throw new Error("--attempt는 1 이상의 정수여야 합니다.");
+  }
+  return attempt;
+}
+
+export function assertPromotionVerificationStatusReady(
+  scope: PromotionVerificationScope,
+  status: string,
+): void {
+  if (
+    (scope === "canary" && status === "canary_running")
+    || (scope === "all" && status === "applying")
+  ) {
+    throw new Error(
+      `release ${scope} 쓰기가 진행 중입니다(${status}). 완료 뒤 검증해야 하며 FAIL artifact는 기록하지 않습니다.`,
+    );
+  }
+}
+
+async function assertPreviousVerificationAttemptFailed(input: {
+  releaseId: string;
+  releasePlanSha256: string;
+  manifestSha256: string;
+  scope: PromotionVerificationScope;
+  attempt: number;
+}): Promise<void> {
+  if (input.attempt === 1) return;
+  const previousPath = promotionVerificationArtifactPath(
+    input.releaseId,
+    input.scope,
+    input.attempt - 1,
+  );
+  let previous: unknown;
+  try {
+    previous = JSON.parse(await readFile(previousPath, "utf8")) as unknown;
+  } catch (error) {
+    throw new Error(
+      `이전 verification attempt ${input.attempt - 1} artifact를 읽지 못했습니다: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+  }
+  if (
+    previous === null
+    || typeof previous !== "object"
+    || (previous as Record<string, unknown>).releaseId !== input.releaseId
+    || (previous as Record<string, unknown>).releasePlanSha256 !== input.releasePlanSha256
+    || (previous as Record<string, unknown>).manifestSha256 !== input.manifestSha256
+    || (previous as Record<string, unknown>).scope !== input.scope
+    || (previous as Record<string, unknown>).verdict !== "FAIL"
+  ) {
+    throw new Error("이전 verification attempt가 같은 release의 FAIL artifact가 아닙니다.");
+  }
+}
+
 async function main(): Promise<number> {
   const releaseId = readArg("release")?.trim();
   const scope = readArg("scope")?.trim() as PromotionVerificationScope | undefined;
+  const attempt = parsePromotionVerificationAttempt(readArg("attempt")?.trim());
   if (!releaseId) throw new Error("--release가 필요합니다.");
   if (scope !== "canary" && scope !== "all") {
     throw new Error("--scope는 canary 또는 all이어야 합니다.");
@@ -127,6 +191,14 @@ async function main(): Promise<number> {
     .where(eq(schema.analysisLabPromotionReleases.releaseId, releaseId))
     .limit(1);
   if (!release) throw new Error("DB release 원장을 찾지 못했습니다.");
+  assertPromotionVerificationStatusReady(scope, release.status);
+  await assertPreviousVerificationAttemptFailed({
+    releaseId,
+    releasePlanSha256: manifest.releasePlanSha256,
+    manifestSha256: manifest.manifestSha256,
+    scope,
+    attempt,
+  });
   const expectedReleaseStatus = scope === "canary" ? "canary_passed" : "active";
   const issues: PromotionVerificationIssue[] = [];
   if (release.status !== expectedReleaseStatus) {
@@ -258,6 +330,7 @@ async function main(): Promise<number> {
     releasePlanSha256: manifest.releasePlanSha256,
     manifestSha256: manifest.manifestSha256,
     scope,
+    attempt,
     verifiedAt: new Date().toISOString(),
     checkedItems: manifest.plans.length,
     issueCounts: Object.fromEntries(
@@ -268,10 +341,7 @@ async function main(): Promise<number> {
     verdict: issues.length === 0 ? "PASS" : "FAIL",
   };
   await writeImmutablePromotionArtifact(
-    promotionReleaseArtifactPath(
-      releaseId,
-      scope === "canary" ? "verification.canary.json" : "verification.all.json",
-    ),
+    promotionVerificationArtifactPath(releaseId, scope, attempt),
     artifact,
   );
   console.log(

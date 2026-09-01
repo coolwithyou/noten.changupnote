@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
 import {
+  assertPromotionVerificationStatusReady,
+  parsePromotionVerificationAttempt,
   verifyAppliedPromotionSnapshot,
   type PromotionVerificationIssue,
 } from "./verify-promotion";
+import { promotionVerificationArtifactPath } from "./promotion-release";
 import {
   promotionGrantSnapshotStateSha256,
   type PromotionGrantSnapshot,
@@ -56,6 +59,29 @@ function snapshot(): PromotionGrantSnapshot {
     dedupLinks: [],
   };
 }
+
+assert.equal(parsePromotionVerificationAttempt(undefined), 1);
+assert.equal(parsePromotionVerificationAttempt("2"), 2);
+assert.throws(() => parsePromotionVerificationAttempt("0"), /1 이상의 정수/);
+assert.throws(() => parsePromotionVerificationAttempt("1.5"), /1 이상의 정수/);
+assert.doesNotThrow(() => assertPromotionVerificationStatusReady("all", "active"));
+assert.doesNotThrow(() => assertPromotionVerificationStatusReady("canary", "canary_passed"));
+assert.throws(
+  () => assertPromotionVerificationStatusReady("all", "applying"),
+  /FAIL artifact는 기록하지 않습니다/,
+);
+assert.throws(
+  () => assertPromotionVerificationStatusReady("canary", "canary_running"),
+  /FAIL artifact는 기록하지 않습니다/,
+);
+assert.match(
+  promotionVerificationArtifactPath("release-1", "all", 1),
+  /verification\.all\.json$/u,
+);
+assert.match(
+  promotionVerificationArtifactPath("release-1", "all", 2),
+  /verification\.all\.attempt-2\.json$/u,
+);
 
 {
   const current = snapshot();

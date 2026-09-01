@@ -928,6 +928,20 @@ export function promotionReleaseArtifactPath(
   return join(promotionReleaseDir(releaseId), name);
 }
 
+export function promotionVerificationArtifactPath(
+  releaseId: string,
+  scope: "canary" | "all",
+  attempt: number,
+): string {
+  if (!Number.isSafeInteger(attempt) || attempt < 1) {
+    throw new Error("promotion verification attempt는 1 이상의 정수여야 합니다.");
+  }
+  const name = attempt === 1
+    ? `verification.${scope}.json`
+    : `verification.${scope}.attempt-${attempt}.json`;
+  return join(promotionReleaseDir(releaseId), name);
+}
+
 export async function writeImmutablePromotionArtifact(
   path: string,
   value: unknown,
