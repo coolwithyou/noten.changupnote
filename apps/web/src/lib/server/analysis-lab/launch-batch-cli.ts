@@ -9,7 +9,7 @@ import {
 import { ACTIVE_DEEP_REPAIR_SERIES_ID } from "./deep-repair-formal-policy";
 
 const SHA256 = /^[a-f0-9]{64}$/;
-const USAGE = `pnpm lab:launch:prepare -- --series=${ACTIVE_DEEP_REPAIR_SERIES_ID} --sequences=0-29 --concurrency=2
+const USAGE = `pnpm lab:launch:prepare -- --series=${ACTIVE_DEEP_REPAIR_SERIES_ID} --sequences=0-49 --concurrency=2
 pnpm lab:launch:grant -- --manifest=<sha256> --approved-by=<actor>
 pnpm lab:launch -- --grant=<sha256> [--retry-errors]`;
 

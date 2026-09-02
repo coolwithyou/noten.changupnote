@@ -3,6 +3,7 @@ import {
   DEEP_REPAIR_FORMAL_MAX_SAMPLE_SIZE as MAX_SAMPLE_SIZE,
   DEEP_REPAIR_FORMAL_MIN_SAMPLE_SIZE as MIN_SAMPLE_SIZE,
   DEEP_REPAIR_FORMAL_SUPPORTED_STRATA as SUPPORTED_STRATA,
+  deepRepairTargetCountForSeries,
   deepRepairRequiredStrataForVersion,
   type DeepRepairStrataVersion,
 } from "./deep-repair-formal-policy";
@@ -437,8 +438,9 @@ function normalizeManifest(input: unknown): ExperimentManifest {
     throw new Error(`manifest must contain between 1 and ${MAX_SAMPLE_SIZE} targets`);
   }
   if (mode === "formal") {
-    if (targetCount !== MAX_SAMPLE_SIZE) {
-      throw new Error(`formal experiment plan must pre-seal exactly ${MAX_SAMPLE_SIZE} targets`);
+    const expectedTargetCount = deepRepairTargetCountForSeries(seriesId);
+    if (targetCount !== expectedTargetCount) {
+      throw new Error(`formal experiment plan must pre-seal exactly ${expectedTargetCount} targets`);
     }
     const formalTargets = waves.flatMap((wave) => wave.targets);
     const requiredStrata = deepRepairRequiredStrataForVersion(strataVersion!);
@@ -493,7 +495,11 @@ function planBody(plan: DeepRepairExperimentPlan): Omit<DeepRepairExperimentPlan
   };
 }
 
-function evaluateGate(sampleSize: number, repairedNoticeCount: number): GateCheckpoint {
+function evaluateGate(
+  sampleSize: number,
+  repairedNoticeCount: number,
+  plannedSampleSize: number,
+): GateCheckpoint {
   const logLikelihoodRatio =
     repairedNoticeCount * Math.log(BAD_REPAIR_RATE / GOOD_REPAIR_RATE) +
     (sampleSize - repairedNoticeCount) * Math.log((1 - BAD_REPAIR_RATE) / (1 - GOOD_REPAIR_RATE));
@@ -503,7 +509,7 @@ function evaluateGate(sampleSize: number, repairedNoticeCount: number): GateChec
       statisticalVerdict = "GO";
     } else if (logLikelihoodRatio >= NO_GO_BOUNDARY) {
       statisticalVerdict = "NO_GO";
-    } else if (sampleSize >= MAX_SAMPLE_SIZE) {
+    } else if (sampleSize >= plannedSampleSize) {
       statisticalVerdict = "INCONCLUSIVE";
     }
   }
@@ -861,7 +867,7 @@ export function replayDeepRepairExperiment(
     repairedNoticeCount += observation.primaryRepairCount > 0 ? 1 : 0;
     publishable += observation.noticeOutcome === "publishable" ? 1 : 0;
     held += observation.noticeOutcome === "held" ? 1 : 0;
-    const checkpoint = evaluateGate(index + 1, repairedNoticeCount);
+    const checkpoint = evaluateGate(index + 1, repairedNoticeCount, plan.sequence.length);
     checkpoints.push(checkpoint);
     if (terminalAt !== null) {
       invalidReasons.push("observation_after_terminal_gate");

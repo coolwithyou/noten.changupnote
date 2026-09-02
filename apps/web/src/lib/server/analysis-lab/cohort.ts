@@ -50,7 +50,7 @@ import { BODY_MARKDOWN_MIN_BYTES, announcementScore } from "./input";
 import { analysisLabDir, listLabRunSummaries } from "./run-store";
 import { assertAnalysisLabCohortMutationAdmitted } from "./analysis-execution-admission";
 import {
-  DEEP_REPAIR_FORMAL_MAX_SAMPLE_SIZE,
+  ACTIVE_DEEP_REPAIR_TARGET_COUNT,
   DEEP_REPAIR_FORMAL_MIN_SAMPLE_SIZE,
   DEEP_REPAIR_FORMAL_REQUIRED_STRATA,
   DEEP_REPAIR_PLANNING_PRIMARY_SEED,
@@ -148,7 +148,7 @@ export interface DeepRepairPlanningSelection {
   readonly warnings: readonly string[];
 }
 
-const DEEP_REPAIR_PLANNING_SIZE = DEEP_REPAIR_FORMAL_MAX_SAMPLE_SIZE;
+const DEEP_REPAIR_PLANNING_SIZE = ACTIVE_DEEP_REPAIR_TARGET_COUNT;
 
 /**
  * 현행 cohort.json 을 건드리지 않고 새 층화 표본을 불변 파일로 동결한다. 기존 정본과

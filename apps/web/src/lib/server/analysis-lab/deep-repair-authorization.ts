@@ -6,7 +6,13 @@ import {
   type DeepRepairExperimentPlan,
 } from "./deep-repair-experiment";
 import type { DeepRepairOperationalEvidence } from "./deep-repair-live-experiment";
-import { ACTIVE_DEEP_REPAIR_SERIES_ID } from "./deep-repair-formal-policy";
+import {
+  ACTIVE_DEEP_REPAIR_SERIES_ID,
+  ACTIVE_DEEP_REPAIR_TARGET_COUNT,
+  DEEP_REPAIR_FORMAL_MIN_SAMPLE_SIZE,
+  DEEP_REPAIR_PLANNING_PRIMARY_SEED,
+  DEEP_REPAIR_PLANNING_SUPPLEMENTAL_SEED,
+} from "./deep-repair-formal-policy";
 
 type Sha256 = string;
 
@@ -233,10 +239,10 @@ const SHA256 = /^[a-f0-9]{64}$/u;
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 const MAX_APPROVAL_TTL_MS = 15 * 60_000;
 const MAX_OPERATIONAL_EVIDENCE_TTL_MS = 15 * 60_000;
-const PREPARATION_SEED = 20260817;
-const PREPARATION_SUPPLEMENTAL_SEED = 20260818;
-const PREPARATION_TARGET_COUNT = 30;
-const PREPARATION_WAVE_SIZE = 15;
+const PREPARATION_SEED = DEEP_REPAIR_PLANNING_PRIMARY_SEED;
+const PREPARATION_SUPPLEMENTAL_SEED = DEEP_REPAIR_PLANNING_SUPPLEMENTAL_SEED;
+const PREPARATION_TARGET_COUNT = ACTIVE_DEEP_REPAIR_TARGET_COUNT;
+const PREPARATION_WAVE_SIZE = DEEP_REPAIR_FORMAL_MIN_SAMPLE_SIZE;
 const MAX_AUTH_PREFLIGHT_FAILURE =
   "Claude CLI Max 구독 인증을 증명하지 못했습니다. 모델을 시작하지 않습니다. `claude auth status --json`에서 claude.ai/firstParty/max 로그인을 확인하세요.";
 
@@ -710,11 +716,14 @@ function normalizePlan(value: unknown, expectedSha256: string): DeepRepairExperi
       || plan.manifest.policy.promptVersion !== ANALYSIS_LAB_PROMPT_VERSION
       || plan.manifest.policy.qualityPolicyVersion !== ANALYSIS_QUALITY_POLICY_VERSION
       || plan.sequence.length !== PREPARATION_TARGET_COUNT
-      || plan.manifest.waves.length !== PREPARATION_TARGET_COUNT / PREPARATION_WAVE_SIZE
-      || plan.manifest.waves.some(
-        (wave) => wave.cohort.seed !== PREPARATION_SEED
-          || wave.targets.length !== PREPARATION_WAVE_SIZE,
-      )
+      || plan.manifest.waves.length !== Math.ceil(PREPARATION_TARGET_COUNT / PREPARATION_WAVE_SIZE)
+      || plan.manifest.waves.some((wave, index) => (
+        wave.cohort.seed !== PREPARATION_SEED
+        || wave.targets.length !== Math.min(
+          PREPARATION_WAVE_SIZE,
+          PREPARATION_TARGET_COUNT - index * PREPARATION_WAVE_SIZE,
+        )
+      ))
     ) throw new Error("unsupported or non-canonical plan");
     return plan;
   } catch (error) {
