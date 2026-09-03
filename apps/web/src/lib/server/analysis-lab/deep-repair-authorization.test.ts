@@ -62,10 +62,10 @@ function canonicalSha256(value: unknown): string {
 function cohortArtifact(wave: number): DeepRepairAuthorizationStoredArtifact {
   return stored({
     schema: "deep-repair-cohort-v1",
-    seriesId: "deep-v31",
+    seriesId: "deep-v32",
     waveId: `wave-${wave + 1}`,
     selectedAt: "2026-08-14T00:00:00.000Z",
-    seed: 20260907,
+    seed: 20260909,
     orderedTargets: Array.from({ length: Math.min(15, 50 - wave * 15) }, (_, offset) => {
       const sequence = wave * 15 + offset;
       return {
@@ -80,7 +80,7 @@ function fixture() {
   const cohorts = [cohortArtifact(0), cohortArtifact(1), cohortArtifact(2), cohortArtifact(3)];
   const plan = createDeepRepairExperimentPlan({
     schema: "deep-repair-series-manifest-v1",
-    seriesId: "deep-v31",
+    seriesId: "deep-v32",
     objective: "deep-primary-repair-rate",
     mode: "formal",
     formation: "prospective",
@@ -105,7 +105,7 @@ function fixture() {
         artifactPath: cohort.path,
         sha256: rawSha256(cohort.bytes),
         selectedAt: "2026-08-14T00:00:00.000Z",
-        seed: 20260907,
+        seed: 20260909,
       },
       targets: Array.from({ length: Math.min(15, 50 - wave * 15) }, (_, offset) => {
         const sequence = wave * 15 + offset;
@@ -127,9 +127,9 @@ function fixture() {
     schema: "deep-repair-proposal-v1",
     preparedAt: "2026-08-14T02:45:00.000Z",
     policy: {
-      seriesId: "deep-v31",
-      seed: 20260907,
-      supplementalSeed: 20260908,
+      seriesId: "deep-v32",
+      seed: 20260909,
+      supplementalSeed: 20260910,
       targetCount: 50,
       waveSize: 15,
       objective: plan.manifest.objective,
@@ -190,7 +190,7 @@ function fixture() {
   };
   const seriesMarker = {
     schema: "deep-repair-series-proposal-v1",
-    seriesId: "deep-v31",
+    seriesId: "deep-v32",
     proposalPath: `spike-out/analysis-lab/experiments/proposals/${proposalSha256}.json`,
     proposalSha256,
     planSha256: plan.planSha256,
@@ -199,7 +199,7 @@ function fixture() {
   };
   const seriesMarkerArtifact = canonicalStored(
     seriesMarker,
-    "spike-out/analysis-lab/experiments/series/deep-v31.json",
+    "spike-out/analysis-lab/experiments/series/deep-v32.json",
   );
   const approval = {
     schema: "deep-repair-user-approval-v1",
@@ -239,7 +239,7 @@ function fixture() {
 
   class MemoryRepository implements DeepRepairAuthorizationRepository {
     readonly approvals = new Map([[approvalSha256, approvalArtifact]]);
-    readonly seriesMarkers = new Map([["deep-v31", seriesMarkerArtifact]]);
+    readonly seriesMarkers = new Map([["deep-v32", seriesMarkerArtifact]]);
     readonly proposals = new Map([[proposalSha256, committedProposalArtifact]]);
     readonly plans = new Map([[plan.planSha256, planArtifact]]);
     readonly cohortArtifacts = new Map(cohorts.map((artifact) => [artifact.path, artifact]));
@@ -363,7 +363,7 @@ function installParentReceipt(
     manifestSha256: setup.plan.manifestSha256,
     parentReceiptSha256: null,
     authoritySha256: SHA(7_001),
-    attemptId: "deep-v31-00-parent",
+    attemptId: "deep-v32-00-parent",
     target: { sequence: 0, waveId: "wave-1", grantId: "grant-00" },
     startedAt: "2026-08-14T02:50:00.000Z",
     finishedAt: "2026-08-14T02:52:00.000Z",
@@ -879,7 +879,7 @@ for (const [label, activeDeepLeases, activeApplicationLeases] of [
 
 {
   const setup = fixture();
-  setup.repository.seriesMarkers.delete("deep-v31");
+  setup.repository.seriesMarkers.delete("deep-v32");
   await assert.rejects(
     setup.issuer.issueApprovedDeepRepairAuthority({
       approvalId: setup.approvalSha256,
@@ -894,9 +894,9 @@ for (const [label, activeDeepLeases, activeApplicationLeases] of [
 
 {
   const setup = fixture();
-  setup.repository.seriesMarkers.set("deep-v31", stored(
+  setup.repository.seriesMarkers.set("deep-v32", stored(
     setup.seriesMarker,
-    "spike-out/analysis-lab/experiments/series/deep-v31.json",
+    "spike-out/analysis-lab/experiments/series/deep-v32.json",
   ));
   await assert.rejects(
     setup.issuer.issueApprovedDeepRepairAuthority({
@@ -946,11 +946,11 @@ for (const [label, activeDeepLeases, activeApplicationLeases] of [
   };
   setup.repository.proposals.clear();
   setup.repository.proposals.set(proposalSha256, proposalArtifact);
-  setup.repository.seriesMarkers.set("deep-v31", canonicalStored({
+  setup.repository.seriesMarkers.set("deep-v32", canonicalStored({
     ...setup.seriesMarker,
     proposalPath: proposalArtifact.path,
     proposalSha256,
-  }, "spike-out/analysis-lab/experiments/series/deep-v31.json"));
+  }, "spike-out/analysis-lab/experiments/series/deep-v32.json"));
   const approvalId = installApproval(setup, {
     ...setup.approval,
     proposalSha256,
@@ -963,7 +963,7 @@ for (const [label, activeDeepLeases, activeApplicationLeases] of [
     (error: unknown) =>
       error instanceof DeepRepairAuthorizationError
       && error.code === "proposal_invalid",
-    "deep-v31 final marker는 다른 series proposal을 발급할 수 없어야 한다",
+    "deep-v32 final marker는 다른 series proposal을 발급할 수 없어야 한다",
   );
   assert.deepEqual(setup.calls, []);
 }
@@ -985,11 +985,11 @@ for (const [label, activeDeepLeases, activeApplicationLeases] of [
   };
   setup.repository.proposals.clear();
   setup.repository.proposals.set(proposalSha256, proposalArtifact);
-  setup.repository.seriesMarkers.set("deep-v31", canonicalStored({
+  setup.repository.seriesMarkers.set("deep-v32", canonicalStored({
     ...setup.seriesMarker,
     proposalPath: proposalArtifact.path,
     proposalSha256,
-  }, "spike-out/analysis-lab/experiments/series/deep-v31.json"));
+  }, "spike-out/analysis-lab/experiments/series/deep-v32.json"));
   const approvalId = installApproval(setup, {
     ...setup.approval,
     proposalSha256,
@@ -1328,7 +1328,7 @@ for (const [label, activeDeepLeases, activeApplicationLeases] of [
     manifestSha256: setup.plan.manifestSha256,
     parentReceiptSha256: null,
     authoritySha256: SHA(8_100),
-    attemptId: "deep-v31-00-failed",
+    attemptId: "deep-v32-00-failed",
     target: { sequence: 0, waveId: "wave-1", grantId: "grant-00" },
     startedAt: "2026-08-14T02:54:00.000Z",
     finishedAt: "2026-08-14T02:55:00.000Z",

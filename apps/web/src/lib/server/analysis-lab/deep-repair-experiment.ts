@@ -280,7 +280,12 @@ function normalizeManifest(input: unknown): ExperimentManifest {
       : readLiteral(
           source,
           "strataVersion",
-          ["deep-repair-strata-v1", "deep-repair-strata-v2", "deep-repair-strata-v3"] as const,
+          [
+            "deep-repair-strata-v1",
+            "deep-repair-strata-v2",
+            "deep-repair-strata-v3",
+            "deep-repair-strata-v4",
+          ] as const,
           "manifest",
         );
 
