@@ -634,8 +634,8 @@ async function loadStratumCandidates(
 
 /**
  * Gate R proposal 전용 read-only 선정. 기존 cohort 파일을 만들거나 바꾸지 않고, 호출자가
- * 명시한 과거 run/snapshot 공고를 제외한 뒤 고정 seed로 정확히 30건을 뽑는다. 첫 15건은
- * formal gate의 최소 표본에서도 여섯 층이 모두 관측되도록 결정론적으로 재배열한다.
+ * 명시한 과거 run/snapshot 공고를 제외한 뒤 고정 seed로 현재 series 목표 수를 뽑는다. 첫 15건은
+ * formal gate의 최소 표본에서도 현행 필수 층이 모두 관측되도록 결정론적으로 재배열한다.
  */
 export async function selectDeepRepairPlanningTargets(options: {
   readonly excludeGrantIds: readonly string[];
