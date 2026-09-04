@@ -1,13 +1,15 @@
 /** formal deep-primary repair experiment에만 쓰는 고정 통계/층화 계약. */
-export const ACTIVE_DEEP_REPAIR_SERIES_ID = "deep-v33" as const;
+export const ACTIVE_DEEP_REPAIR_SERIES_ID = "deep-v34" as const;
 export const ACTIVE_DEEP_REPAIR_STRATA_VERSION = "deep-repair-strata-v4" as const;
-export const DEEP_REPAIR_PLANNING_PRIMARY_SEED = 20260911;
-export const DEEP_REPAIR_PLANNING_SUPPLEMENTAL_SEED = 20260912;
+export const DEEP_REPAIR_PLANNING_PRIMARY_SEED = 20260913;
+export const DEEP_REPAIR_PLANNING_SUPPLEMENTAL_SEED = 20260914;
 export const DEEP_REPAIR_FORMAL_MIN_SAMPLE_SIZE = 15;
 /** deep-v30까지의 불변 formal plan 크기. 역사 plan 재검증을 위해 유지한다. */
 export const DEEP_REPAIR_FORMAL_LEGACY_TARGET_COUNT = 30;
+/** deep-v31~deep-v33의 불변 formal plan 크기. 역사 plan 재검증을 위해 유지한다. */
+export const DEEP_REPAIR_FORMAL_EXPANDED_TARGET_COUNT = 50;
 /** 현재 런칭 series가 한 manifest에 봉인하는 목표 공고 수. */
-export const ACTIVE_DEEP_REPAIR_TARGET_COUNT = 50;
+export const ACTIVE_DEEP_REPAIR_TARGET_COUNT = 100;
 /** evaluator와 manifest parser가 허용하는 현재 최대 표본 수. */
 export const DEEP_REPAIR_FORMAL_MAX_SAMPLE_SIZE = ACTIVE_DEEP_REPAIR_TARGET_COUNT;
 export const DEEP_REPAIR_FORMAL_SUPPORTED_STRATA = Object.freeze([
@@ -67,15 +69,15 @@ export function deepRepairRequiredStrataForVersion(
 }
 
 /**
- * formal plan의 target 수는 series 계약에 포함된다. deep-v30 이전 30건 plan을 계속
- * 재검증하면서 deep-v31 이후 50건 plan의 역사 의미도 보존한다.
+ * formal plan의 target 수는 series 계약에 포함된다. deep-v30 이전 30건 plan과
+ * deep-v31~deep-v33의 50건 plan을 계속 재검증하면서 현재 100건 계약을 분리한다.
  */
 export function deepRepairTargetCountForSeries(seriesId: string): number {
-  return (
+  if (seriesId === ACTIVE_DEEP_REPAIR_SERIES_ID) return ACTIVE_DEEP_REPAIR_TARGET_COUNT;
+  if (
     seriesId === "deep-v31"
-      || seriesId === "deep-v32"
-      || seriesId === ACTIVE_DEEP_REPAIR_SERIES_ID
-  )
-    ? ACTIVE_DEEP_REPAIR_TARGET_COUNT
-    : DEEP_REPAIR_FORMAL_LEGACY_TARGET_COUNT;
+    || seriesId === "deep-v32"
+    || seriesId === "deep-v33"
+  ) return DEEP_REPAIR_FORMAL_EXPANDED_TARGET_COUNT;
+  return DEEP_REPAIR_FORMAL_LEGACY_TARGET_COUNT;
 }
