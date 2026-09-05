@@ -147,7 +147,10 @@ export function selectAnalysisLaunchRetryGrantIds(input: {
     }
   }
   return input.manifest.targets
-    .filter((target) => latest.get(target.grantId) === "failed")
+    .filter((target) => {
+      const status = latest.get(target.grantId);
+      return status === undefined || status === "failed";
+    })
     .map((target) => target.grantId);
 }
 

@@ -247,6 +247,16 @@ test("작성 가이드 adoption 재분석은 source-sealed rerun만 exact 기존
     launchReceiptTarget(0, GRANT_0, "skipped"),
     launchReceiptTarget(1, GRANT_1, "skipped"),
   ], "2026-08-26T00:20:00.000Z");
+  const interruptedReceipt = launchReceipt([
+    launchReceiptTarget(0, GRANT_0, "skipped"),
+    launchReceiptTarget(1, GRANT_1, "failed"),
+  ], "2026-08-26T00:05:00.000Z");
+  assert.deepEqual(selectAnalysisLaunchRetryGrantIds({
+    manifest,
+    grantSha256: SHA_D,
+    manifestSha256: SHA_C,
+    receipts: [interruptedReceipt],
+  }), [GRANT_0, GRANT_1], "미착수 target과 실패 target만 함께 재개한다");
   assert.deepEqual(selectAnalysisLaunchRetryGrantIds({
     manifest,
     grantSha256: SHA_D,
