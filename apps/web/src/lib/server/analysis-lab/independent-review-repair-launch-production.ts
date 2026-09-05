@@ -16,6 +16,7 @@ import {
 } from "./launch-batch-artifacts";
 import {
   buildIndependentReviewRepairInstruction,
+  findDriftedIndependentReviewRepairTargetIndexes,
   normalizeIndependentReviewRepairAggregate,
   resolveIndependentReviewManifestPath,
   selectIndependentReviewRepairSequences,
@@ -61,6 +62,7 @@ export async function prepareIndependentReviewRepairLaunchManifest(input: {
   readonly path: string;
   readonly aggregateSha256: string;
   readonly originalSequences: readonly number[];
+  readonly excludedDriftedOriginalSequences: readonly number[];
 }> {
   const repositoryRoot = input.repositoryRoot ?? findMonorepoRoot();
   const concurrency = normalizeConcurrency(input.concurrency);
@@ -260,10 +262,24 @@ export async function prepareIndependentReviewRepairLaunchManifest(input: {
       });
     },
   );
+  const driftedIndexes = new Set(findDriftedIndependentReviewRepairTargetIndexes(
+    repairTargets,
+    preparedTargets,
+  ));
+  const stableRepairTargets = repairTargets.filter((_, index) => !driftedIndexes.has(index));
+  const stablePreparedTargets = preparedTargets.filter((_, index) => !driftedIndexes.has(index));
+  const excludedDriftedOriginalSequences = repairTargets
+    .filter((_, index) => driftedIndexes.has(index))
+    .map((target) => target.originalSequence);
+  if (stableRepairTargets.length === 0) {
+    throw new Error(
+      `독립 검수 repair target이 모두 현재 입력/첨부와 달라졌습니다: ${excludedDriftedOriginalSequences.join(",")}`,
+    );
+  }
   const manifest = createIndependentReviewRepairAnalysisLaunchManifest({
     aggregateSha256,
-    targets: repairTargets,
-    preparedTargets,
+    targets: stableRepairTargets,
+    preparedTargets: stablePreparedTargets,
     provenance,
     concurrency,
     now: input.preparedAt ?? new Date(),
@@ -274,7 +290,8 @@ export async function prepareIndependentReviewRepairLaunchManifest(input: {
     manifestSha256: stored.sha256,
     path: stored.path,
     aggregateSha256,
-    originalSequences,
+    originalSequences: Object.freeze(stableRepairTargets.map((target) => target.originalSequence)),
+    excludedDriftedOriginalSequences: Object.freeze(excludedDriftedOriginalSequences),
   });
 }
 

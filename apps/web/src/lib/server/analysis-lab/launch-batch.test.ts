@@ -36,6 +36,7 @@ import { parseAuthoringGuideRerunLaunchCliArgs } from "./authoring-guide-rerun-l
 import { parseIndependentReviewRepairLaunchCliArgs } from "./independent-review-repair-launch-cli";
 import {
   buildIndependentReviewRepairInstruction,
+  findDriftedIndependentReviewRepairTargetIndexes,
   normalizeIndependentReviewRepairAggregate,
   resolveIndependentReviewManifestPath,
   selectIndependentReviewRepairSequences,
@@ -352,6 +353,21 @@ test("독립 검수 합의 결함 재분석은 exact 원본 대상과 RHWP 필�
     concurrency: 1,
     now: new Date("2026-08-29T00:00:00.000Z"),
   }), /원본 launch와 달라졌습니다/);
+});
+
+test("독립 검수 repair 준비는 현재 입력이 달라진 target만 격리한다", () => {
+  const targets = [
+    { grantId: GRANT_0, inputSha256: SHA_A, attachmentManifestSha256: SHA_B },
+    { grantId: GRANT_1, inputSha256: SHA_B, attachmentManifestSha256: SHA_C },
+  ];
+  assert.deepEqual(findDriftedIndependentReviewRepairTargetIndexes(targets, [
+    { grantId: GRANT_0, inputSha256: SHA_A, attachmentManifestSha256: SHA_B },
+    { grantId: GRANT_1, inputSha256: SHA_D, attachmentManifestSha256: SHA_C },
+  ]), [1]);
+  assert.throws(() => findDriftedIndependentReviewRepairTargetIndexes(targets, [
+    { grantId: GRANT_1, inputSha256: SHA_A, attachmentManifestSha256: SHA_B },
+    { grantId: GRANT_0, inputSha256: SHA_B, attachmentManifestSha256: SHA_C },
+  ]), /grantId 결속이 다릅니다/);
 });
 
 test("독립 검수 repair aggregate는 합의된 결함 sequence와 HOLD만 허용한다", () => {

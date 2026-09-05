@@ -216,6 +216,37 @@ export function selectIndependentReviewRepairSequences(
   return Object.freeze(selected);
 }
 
+export function findDriftedIndependentReviewRepairTargetIndexes(
+  targets: readonly {
+    readonly grantId: string;
+    readonly inputSha256: string;
+    readonly attachmentManifestSha256: string;
+  }[],
+  preparedTargets: readonly {
+    readonly grantId: string;
+    readonly inputSha256: string;
+    readonly attachmentManifestSha256: string;
+  }[],
+): readonly number[] {
+  if (targets.length !== preparedTargets.length) {
+    throw new Error("독립 검수 repair target과 현재 준비 결과 수가 다릅니다.");
+  }
+  const drifted: number[] = [];
+  for (const [index, target] of targets.entries()) {
+    const prepared = preparedTargets[index]!;
+    if (prepared.grantId !== target.grantId) {
+      throw new Error(`독립 검수 repair target ${index} grantId 결속이 다릅니다.`);
+    }
+    if (
+      prepared.inputSha256 !== target.inputSha256
+      || prepared.attachmentManifestSha256 !== target.attachmentManifestSha256
+    ) {
+      drifted.push(index);
+    }
+  }
+  return Object.freeze(drifted);
+}
+
 function requireString(value: unknown, label: string): string {
   if (typeof value !== "string" || value.trim().length === 0) {
     throw new Error(`${label}가 비어 있습니다.`);

@@ -65,12 +65,11 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
       liveExecutionAuthorized: false,
       aggregateSha256: result.aggregateSha256,
       originalSequences: result.originalSequences,
+      excludedDriftedOriginalSequences: result.excludedDriftedOriginalSequences,
       source: result.manifest.source,
       execution: result.manifest.execution,
       targetCount: result.manifest.targets.length,
-      changedSinceReviewedLaunch: result.manifest.targets.filter(
-        (target) => target.changedSinceInventory,
-      ).length,
+      changedSinceReviewedLaunch: result.excludedDriftedOriginalSequences.length,
       manifestSha256: result.manifestSha256,
       path: result.path,
     }, null, 2)}\n`);
