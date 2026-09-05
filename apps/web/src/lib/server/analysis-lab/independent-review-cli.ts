@@ -1,4 +1,5 @@
 import { resolve } from "node:path";
+import { closeCunoteDb } from "../db/client";
 import {
   aggregateIndependentReviews,
   prepareIndependentReviewPackets,
@@ -68,7 +69,9 @@ async function main() {
   console.log(JSON.stringify({ outputPath: resolve(outputPath), sequence: result.sequence, reviewer: result.reviewer }));
 }
 
-main().catch((error) => {
-  console.error(error instanceof Error ? error.message : error);
-  process.exitCode = 1;
-});
+main()
+  .catch((error) => {
+    console.error(error instanceof Error ? error.message : error);
+    process.exitCode = 1;
+  })
+  .finally(() => closeCunoteDb());

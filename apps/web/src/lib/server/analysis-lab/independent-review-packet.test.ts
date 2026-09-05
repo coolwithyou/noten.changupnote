@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { CRITERION_DIMENSIONS } from "@cunote/contracts";
+import { shapeLabInputArchivesForRun } from "./ai-review";
 import {
   buildIndependentReviewSystemPrompt,
   deriveIndependentReviewAxes,
@@ -153,6 +154,43 @@ assert.throws(
 assert.throws(
   () => normalizeReviewSequences([3], [0, 1]),
   /receipt에 없는 sequence/,
+);
+
+assert.deepEqual(
+  shapeLabInputArchivesForRun({
+    inputBlocks: [
+      { label: "공고 구조화 필드", chars: 20, truncated: false },
+      { label: "첨부 공고문: 기존.hwp", chars: 100, truncated: false },
+      { label: "첨부 미투입(변환 안 됨): 신규.hwp", chars: 0, truncated: true },
+    ],
+    archives: [
+      { filename: "신규.hwp", storageKey: "source/new", markdownStorageKey: null, markdownBytes: null },
+      { filename: "기존.hwp", storageKey: "source/old", markdownStorageKey: null, markdownBytes: null },
+      { filename: "실행후추가.hwp", storageKey: "source/added", markdownStorageKey: null, markdownBytes: null },
+    ],
+    conversionArtifacts: [
+      { sourceAttachment: "source/new", title: "신규.hwp", storageKey: "md/new", sha256: "a".repeat(64) },
+      { sourceAttachment: "source/old", title: "기존.hwp", storageKey: "md/old", sha256: "b".repeat(64) },
+      { sourceAttachment: "source/added", title: "실행후추가.hwp", storageKey: "md/added", sha256: "c".repeat(64) },
+    ],
+  }),
+  [
+    {
+      filename: "신규.hwp",
+      storageKey: "source/new",
+      markdownStorageKey: null,
+      markdownSha256: null,
+      markdownBytes: null,
+    },
+    {
+      filename: "기존.hwp",
+      storageKey: "source/old",
+      markdownStorageKey: "md/old",
+      markdownSha256: "b".repeat(64),
+      markdownBytes: null,
+    },
+  ],
+  "run 뒤 생긴 변환문서와 첨부를 제외하고 당시 첨부 입력 형태만 복원한다",
 );
 
 console.log("independent-review-packet tests passed");

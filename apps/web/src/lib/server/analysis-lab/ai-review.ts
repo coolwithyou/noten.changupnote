@@ -34,6 +34,7 @@ import { CRITERION_DIMENSIONS, type CriterionDimension } from "@cunote/contracts
 import type {
   LabCriterionVerdict,
   LabEmptyAxisVerdict,
+  LabInputBlock,
   LabMissedConditionImpact,
   LabRun,
   LabUsage,
@@ -45,6 +46,7 @@ import {
   assembleLabInput,
   type LabAssembledInput,
   type LabInputArchive,
+  type LabVerifiedConversionArtifact,
 } from "./input";
 import { findMonorepoRoot, labRunFilePath, modelSlug } from "./run-store";
 import { isPublishableLabRun } from "./run-outcome";
@@ -470,7 +472,10 @@ export function validateAiReviewPayload(
  * DB 모듈은 함수 안에서만 동적 import — --dry-run 등 비실행 경로가 DB 를 아예 로드하지
  * 않도록(batch.ts 관행). 여기의 select 4개가 이 파일의 유일한 DB 접근이다(쓰기 없음).
  */
-export async function reassembleLabInputForRun(run: LabRun): Promise<LabAssembledInput> {
+export async function reassembleLabInputForRun(
+  run: LabRun,
+  options: { readonly preserveRunInputShape?: boolean } = {},
+): Promise<LabAssembledInput> {
   const [{ getCunoteDb }, schema, { and, eq }] = await Promise.all([
     import("../db/client"),
     import("../db/schema"),
@@ -534,21 +539,23 @@ export async function reassembleLabInputForRun(run: LabRun): Promise<LabAssemble
       eq(schema.grantApplicationSurfaces.grantId, grant.id),
       eq(schema.documentArtifacts.kind, "markdown"),
     ));
-  const archives: LabInputArchive[] = applyLabVerifiedConversionArtifacts(archiveRows.map((row) => ({
+  const baseArchives: LabInputArchive[] = archiveRows.map((row) => ({
     filename: row.filename,
     storageKey: row.storageKey ?? null,
     markdownStorageKey: row.markdownStorageKey ?? null,
     markdownSha256: row.markdownSha256 ?? null,
     markdownBytes: row.markdownBytes ?? null,
-  })), convertedArtifactRows.map((row) => ({
+  }));
+  const conversionArtifacts: LabVerifiedConversionArtifact[] = convertedArtifactRows.map((row) => ({
     sourceAttachment: row.sourceAttachment,
     title: row.title,
     storageKey: row.storageKey,
     sha256: row.sha256,
     markdownChars: numericMetadataValue(row.metadata, "charCount"),
-  })));
+  }));
+  const currentArchives = applyLabVerifiedConversionArtifacts(baseArchives, conversionArtifacts);
 
-  return assembleLabInput({
+  const assemble = (archives: LabInputArchive[]) => assembleLabInput({
     grant: {
       source: grant.source,
       sourceId: grant.sourceId,
@@ -563,6 +570,63 @@ export async function reassembleLabInputForRun(run: LabRun): Promise<LabAssemble
     },
     payload: rawRows[0]?.payload ?? null,
     archives,
+  });
+  const current = await assemble(currentArchives);
+  if (
+    !options.preserveRunInputShape
+    || (
+      current.inputSha256 === run.inputSha256
+      && (
+        !run.attachmentManifestSha256
+        || current.attachmentManifestSha256 === run.attachmentManifestSha256
+      )
+    )
+  ) return current;
+
+  return assemble(shapeLabInputArchivesForRun({
+    inputBlocks: run.inputBlocks,
+    archives: baseArchives,
+    conversionArtifacts,
+  }));
+}
+
+/**
+ * Kordoc이 딥분석 뒤 새 변환문서를 만들더라도 검수 입력에는 run 당시 첨부 구성만 복원한다.
+ * 본문은 현재 보관 storage에서 다시 읽되 최종 input SHA 검증은 호출자가 유지한다.
+ */
+export function shapeLabInputArchivesForRun(input: {
+  readonly inputBlocks: readonly LabInputBlock[];
+  readonly archives: readonly LabInputArchive[];
+  readonly conversionArtifacts: readonly LabVerifiedConversionArtifact[];
+}): LabInputArchive[] {
+  const shapeByFilename = new Map<string, "loaded" | "unavailable">();
+  for (const block of input.inputBlocks) {
+    const loadedPrefix = "첨부 공고문: ";
+    const unavailable = block.label.match(/^첨부 미투입\([^)]*\): (.+)$/u);
+    const filename = block.label.startsWith(loadedPrefix)
+      ? block.label.slice(loadedPrefix.length)
+      : unavailable?.[1];
+    if (!filename) continue;
+    const shape = block.label.startsWith(loadedPrefix) ? "loaded" : "unavailable";
+    const existing = shapeByFilename.get(filename);
+    if (existing && existing !== shape) {
+      throw new Error(`run 입력 첨부 상태가 모순됩니다: ${filename}`);
+    }
+    shapeByFilename.set(filename, shape);
+  }
+
+  return input.archives.flatMap((archive) => {
+    const shape = shapeByFilename.get(archive.filename);
+    if (!shape) return [];
+    if (shape === "unavailable") {
+      return [{
+        ...archive,
+        markdownStorageKey: null,
+        markdownSha256: null,
+        markdownBytes: null,
+      }];
+    }
+    return applyLabVerifiedConversionArtifacts([archive], [...input.conversionArtifacts]);
   });
 }
 

@@ -49,8 +49,8 @@ interface LaunchTarget {
   sequence: number;
   grantId: string;
   status: "publishable" | "held" | "failed" | "skipped";
-  runArtifactPath: string;
-  runArtifactSha256: string;
+  runArtifactPath: string | null;
+  runArtifactSha256: string | null;
   error: string | null;
 }
 
@@ -154,7 +154,15 @@ export async function prepareIndependentReviewPackets(
   if (receipt.schema !== "analysis-launch-receipt-v1" || !Array.isArray(receipt.targets)) {
     throw new Error("analysis-launch-receipt-v1 형식이 아닙니다.");
   }
-  const receiptSequences = [...receipt.targets]
+  const reviewableTargets = receipt.targets.filter((target): target is LaunchTarget & {
+    runArtifactPath: string;
+    runArtifactSha256: string;
+  } => (
+    target.status !== "skipped"
+    && typeof target.runArtifactPath === "string"
+    && typeof target.runArtifactSha256 === "string"
+  ));
+  const receiptSequences = [...reviewableTargets]
     .map((target) => target.sequence)
     .sort((a, b) => a - b);
   const requestedSequences = normalizeReviewSequences(options.sequences, receiptSequences);
@@ -187,7 +195,7 @@ export async function prepareIndependentReviewPackets(
     error: string | null;
   }> = [];
 
-  for (const target of [...receipt.targets]
+  for (const target of [...reviewableTargets]
     .filter((candidate) => selectedSequenceSet.has(candidate.sequence))
     .sort((a, b) => a.sequence - b.sequence)) {
     const runPath = resolve(root, target.runArtifactPath);
@@ -212,7 +220,7 @@ export async function prepareIndependentReviewPackets(
     if (run.grantId !== target.grantId) {
       throw new Error(`sequence ${target.sequence} grantId/run 결속 불일치`);
     }
-    const input = await reassembleLabInputForRun(run);
+    const input = await reassembleLabInputForRun(run, { preserveRunInputShape: true });
     if (input.inputSha256 !== run.inputSha256) {
       throw new Error(`sequence ${target.sequence} 원문 input SHA 드리프트`);
     }
