@@ -1,8 +1,8 @@
 /** formal deep-primary repair experiment에만 쓰는 고정 통계/층화 계약. */
-export const ACTIVE_DEEP_REPAIR_SERIES_ID = "deep-v34" as const;
+export const ACTIVE_DEEP_REPAIR_SERIES_ID = "deep-v35" as const;
 export const ACTIVE_DEEP_REPAIR_STRATA_VERSION = "deep-repair-strata-v4" as const;
-export const DEEP_REPAIR_PLANNING_PRIMARY_SEED = 20260913;
-export const DEEP_REPAIR_PLANNING_SUPPLEMENTAL_SEED = 20260914;
+export const DEEP_REPAIR_PLANNING_PRIMARY_SEED = 20260915;
+export const DEEP_REPAIR_PLANNING_SUPPLEMENTAL_SEED = 20260916;
 export const DEEP_REPAIR_FORMAL_MIN_SAMPLE_SIZE = 15;
 /** deep-v30까지의 불변 formal plan 크기. 역사 plan 재검증을 위해 유지한다. */
 export const DEEP_REPAIR_FORMAL_LEGACY_TARGET_COUNT = 30;
@@ -70,10 +70,14 @@ export function deepRepairRequiredStrataForVersion(
 
 /**
  * formal plan의 target 수는 series 계약에 포함된다. deep-v30 이전 30건 plan과
- * deep-v31~deep-v33의 50건 plan을 계속 재검증하면서 현재 100건 계약을 분리한다.
+ * deep-v31~deep-v33의 50건 plan과 deep-v34의 100건 plan을 계속 재검증하면서
+ * 현재 100건 계약을 분리한다.
  */
 export function deepRepairTargetCountForSeries(seriesId: string): number {
-  if (seriesId === ACTIVE_DEEP_REPAIR_SERIES_ID) return ACTIVE_DEEP_REPAIR_TARGET_COUNT;
+  if (
+    seriesId === ACTIVE_DEEP_REPAIR_SERIES_ID
+    || seriesId === "deep-v34"
+  ) return ACTIVE_DEEP_REPAIR_TARGET_COUNT;
   if (
     seriesId === "deep-v31"
     || seriesId === "deep-v32"
