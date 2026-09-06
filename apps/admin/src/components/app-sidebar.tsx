@@ -43,6 +43,11 @@ import {
 
 const NAV_GROUPS = [
   {
+    label: "고객지원",
+    roles: ["support", "admin", "owner"],
+    items: [{ title: "원천 정보 정정", href: "/source-corrections", icon: ListChecksIcon }],
+  },
+  {
     label: "검수",
     roles: ["reviewer", "admin", "owner"],
     items: [

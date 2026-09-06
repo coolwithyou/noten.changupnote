@@ -1,5 +1,6 @@
 // enum 단일 원천은 leaf 모듈(enums.ts). openapi.ts와 공유하며 barrel 순환 import를 피한다.
 export { CRITERION_DIMENSIONS, GRANT_AUDIENCES, MATCH_REVIEW_REASON_CODES } from "./enums.js";
+export * from "./source-correction.js";
 import { CRITERION_DIMENSIONS, GRANT_AUDIENCES, MATCH_REVIEW_REASON_CODES } from "./enums.js";
 
 export const CRITERION_OPERATORS = [
@@ -508,6 +509,8 @@ export interface CompanyProfileQuestionAnswerState {
 }
 
 export interface CompanyProfile {
+  /** Server-only read projection. Never accepted from user answers or stored as an official value. */
+  source_disputes?: CriterionDimension[];
   id?: string;
   name?: string;
   region?: {

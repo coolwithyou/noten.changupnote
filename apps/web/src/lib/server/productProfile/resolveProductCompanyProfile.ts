@@ -355,11 +355,11 @@ export async function resolveProductCompanyProfile(
 }
 
 /** Shared match_state is company-scoped, so system jobs must never materialize a user overlay. */
-export function resolveSystemProductCompanyProfile(
+export async function resolveSystemProductCompanyProfile(
   input: { companyId: string; asOf: string },
   dependencies: Pick<ProductProfileResolverDependencies, "companies" | "enrichmentCache">,
 ): Promise<ResolvedProductCompanyProfile> {
-  return resolveProductCompanyProfile({
+  const resolution = await resolveProductCompanyProfile({
     context: "system_recompute",
     companyId: input.companyId,
     asOf: input.asOf,
@@ -369,6 +369,8 @@ export function resolveSystemProductCompanyProfile(
       listCompanyConsents: async () => [],
     },
   });
+  const { applySourceCorrectionState } = await import("./sourceCorrections");
+  return applySourceCorrectionState(resolution, input.companyId);
 }
 
 function buildIdentityBaseProfile(profiles: readonly ProfileInput[]): CompanyProfile {
@@ -392,7 +394,8 @@ export function buildMatchingProfileView(profile: CompanyProfile, asOf: string):
     const displayValue = displayValueForDimension(profile, dimension);
     const hasKnownAbsence = Array.isArray(value) && value.length === 0 && evidence?.axisCompleteness === "complete";
     const hasValue = displayValue !== null || hasKnownAbsence;
-    const status: MatchingProfileStatus = !hasValue
+    const sourceDisputed = profile.source_disputes?.includes(dimension) ?? false;
+    const status: MatchingProfileStatus = sourceDisputed || !hasValue
       ? "unknown"
       : evidence?.axisCompleteness === "complete"
         ? "known"
@@ -400,6 +403,7 @@ export function buildMatchingProfileView(profile: CompanyProfile, asOf: string):
     const editMode = editModeForDimension(dimension);
     return {
       dimension,
+      ...(sourceDisputed ? { sourceDisputed: true } : {}),
       status,
       displayValue: hasKnownAbsence ? "해당 없음" : displayValue,
       sourceKind: evidence?.sourceKind ?? null,

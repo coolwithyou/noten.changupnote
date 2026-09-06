@@ -78,7 +78,9 @@ export function matchGrantCriteria(
   const asOf = options.asOf ?? new Date();
   const confirmationById = buildConfirmationIndex(options.confirmations);
   const ruleTrace = canonicalCriteria.map((criterion) =>
-    applyUserConfirmation(
+    company.source_disputes?.includes(criterion.dimension)
+      ? trace(criterion, "unknown", "공식 원천 정정 검토 중 · 해당 조건 확인 필요")
+      : applyUserConfirmation(
       criterion,
       deferUnreviewedHardFail(criterion, evaluateCriterion(criterion, company, asOf)),
       confirmationById,

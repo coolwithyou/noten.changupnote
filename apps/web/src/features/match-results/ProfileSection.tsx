@@ -119,6 +119,7 @@ export function ProfileSection({
   onSaveCompany,
   savingCompany = false,
   savedCompany = false,
+  companyId,
 }: {
   teaser: ProductTeaserResult;
   onAnswer: (answer: MatchingProfileAnswerRequest) => Promise<void>;
@@ -132,6 +133,7 @@ export function ProfileSection({
   onSaveCompany?: () => void;
   savingCompany?: boolean;
   savedCompany?: boolean;
+  companyId?: string | null;
 }) {
   const fields = useMemo(() => buildProfileFields(teaser), [teaser]);
   const coverage = matchingProfileCoverage(teaser);
@@ -238,6 +240,7 @@ export function ProfileSection({
                     공고 원문 분석이나 추가 조건 확인은 별도로 진행합니다.
                   </p>
                   <p className="text-xs leading-5 text-muted-foreground" role="status">{draftNotice}</p>
+                  {companyId ? <a className="text-sm underline underline-offset-2" href={`/support/source-corrections?companyId=${encodeURIComponent(companyId)}`}>공식 원천 정정 요청·처리 내역</a> : null}
                 </div>
 
                 <ProfileSheetGroup

@@ -23,6 +23,7 @@ mock.module(new URL("../auth/options.ts", import.meta.url).href, { namedExports:
 const { GET } = await import("@/app/api/web/company-matching/route");
 const { POST } = await import("@/app/api/web/profile/field/route");
 const exposureRoute = await import("@/app/api/web/company-matching/exposure/route");
+const sourceCorrectionsRoute = await import("@/app/api/web/profile/source-corrections/route");
 const confirmations = await import("@/app/api/web/matches/[grantId]/confirmations/route");
 const repositories = getServiceRepositories();
 const saved = {
@@ -52,6 +53,15 @@ const post = (body: unknown) => POST(new NextRequest("https://local.test/api/web
 }));
 
 try {
+  process.env.CUNOTE_SOURCE_CORRECTIONS_ENABLED = "true";
+  const correctionRequest = (companyId: unknown) => sourceCorrectionsRoute.POST(new Request("https://local.test/api/web/profile/source-corrections", {
+    method: "POST", body: JSON.stringify({ companyId, action: "submit", dimension: "employees", statement: "실제 근로자 정보가 원천과 다릅니다." }),
+  }));
+  assert.equal((await correctionRequest(b)).status, 403);
+  assert.equal((await correctionRequest(null)).status, 400);
+  assert.equal((await correctionRequest(viewerCompany)).status, 403);
+  assert.equal((await sourceCorrectionsRoute.GET(new Request(`https://local.test/api/web/profile/source-corrections?companyId=${b}`))).status, 403);
+  process.env.CUNOTE_SOURCE_CORRECTIONS_ENABLED = "false";
   process.env.CUNOTE_PRODUCT_EXPOSURE_ENABLED = "true";
   const exposure = (companyId: unknown) => exposureRoute.POST(new Request("https://local.test/api/web/company-matching/exposure", {
     method: "POST", body: JSON.stringify({ companyId, token: "invalid-fixture" }),
@@ -135,12 +145,14 @@ try {
   process.env.CUNOTE_AUTH_MODE = "";
   assert.equal((await get(a)).status, 401, "세션 없는 저장 프로필 조회는 데모/익명으로 후퇴하지 않는다");
   assert.equal((await exposure(a)).status, 401, "관측이 꺼져 있어도 익명 신호를 인증된 관측으로 받지 않는다");
+  assert.equal((await correctionRequest(a)).status, 401, "기능 비활성도 익명 정정 요청을 허용하지 않는다");
   process.env.CUNOTE_AUTH_MODE = "mock";
   process.env.CUNOTE_MOCK_USER_ID = owner;
   const resumed = await (await get(a)).json();
   assert.deepEqual(resumed.data.unknownDimensions, ["industry"]);
   assert.equal(writes, 4, "재진입·사용자 전환·읽기 요청은 저장하지 않는다");
 } finally {
+  process.env.CUNOTE_SOURCE_CORRECTIONS_ENABLED = "false";
   repositories.companies.listUserCompanies = saved.list;
   repositories.companies.resolveCompanyProfile = saved.resolve;
   repositories.companies.saveCompanyProfile = saved.save;

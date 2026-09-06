@@ -7,6 +7,7 @@ import { createDrizzleRepositories } from "./drizzle";
 import { companyCreationIdentity } from "../productProfile/companyCreationIdentity";
 import { verifyDocumentJourneyPostgres } from "../documents/documentJourneyPostgres.integration";
 import { loadProductExposureSummary, recordProductExposure, signExposureBinding } from "../productReadiness/exposure";
+import { verifySourceCorrectionsPostgres } from "../productProfile/sourceCorrectionsPostgres.integration";
 
 const socket = process.env.CUNOTE_PRODUCT_TEST_SOCKET ?? "";
 assert.match(socket, /^\/tmp\/cunote-product-pg-[a-zA-Z0-9]+$/);
@@ -88,6 +89,7 @@ try {
   await recordProductExposure({ token, companyId: creationId, userId }, { db: exposureDb, secret, now, enabled: true });
   assert.equal((await loadProductExposureSummary(exposureDb)).observedRevisions, 1);
   console.log("PASS: signed exposure SQL deduplicates concurrent requests and protects original receive time");
+  await verifySourceCorrectionsPostgres({ admin, client, access: { companyId: creationId, userId, role: "owner", mode: "session" }, otherId });
   await admin`delete from user_company where user_id=${userId} and company_id=${creationId}`;
   await assert.rejects(() => repo.createCompany({ userId, creationId, profile }));
   console.log("PASS: non-superuser RLS blocks foreign access, viewer writes and replay after membership removal");

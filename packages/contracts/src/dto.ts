@@ -164,6 +164,7 @@ export interface MatchingProfileAnswerRequest {
 }
 
 export interface MatchingProfileViewRow {
+  sourceDisputed?: boolean;
   dimension: CriterionDimension;
   status: "known" | "partial" | "unknown";
   displayValue: string | null;

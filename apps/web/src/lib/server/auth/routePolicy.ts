@@ -138,6 +138,8 @@ export const SESSION_WEB_ROUTES = [
   "GET /api/web/notification-feed/report",
   "POST /api/web/notification-feed/receipt",
   "POST /api/web/profile/field",
+  "GET /api/web/profile/source-corrections",
+  "POST /api/web/profile/source-corrections",
   "GET /api/web/notifications",
   "PUT /api/web/notifications",
 ] as const;

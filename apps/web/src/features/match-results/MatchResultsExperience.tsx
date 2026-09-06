@@ -412,6 +412,7 @@ export function MatchResultsExperience() {
               onSaveCompany={() => void saveAndContinue()}
               savingCompany={continuing}
               savedCompany={Boolean(companyId)}
+              companyId={companyId}
             />
           </>
         ) : null}

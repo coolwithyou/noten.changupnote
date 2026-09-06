@@ -195,7 +195,7 @@ export function buildProfileFields(teaser: ProductTeaserResult): ProfileFieldVie
   }));
 }
 
-const PROFILE_DIMENSION_LABELS: Record<CriterionDimension, string> = {
+export const PROFILE_DIMENSION_LABELS: Record<CriterionDimension, string> = {
   region: "소재 지역",
   biz_age: "업력",
   industry: "업종",

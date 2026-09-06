@@ -1,0 +1,30 @@
+import assert from "node:assert/strict";
+import { realpathSync } from "node:fs";
+import postgres from "postgres";
+import { loadAdminSourceCorrections, reviewSourceCorrection } from "./sourceCorrections";
+import type { AdminSession } from "../auth/adminSession";
+const socket = process.env.CUNOTE_PRODUCT_TEST_SOCKET ?? "";
+assert.match(socket, /^\/tmp\/cunote-product-pg-[a-zA-Z0-9]+$/);
+assert.match(realpathSync(socket), /^\/(?:private\/)?tmp\/cunote-product-pg-[a-zA-Z0-9]+$/);
+const sql = postgres({ host: socket, database: "postgres", username: "postgres", prepare: false, max: 2, onnotice: () => {} });
+const admin: AdminSession = { user: { id: "isolated-admin", email: "admin@example.invalid", name: null, role: "support" }, provider: "admin-nextauth" };
+try {
+  const [record] = await loadAdminSourceCorrections(admin, sql);
+  assert.ok(record?.observation, "앞선 격리 웹 suite의 공식 재확인 fixture가 필요하다");
+  await assert.rejects(() => loadAdminSourceCorrections({ ...admin, user: { ...admin.user, role: "viewer" } }, sql), { code: "insufficient_role" });
+  await assert.rejects(() => reviewSourceCorrection({ admin, id: record.id, revision: record.revision, action: "verify", note: "공식 자료와 수정값을 확인했습니다." }, sql), { code: "source_observation_required" });
+  const reviewing = await reviewSourceCorrection({ admin, id: record.id, revision: record.revision, action: "review", note: "내부 수집과 해석 오류 여부를 검토합니다." }, sql);
+  const attempts = await Promise.allSettled([1, 2].map(() => reviewSourceCorrection({ admin, id: record.id, revision: reviewing.revision, action: "verify", note: "공식 원문의 값과 해석 오류 수정 결과를 대조했습니다." }, sql)));
+  assert.equal(attempts.filter((item) => item.status === "fulfilled").length, 1);
+  const rejected = attempts.find((item) => item.status === "rejected");
+  assert.equal(rejected?.reason.code, "source_correction_conflict");
+  const [resolved] = await loadAdminSourceCorrections(admin, sql);
+  assert.equal(resolved!.status, "resolved");
+  assert.equal(resolved!.baseline.value, 20);
+  assert.equal(resolved!.observation!.value, 8);
+  const messages = await sql`select * from support_ticket_messages where ticket_id=${record.ticketId} and visibility='public'`;
+  assert.equal(messages.length, 2);
+  const [ticket] = await sql`select status from support_tickets where id=${record.ticketId}`;
+  assert.equal(ticket!.status, "resolved");
+  console.log("PASS: actual admin review requires support role and official evidence; CAS allows one completion and preserves public rationale");
+} finally { await sql.end({ timeout: 5 }); }

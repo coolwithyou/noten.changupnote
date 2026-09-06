@@ -1402,6 +1402,16 @@ export function getServiceRepositories() {
 export async function resolveProductCompanyProfile(
   input: ResolveProductCompanyProfileInput,
 ): Promise<ResolvedProductCompanyProfile> {
+  const resolution = await resolveProductCompanyProfileWithoutCorrections(input);
+  if (input.context === "anonymous_teaser") return resolution;
+  const { applySourceCorrectionState } = await import("./productProfile/sourceCorrections");
+  return applySourceCorrectionState(resolution, input.companyId);
+}
+
+/** Only source-review collection uses the unmasked facts; normal product reads use the wrapper above. */
+export async function resolveProductCompanyProfileWithoutCorrections(
+  input: ResolveProductCompanyProfileInput,
+): Promise<ResolvedProductCompanyProfile> {
   const repositories = resolveServiceRepositories();
   return resolveProductCompanyProfileWithDependencies(input, {
     companies: repositories.companies,

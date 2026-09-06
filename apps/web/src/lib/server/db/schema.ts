@@ -2630,6 +2630,27 @@ export const supportTickets = pgTable("support_tickets", {
   statusCreatedIdx: index("support_tickets_status_created_idx").on(table.status, table.createdAt),
 }));
 
+export const profileSourceCorrections = pgTable("profile_source_corrections", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  ticketId: uuid("ticket_id").notNull().references(() => supportTickets.id, { onDelete: "cascade" }),
+  companyId: uuid("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  dimension: text("dimension").$type<import("@cunote/contracts").CriterionDimension>().notNull(),
+  status: text("status").$type<import("@cunote/contracts").SourceCorrectionStatus>().default("open").notNull(),
+  baseline: jsonb("baseline").$type<import("@cunote/contracts").SourceCorrectionSnapshot>().notNull(),
+  statement: text("statement").notNull(),
+  observation: jsonb("observation").$type<import("@cunote/contracts").SourceCorrectionSnapshot>(),
+  events: jsonb("events").$type<import("@cunote/contracts").SourceCorrectionEvent[]>().default(sql`'[]'::jsonb`).notNull(),
+  revision: integer("revision").default(1).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  companyIdx: index("profile_source_corrections_company_idx").on(table.companyId, table.status),
+  queueIdx: index("profile_source_corrections_queue_idx").on(table.status, table.createdAt),
+  activeIdx: uniqueIndex("profile_source_corrections_active_idx").on(table.companyId, table.userId, table.dimension)
+    .where(sql`${table.status} in ('open', 'reviewing', 'waiting_source')`),
+}));
+
 export const supportTicketMessages = pgTable("support_ticket_messages", {
   id: uuid("id").defaultRandom().primaryKey(),
   ticketId: uuid("ticket_id").notNull().references(() => supportTickets.id, { onDelete: "cascade" }),

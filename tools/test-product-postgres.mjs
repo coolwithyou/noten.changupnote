@@ -18,6 +18,13 @@ try {
   });
   if (result.error) throw result.error;
   process.exitCode = result.status ?? 1;
+  if (process.exitCode === 0) {
+    const adminResult = spawnSync("pnpm", ["exec", "tsx", "--tsconfig", "apps/admin/tsconfig.json", "apps/admin/src/lib/server/admin/sourceCorrectionsPostgres.integration.test.ts"], {
+      env: { ...env, CUNOTE_PRODUCT_TEST_SOCKET: directory }, stdio: "inherit", timeout: 120_000,
+    });
+    if (adminResult.error) throw adminResult.error;
+    process.exitCode = adminResult.status ?? 1;
+  }
 } finally {
   if (started) execFileSync("pg_ctl", ["-D", data, "-m", "fast", "-w", "stop"], { env, stdio: "pipe" });
   console.log(`Isolated PostgreSQL stopped; test-only data and log retained: ${directory}`);
