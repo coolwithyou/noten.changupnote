@@ -18,6 +18,7 @@
  *  - HWPX 채움 다운로드(구 answers 동봉)는 이 편집기에서 제거했다. 현재는 완료 카드와 전체 목록의
  *    `WorkspaceDownloadButton`이 `{format:"hwpx"}` 만 보내 담당한다.
  */
+import { companyScopedFetch } from "@/lib/navigation/companyContext";
 import { useMemo, useState } from "react";
 import { Check, Download, FileText, Loader2, MessageSquare, Printer, RefreshCw, Save } from "lucide-react";
 import { toast } from "sonner";
@@ -104,7 +105,7 @@ export function DraftFallbackEditor({
     const answerPayload = draftAnswersForDocument(document, prep, answerText);
     const sentAnswers = Boolean(answerPayload.answers && Object.keys(answerPayload.answers).length > 0);
     try {
-      const response = await fetch(`/api/web/grants/${encodeURIComponent(grantId)}/drafts`, {
+      const response = await companyScopedFetch(`/api/web/grants/${encodeURIComponent(grantId)}/drafts`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
@@ -158,7 +159,7 @@ export function DraftFallbackEditor({
       if (rawValue.trim()) patch[label] = { value: "", status: "dismissed" };
     }
     if (Object.keys(patch).length === 0) return;
-    const response = await fetch(`/api/web/document-drafts/${encodeURIComponent(draft.id)}/field-answers`, {
+    const response = await companyScopedFetch(`/api/web/document-drafts/${encodeURIComponent(draft.id)}/field-answers`, {
       method: "PATCH",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ answers: patch }),
@@ -186,7 +187,7 @@ export function DraftFallbackEditor({
     try {
       // ADR-5: 필드 값은 field-answers PATCH 로 먼저 반영하고, 초안 저장 body 에는 filledFields 를 동봉하지 않는다.
       await flushFieldAnswers(document);
-      const response = await fetch(`/api/web/document-drafts/${encodeURIComponent(draft.id)}`, {
+      const response = await companyScopedFetch(`/api/web/document-drafts/${encodeURIComponent(draft.id)}`, {
         method: "PATCH",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
@@ -227,7 +228,7 @@ export function DraftFallbackEditor({
       // ADR-5: 사용자 필드 편집을 서버에 먼저 반영(재생성이 파생 filledFields 를 재계산하기 전). 재생성 body 에
       // filledFields 를 동봉하지 않는다 — 서버가 저장된 fieldAnswers 로 확정값(accepted|edited)을 보존한다.
       await flushFieldAnswers(document);
-      const response = await fetch(`/api/web/document-drafts/${encodeURIComponent(draft.id)}/regenerate`, {
+      const response = await companyScopedFetch(`/api/web/document-drafts/${encodeURIComponent(draft.id)}/regenerate`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
@@ -269,7 +270,7 @@ export function DraftFallbackEditor({
     const form = feedbackDrafts[draft.id] ?? defaultDraftFeedbackFormState();
     setFeedbackPendingKey(draft.id);
     try {
-      const response = await fetch(`/api/web/document-drafts/${encodeURIComponent(draft.id)}/feedback`, {
+      const response = await companyScopedFetch(`/api/web/document-drafts/${encodeURIComponent(draft.id)}/feedback`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({

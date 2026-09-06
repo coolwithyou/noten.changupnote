@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import type { MatchCard, ProductTeaserResult } from "@cunote/contracts";
+import type { MatchCard, NextQuestionDto, ProductTeaserResult } from "@cunote/contracts";
 import { buildCompanyEvidence, mergeCompanyProfilesForEnrichment } from "@/lib/server/serviceData";
 import { normalizeManualProfile } from "@/lib/server/teaser/resolveTeaserCompanyProfile";
 import {
@@ -16,10 +16,62 @@ import {
   profileCoverageLabel,
   profileFieldAsOfLabel,
   profileInputSuggestions,
+  profileQuestionIdentity,
   profileSheetValueState,
   resultsCoverageCaption,
   summarizeAnswerImpact,
 } from "./logic";
+
+const directTargetTypeQuestion: NextQuestionDto = {
+  dimension: "target_type",
+  definitionId: "profile.target_type.v1",
+  prompt: "신청 주체 유형을 선택해 주세요.",
+  inputType: "select",
+  preciseFollowUp: "never",
+  responseStage: "direct",
+  framing: "test",
+  affectedGrantCount: 2,
+  options: ["법인"],
+};
+assert.equal(
+  profileQuestionIdentity(directTargetTypeQuestion),
+  profileQuestionIdentity({ ...directTargetTypeQuestion, options: ["법인", "일반기업"] }),
+  "재계산으로 선택지만 달라진 동일 문항은 반복으로 식별해야 함",
+);
+assert.notEqual(
+  profileQuestionIdentity({
+    ...directTargetTypeQuestion,
+    dimension: "revenue",
+    definitionId: "profile.revenue.v1",
+    prompt: "매출 구간을 선택해 주세요.",
+    responseStage: "range",
+  }),
+  profileQuestionIdentity({
+    ...directTargetTypeQuestion,
+    dimension: "revenue",
+    definitionId: "profile.revenue.v1",
+    prompt: "정확한 매출을 입력해 주세요.",
+    responseStage: "precise",
+  }),
+  "구간 답변 뒤의 precise 후속 질문은 별도 문항이어야 함",
+);
+assert.notEqual(
+  profileQuestionIdentity({
+    ...directTargetTypeQuestion,
+    dimension: "prior_award",
+    definitionId: "profile.prior_award.v1",
+    prompt: "초기창업패키지 수혜 이력이 있나요?",
+    priorAwardContext: { scope: "program", programs: ["initial"], requiresYear: false },
+  }),
+  profileQuestionIdentity({
+    ...directTargetTypeQuestion,
+    dimension: "prior_award",
+    definitionId: "profile.prior_award.v1",
+    prompt: "청년창업사관학교 수료 이력이 있나요?",
+    priorAwardContext: { scope: "program", programs: ["academy"], requiresYear: false },
+  }),
+  "같은 prior_award 축의 다른 프로그램 문맥은 별도 문항이어야 함",
+);
 
 const openMatch = {
   grantId: "grant-open",
@@ -203,6 +255,15 @@ assert.equal(
 assert.equal(
   resultsCoverageCaption({ questionsExhausted: false, hasActionableMatches: false }),
   "아래 질문에 답하면 신청 가능 여부를 더 확인할 수 있어요",
+);
+assert.equal(
+  resultsCoverageCaption({
+    questionsExhausted: false,
+    hasActionableMatches: true,
+    answeredCurrentQuestion: true,
+  }),
+  "방금 답변을 반영해 공고 판정을 다시 확인했어요",
+  "동일 문항을 숨긴 직후에는 존재하지 않는 아래 질문을 안내하면 안 됨",
 );
 assert.deepEqual(summarizeAnswerImpact(beforeImpact, afterImpact), {
   newlyOpen: 1,

@@ -5,10 +5,10 @@ import {
   APPLICATION_ROUNDTRIP_VERSION,
   type ApplicationRoundtripRun,
   type RoundtripFailureCode,
-} from "@/lib/server/analysis-lab/application-roundtrip/contract";
-import { analyzeRoundtripDocument } from "@/lib/server/analysis-lab/application-roundtrip/analyze-document";
-import { likelyApplicationRole } from "@/lib/server/analysis-lab/application-roundtrip/core";
-import { ROUNDTRIP_FIELD_CANDIDATE_LIMIT } from "@/lib/server/analysis-lab/application-roundtrip/field-planner";
+} from "@/lib/server/application-analysis/contract";
+import { analyzeRoundtripDocument } from "@/lib/server/application-analysis/analyze-document";
+import { likelyApplicationRole } from "@/lib/server/application-analysis/core";
+import { ROUNDTRIP_FIELD_CANDIDATE_LIMIT } from "./applicationAnalysisContract";
 import type { CunoteDb } from "@/lib/server/db/client";
 import * as schema from "@/lib/server/db/schema";
 import type { R2ObjectStorage } from "@/lib/server/storage/r2ObjectStorage";

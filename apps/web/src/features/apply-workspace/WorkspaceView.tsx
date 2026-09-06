@@ -52,6 +52,8 @@ import {
   type RhwpStudioSurfaceHandle,
 } from "./RhwpStudioSurface";
 import type { InstitutionContact } from "./workspacePresentation";
+import { workspaceReadiness } from "./workspaceReadiness";
+import { withCompanyContext } from "@/lib/navigation/companyContext";
 
 const EMPTY_MATERIALIZED_ANSWERS: Record<string, string> = {};
 const EMPTY_RHWP_ANCHORS: readonly RhwpFieldAnchor[] = [];
@@ -61,14 +63,17 @@ export function WorkspaceView({
   data,
   greeting,
   institutionContact,
+  companyId = null,
 }: {
   data: WorkspaceData;
   greeting: ChatMessageContent;
   institutionContact: InstitutionContact | null;
+  companyId?: string | null;
 }) {
   // Workspace 내부 API(page image/chat/conversion)는 grants.id UUID 계약이다. 공개 route param을
   // 다시 전달하면 bizinfo%3A... 같은 source key가 UUID 전용 API로 흘러가므로 서버 로더의 id만 쓴다.
   const grantId = data.grant.id;
+  const readiness = workspaceReadiness(data);
   const virtualPreview = data.execution.mode === "virtual_preview" ? data.execution : null;
   const adminPreview = data.execution.mode === "admin_preview" ? data.execution : null;
   const readOnlyPreview = virtualPreview ?? adminPreview;
@@ -431,7 +436,7 @@ export function WorkspaceView({
               ? `/grants/${encodeURIComponent(grantId)}?biz=${encodeURIComponent(virtualPreview.bizNo)}`
               : adminPreview
                 ? `/grants/${encodeURIComponent(grantId)}?adminPreview=1`
-                : `/grants/${encodeURIComponent(grantId)}`}
+                : companyId ? withCompanyContext(`/grants/${encodeURIComponent(grantId)}`, companyId) : `/grants/${encodeURIComponent(grantId)}`}
             className="inline-flex items-center gap-1 text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
           >
             <ChevronLeft className="size-3.5" aria-hidden />
@@ -449,6 +454,7 @@ export function WorkspaceView({
               onValueChange={(next) => {
                 if (next && next !== data.activeDocumentKey) {
                   const params = new URLSearchParams({ document: next });
+                  if (companyId) params.set("companyId", companyId);
                   if (virtualPreview) params.set("biz", virtualPreview.bizNo);
                   if (adminPreview) params.set("adminPreview", "1");
                   router.push(`/grants/${encodeURIComponent(grantId)}/workspace?${params.toString()}`);
@@ -480,6 +486,13 @@ export function WorkspaceView({
           </span>
         </div>
       ) : null}
+
+      <details className="shrink-0 border-b px-4 py-2 text-xs text-muted-foreground sm:px-6">
+        <summary className="cursor-pointer">작성 기능·저장 상태 안내</summary>
+        <p className="mt-2">{readiness.editing} · {readiness.suggestions}</p>
+        <p className="mt-1">{readiness.saving}</p>
+        <p className="mt-1">{readiness.finalReview}</p>
+      </details>
 
       {integratedFieldEditor && studioTransport ? (
         <>

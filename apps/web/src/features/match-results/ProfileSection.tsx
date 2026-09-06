@@ -7,7 +7,9 @@ import type {
   MatchingProfileAnswerRequest,
   ProductTeaserResult,
 } from "@cunote/contracts";
-import { PrecisionGauge } from "@/components/app/precision-gauge";
+import { Progress } from "@/components/ui/progress";
+import { profileSourceHelp } from "./profileSourceHelp";
+import { BASIC_PROFILE_DIMENSIONS, buildProfileCompletion, profileInputState, PROFILE_INPUT_STATE_LABELS, type ProfileInputState } from "./profileCompletion";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -67,7 +69,6 @@ import {
   profileInputText,
   revenueUnitLabel,
   matchingProfileCoverage,
-  profileCoverageLabel,
   toRevenueUnit,
   type AnswerImpactSummary,
   type ProfileFieldView,
@@ -96,6 +97,7 @@ interface ProfileSheetRow {
   value: string;
   sourceLabel: string | null;
   state: ProfileSheetValueState;
+  inputState: ProfileInputState;
   field: ProfileFieldView | null;
 }
 
@@ -112,6 +114,11 @@ export function ProfileSection({
   open,
   onOpenChange,
   answerImpact = null,
+  answers = [],
+  draftNotice = "회사 저장 전 입력은 현재 결과에만 반영됩니다.",
+  onSaveCompany,
+  savingCompany = false,
+  savedCompany = false,
 }: {
   teaser: ProductTeaserResult;
   onAnswer: (answer: MatchingProfileAnswerRequest) => Promise<void>;
@@ -120,18 +127,24 @@ export function ProfileSection({
   onOpenChange: (open: boolean) => void;
   /** 마지막 답변 반영 요약 — 저장 직후 새 확정 건수·정밀도 델타 피드백에 사용. */
   answerImpact?: AnswerImpactSummary | null;
+  answers?: readonly MatchingProfileAnswerRequest[];
+  draftNotice?: string;
+  onSaveCompany?: () => void;
+  savingCompany?: boolean;
+  savedCompany?: boolean;
 }) {
   const fields = useMemo(() => buildProfileFields(teaser), [teaser]);
   const coverage = matchingProfileCoverage(teaser);
-  const rows = useMemo(() => buildProfileSheetRows(teaser, fields), [fields, teaser]);
+  const completion = buildProfileCompletion(teaser.profileView);
+  const rows = useMemo(() => buildProfileSheetRows(teaser, fields, answers), [fields, teaser, answers]);
   const groupedRows = useMemo(() => {
-    const automatic: ProfileSheetRow[] = [];
-    const direct: ProfileSheetRow[] = [];
+    const basic: ProfileSheetRow[] = [];
+    const additional: ProfileSheetRow[] = [];
     for (const row of rows) {
-      if (row.state === "automatic") automatic.push(row);
-      else direct.push(row);
+      if (row.key === "corp_name" || BASIC_PROFILE_DIMENSIONS.some((dimension) => dimension === row.key)) basic.push(row);
+      else additional.push(row);
     }
-    return { automatic, direct };
+    return { basic, additional };
   }, [rows]);
   const [activeFieldKey, setActiveFieldKey] = useState<CriterionDimension | null>(null);
   const [savedFeedback, setSavedFeedback] = useState<SavedFieldFeedback | null>(null);
@@ -165,7 +178,7 @@ export function ProfileSection({
   }
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
+    <Sheet open={open} onOpenChange={(next) => { if (!submitting && !savingCompany) onOpenChange(next); }}>
       <SheetContent
         side="right"
         showCloseButton={false}
@@ -217,20 +230,20 @@ export function ProfileSection({
                   </Alert>
                 ) : null}
 
-                <div className="mt-[18px] rounded-[14px] border border-brand-tint bg-landing-step-blue px-4 py-3.5 shadow-[var(--shadow-landing-step)]">
-                  <PrecisionGauge
-                    pct={coverage.pct}
-                    {...(savedDelta > 0 ? { delta: `+${savedDelta}개` } : {})}
-                    label={profileCoverageLabel(coverage)}
-                    caption="사업자 정보와 직접 확인한 내용을 함께 보여드려요"
-                    meta=""
-                  />
+                <div className="mt-5 flex flex-col gap-3" aria-label="기본정보 준비 상태">
+                  <h3 className="text-base font-semibold">기본정보 {completion.completed}/{completion.total}개 준비</h3>
+                  <Progress value={completion.percent} aria-label={`기본정보 준비 ${completion.percent}%`} />
+                  <p className="text-sm leading-6 text-muted-foreground">
+                    소재지·업종·업력·사업자 유형을 먼저 확인하세요. 정보 준비율은 지원 자격 충족률이 아닙니다.
+                    공고 원문 분석이나 추가 조건 확인은 별도로 진행합니다.
+                  </p>
+                  <p className="text-xs leading-5 text-muted-foreground" role="status">{draftNotice}</p>
                 </div>
 
                 <ProfileSheetGroup
-                  title={`자동으로 확인했어요 (${groupedRows.automatic.length})`}
-                  tone="automatic"
-                  rows={groupedRows.automatic}
+                  title="1. 먼저 확인할 기본정보"
+                  tone="direct"
+                  rows={groupedRows.basic}
                   activeFieldKey={activeFieldKey}
                   recentlySavedKey={savedFeedback?.key ?? null}
                   submitting={submitting}
@@ -241,9 +254,9 @@ export function ProfileSection({
                 />
 
                 <ProfileSheetGroup
-                  title={`직접 채우면 더 정확해져요 (${groupedRows.direct.length})`}
+                  title="2. 공고 조건에 따라 필요한 추가정보"
                   tone="direct"
-                  rows={groupedRows.direct}
+                  rows={groupedRows.additional}
                   activeFieldKey={activeFieldKey}
                   recentlySavedKey={savedFeedback?.key ?? null}
                   submitting={submitting}
@@ -262,8 +275,13 @@ export function ProfileSection({
             </ScrollArea>
 
             <SheetFooter className="border-t border-border-subtle px-6 py-3.5">
+              {onSaveCompany ? (
+                <Button type="button" disabled={submitting || savingCompany} onClick={onSaveCompany}>
+                  {savingCompany ? "처리 중" : savedCompany ? "저장된 정보로 이어가기" : "회사에 저장하고 이어가기"}
+                </Button>
+              ) : null}
               <SheetClose render={<Button type="button" variant="secondary" className="w-full" />}>
-                닫기
+                현재 정보로 결과 보기
               </SheetClose>
             </SheetFooter>
           </>
@@ -361,7 +379,7 @@ function ProfileSheetRowView({
 }) {
   const field = row.field;
 
-  if (row.state === "automatic") {
+  if (row.state === "automatic" && !active) {
     return (
       <div className="flex min-h-11 items-center gap-2.5 py-2.5">
         <Check className="size-3.5 shrink-0 text-brand-mint" strokeWidth={3} aria-hidden />
@@ -371,6 +389,11 @@ function ProfileSheetRowView({
           <span className="max-w-20 shrink-0 truncate text-[11px] text-text-tertiary">
             {row.field?.status === "partial" ? `${row.sourceLabel ?? "저장된 정보"} · 일부 확인` : row.sourceLabel}
           </span>
+        ) : null}
+        {field?.editMode === "direct" ? (
+          <Button type="button" size="xs" variant="ghost" disabled={submitting} onClick={() => onEdit(field.key)}>
+            확인·수정
+          </Button>
         ) : null}
       </div>
     );
@@ -385,14 +408,14 @@ function ProfileSheetRowView({
       )}
     >
       <div className="flex items-center gap-2.5">
-        {row.state === "direct" ? (
+        {row.state !== "missing" ? (
           <CircleDot className="size-3 shrink-0 text-brand" aria-label="직접 입력됨" />
         ) : (
           <CircleDashed className="size-3 shrink-0 text-text-tertiary" aria-label="미입력" />
         )}
         <span className="w-[82px] shrink-0 text-[13px] text-text-secondary">{row.label}</span>
 
-        {row.state === "direct" ? (
+        {row.state !== "missing" ? (
           <div className="min-w-0 flex-1">
             <div className="text-sm font-semibold text-ink break-words">{row.value}</div>
             <div className={cn("text-[11px]", recentlySaved ? "font-bold text-brand-mint-ink" : "text-text-tertiary")}>
@@ -427,6 +450,8 @@ function ProfileSheetRowView({
           </Button>
         ) : null}
       </div>
+
+      {field ? <p className="mt-1 pl-[22px] text-xs text-muted-foreground">{PROFILE_INPUT_STATE_LABELS[row.inputState]}</p> : null}
 
       {active && field ? (
         <div className="mt-2 pl-[22px]">
@@ -466,7 +491,7 @@ function ProfileVerificationGroup({
         <VerificationRow
           label="결격 여부"
           confirmed={disqConfirmed}
-          confirmedLabel="해당 없음 확인 ✓"
+          confirmedLabel="답변 확인됨 ✓"
           subtitle={disqualificationImpactCopy(teaser)}
           onClick={onOpenDisqualification}
         />
@@ -567,6 +592,7 @@ function hardUnknownGrantCount(
 function buildProfileSheetRows(
   teaser: ProductTeaserResult,
   fields: ProfileFieldView[],
+  answers: readonly MatchingProfileAnswerRequest[],
 ): ProfileSheetRow[] {
   const fieldMap = new Map(fields.map((field) => [field.key, field]));
   const rows: ProfileSheetRow[] = [];
@@ -582,6 +608,7 @@ function buildProfileSheetRows(
       value: companyName.value,
       sourceLabel,
       state: sourceLabel?.includes("직접") ? "direct" : "automatic",
+      inputState: sourceLabel?.includes("직접") ? "entered" : "automatic",
       field: null,
     });
   }
@@ -595,6 +622,7 @@ function buildProfileSheetRows(
       value: field.value,
       sourceLabel: field.sourceLabel,
       state: profileSheetValueState(field),
+      inputState: profileInputState(teaser.profileView.rows.find((row) => row.dimension === field.key), answers),
       field,
     });
   }
@@ -644,6 +672,7 @@ function ProfileInputPanel({
   const [draft, setDraft] = useState<ProfileInputDraft>(() => initialProfileInputDraft(field.key, field.value));
   const [error, setError] = useState<string | null>(null);
   const suggestions = profileInputSuggestions(field.key);
+  const sourceHelp = profileSourceHelp(field);
   const usesStructuredNumericInput =
     field.key === "biz_age" ||
     field.key === "founder_age" ||
@@ -662,8 +691,13 @@ function ProfileInputPanel({
       setError(result.error);
       return;
     }
+    await submitAnswer(result.answer);
+  }
+
+  async function submitAnswer(answer: MatchingProfileAnswerRequest) {
     setError(null);
-    await onSubmit(result.answer);
+    try { await onSubmit(answer); }
+    catch (caught) { setError(caught instanceof Error ? caught.message : "반영하지 못했어요. 다시 시도해주세요."); }
   }
 
   return (
@@ -717,13 +751,30 @@ function ProfileInputPanel({
           <FieldDescription className="text-xs leading-5">
             {profileInputDescription(field.key)}
           </FieldDescription>
+          {sourceHelp ? (
+            <FieldDescription className="text-xs leading-5">
+              {sourceHelp.source} · {sourceHelp.asOf}<br />
+              {sourceHelp.message}{" "}
+              <a href={sourceHelp.href} target="_blank" rel="noopener noreferrer" className="underline underline-offset-2">
+                정보 정정 문의 (새 탭)
+              </a>
+            </FieldDescription>
+          ) : null}
         </Field>
-        <div className="flex items-center justify-end gap-1">
+        <div className="flex flex-wrap items-center justify-end gap-1">
+          {field.status === "unknown" ? (
+            <Button type="button" size="xs" variant="ghost" disabled={submitting}
+              onClick={() => void submitAnswer({ field: field.key, unknown: true })}>모르겠어요</Button>
+          ) : null}
+          {field.key === "certification" ? (
+            <Button type="button" size="xs" variant="outline" disabled={submitting}
+              onClick={() => void submitAnswer({ field: field.key, value: [], mode: "replace" })}>보유 인증 없음</Button>
+          ) : null}
           <Button type="button" size="xs" variant="ghost" onClick={onCancel} disabled={submitting}>
             취소
           </Button>
           <Button type="submit" size="sm" disabled={submitting}>
-            {submitting ? "반영 중" : "이 결과에 반영"}
+            {submitting ? "반영 중" : "답변 반영"}
           </Button>
         </div>
       </FieldGroup>

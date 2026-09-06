@@ -35,12 +35,14 @@ export function ConfirmationSheet({
   open,
   onOpenChange,
   onSaved,
+  companyId = null,
 }: {
   grantId: string;
   grantTitle: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSaved?: (result: GrantConfirmationSubmitResult) => void;
+  companyId?: string | null;
 }) {
   const [status, setStatus] = useState<LoadStatus>("loading");
   const [questions, setQuestions] = useState<GrantConfirmationQuestionDto[]>([]);
@@ -48,6 +50,7 @@ export function ConfirmationSheet({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
+  const endpoint = `/api/web/matches/${encodeURIComponent(grantId)}/confirmations${companyId ? `?${new URLSearchParams({ companyId })}` : ""}`;
 
   useEffect(() => {
     if (!open) return;
@@ -57,7 +60,7 @@ export function ConfirmationSheet({
     (async () => {
       try {
         const response = await fetch(
-          `/api/web/matches/${encodeURIComponent(grantId)}/confirmations`,
+          endpoint,
           { signal: AbortSignal.timeout(15_000) },
         );
         const payload = (await response.json()) as ActionResult<GrantConfirmationsResult>;
@@ -80,7 +83,7 @@ export function ConfirmationSheet({
     return () => {
       cancelled = true;
     };
-  }, [open, grantId, reloadKey]);
+  }, [open, endpoint, reloadKey]);
 
   function setAnswer(question: GrantConfirmationQuestionDto, next: string[]) {
     const optionValues = new Set(question.options.map((option) => option.value));
@@ -102,7 +105,7 @@ export function ConfirmationSheet({
     setError(null);
     try {
       const response = await fetch(
-        `/api/web/matches/${encodeURIComponent(grantId)}/confirmations`,
+        endpoint,
         {
           method: "PUT",
           headers: { "content-type": "application/json" },

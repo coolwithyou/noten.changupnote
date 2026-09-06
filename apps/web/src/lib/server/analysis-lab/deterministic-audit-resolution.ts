@@ -8,8 +8,8 @@ import type {
   LabRun,
 } from "@/lib/server/analysis-lab/lab-contract";
 
-export const LAB_DETERMINISTIC_AUDIT_POLICY_VERSION =
-  "lab-deterministic-audit-v3" as const;
+import { LAB_DETERMINISTIC_AUDIT_POLICY_VERSION } from "../analysis-serving/auditPolicy";
+export { LAB_DETERMINISTIC_AUDIT_POLICY_VERSION } from "../analysis-serving/auditPolicy";
 
 export interface DeterministicAuditResolution {
   verdict: Exclude<LabCriterionVerdict, "unsure">;

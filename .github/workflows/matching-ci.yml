@@ -54,6 +54,11 @@ jobs:
       - name: Run document editor agent regression gates
         run: pnpm test:document-agent
 
+      - name: Verify company writes with isolated PostgreSQL and real RLS
+        run: |
+          export PATH="$(pg_config --bindir):$PATH"
+          pnpm test:product-postgres
+
       - name: Run matching regression gates
         run: |
           pnpm test:matching-unit
@@ -61,3 +66,4 @@ jobs:
           pnpm verify:matching-eval
           pnpm verify:profile-product-paths
           pnpm test:profile-answer-consistency
+          pnpm test:product-journey

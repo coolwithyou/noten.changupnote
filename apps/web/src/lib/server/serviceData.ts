@@ -42,6 +42,7 @@ import type {
   GrantBenefit,
   NormalizedGrant,
   ProductTeaserResult,
+  OwnedCompanyMatchingResult,
   TeaserRequest,
 } from "@cunote/contracts";
 import { isValidBizNoChecksum } from "@cunote/contracts";
@@ -82,6 +83,7 @@ import {
 import { normalizeProductProfileAnswers } from "./productProfile/normalizeProductProfileAnswers";
 import {
   buildProductDashboardSnapshot,
+  buildOwnedCompanyMatchingSnapshot,
   buildProductTeaserSnapshot,
   type ProductDashboardResult,
 } from "./productProfile/productMatchSnapshot";
@@ -1418,6 +1420,37 @@ export async function resolveProductCompanyProfile(
       return resolved.profile;
     },
   });
+}
+
+export async function loadOwnedCompanyMatching(input: {
+  companyId: string;
+  userId: string;
+  asOf?: Date;
+}): Promise<OwnedCompanyMatchingResult> {
+  const asOf = input.asOf ?? new Date();
+  const [resolution, grants] = await Promise.all([
+    resolveProductCompanyProfile({
+      context: "owned_read", companyId: input.companyId, userId: input.userId,
+      asOf: asOf.toISOString(),
+    }),
+    loadServiceGrantUniverse({ asOf }),
+  ]);
+  const confirmationsByGrantId = await loadCriterionConfirmations({
+    repositories: getServiceRepositories(), companyId: input.companyId, grants,
+  });
+  const result = buildOwnedCompanyMatchingSnapshot({
+    ...input, resolution, grants, asOf,
+    ...(confirmationsByGrantId ? { confirmationsByGrantId } : {}),
+  });
+  result.teaser.matches = await annotateMatchCardWriteSupport(result.teaser.matches);
+  result.teaser.matches = await annotateMatchCardConfirmationQuestions(result.teaser.matches);
+  // 관측 장애가 기본 매칭을 막지 않는다. 활성화·마이그레이션은 별도 운영 단계다.
+  const { annotateProductExposure } = await import("./productReadiness/exposure");
+  result.teaser.matches = await annotateProductExposure(result.teaser.matches, { ...input, grants });
+  const byId = new Map(result.teaser.matches.map((match) => [match.grantId, match]));
+  result.teaser.recommendableMatches = result.teaser.recommendableMatches?.map((match) => byId.get(match.grantId) ?? match) ?? [];
+  result.teaser.reviewNeededMatches = result.teaser.reviewNeededMatches?.map((match) => byId.get(match.grantId) ?? match) ?? [];
+  return result;
 }
 
 export async function loadProductTeaser(

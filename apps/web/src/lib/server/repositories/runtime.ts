@@ -1,3 +1,4 @@
+import { assertCompanyProfileUnchanged } from "./companyProfileConcurrency";
 import {
   CreditContextRequiredError,
   InsufficientCreditsError,
@@ -129,6 +130,7 @@ class RuntimeGrantRepository<TPayload> implements GrantRepository<TPayload> {
 class RuntimeCompanyRepository implements CompanyRepository {
   private readonly savedProfiles = new Map<string, CompanyProfile>();
   private readonly verifications = new Map<string, CompanyVerificationRecord>();
+  private readonly creationReceipts = new Map<string, CompanyRecord>();
 
   constructor(private readonly loaders: RuntimeRepositoryLoaders) {}
 
@@ -145,14 +147,25 @@ class RuntimeCompanyRepository implements CompanyRepository {
   }
 
   async saveCompanyProfile(input: SaveCompanyProfileInput) {
+    if (input.expectedProfile !== undefined) {
+      const current = await this.resolveSavedOrLoadedProfile(input.companyId, undefined, input.userId);
+      // 첫 읽기의 await 동안 다른 저장이 끝났다면 최신 메모리 값을 다시 검사한다.
+      const shared = this.savedProfiles.get(profileKey(input.companyId)) ?? current;
+      const personal = input.userId ? this.savedProfiles.get(profileKey(input.companyId, input.userId)) : undefined;
+      const latest = personal ? mergeRuntimeProfiles(shared, personal) : shared;
+      assertCompanyProfileUnchanged(latest, input.expectedProfile);
+    }
     this.setSavedProfile(input.companyId, input.profile, input.userId);
     return cloneProfile(input.profile);
   }
 
   async createCompany(input: CreateCompanyInput): Promise<CompanyRecord> {
+    const receiptKey = input.creationId ? `${input.userId}:${input.creationId}` : null;
+    const receipt = receiptKey ? this.creationReceipts.get(receiptKey) : null;
+    if (receipt) return structuredClone(receipt);
     this.setSavedProfile(demoCompanyId(), input.profile, input.userId);
     const profile = cloneProfile(input.profile);
-    return {
+    const company: CompanyRecord = {
       id: demoCompanyId(),
       name: profile.name ?? "샘플 기업",
       profile,
@@ -162,6 +175,8 @@ class RuntimeCompanyRepository implements CompanyRepository {
       verifyMethod: null,
       bizNoMasked: null,
     };
+    if (receiptKey) this.creationReceipts.set(receiptKey, structuredClone(company));
+    return company;
   }
 
   async listUserCompanies(_userId: string): Promise<CompanyRecord[]> {

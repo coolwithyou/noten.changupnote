@@ -95,8 +95,12 @@ export function PriorAwardSheet({
       setError(caught instanceof Error ? caught.message : "수혜 이력을 저장하지 못했습니다.");
       return;
     }
-    await onAnswer({ field: "prior_award", value, mode: "replace" });
-    onBack();
+    try {
+      await onAnswer({ field: "prior_award", value, mode: "replace" });
+      onBack();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "수혜 이력을 반영하지 못했습니다.");
+    }
   }
 
   // 명시적 "예" 답변이나 선택된 사업이 있으면 일괄 "해당 없음" 확인으로 덮어쓰지 않는다.

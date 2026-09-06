@@ -134,10 +134,14 @@ export function TeaserQuestionForm({
     }
     const range = selectedQuestionRange(question, scalar);
     if (range) {
-      await onAnswer({
-        field: question.dimension,
-        range: { min: range.min, max: range.max, unit: range.unit },
-      });
+      try {
+        await onAnswer({
+          field: question.dimension,
+          range: { min: range.min, max: range.max, unit: range.unit },
+        });
+      } catch (error) {
+        setMessage(error instanceof Error ? error.message : "답변을 반영하지 못했습니다.");
+      }
       return;
     }
     await applyValue(

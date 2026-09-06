@@ -5,6 +5,7 @@ import type {
 } from "@cunote/contracts";
 import { NextResponse } from "next/server";
 import { requireCompanyAccess } from "@/lib/server/auth/companyGuard";
+import { requestCompanyScope } from "@/lib/server/auth/requestCompanyScope";
 import { webActionError } from "@/lib/server/auth/webActionError";
 import {
   ConfirmationRequestError,
@@ -23,11 +24,11 @@ interface RouteContext {
   }>;
 }
 
-export async function GET(_request: Request, context: RouteContext) {
+export async function GET(request: Request, context: RouteContext) {
   try {
     const [{ grantId }, access] = await Promise.all([
       context.params,
-      requireCompanyAccess(),
+      requireCompanyAccess(requestCompanyScope(new URL(request.url).searchParams.get("companyId") ?? undefined)),
     ]);
     const data = await listGrantConfirmations({
       companyId: access.companyId,
@@ -47,7 +48,7 @@ export async function PUT(request: Request, context: RouteContext) {
     const [{ grantId }, body, access] = await Promise.all([
       context.params,
       readAnswers(request),
-      requireCompanyAccess({ permission: "write" }),
+      requireCompanyAccess({ permission: "write", ...requestCompanyScope(new URL(request.url).searchParams.get("companyId") ?? undefined) }),
     ]);
     const data = await submitGrantConfirmations({
       companyId: access.companyId,

@@ -9,20 +9,20 @@ import { cn } from "@/lib/utils";
 const STEPS = [
   {
     n: 1,
-    title: "사업자번호 입력",
-    body: "번호 하나면 회사 정보를 자동으로 불러와요",
+    title: "사업자 정보 완성",
+    body: "사업자번호로 기본정보를 조회하고, 매칭에 필요한 정보를 직접 확인해요",
     tone: "blue",
   },
   {
     n: 2,
     title: "맞춤 매칭",
-    body: "지금 신청 가능한 사업과 답하면 확정되는 사업을 나눠 보여줘요",
+    body: "확인된 조건과 추가 확인이 필요한 조건을 나누고, 판단 근거를 보여줘요",
     tone: "blue",
   },
   {
     n: 3,
-    title: "신청 코칭",
-    body: "서류의 80%는 미리 채워드리고, 빠진 것만 물어봐요",
+    title: "검토하며 지원서 작성",
+    body: "지원되는 양식에서 제안을 선택해 반영해요. 최종 검토와 제출은 직접 진행해요",
     tone: "mint",
   },
 ] as const;
@@ -95,7 +95,7 @@ export function HowItWorks() {
   return (
     <section className="px-4 py-20 text-center sm:px-10 sm:py-[88px]">
       <h2 className="text-[28px] font-extrabold tracking-[-0.6px] text-ink-strong sm:text-[32px]">
-        공부 없이, 세 단계면 충분해요
+        정보 확인부터 지원서 작성까지
       </h2>
       <div className="mx-auto mt-10 grid max-w-[1000px] gap-4 text-left lg:grid-cols-3">
         {STEPS.map((step) => (

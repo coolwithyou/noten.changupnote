@@ -1,15 +1,14 @@
-import type { CompanyPreviewResult, TeaserRequest } from "@cunote/contracts";
+import type { CompanyPreviewResult } from "@cunote/contracts";
 import {
   normalizeBusinessLookupBizNo,
   type BusinessLookupSuggestion,
 } from "@/lib/businessLookupSuggestions";
-import { safeInternalPath } from "@/lib/navigation/safeInternalPath";
 
 /**
  * 로그인 후 재개(resume) 플로우가 읽는 sessionStorage 키.
- * matches 기능(MatchesExperience)이 동일 리터럴로 write 하므로 절대 바꾸지 않는다.
+ * 기존 세션과 호환되는 키이며 실제 읽기·쓰기·성공 처리는 companySaveHandoff가 소유한다.
  */
-export const PENDING_TEASER_STORAGE_KEY = "cunote.pendingTeaserRequest";
+export { PENDING_TEASER_STORAGE_KEY } from "@/lib/client/companySaveHandoff";
 
 /** 비로그인 CTA용 로그인 링크(로그인 후 랜딩으로 복귀). */
 export const LANDING_LOGIN_HREF = `/login?${new URLSearchParams({ callbackUrl: "/" }).toString()}`;
@@ -76,28 +75,6 @@ export function filterLandingLookupSuggestions(
       })
     : suggestions;
   return filtered.slice(0, 4);
-}
-
-/** sessionStorage의 대기 중 teaser 요청을 읽고 즉시 제거(1회성). */
-export function readPendingTeaserRequest(): TeaserRequest | null {
-  try {
-    const raw = window.sessionStorage.getItem(PENDING_TEASER_STORAGE_KEY);
-    window.sessionStorage.removeItem(PENDING_TEASER_STORAGE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as unknown;
-    return parsed && typeof parsed === "object" ? (parsed as TeaserRequest) : null;
-  } catch {
-    return null;
-  }
-}
-
-/** 재개 로그인이 필요한 경우 랜딩으로 돌아오도록 callbackUrl을 심어 이동. */
-export function redirectToLoginForDashboard(resumeNext?: string | null) {
-  const resumeParams = new URLSearchParams({ resumeCompany: "1" });
-  const safeNext = safeInternalPath(resumeNext);
-  if (safeNext) resumeParams.set("resumeNext", safeNext);
-  const params = new URLSearchParams({ callbackUrl: `/?${resumeParams.toString()}` });
-  window.location.assign(`/login?${params.toString()}`);
 }
 
 /** resumeCompany/resumeGrant 쿼리를 URL에서 제거(경로·해시 유지). */

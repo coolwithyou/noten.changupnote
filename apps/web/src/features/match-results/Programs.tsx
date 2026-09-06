@@ -17,6 +17,8 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { MatchFeedbackControls } from "@/features/opportunity-map/MatchFeedbackControls";
 import { cn } from "@/lib/utils";
+import { withCompanyContext } from "@/lib/navigation/companyContext";
+import { observeProductCards } from "@/lib/client/productCardExposure";
 import { ConfirmationSheet } from "./ConfirmationSheet";
 import {
   criterionEvidencePresentation,
@@ -43,6 +45,7 @@ export function ProgramsExperience({
   onRequestConfirmation,
   autoOpenConfirmationGrantId,
   virtualBizNo = null,
+  companyId = null,
 }: {
   teaser: ProductTeaserResult;
   onPrepare: (grantId?: string) => void;
@@ -57,8 +60,15 @@ export function ProgramsExperience({
   autoOpenConfirmationGrantId?: string | null;
   /** 등록된 개발용 가상 기업만 공고 상세의 읽기 전용 맥락으로 전달한다. */
   virtualBizNo?: string | null;
+  companyId?: string | null;
 }) {
   const groups = groupMatchesForDisplay(teaser.matches);
+  const rootRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!rootRef.current || !companyId) return;
+    const tokens = new Map(teaser.matches.flatMap((match) => match.exposureToken ? [[match.grantId, match.exposureToken] as const] : []));
+    return observeProductCards(rootRef.current, tokens, companyId);
+  }, [companyId, teaser.matches]);
   const [showAllOpen, setShowAllOpen] = useState(false);
   // 시트 내용은 닫힘 애니메이션 동안 유지해야 하므로 대상과 열림 상태를 분리한다.
   const [confirmTarget, setConfirmTarget] = useState<MatchCard | null>(null);
@@ -90,7 +100,7 @@ export function ProgramsExperience({
   const totalPreparable = Math.max(teaser.counts.preparable ?? 0, groups.preparable.length);
 
   return (
-    <div>
+    <div ref={rootRef}>
       <section className="mt-10">
         <h2 className="mb-3 text-[15px] font-extrabold text-ink">
           지금 신청 가능 <span className="text-brand-mint-ink">{totalOpen}</span>
@@ -108,6 +118,7 @@ export function ProgramsExperience({
                 preparing={preparing}
                 onOpenConfirmation={openConfirmation}
                 virtualBizNo={virtualBizNo}
+                companyId={companyId}
               />
             ))}
             {groups.upcoming.slice(0, 1).map((match) => (
@@ -121,6 +132,7 @@ export function ProgramsExperience({
                 preparing={preparing}
                 onOpenConfirmation={openConfirmation}
                 virtualBizNo={virtualBizNo}
+                companyId={companyId}
               />
             ))}
           </div>
@@ -154,6 +166,7 @@ export function ProgramsExperience({
           preparing={preparing}
           onOpenConfirmation={openConfirmation}
           virtualBizNo={virtualBizNo}
+          companyId={companyId}
         />
         <ResultBucket
           label="준비하면 열려요"
@@ -166,11 +179,13 @@ export function ProgramsExperience({
           preparing={preparing}
           onOpenConfirmation={openConfirmation}
           virtualBizNo={virtualBizNo}
+          companyId={companyId}
         />
       </div>
 
       {confirmTarget ? (
         <ConfirmationSheet
+          companyId={companyId}
           grantId={confirmTarget.grantId}
           grantTitle={confirmTarget.title}
           open={confirmOpen}
@@ -194,6 +209,7 @@ function ResultBucket({
   preparing,
   onOpenConfirmation,
   virtualBizNo = null,
+  companyId = null,
 }: {
   label: string;
   count: number;
@@ -206,6 +222,7 @@ function ResultBucket({
   preparing: boolean;
   onOpenConfirmation: (match: MatchCard) => void;
   virtualBizNo?: string | null;
+  companyId?: string | null;
 }) {
   const [open, setOpen] = useState(false);
   return (
@@ -230,6 +247,7 @@ function ResultBucket({
                 preparing={preparing}
                 onOpenConfirmation={onOpenConfirmation}
                 virtualBizNo={virtualBizNo}
+                companyId={companyId}
               />
             ))
           ) : (
@@ -264,6 +282,7 @@ function ExpandableProgramCard({
   preparing,
   onOpenConfirmation,
   virtualBizNo = null,
+  companyId = null,
 }: {
   match: MatchCard;
   status: NoticeCardStatus;
@@ -275,12 +294,14 @@ function ExpandableProgramCard({
   preparing: boolean;
   onOpenConfirmation: (match: MatchCard) => void;
   virtualBizNo?: string | null;
+  companyId?: string | null;
 }) {
   const [open, setOpen] = useState(false);
   const cardStatus = status === "upcoming" ? status : matchVerdictStatus(match);
   const supportSummary = buildSupportSummary(match);
   if (!open) {
     return (
+      <div data-product-grant={match.grantId}>
       <NoticeCard
         title={match.title}
         dday={status === "upcoming" && match.dDay === null ? "접수 예정" : formatDday(match.dDay)}
@@ -292,10 +313,12 @@ function ExpandableProgramCard({
         expanded={false}
         {...(className === undefined ? {} : { className })}
       />
+      </div>
     );
   }
 
   return (
+    <div data-product-grant={match.grantId}>
     <ExpandedProgramCard
       match={match}
       status={status}
@@ -306,8 +329,10 @@ function ExpandableProgramCard({
       preparing={preparing}
       onOpenConfirmation={onOpenConfirmation}
       virtualBizNo={virtualBizNo}
+      companyId={companyId}
       {...(className === undefined ? {} : { className })}
     />
+    </div>
   );
 }
 
@@ -321,6 +346,7 @@ function ExpandedProgramCard({
   preparing,
   onOpenConfirmation,
   virtualBizNo,
+  companyId = null,
   className,
 }: {
   match: MatchCard;
@@ -332,13 +358,15 @@ function ExpandedProgramCard({
   preparing: boolean;
   onOpenConfirmation: (match: MatchCard) => void;
   virtualBizNo?: string | null;
+  companyId?: string | null;
   className?: string;
 }) {
   const criteria = matchCriterionPresentation(match);
   const hardTotal = criteria.hardPassed.length + criteria.hardFailed.length + criteria.hardNeedsCheck.length;
   const primaryHardCheck = criteria.hardNeedsCheck[0];
   const primaryPreferredInput = criteria.preferredNeedsInput[0];
-  const detailHref = matchDetailHref(match, virtualBizNo);
+  const baseDetailHref = matchDetailHref(match, virtualBizNo);
+  const detailHref = companyId ? withCompanyContext(baseDetailHref, companyId) : baseDetailHref;
   // 확인하기 CTA — one_answer/check_source 판정이고 발행된 확인 질문이 있을 때만(현재 테이블이
   // 비어 있어 미노출, B-4 승격 파이프라인 이후 활성). 어휘는 4상태 그대로, 결과 예고 문구 금지(D9).
   const verdict = matchVerdictStatus(match);

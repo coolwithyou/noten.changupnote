@@ -14,6 +14,7 @@
  * 전송 계층 격리(ADR-4): UIMessage 파트 → ChatMessageContent 매핑은 공용 모듈(lib/chat/messageContent)로.
  * 세션은 서버가 X-Cunote-Chat-Session 헤더로 발급 → 커스텀 fetch 로 캡처해 다음 턴에 재사용(§7.2 소유권).
  */
+import { companyScopedFetch } from "@/lib/navigation/companyContext";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
@@ -131,7 +132,7 @@ export function useGrantChat(input: { grantId: string; draftId?: string | null }
         api: "/api/web/chat",
         // 서버가 발급하는 세션 id 를 응답 헤더에서 캡처해 다음 턴에 재사용한다.
         fetch: (async (url: RequestInfo | URL, options?: RequestInit) => {
-          const response = await fetch(url, options);
+          const response = await companyScopedFetch(url, options);
           const sid = response.headers.get("X-Cunote-Chat-Session");
           if (sid) sessionIdRef.current = sid;
           return response;

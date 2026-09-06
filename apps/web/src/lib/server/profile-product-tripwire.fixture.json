@@ -16,6 +16,7 @@
     "apps/web/src/app/api/app/v1/teaser/route.ts",
     "apps/web/src/app/api/web/action-queue/route.ts",
     "apps/web/src/app/api/web/companies/enrich/route.ts",
+    "apps/web/src/app/api/web/company-matching/route.ts",
     "apps/web/src/app/api/web/company-preview/route.ts",
     "apps/web/src/app/api/web/dashboard/report/route.ts",
     "apps/web/src/app/api/web/dashboard/route.ts",

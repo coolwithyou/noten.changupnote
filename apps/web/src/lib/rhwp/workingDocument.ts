@@ -1,3 +1,4 @@
+import { companyScopedFetch } from "@/lib/navigation/companyContext";
 import type { DraftFieldAnswers } from "@/lib/server/documents/fieldAnswers";
 import type { ConnectedDocumentField } from "@/lib/server/documents/documentFieldLink";
 import { applyRhwpEditFields, buildRhwpEditFields, type RhwpEditField, type RhwpEditableDocument } from "./editPlan";
@@ -46,7 +47,7 @@ export interface RhwpStudioCompatibilityDocument {
 export async function fetchRhwpSourceDocument(
   transport: RhwpWorkingDocumentTransport,
 ): Promise<SourceDocument> {
-  const response = await fetch(sourceUrlForTransport(transport), { cache: "no-store" });
+  const response = await companyScopedFetch(sourceUrlForTransport(transport), { cache: "no-store" });
   if (!response.ok) throw new Error(await sourceFileErrorMessage(response));
   if (
     transport.mode === "local_preview"

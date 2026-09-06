@@ -1,0 +1,28 @@
+import assert from "node:assert/strict";
+import { companyCreateIntent } from "./companyCreateIntent";
+import { companyCreationIdentity } from "../server/productProfile/companyCreationIdentity";
+import { createRuntimeRepositories } from "../server/repositories/runtime";
+
+const data = new Map<string, string>();
+const storage = { getItem: (key: string) => data.get(key) ?? null, setItem: (key: string, value: string) => { data.set(key, value); } };
+const request = { bizNo: "7465400870", answers: [{ field: "employees" as const, value: 0 }] };
+const [first, concurrent] = await Promise.all([companyCreateIntent(storage, request, 10), companyCreateIntent(storage, request, 10)]);
+assert.ok(first);
+assert.equal(concurrent, first);
+assert.equal(await companyCreateIntent(storage, structuredClone(request), 11), first);
+assert.ok(![...data.values()].join("").includes("employees"), "재시도 영수증에는 원문 답변을 보관하지 않는다");
+assert.notEqual(await companyCreateIntent(storage, { ...request, answers: [{ field: "employees", value: 1 }] }, 12), first);
+assert.equal(await companyCreateIntent(null, request), null);
+assert.equal(await companyCreateIntent({ getItem: () => null, setItem: () => { throw Error("blocked"); } }, request), null);
+const id = companyCreationIdentity("user-a", first, request)!;
+assert.match(id, /^[0-9a-f]{8}-[0-9a-f]{4}-8[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+assert.equal(companyCreationIdentity("user-a", first, { answers: request.answers, bizNo: request.bizNo }), id);
+assert.notEqual(companyCreationIdentity("user-b", first, request), id);
+assert.notEqual(companyCreationIdentity("user-a", first, { ...request, bizNo: "different" }), id);
+assert.equal(companyCreationIdentity("user-a", null, request), undefined);
+assert.throws(() => companyCreationIdentity("user-a", "", request), { status: 400 });
+const repo = createRuntimeRepositories({ loadGrants: async () => [], loadCompanyProfile: async () => ({}) });
+await repo.companies.createCompany({ userId: "user-a", creationId: id, profile: { employees_count: 0 } });
+await repo.companies.createCompany({ userId: "user-a", creationId: id, profile: { employees_count: 999 } });
+assert.equal((await repo.companies.listUserCompanies("user-a"))[0]?.profile.employees_count, 0, "같은 저장 의도로 재조회한 원천 결과가 기존 프로필을 덮어쓰지 않는다");
+console.log("company create intent: durable client key, scoped identity and non-overwriting replay passed (offline)");

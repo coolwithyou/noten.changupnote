@@ -1,20 +1,19 @@
+import { buildApplicationPrecomputeAnalysisVersion } from "./applicationAnalysisContract";
+export { buildApplicationPrecomputeAnalysisVersion } from "./applicationAnalysisContract";
 import { createHash } from "node:crypto";
 import { and, eq, sql } from "drizzle-orm";
 import type { CandidateKind, CandidateSet, ReconciledField } from "@cunote/core";
-import type { GrantSource } from "@cunote/contracts";
 import {
   APPLICATION_ROUNDTRIP_VERSION,
   LOCAL_PREVIEW_COMPATIBLE_ROUNDTRIP_VERSIONS,
   type ApplicationRoundtripRun,
   type RoundtripFieldType,
   type RoundtripParsedDocument,
-} from "@/lib/server/analysis-lab/application-roundtrip/contract";
+} from "@/lib/server/application-analysis/contract";
 import type { LabRun } from "@/lib/server/analysis-lab/lab-contract";
-import { readRoundtripRunArtifacts, type RoundtripRunManifest } from "../analysis-lab/application-roundtrip/store";
-import { readLabRun } from "../analysis-lab/run-store";
-import { type CunoteDb, type CunoteDbSession } from "../db/client";
+import type { RoundtripRunManifest } from "../analysis-lab/application-roundtrip/store";
+import type { CunoteDbSession } from "../db/client";
 import * as schema from "../db/schema";
-import type { R2ObjectStorage } from "../storage/r2ObjectStorage";
 import { buildReconciledApplicationFields } from "./applicationFieldAnalysis";
 import {
   APPLICATION_FIELD_PARSER_VERSION,
@@ -28,7 +27,6 @@ import {
   type ApplicationPrecomputeStatus,
 } from "./applicationPrecomputeState";
 import { applyReconciledFields } from "./applyReconciledFields";
-import { createFieldCandidateStore } from "./fieldCandidateStore";
 
 export interface MaterializationSurface {
   id: string;
@@ -171,84 +169,6 @@ export function buildApplicationPrecomputeSurfacePlan(input: {
   });
 }
 
-/** local immutable 산출물을 읽고 content-addressed R2 artifact를 먼저 준비한다. DB field projection은 건드리지 않는다. */
-export async function prepareGrantApplicationPrecompute(input: {
-  grantId: string;
-  parentLabRunId: string;
-  db: CunoteDb;
-  storage: R2ObjectStorage;
-  roundtripArtifacts?: {
-    run: ApplicationRoundtripRun;
-    manifest: RoundtripRunManifest;
-  };
-  receiptBoundRoundtrip?: {
-    parentLabRunId: string;
-    roundtripRunId: string;
-  };
-}): Promise<PreparedGrantApplicationPrecompute | null> {
-  const labRun = await readLabRun(input.grantId, input.parentLabRunId);
-  if (!labRun) return null;
-  if (!labRun.applicationRoundtrip?.runId && !input.receiptBoundRoundtrip) return null;
-  const roundtripRunId = input.receiptBoundRoundtrip?.roundtripRunId
-    ?? labRun.applicationRoundtrip?.runId;
-  if (!roundtripRunId) return null;
-  const artifacts = input.roundtripArtifacts
-    ? { ...input.roundtripArtifacts, dir: "(release-bundle)" }
-    : await readRoundtripRunArtifacts(input.grantId, roundtripRunId);
-  if (!artifacts) throw new Error(`Kordoc 선분석 artifact를 찾지 못했습니다: ${input.grantId}`);
-
-  const surfaceRows = await input.db
-    .select({
-      id: schema.grantApplicationSurfaces.id,
-      title: schema.grantApplicationSurfaces.title,
-      type: schema.grantApplicationSurfaces.type,
-      format: schema.grantApplicationSurfaces.format,
-      sourceAttachment: schema.grantApplicationSurfaces.sourceAttachment,
-    })
-    .from(schema.grantApplicationSurfaces)
-    .where(eq(schema.grantApplicationSurfaces.grantId, input.grantId));
-  const archiveRows = await input.db
-    .select({
-      storageKey: schema.grantAttachmentArchives.storageKey,
-      sha256: schema.grantAttachmentArchives.sha256,
-    })
-    .from(schema.grantAttachmentArchives)
-    .where(and(
-      eq(schema.grantAttachmentArchives.source, artifacts.run.source as GrantSource),
-      eq(schema.grantAttachmentArchives.sourceId, artifacts.run.sourceId),
-    ));
-  const shaByStorageKey = new Map(
-    archiveRows.flatMap((row) => row.storageKey && row.sha256 ? [[row.storageKey, row.sha256] as const] : []),
-  );
-  const plan = buildApplicationPrecomputeMaterializationPlan({
-    labRun,
-    roundtripRun: artifacts.run,
-    manifest: artifacts.manifest,
-    ...(input.receiptBoundRoundtrip
-      ? { receiptBoundRoundtrip: input.receiptBoundRoundtrip }
-      : {}),
-    surfaces: surfaceRows.map((surface) => ({
-      ...surface,
-      sourceSha256: surface.sourceAttachment ? shaByStorageKey.get(surface.sourceAttachment) ?? null : null,
-    })),
-  });
-  const store = createFieldCandidateStore({ db: input.db, storage: input.storage });
-  const surfaces: PreparedApplicationPrecomputeSurface[] = [];
-  for (const item of plan) {
-    const saved = await store.saveFieldCandidates({
-      surfaceId: item.surfaceId,
-      set: item.candidateSet,
-      metadata: item.metadata,
-    });
-    surfaces.push({ ...item, artifactId: saved.artifactId, artifactSha256: saved.sha256 });
-  }
-  return {
-    grantId: input.grantId,
-    parentLabRunId: input.parentLabRunId,
-    roundtripRunId: artifacts.run.runId,
-    surfaces,
-  };
-}
 
 /** prepared artifact를 짧은 DB transaction 안에서 workspace field projection으로 낮춘다. */
 export async function applyPreparedGrantApplicationPrecompute(input: {
@@ -351,24 +271,6 @@ export function applicationPrecomputeAnalysisVersion(run: ApplicationRoundtripRu
   });
 }
 
-export function buildApplicationPrecomputeAnalysisVersion(input: {
-  contractVersion: string;
-  engine: string;
-  engineVersion: string;
-  transport: "api" | "claude-cli";
-  requestedModel: string;
-  candidateLimit: number | null;
-}): string {
-  const identity = JSON.stringify({
-    contractVersion: input.contractVersion,
-    engine: input.engine,
-    engineVersion: input.engineVersion,
-    transport: input.transport,
-    requestedModel: input.requestedModel,
-    candidateLimit: input.candidateLimit,
-  });
-  return `${APPLICATION_PRECOMPUTE_VERSION_PREFIX}:${createHash("sha256").update(identity).digest("hex").slice(0, 20)}`;
-}
 
 function surfacePlan(input: {
   surface: MaterializationSurface;

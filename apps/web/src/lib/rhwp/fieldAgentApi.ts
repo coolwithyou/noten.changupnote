@@ -1,3 +1,4 @@
+import { companyScopedFetch } from "@/lib/navigation/companyContext";
 import type { ActionResult } from "@cunote/contracts";
 import type { StudioFieldBindingTargetV1 } from "./studioDocumentAgentProtocol";
 import type {
@@ -49,7 +50,7 @@ export function transitionFieldAgentRunSuggestion(input: {
 }
 
 async function requestJson<T>(url: string, init: RequestInit): Promise<T> {
-  const response = await fetch(url, { ...init, cache: "no-store" });
+  const response = await companyScopedFetch(url, { ...init, cache: "no-store" });
   const payload = (await response.json()) as ActionResult<T>;
   if (!response.ok || !payload.ok || payload.data === undefined) {
     throw new FieldAgentApiError(

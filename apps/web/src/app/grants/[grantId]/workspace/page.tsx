@@ -1,5 +1,7 @@
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { requireCompanyAccess } from "@/lib/server/auth/companyGuard";
+import { requestCompanyScope } from "@/lib/server/auth/requestCompanyScope";
+import { withCompanyContext } from "@/lib/navigation/companyContext";
 import { redirectOnAuthRequired } from "@/lib/server/auth/pageRedirect";
 import {
   loadAdminGrantWorkspaceData,
@@ -48,7 +50,14 @@ export default async function GrantWorkspacePage({ params, searchParams }: Works
     : null;
   if (requestedAdminPreview && !adminIdentity) notFound();
   if (virtualScenario && adminIdentity) notFound();
-  const access = virtualScenario || adminIdentity ? null : await loadWorkspaceAccess(grantId);
+  const access = virtualScenario || adminIdentity ? null : await loadWorkspaceAccess(grantId, query.companyId);
+  if (access && query.companyId === undefined) {
+    const params = new URLSearchParams();
+    for (const [key, value] of Object.entries(query)) {
+      for (const item of Array.isArray(value) ? value : value === undefined ? [] : [value]) params.append(key, item);
+    }
+    redirect(withCompanyContext(`/grants/${encodeURIComponent(grantId)}/workspace?${params}`, access.companyId));
+  }
   const handoffKey = firstParam(query.handoff);
   const sheetScope = adminIdentity
     ? null
@@ -94,6 +103,7 @@ export default async function GrantWorkspacePage({ params, searchParams }: Works
     // 앱형 고정 뷰포트 화면 — 페이지 스크롤 금지. 스크롤은 좌측 프리뷰·우측 패널 내부에서만.
     <div className="flex h-dvh flex-col overflow-hidden bg-background text-foreground">
       <WorkspaceView
+        companyId={access?.companyId ?? null}
         key={`${data.activeDocumentKey ?? "no-document"}:${data.draftId ?? "no-draft"}`}
         data={data}
         greeting={greeting}
@@ -103,11 +113,13 @@ export default async function GrantWorkspacePage({ params, searchParams }: Works
   );
 }
 
-async function loadWorkspaceAccess(grantId: string) {
+async function loadWorkspaceAccess(grantId: string, companyId?: unknown) {
+  const scope = requestCompanyScope(companyId);
   try {
-    return await requireCompanyAccess();
+    return await requireCompanyAccess({ ...scope, permission: "write" });
   } catch (error) {
-    redirectOnAuthRequired(error, `/grants/${encodeURIComponent(grantId)}/workspace`);
+    const path = `/grants/${encodeURIComponent(grantId)}/workspace`;
+    redirectOnAuthRequired(error, scope.companyId ? withCompanyContext(path, scope.companyId) : path);
   }
 }
 

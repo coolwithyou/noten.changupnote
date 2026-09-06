@@ -1,4 +1,4 @@
-import type { CompanyEvidence, CompanyProfile, MatchCard, NormalizedGrant, TeaserResult } from "@cunote/contracts";
+import type { CompanyEvidence, CompanyProfile, CriterionConfirmation, MatchCard, NormalizedGrant, TeaserResult } from "@cunote/contracts";
 import { matchNormalizedGrant } from "../matching/match.js";
 import { planProfileQuestions } from "../matching/question-planner.js";
 import { withMatchRanking } from "../matching/ranking.js";
@@ -7,6 +7,7 @@ import {
   companyAttributes,
   countByEligibility,
   daysUntil,
+  grantKey,
   sortMatchedGrants,
   supportAmountMax,
   toMatchCard,
@@ -27,6 +28,7 @@ export interface BuildTeaserOptions<TPayload = unknown> {
   /** 전체 카드 제한 안에서 우선 확보할 검토 필요 카드 수. 기본 8개 응답에서는 3개다. */
   reviewNeededLimit?: number;
   companyEvidence?: CompanyEvidence | null;
+  confirmationsByGrantId?: ReadonlyMap<string, CriterionConfirmation[]>;
 }
 
 export function buildTeaser<TPayload>({
@@ -37,10 +39,16 @@ export function buildTeaser<TPayload>({
   recommendableLimit,
   reviewNeededLimit,
   companyEvidence,
+  confirmationsByGrantId,
 }: BuildTeaserOptions<TPayload>): TeaserResult {
   const matched = grants.map<MatchedGrant<TPayload>>((item) => ({
     item,
-    match: withMatchRanking(item, company, matchNormalizedGrant(item, company, { asOf }), { asOf }),
+    match: withMatchRanking(item, company, matchNormalizedGrant(item, company, {
+      asOf,
+      ...(confirmationsByGrantId
+        ? { confirmations: confirmationsByGrantId.get(grantKey(item.grant)) ?? [] }
+        : {}),
+    }), { asOf }),
   }));
   const sorted = sortMatchedGrants(matched);
   // 자동 검수·승격이 끝나지 않은 공고의 불확실성은 OPS가 해소할 문제다.

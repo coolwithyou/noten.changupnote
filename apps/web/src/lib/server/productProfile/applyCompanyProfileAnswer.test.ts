@@ -6,7 +6,7 @@ process.env.CUNOTE_REPOSITORY_ADAPTER = "runtime";
 process.env.CUNOTE_WEB_DATA_SOURCE = "sample";
 process.env.CUNOTE_WEB_INCLUDE_BIZINFO_SAMPLE = "true";
 
-const { getServiceRepositories } = await import("@/lib/server/serviceData");
+const { getServiceRepositories, loadOwnedCompanyMatching } = await import("@/lib/server/serviceData");
 const {
   CompanyProfileAnswerError,
   applyCompanyProfileAnswer,
@@ -103,6 +103,11 @@ try {
   assert.equal(updated.initialMatch.matches[0]?.userConfirmedCount, 1);
   assert.equal(updated.impact.transitionCounts.eligible_to_eligible, 1);
   assert.equal(updated.refresh.savedCount, 0, "사용자 프로필을 회사 공용 상태에 덮어쓰지 않는다");
+  assert.equal(updated.matching.companyId, company.id);
+  assert.equal(updated.matching.teaser.matches[0]?.eligibility, "eligible");
+  assert.equal(updated.matching.teaser.matches[0]?.userConfirmedCount, 1);
+  const reentered = await loadOwnedCompanyMatching({ companyId: company.id, userId, asOf });
+  assert.deepEqual(reentered, updated.matching, "저장 응답과 새 소유 프로필 조회는 같은 판정·질문·프로필을 반환한다");
 
   repositories.matches.listCriterionConfirmations = async () => { throw new Error("fixture confirmations unavailable"); };
   await assert.rejects(() => applyCompanyProfileAnswer({

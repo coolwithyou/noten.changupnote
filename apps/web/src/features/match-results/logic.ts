@@ -5,6 +5,7 @@ import type {
   MatchCard,
   MatchingProfileAnswerRequest,
   MatchingProfileViewRow,
+  NextQuestionDto,
   ProductTeaserResult,
   RuleTraceChipResult,
   CriterionKind,
@@ -35,6 +36,24 @@ export const TEASER_FALLBACK_MESSAGE = "매칭 결과를 불러오지 못했습�
 const KOREA_TIME_ZONE = "Asia/Seoul";
 
 export type Status = "idle" | "loading" | "ready" | "error" | "empty";
+
+/**
+ * 한 번 답한 질문을 같은 결과 세션에서 다시 노출하지 않기 위한 의미 키다.
+ *
+ * 같은 dimension이라도 구간 답변 뒤의 precise 후속 질문이나 prior_award의 다른
+ * 프로그램 문맥은 별도 질문으로 남겨야 하므로, 정의 ID뿐 아니라 단계·문구·문맥을
+ * 함께 결속한다. 선택지는 재계산 때 달라질 수 있지만 같은 문항의 반복 여부에는
+ * 영향을 주지 않는다.
+ */
+export function profileQuestionIdentity(question: NextQuestionDto): string {
+  return JSON.stringify([
+    question.definitionId,
+    question.responseStage ?? "direct",
+    question.prompt,
+    question.priorAwardContext ?? null,
+  ]);
+}
+
 export type ProfileFieldView = {
   key: CriterionDimension;
   label: string;
@@ -721,7 +740,11 @@ export function profileCoverageLabel(coverage: MatchingProfileCoverageSummary): 
 export function resultsCoverageCaption(input: {
   questionsExhausted: boolean;
   hasActionableMatches: boolean;
+  answeredCurrentQuestion?: boolean;
 }): string {
+  if (input.answeredCurrentQuestion) {
+    return "방금 답변을 반영해 공고 판정을 다시 확인했어요";
+  }
   if (!input.questionsExhausted) {
     return "아래 질문에 답하면 신청 가능 여부를 더 확인할 수 있어요";
   }

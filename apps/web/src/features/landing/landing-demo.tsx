@@ -26,7 +26,7 @@ export function LandingDemo({ comparisonCount }: { comparisonCount: number }) {
   return (
     <figure
       className="relative mx-auto w-full max-w-[480px] pb-[72px] text-left"
-      aria-label="사업자번호 확인부터 지원서 자동 완성까지 이어지는 창업노트 사용 예시"
+      aria-label="사업자 정보 확인부터 매칭 조건 검토와 지원서 작성까지 이어지는 예시"
     >
       <div
         aria-hidden
@@ -127,7 +127,7 @@ export function LandingDemo({ comparisonCount }: { comparisonCount: number }) {
           </Alert>
 
           <Badge className="landing-demo-n4 mt-3.5 h-auto rounded-full bg-brand-mint-soft px-4 py-2 text-sm font-extrabold whitespace-normal text-brand-mint-ink">
-            HWP 신청서 12칸 자동 완성
+            HWP 신청서 입력 제안 검토 · 예시
             <span className="font-semibold text-text-secondary">· 내려받기만 하면 끝</span>
           </Badge>
         </div>

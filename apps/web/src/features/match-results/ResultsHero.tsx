@@ -19,6 +19,9 @@ export function ResultsHero({
   coverageDelta,
   empty = false,
   questionsExhausted = false,
+  answeredCurrentQuestion = false,
+  savedCompany = false,
+  companyName = null,
 }: {
   teaser: ProductTeaserResult;
   onSave: () => void;
@@ -27,6 +30,10 @@ export function ResultsHero({
   empty?: boolean;
   /** 물어볼 질문이 소진된 상태(teaser.nextQuestion === null) — 게이지 캡션을 분기한다. */
   questionsExhausted?: boolean;
+  /** 서버가 같은 질문을 다시 계획했지만 현재 결과 세션에서 이미 답한 상태. */
+  answeredCurrentQuestion?: boolean;
+  savedCompany?: boolean;
+  companyName?: string | null;
 }) {
   const groups = groupMatchesForDisplay(teaser.matches);
   const coverage = matchingProfileCoverage(teaser);
@@ -37,6 +44,11 @@ export function ResultsHero({
 
   return (
     <section>
+      {savedCompany ? (
+        <p className="mb-3 text-sm text-text-secondary">
+          {companyName || "이름 미등록 회사"}의 저장된 정보 기준 · 회사 변경은 설정에서 할 수 있어요
+        </p>
+      ) : null}
       {empty ? null : (
         <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
           <div>
@@ -62,7 +74,7 @@ export function ResultsHero({
             disabled={saving}
             className="mt-1.5 hidden w-fit shrink-0 border-surface-muted-hover bg-card text-text-nav sm:inline-flex"
           >
-            {saving ? "저장 중…" : "결과 저장하기"}
+            {saving ? "처리 중…" : savedCompany ? "내 대시보드로 이동" : "결과 저장하기"}
           </Button>
         </div>
       )}
@@ -72,7 +84,11 @@ export function ResultsHero({
           pct={coverage.pct}
           {...(coverageDelta && coverageDelta > 0 ? { delta: `+${coverageDelta}개` } : {})}
           label={profileCoverageLabel(coverage)}
-          caption={resultsCoverageCaption({ questionsExhausted, hasActionableMatches })}
+          caption={resultsCoverageCaption({
+            questionsExhausted,
+            hasActionableMatches,
+            answeredCurrentQuestion,
+          })}
           meta={`전체 기업정보 ${coverage.total}개 중 ${coverage.known}개 확인`}
         />
       </div>

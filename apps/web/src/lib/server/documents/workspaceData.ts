@@ -18,6 +18,7 @@ import type {
   MissingFieldQuestion,
 } from "@cunote/contracts";
 import type { CompanyAccess } from "../auth/companyGuard";
+import { canWriteCompany, CompanyAccessForbiddenError } from "../auth/companyAccessPolicy";
 import { matchFieldLessonTips, type FieldLessonTipsDto } from "../knowledge/lessonContext";
 import {
   loadConnectedDocumentFields,
@@ -127,6 +128,10 @@ export async function loadGrantWorkspaceData(input: {
   requestedDocumentKey?: string | null;
 }): Promise<WorkspaceData> {
   const { sheet, access } = input;
+  // 작성 화면 진입은 초안 ensure·프로필 seed를 포함하므로 읽기 권한만으로 실행하지 않는다.
+  if (!canWriteCompany(access.role)) {
+    throw new CompanyAccessForbiddenError("지원서를 작성·저장할 권한이 없습니다.", "company_write_forbidden");
+  }
   const grant: WorkspaceGrantMeta = {
     id: sheet.grant.id,
     title: sheet.grant.title,

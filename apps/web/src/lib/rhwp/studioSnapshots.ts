@@ -1,3 +1,4 @@
+import { companyScopedFetch } from "@/lib/navigation/companyContext";
 import type { ActionResult } from "@cunote/contracts";
 import type { RhwpDocumentFormat } from "./client";
 
@@ -61,7 +62,7 @@ export async function persistStudioSnapshot(
   form.set("materializedAnswers", JSON.stringify(input.materializedAnswers));
   form.set("verification", JSON.stringify(input.verification ?? {}));
 
-  const response = await fetch(
+  const response = await companyScopedFetch(
     `/api/web/document-drafts/${encodeURIComponent(input.draftId)}/studio-snapshots`,
     {
       method: "POST",

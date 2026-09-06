@@ -1,3 +1,4 @@
+import { companyScopedFetch } from "@/lib/navigation/companyContext";
 import type { ActionResult } from "@cunote/contracts";
 import type { DocumentEditAnchor } from "./documentAgentContract";
 import type {
@@ -61,7 +62,7 @@ export async function transitionDocumentAgentSuggestion(input: {
 }
 
 async function requestJson<T>(url: string, init: RequestInit): Promise<T> {
-  const response = await fetch(url, { ...init, cache: "no-store" });
+  const response = await companyScopedFetch(url, { ...init, cache: "no-store" });
   const payload = (await response.json()) as ActionResult<T>;
   if (!response.ok || !payload.ok || payload.data === undefined) {
     throw new DocumentAgentApiError(

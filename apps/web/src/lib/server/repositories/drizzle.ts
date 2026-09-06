@@ -1,3 +1,4 @@
+import { assertCompanyProfileUnchanged } from "./companyProfileConcurrency";
 import {
   and,
   asc,
@@ -80,7 +81,7 @@ import { grantServingVisiblePredicate } from "@/lib/server/grantServingVisibilit
 import {
   isPromotionItemServingEligible,
   resolvePromotionServingEvidence,
-} from "@/lib/server/analysis-lab/promotion-serving";
+} from "@/lib/server/analysis-serving/promotionServing";
 import {
   activeGrantApplyEndCutoff,
   isClearlyStaleUndatedGrant,
@@ -617,6 +618,19 @@ class DrizzleCompanyRepository implements CompanyRepository {
     const now = new Date();
     const rows = encodeCompanyProfileRows(input.companyId, input.profile, now, input.userId);
     const [company, profileRows] = await this.transactionWithOptionalUser(input.userId, async (tx) => {
+      // 모든 profile save가 같은 회사 행을 잠근다. 외부 조회·매칭 계산은 잠금 밖에서 수행한다.
+      const [lockedCompany] = await tx.select().from(schema.companies)
+        .where(eq(schema.companies.id, input.companyId)).for("update");
+      if (!lockedCompany) throw new Error("회사를 찾지 못했습니다.");
+      if (input.expectedProfile !== undefined) {
+        const currentRows = await tx.select().from(schema.companyProfiles).where(and(
+          eq(schema.companyProfiles.companyId, input.companyId),
+          input.userId
+            ? or(isNull(schema.companyProfiles.userId), eq(schema.companyProfiles.userId, input.userId))
+            : isNull(schema.companyProfiles.userId),
+        ));
+        assertCompanyProfileUnchanged(decodeCompanyProfileRows(lockedCompany, currentRows), input.expectedProfile);
+      }
       const kind: "active" | "preliminary" = input.profile.is_preliminary ? "preliminary" : "active";
       const [updatedCompany] = await tx
         .update(schema.companies)
@@ -645,12 +659,25 @@ class DrizzleCompanyRepository implements CompanyRepository {
       const [createdCompany] = await tx
         .insert(schema.companies)
         .values({
+          ...(input.creationId ? { id: input.creationId } : {}),
           kind,
           name: input.profile.name ?? null,
           createdBy: input.userId,
         })
+        .onConflictDoNothing({ target: schema.companies.id })
         .returning();
-      if (!createdCompany) throw new Error("회사 생성 결과가 없습니다.");
+      if (!createdCompany) {
+        if (!input.creationId) throw new Error("회사 생성 결과가 없습니다.");
+        const [existing] = await tx.select({ company: schema.companies }).from(schema.companies)
+          .innerJoin(schema.userCompany, and(eq(schema.userCompany.companyId, schema.companies.id), eq(schema.userCompany.userId, input.userId)))
+          .where(and(eq(schema.companies.id, input.creationId), eq(schema.companies.createdBy, input.userId), eq(schema.userCompany.role, "owner"))).limit(1);
+        if (!existing) throw Object.assign(new Error("이 저장 요청의 기존 회사에 접근할 수 없습니다."), { status: 403, code: "company_create_replay_forbidden" });
+        const existingRows = await tx.select().from(schema.companyProfiles).where(and(
+          eq(schema.companyProfiles.companyId, input.creationId),
+          or(isNull(schema.companyProfiles.userId), eq(schema.companyProfiles.userId, input.userId)),
+        ));
+        return [existing.company, existingRows] as const; // 기존 프로필·소속은 절대 덮어쓰지 않는다.
+      }
 
       await tx.insert(schema.userCompany).values({
         userId: input.userId,

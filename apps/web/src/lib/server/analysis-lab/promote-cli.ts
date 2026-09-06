@@ -25,9 +25,9 @@ import {
 } from "./promote";
 import { getCunoteDb, type CunoteDb } from "../db/client";
 import * as schema from "../db/schema";
+import { prepareGrantApplicationPrecompute } from "./application-precompute-prepare";
 import {
   applyPreparedGrantApplicationPrecompute,
-  prepareGrantApplicationPrecompute,
   type PreparedGrantApplicationPrecompute,
 } from "../documents/applicationPrecomputeMaterialization";
 import { expandConfirmedGrantComponentIds } from "../ingestion/grantRevisionInvalidation";

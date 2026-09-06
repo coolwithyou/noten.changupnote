@@ -3535,3 +3535,10 @@ export const creditReconciliationRuns = pgTable("credit_reconciliation_runs", {
 }, (table) => ({
   dateIdx: index("credit_recon_runs_date_idx").on(table.runDate, table.scope),
 }));
+
+/** 승격 revision별 최초 카드 노출 수신. 사용자·회사 식별값은 저장하지 않는다. */
+export const productPromotionExposures = pgTable("product_promotion_exposures", {
+  promotionItemId: uuid("promotion_item_id").primaryKey()
+    .references(() => analysisLabPromotionItems.id, { onDelete: "restrict" }),
+  firstReceivedAt: timestamp("first_received_at", { withTimezone: true }).defaultNow().notNull(),
+});

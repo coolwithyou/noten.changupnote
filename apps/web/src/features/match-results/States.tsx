@@ -81,11 +81,14 @@ export function NoMatchingGrantsState({
   );
 }
 
-export function ErrorState({ error, onRetry }: { error: TeaserError | null; onRetry?: (() => void) | undefined }) {
+export function ErrorState({ error, onRetry, owned = false }: { error: TeaserError | null; onRetry?: (() => void) | undefined; owned?: boolean }) {
   const isBizIssue = error?.code === "invalid_biz_no";
+  const needsLogin = owned && error?.code === "auth_required";
   const reason = error?.message ?? TEASER_FALLBACK_MESSAGE;
-  const title = isBizIssue ? "사업자번호를 다시 확인해 주세요" : "잠시 후 다시 시도해 주세요";
-  const steps = isBizIssue
+  const title = needsLogin ? "저장된 정보를 보려면 로그인해주세요" : owned ? "저장된 정보를 불러오지 못했어요" : isBizIssue ? "사업자번호를 다시 확인해 주세요" : "잠시 후 다시 시도해 주세요";
+  const steps = owned
+    ? ["이 회사를 등록한 계정으로 로그인했는지 확인해주세요.", "회사 접근 권한이 바뀌었다면 설정에서 접근 가능한 회사를 선택해주세요."]
+    : isBizIssue
     ? [
         "사업자번호 10자리를 정확히 입력했는지 확인해 주세요.",
         "휴업·폐업 상태이거나 아직 등록되지 않은 번호일 수 있어요.",
@@ -123,20 +126,20 @@ export function ErrorState({ error, onRetry }: { error: TeaserError | null; onRe
         </div>
 
         <div className="flex flex-col gap-2.5 sm:flex-row">
-          {!isBizIssue && onRetry ? (
+          {!isBizIssue && !needsLogin && onRetry ? (
             <Button type="button" size="lg" onClick={onRetry} className="flex-1">
               <RotateCcw data-icon="inline-start" />
               다시 시도하기
             </Button>
           ) : null}
           <Link
-            href="/"
+            href={needsLogin ? `/login?${new URLSearchParams({ callbackUrl: typeof window === "undefined" ? "/matches" : `${window.location.pathname}${window.location.search}${window.location.hash}` })}` : owned ? "/settings" : "/"}
             className={cn(
               buttonVariants({ size: "lg", variant: !isBizIssue && onRetry ? "outline" : "default" }),
               "flex-1",
             )}
           >
-            사업자번호 다시 입력
+            {needsLogin ? "로그인하고 이어가기" : owned ? "회사 설정 확인" : "사업자번호 다시 입력"}
           </Link>
         </div>
 

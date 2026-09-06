@@ -28,6 +28,7 @@ const entrypointCallees = [
   "loadProductCompanyPreview",
   "loadProductDashboard",
   "loadProductTeaser",
+  "loadOwnedCompanyMatching",
   "loadServiceDashboard",
   "loadServiceApplySheet",
   "resolveProductCompanyProfile",

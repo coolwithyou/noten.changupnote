@@ -3,6 +3,7 @@ import type {
   CompanyProfile,
   MatchingProfileAnswerRequest,
   MatchingProfileView,
+  OwnedCompanyMatchingResult,
   ProfileQuestionEventReceiptDto,
   ProfileQuestionRefreshDto,
   ProfileUpdateImpactDto,
@@ -26,6 +27,10 @@ import {
   resolveProductCompanyProfile,
 } from "@/lib/server/serviceData";
 import { buildMatchingProfileView } from "./resolveProductCompanyProfile";
+import { buildOwnedCompanyMatchingSnapshot } from "./productMatchSnapshot";
+import { annotateMatchCardConfirmationQuestions } from "@/lib/server/matches/annotateConfirmationQuestions";
+import { matchingProfileRevision, CompanyProfileConflictError } from "../repositories/companyProfileConcurrency";
+import { annotateProductExposure } from "../productReadiness/exposure";
 
 const OPERATIONAL_DIMENSIONS = new Set<string>(OPERATIONAL_PROFILE_DIMENSIONS);
 
@@ -35,6 +40,7 @@ export interface ApplyCompanyProfileAnswerInput {
   answer: MatchingProfileAnswerRequest;
   questionSessionId?: string;
   asOf?: Date;
+  expectedProfileRevision?: string;
 }
 
 export interface ApplyCompanyProfileAnswerResult {
@@ -44,6 +50,7 @@ export interface ApplyCompanyProfileAnswerResult {
   refresh: ProfileQuestionRefreshDto;
   event: ProfileQuestionEventReceiptDto;
   initialMatch: CompanyInitialMatchResult;
+  matching: OwnedCompanyMatchingResult;
 }
 
 export class CompanyProfileAnswerError extends Error {
@@ -80,6 +87,9 @@ export async function applyCompanyProfileAnswer(
   if (!current) {
     throw new CompanyProfileAnswerError("company_not_found", "회사를 찾지 못했습니다.", 404, "companyId");
   }
+  if (input.expectedProfileRevision !== undefined && input.expectedProfileRevision !== matchingProfileRevision(before.profile)) {
+    throw new CompanyProfileConflictError();
+  }
 
   // 답변 전후 판정·응답 카드·저장 상태는 동일한 공고별 확인 답변과 기준일을 사용한다.
   // 확인 답변을 읽지 못했을 때는 프로필 저장 전에 실패해 부분 반영을 피한다.
@@ -90,10 +100,16 @@ export async function applyCompanyProfileAnswer(
 
   const updatedStoredProfile = applyAnswer(current, answer, asOf);
   const effectiveProfile = applyAnswer(before.profile, answer, asOf);
+  const profileView = buildMatchingProfileView(effectiveProfile, asOf.toISOString());
+  const matching = buildOwnedCompanyMatchingSnapshot({
+    ...matchContext, companyId: input.companyId,
+    resolution: { profile: effectiveProfile, view: profileView }, grants,
+  });
   await repositories.companies.saveCompanyProfile({
     companyId: input.companyId,
     userId: input.userId,
     profile: updatedStoredProfile,
+    expectedProfile: current,
   });
 
   const impact = evaluateProfileUpdateImpact({
@@ -131,10 +147,17 @@ export async function applyCompanyProfileAnswer(
     }),
   ]);
   initialMatch.matches = annotatedMatches;
+  matching.teaser.matches = await bestEffortMatchCardAnnotation(matching.teaser.matches, async (matches) =>
+    annotateMatchCardConfirmationQuestions(await annotateMatchCardWriteSupport(matches)));
+  matching.teaser.matches = await annotateProductExposure(matching.teaser.matches, { ...input, grants });
+  const byId = new Map(matching.teaser.matches.map((match) => [match.grantId, match]));
+  matching.teaser.recommendableMatches = matching.teaser.recommendableMatches?.map((match) => byId.get(match.grantId) ?? match) ?? [];
+  matching.teaser.reviewNeededMatches = matching.teaser.reviewNeededMatches?.map((match) => byId.get(match.grantId) ?? match) ?? [];
 
   return {
     profile: effectiveProfile,
-    profileView: buildMatchingProfileView(effectiveProfile, asOf.toISOString()),
+    profileView,
+    matching,
     impact,
     refresh,
     event,
@@ -209,6 +232,7 @@ function applyAnswer(
     sourceKind: "self_declared",
     provider: "cunote_profile_question",
     asOf: asOf.toISOString(),
+    observation: { scope: "user", persistenceClass: "portable_user_answer" },
   });
 }
 

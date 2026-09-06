@@ -64,11 +64,15 @@ export interface SaveCompanyProfileInput {
   companyId: string;
   profile: CompanyProfile;
   userId?: string;
+  /** 읽기 이후 다른 쓰기가 있었으면 전체 프로필 교체를 거절한다. 저장 트랜잭션 안에서 검사. */
+  expectedProfile?: CompanyProfile;
 }
 
 export interface CreateCompanyInput {
   profile: CompanyProfile;
   userId: string;
+  /** 서버가 사용자·저장 의도·요청 내용에 결속해 만든 ID. 클라이언트 ID를 그대로 받지 않는다. */
+  creationId?: string;
 }
 
 export interface VerifyCompanyInput {

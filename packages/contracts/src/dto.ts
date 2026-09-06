@@ -228,6 +228,17 @@ export interface ProductTeaserResult extends TeaserResult {
   profileView: MatchingProfileView;
 }
 
+/** 계정 소유권 검증 뒤에만 반환하는 저장 프로필 기반 매칭. 익명 티저와 구분한다. */
+export interface OwnedCompanyMatchingResult {
+  /** 소유 회사 화면의 명시적 문맥. 익명 티저에는 포함하지 않는다. */
+  companyName?: string | null;
+  /** 표시한 정보의 낙관적 동시성 토큰. 기준 시각 자체는 포함하지 않는다. */
+  profileRevision?: string;
+  companyId: string;
+  teaser: ProductTeaserResult;
+  unknownDimensions: CriterionDimension[];
+}
+
 export interface TeaserSearchContext {
   /** 매칭 판정 기준 시각. */
   asOf: string;
@@ -238,6 +249,8 @@ export interface TeaserSearchContext {
 }
 
 export interface MatchCard {
+  /** 인증된 결과의 승격 결속 노출 영수증. 표시·매칭·사용자 행동의 필수값은 아니다. */
+  exposureToken?: string;
   grantId: string;
   source: Grant["source"];
   sourceId: string;

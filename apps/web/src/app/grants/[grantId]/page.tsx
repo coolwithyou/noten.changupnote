@@ -7,6 +7,8 @@ import {
 } from "@/lib/server/adminGrantSimulation";
 import { grantSimulationCallbackPath } from "@/lib/grantSimulationNavigation";
 import { requireCompanyAccess } from "@/lib/server/auth/companyGuard";
+import { requestCompanyScope } from "@/lib/server/auth/requestCompanyScope";
+import { withCompanyContext } from "@/lib/navigation/companyContext";
 import { redirectOnAuthRequired } from "@/lib/server/auth/pageRedirect";
 import { fallbackHeaderUserForDemoAccess, getOptionalHeaderUser } from "@/lib/server/auth/session";
 import { getRemainingAssistantUses } from "@/lib/server/credits/remainingUses";
@@ -42,7 +44,7 @@ export default async function GrantDetailPage({ params, searchParams }: GrantDet
     : null;
   if (requestedAdminPreview && !adminIdentity) notFound();
   if (virtualScenario && adminIdentity) notFound();
-  const access = virtualScenario || adminIdentity ? null : await loadGrantAccess(grantId);
+  const access = virtualScenario || adminIdentity ? null : await loadGrantAccess(grantId, query.companyId);
   const handoffKey = crypto.randomUUID();
   const sheet = adminIdentity
     ? await loadServiceApplySheet(grantId, { simulationProfile: buildGrantSimulationCompanyProfile() })
@@ -71,6 +73,7 @@ export default async function GrantDetailPage({ params, searchParams }: GrantDet
   return (
     <AppShell user={user}>
       <GrantOverviewView
+        companyId={access?.companyId ?? null}
         sheet={sheet}
         lessonGuide={lessonGuide}
         previewAvailability={previewAvailability}
@@ -181,11 +184,13 @@ async function loadLessonGuide(title: string, agency: string | null) {
   }
 }
 
-async function loadGrantAccess(grantId: string) {
+async function loadGrantAccess(grantId: string, companyId?: unknown) {
+  const scope = requestCompanyScope(companyId);
   try {
-    return await requireCompanyAccess();
+    return await requireCompanyAccess(scope);
   } catch (error) {
-    redirectOnAuthRequired(error, `/grants/${encodeURIComponent(grantId)}`);
+    const path = `/grants/${encodeURIComponent(grantId)}`;
+    redirectOnAuthRequired(error, scope.companyId ? withCompanyContext(path, scope.companyId) : path);
   }
 }
 

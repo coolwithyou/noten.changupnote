@@ -38,6 +38,7 @@ export function GrantOverviewView({
   virtualCompanyBizNo = null,
   adminPreview = false,
   handoffKey = null,
+  companyId = null,
 }: {
   sheet: ApplySheet;
   lessonGuide?: GrantLessonGuideDto | null;
@@ -52,9 +53,11 @@ export function GrantOverviewView({
   adminPreview?: boolean;
   /** 이 상세 렌더가 만든 ApplySheet를 workspace에서 재사용하기 위한 비민감 일회성 키. */
   handoffKey?: string | null;
+  companyId?: string | null;
 }) {
   const grantId = sheet.grant.id;
   const workspaceQuery = [
+    companyId ? `companyId=${encodeURIComponent(companyId)}` : null,
     virtualCompanyBizNo ? `biz=${encodeURIComponent(virtualCompanyBizNo)}` : null,
     adminPreview ? "adminPreview=1" : null,
     handoffKey ? `handoff=${encodeURIComponent(handoffKey)}` : null,

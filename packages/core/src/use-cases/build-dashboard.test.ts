@@ -101,6 +101,12 @@ for (const [year, expected] of [[2026, "ineligible"], [2030, "eligible"]] as con
 const confirmationsByGrantId = new Map([[grantId, [{ criterion_id: criterionId, disqualified: false }]]]);
 const updatedCompany: CompanyProfile = { revenue_krw: 10_000_000, confidence: { revenue: 0.6 } };
 const confirmedContext = { grants, company: updatedCompany, confirmationsByGrantId };
+const ownedTeaser = buildTeaser({ ...confirmedContext, asOf: new Date("2026-07-15T00:00:00Z") });
+assert.equal(ownedTeaser.matches[0]?.eligibility, "eligible");
+assert.equal(ownedTeaser.matches[0]?.userConfirmedCount, 1);
+assert.equal(ownedTeaser.counts.openNow, 1);
+assert.equal(ownedTeaser.nextQuestion, null);
+assert.equal(buildTeaser({ company, grants }).counts.conditional, 1, "익명 티저에 소유 회사 확인 답변을 흘리지 않는다");
 assert.equal(buildInitialCompanyMatch(confirmedContext).matches[0]?.eligibility, "eligible",
   "다른 프로필 답변 뒤에도 공고별 기존 확인 답변을 유지한다");
 assert.equal(planMatchStateRefresh(confirmedContext).states[0]?.eligibility, "eligible");

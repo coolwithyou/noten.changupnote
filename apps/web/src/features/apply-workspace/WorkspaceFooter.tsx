@@ -11,6 +11,7 @@
  * 기본 경로는 인증된 원본 bytes에 accepted|edited만 rhwp로 적용하고 실제 산출물을 재로드 검증한다.
  * rhwp 실패 + HWPX 템플릿 가능 문서만 기존 서버 `{format:"hwpx"}` 내보내기로 폴백한다.
  */
+import { companyScopedFetch } from "@/lib/navigation/companyContext";
 import { useState } from "react";
 import { Download, Loader2 } from "lucide-react";
 import { toast } from "sonner";
@@ -140,7 +141,7 @@ async function downloadWithRhwp(input: {
 }
 
 async function downloadHwpxFallback(draftId: string): Promise<void> {
-  const response = await fetch(`/api/web/document-drafts/${encodeURIComponent(draftId)}/download`, {
+  const response = await companyScopedFetch(`/api/web/document-drafts/${encodeURIComponent(draftId)}/download`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ format: "hwpx" }),

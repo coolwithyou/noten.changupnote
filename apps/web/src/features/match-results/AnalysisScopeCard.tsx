@@ -53,7 +53,7 @@ export function AnalysisScopeCard({
         ))}
       </div>
       <p className="mt-3 text-xs leading-5 text-text-tertiary">
-        아래에는 자동 검수와 승격을 통과해 실제 판정할 수 있는 공고만 보여드려요.
+        아래에는 현재 매칭에 사용할 수 있는 공고를 보여드려요. 매칭 조건 확인과 신청서 편집·저장 준비는 별개예요.
       </p>
     </section>
   );

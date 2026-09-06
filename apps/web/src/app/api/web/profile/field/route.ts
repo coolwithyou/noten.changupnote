@@ -1,6 +1,7 @@
 import type { ActionResult, MatchingProfileAnswerRequest } from "@cunote/contracts";
 import { NextRequest, NextResponse } from "next/server";
 import { requireCompanyAccess } from "@/lib/server/auth/companyGuard";
+import { requestCompanyScope } from "@/lib/server/auth/requestCompanyScope";
 import { webActionError } from "@/lib/server/auth/webActionError";
 import {
   applyCompanyProfileAnswer,
@@ -11,6 +12,8 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 interface ProfileFieldRequest {
+  expectedProfileRevision?: unknown;
+  companyId?: unknown;
   field?: MatchingProfileAnswerRequest["field"];
   value?: unknown;
   mode?: MatchingProfileAnswerRequest["mode"];
@@ -21,10 +24,11 @@ interface ProfileFieldRequest {
 
 export async function POST(request: NextRequest) {
   try {
-    const [access, body] = await Promise.all([
-      requireCompanyAccess({ permission: "write" }),
-      readBody(request),
-    ]);
+    const body = await readBody(request);
+    const access = await requireCompanyAccess({ permission: "write", ...requestCompanyScope(body.companyId) });
+    if (body.expectedProfileRevision !== undefined && (typeof body.expectedProfileRevision !== "string" || !/^[0-9a-f]{64}$/.test(body.expectedProfileRevision))) {
+      return NextResponse.json({ ok: false, error: { code: "invalid_profile_revision", message: "프로필 버전을 확인해주세요." } }, { status: 400 });
+    }
     const questionSessionId = validUuid(body.questionSessionId) ??
       validUuid(request.cookies.get("cunote_question_session")?.value) ??
       crypto.randomUUID();
@@ -34,6 +38,7 @@ export async function POST(request: NextRequest) {
       answer: toAnswer(body),
       questionSessionId,
       asOf: new Date(),
+      ...(typeof body.expectedProfileRevision === "string" ? { expectedProfileRevision: body.expectedProfileRevision } : {}),
     });
 
     const response = NextResponse.json<ActionResult<ApplyCompanyProfileAnswerResult>>({ ok: true, data });

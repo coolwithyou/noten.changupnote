@@ -1,14 +1,12 @@
 import { and, desc, eq } from "drizzle-orm";
-import {
-  APPLICATION_ROUNDTRIP_VERSION,
-  type RoundtripFailureCode,
-} from "@/lib/server/analysis-lab/application-roundtrip/contract";
+import type { RoundtripFailureCode } from "@/lib/server/application-analysis/contract";
+import { APPLICATION_ROUNDTRIP_VERSION, APPLICATION_PRECOMPUTE_VERSION_PREFIX } from "./applicationAnalysisContract";
+export { APPLICATION_PRECOMPUTE_VERSION_PREFIX } from "./applicationAnalysisContract";
 import { getCunoteDb, type CunoteDbSession } from "../db/client";
 import * as schema from "../db/schema";
 import { FIELD_CANDIDATES_ARTIFACT_KIND } from "./fieldCandidateStore";
 
 export const APPLICATION_PRECOMPUTE_ENGINE = "kordoc-roundtrip";
-export const APPLICATION_PRECOMPUTE_VERSION_PREFIX = "kordoc-rhwp-application-precompute-v1";
 
 export type ApplicationPrecomputeStatus =
   | "complete"

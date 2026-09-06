@@ -11,6 +11,7 @@ import {
 import type { MatchingProfileAnswerRequest, ProductTeaserResult } from "@cunote/contracts";
 import { PrecisionGauge } from "@/components/app/precision-gauge";
 import { Button } from "@/components/ui/button";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -74,6 +75,7 @@ export function DisqualificationSheet({
 }) {
   const [held, setHeld] = useState<Set<DisqualificationFlag>>(new Set());
   const [expandedAxis, setExpandedAxis] = useState<DisqualificationAxis | null>(null);
+  const [error, setError] = useState<string | null>(null);
   // 시트 진입 시점의 확인된 기업정보 수를 기준선으로 잡아 완료 컷에서 증가량을 표기한다.
   const [baselineKnown] = useState(() => matchingProfileCoverage(teaser).known);
 
@@ -99,8 +101,13 @@ export function DisqualificationSheet({
   }
 
   async function saveAxis(axis: DisqualificationAxis, heldSet: Set<DisqualificationFlag>) {
-    await onAnswer({ field: axis, value: { answers: buildAxisAnswers(axis, heldSet) }, mode: "replace" });
-    setExpandedAxis(null);
+    setError(null);
+    try {
+      await onAnswer({ field: axis, value: { answers: buildAxisAnswers(axis, heldSet) }, mode: "replace" });
+      setExpandedAxis(null);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "결격 답변을 반영하지 못했습니다.");
+    }
   }
 
   function markNone(axis: DisqualificationAxis) {
@@ -132,6 +139,7 @@ export function DisqualificationSheet({
 
       <ScrollArea className="min-h-0 flex-1">
         <div className="px-6 pt-4 pb-6">
+          {error ? <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert> : null}
           {allKnown ? (
             <CompletionView coverage={coverage} delta={delta} onClose={onClose} />
           ) : (

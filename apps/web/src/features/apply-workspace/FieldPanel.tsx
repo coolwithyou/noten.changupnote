@@ -8,6 +8,7 @@
  *
  * 진행 표시(confirmed/total 단일 축)는 이 패널이 아니라 WorkspaceView 상단 바에 있다(재정의 §2-①).
  */
+import { companyScopedFetch } from "@/lib/navigation/companyContext";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Check, Circle, CircleDot, Loader2, Sparkles } from "lucide-react";
@@ -409,7 +410,7 @@ function MissingFieldQuestions({
     }
     setPending(true);
     try {
-      const response = await fetch(`/api/web/grants/${encodeURIComponent(grantId)}/drafts`, {
+      const response = await companyScopedFetch(`/api/web/grants/${encodeURIComponent(grantId)}/drafts`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({

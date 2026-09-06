@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, type FormEvent, type RefObject } from "react";
-import type { ActionResult, CompanyPreviewResult, TeaserRequest } from "@cunote/contracts";
+import type { ActionResult, CompanyPreviewResult } from "@cunote/contracts";
 import { toast } from "sonner";
 import type { BusinessLookupSuggestion } from "@/lib/businessLookupSuggestions";
 import {
@@ -13,6 +13,8 @@ import {
 } from "@/lib/client/businessLookupSuggestions";
 import { recordLandingEvent } from "@/lib/client/landingEvents";
 import { safeInternalPath } from "@/lib/navigation/safeInternalPath";
+import { pendingCompanyStorage, readPendingCompanyRequest, resumePendingCompanySave } from "@/lib/client/companySaveHandoff";
+import { clearProfileDraft, profileDraftStorage, readProfileDraft, writeProfileDraft } from "@/features/match-results/profileDraft";
 import {
   isAcceptedLandingBizNo,
   isVirtualCompanyClientEnabled,
@@ -22,8 +24,6 @@ import {
   filterLandingLookupSuggestions,
   fmtBiz,
   onlyDigits,
-  readPendingTeaserRequest,
-  redirectToLoginForDashboard,
   messageForPreviewError,
   titleForPreviewError,
   type BizLookupModalState,
@@ -61,6 +61,7 @@ export function useBizLookup(): BizLookupController {
   const [deletingSuggestionIds, setDeletingSuggestionIds] = useState<ReadonlySet<string>>(() => new Set());
   const [lookup, setLookup] = useState<BizLookupModalState | null>(null);
   const lookupSeqRef = useRef(0);
+  const resumeStartedRef = useRef(false);
   const heroInputRef = useRef<HTMLInputElement | null>(null);
   // 마지막으로 포커스된 입력. hero/CTA 어느 폼에서 조작했든 그 입력으로 포커스를 복원한다.
   const activeInputRef = useRef<HTMLInputElement | null>(null);
@@ -78,12 +79,32 @@ export function useBizLookup(): BizLookupController {
   // 로그인 후 재개(resume) 플로우 — 마운트 1회.
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    if (params.get("resumeCompany") !== "1") return;
-    const resumeGrant = params.get("resumeGrant");
-    const resumeNext = safeInternalPath(params.get("resumeNext"));
-    clearResumeFlag(params);
-    const pending = readPendingTeaserRequest();
-    if (pending?.bizNo) void createCompanyAndOpenDashboard(pending, resumeGrant, resumeNext);
+    if (params.get("resumeCompany") !== "1" || resumeStartedRef.current) return;
+    resumeStartedRef.current = true;
+    const storage = pendingCompanyStorage();
+    const pending = readPendingCompanyRequest(storage);
+    if (pending?.bizNo && pending.answers?.length && readProfileDraft(profileDraftStorage(), pending.bizNo).length === 0) {
+      writeProfileDraft(profileDraftStorage(), pending.bizNo, pending.answers);
+    }
+    void resumePendingCompanySave(storage, {
+      grantId: params.get("resumeGrant"), next: params.get("resumeNext"),
+    }).then((result) => {
+      if (result.status === "saved") {
+        clearProfileDraft(profileDraftStorage(), result.bizNo);
+        clearResumeFlag(params);
+        window.location.assign(result.destination);
+      } else if (result.status === "login") {
+        window.location.assign(result.destination);
+      } else {
+        toast.error(result.message, {
+          duration: Infinity,
+          action: {
+            label: result.status === "uncertain" ? "저장 결과 확인" : "입력으로 돌아가기",
+            onClick: () => window.location.assign(result.recoveryPath),
+          },
+        });
+      }
+    });
   }, []);
 
   // 최근 조회 제안 — 로컬 먼저, 서버(로그인 시) 갱신.
@@ -252,36 +273,6 @@ export function useBizLookup(): BizLookupController {
     lookupSeqRef.current += 1; // 진행 중인 preview 응답은 무시
     setLookup(null);
     focusActiveInput();
-  }
-
-  async function createCompanyAndOpenDashboard(
-    requestBody: TeaserRequest,
-    resumeGrant?: string | null,
-    resumeNext?: string | null,
-  ) {
-    try {
-      const response = await fetch("/api/web/companies", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(requestBody),
-      });
-      const payload = (await response.json()) as {
-        ok?: boolean;
-        data?: { currentCompanyId?: string };
-        error?: { code?: string };
-      };
-      if (response.status === 401 && payload.error?.code === "auth_required") {
-        redirectToLoginForDashboard(resumeNext);
-        return;
-      }
-      if (response.ok && payload.ok && payload.data?.currentCompanyId) {
-        window.location.assign(
-          resumeGrant ? `/grants/${encodeURIComponent(resumeGrant)}` : resumeNext ?? "/dashboard",
-        );
-      }
-    } catch {
-      /* noop — 사용자는 입력으로 재시도 */
-    }
   }
 
   return {

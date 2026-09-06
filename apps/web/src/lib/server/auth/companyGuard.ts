@@ -10,6 +10,9 @@ import {
 import { readSelectedCompanyId } from "./companySelection";
 import { mockUserId } from "./mockIdentity";
 import { isMockAuthEnabled } from "./runtimePolicy";
+import { headers } from "next/headers";
+import { requestCompanyScope } from "./requestCompanyScope";
+import { COMPANY_CONTEXT_HEADER } from "@/lib/navigation/companyContext";
 
 export interface CompanyAccessOptions {
   companyId?: string;
@@ -19,8 +22,13 @@ export interface CompanyAccessOptions {
 export type CompanyAccess = CompanyAccessResult;
 
 export async function requireCompanyAccess(options: CompanyAccessOptions = {}): Promise<CompanyAccess> {
-  const selectedCompanyId = options.companyId ?? await readSelectedCompanyId();
-  const selectedFromCookie = !options.companyId && Boolean(selectedCompanyId);
+  const headerCompanyId = await readRequestCompanyId();
+  const explicitCompanyId = options.companyId ?? headerCompanyId;
+  if (options.companyId && headerCompanyId !== undefined && options.companyId !== headerCompanyId) {
+    requestCompanyScope(null); // 두 명시적 문맥이 다르면 어느 쪽도 임의 선택하지 않는다.
+  }
+  const selectedCompanyId = explicitCompanyId ?? await readSelectedCompanyId();
+  const selectedFromCookie = explicitCompanyId === undefined && Boolean(selectedCompanyId);
   const session = await getOptionalWebSession();
   if (session) {
     if (isDefaultMockSession(session.user.id) && !isAuthEnforced()) {
@@ -53,6 +61,13 @@ export async function requireCompanyAccess(options: CompanyAccessOptions = {}): 
     ...(selectedCompanyId ? { companyId: selectedCompanyId } : {}),
     ...(options.permission ? { permission: options.permission } : {}),
   });
+}
+
+async function readRequestCompanyId(): Promise<string | undefined> {
+  let value: string | null;
+  try { value = (await headers()).get(COMPANY_CONTEXT_HEADER); }
+  catch { return undefined; } // CLI/오프라인 adapter에는 Next 요청 문맥이 없다.
+  return value === null ? undefined : requestCompanyScope(value).companyId;
 }
 
 function isDefaultMockSession(userId: string): boolean {

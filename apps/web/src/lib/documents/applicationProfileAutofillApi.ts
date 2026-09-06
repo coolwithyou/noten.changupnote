@@ -1,4 +1,5 @@
 import type { ActionResult } from "@cunote/contracts";
+import { companyScopedFetch } from "@/lib/navigation/companyContext";
 import type {
   ApplicationAutofillProfile,
   ApplicationAutofillProfileInput,
@@ -22,7 +23,7 @@ export async function updateApplicationAutofillProfile(
 }
 
 async function requestProfile(draftId: string, init: RequestInit): Promise<ApplicationAutofillProfile> {
-  const response = await fetch(
+  const response = await companyScopedFetch(
     `/api/web/document-drafts/${encodeURIComponent(draftId)}/profile-autofill`,
     { ...init, cache: "no-store" },
   );

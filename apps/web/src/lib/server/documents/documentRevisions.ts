@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { detectHwpFormat } from "@cunote/core/documents/hwpx-fill";
 import type { CompanyAccess } from "../auth/companyGuard";
+import { canWriteCompany } from "../auth/companyAccessPolicy";
 import { getCunoteDb } from "../db/client";
 import * as schema from "../db/schema";
 import { createR2ObjectStorageFromEnv, type R2ObjectStorage } from "../storage/r2ObjectStorage";
@@ -101,6 +102,9 @@ export async function saveStudioSnapshot(
     storage?: R2ObjectStorage | null;
   } = {},
 ): Promise<StudioSnapshotSaveResult> {
+  if (!canWriteCompany(input.access.role)) {
+    throw new DocumentRevisionError("company_write_forbidden", "문서를 저장할 권한이 없습니다.", 403);
+  }
   validateSnapshotInput(input);
   const detectedFormat = detectSnapshotFormat(input.body);
   if (detectedFormat !== input.format) {

@@ -1,3 +1,4 @@
+import { companyScopedFetch } from "@/lib/navigation/companyContext";
 import type { ActionResult } from "@cunote/contracts";
 import type { ScheduleSuggestionRequest, ScheduleTablePlan } from "./scheduleTableContract";
 
@@ -11,7 +12,7 @@ export async function requestScheduleSuggestion(
   draftId: string,
   input: ScheduleSuggestionRequest,
 ): Promise<ScheduleSuggestionResponse> {
-  const response = await fetch(
+  const response = await companyScopedFetch(
     `/api/web/document-drafts/${encodeURIComponent(draftId)}/schedule-suggestions`,
     {
       method: "POST",

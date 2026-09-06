@@ -28,14 +28,14 @@ export function LandingHero({ openCount, comparisonCount }: { openCount: number;
           </Badge>
         ) : null}
 
-        <h1 className="mt-6 text-[38px] leading-[1.25] font-extrabold tracking-[-1px] text-balance text-ink-strong sm:mt-[26px] sm:text-[54px] sm:tracking-[-1.4px]">
-          사업자번호만 넣으면,
+        <h1 className="mt-6 text-[38px] leading-[1.25] font-extrabold tracking-[-1px] break-keep text-balance text-ink-strong sm:mt-[26px] sm:text-[54px] sm:tracking-[-1.4px]">
+          내 사업자 정보를 완성하고,
           <br />
-          받을 수 있는 <span className="bg-landing-text bg-clip-text text-transparent">지원사업이 보여요</span>
+          <span className="bg-landing-text bg-clip-text text-transparent">지원사업 조건을 확인하세요</span>
         </h1>
 
-        <p className="mt-4 text-base text-text-secondary sm:text-[17px]">
-          회원가입 없이, 결과까지 30초 — 지금 내 회사로 바로 확인해보세요
+        <p className="mt-4 text-base break-keep text-text-secondary sm:text-[17px]">
+          사업자번호로 시작해요. 필요한 정보를 보완하고, 매칭 이유를 확인해보세요.
         </p>
 
         <div className="mt-8 w-full sm:mt-9">

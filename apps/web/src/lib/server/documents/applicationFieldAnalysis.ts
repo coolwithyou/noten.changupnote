@@ -2,12 +2,12 @@ import { createHash } from "node:crypto";
 import { and, eq, sql } from "drizzle-orm";
 import type { DocumentFieldType } from "@cunote/contracts";
 import type { ReconciledField } from "@cunote/core";
-import type { RoundtripParsedDocument } from "@/lib/server/analysis-lab/application-roundtrip/contract";
+import type { RoundtripParsedDocument } from "@/lib/server/application-analysis/contract";
 import type { CompanyAccess } from "../auth/companyGuard";
 import { getCunoteDb, type CunoteDbSession } from "../db/client";
 import * as schema from "../db/schema";
-import { analyzeRoundtripDocument } from "../analysis-lab/application-roundtrip/analyze-document";
-import { likelyApplicationRole, normalizeRoundtripLabel } from "../analysis-lab/application-roundtrip/core";
+import { analyzeRoundtripDocument } from "../application-analysis/analyze-document";
+import { likelyApplicationRole, normalizeRoundtripLabel } from "../application-analysis/core";
 import { applyReconciledFields } from "./applyReconciledFields";
 import {
   APPLICATION_FIELD_PARSER_VERSION,

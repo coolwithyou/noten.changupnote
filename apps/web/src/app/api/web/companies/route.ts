@@ -7,6 +7,7 @@ import { AuthRequiredError, getOptionalWebSession, isAuthEnforced } from "@/lib/
 import { webActionError } from "@/lib/server/auth/webActionError";
 import { getServiceRepositories, resolveAnonymousProductCompanyProfile } from "@/lib/server/serviceData";
 import { mockUserId } from "@/lib/server/auth/mockIdentity";
+import { companyCreationIdentity } from "@/lib/server/productProfile/companyCreationIdentity";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -46,10 +47,12 @@ export async function POST(request: Request) {
       resolveCreateCompanyUserId(),
       readCreateBody(request),
     ]);
+    const creationId = companyCreationIdentity(userId, request.headers.get("x-cunote-create-intent"), body);
     const resolution = await resolveAnonymousProductCompanyProfile(body, { asOf: new Date() });
     const company = await getServiceRepositories().companies.createCompany({
       userId,
       profile: resolution.profile,
+      ...(creationId ? { creationId } : {}),
     });
 
     const response = NextResponse.json<ActionResult<WebCompanyCreateResult>>({
