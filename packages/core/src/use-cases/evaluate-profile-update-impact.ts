@@ -1,5 +1,6 @@
 import type {
   CompanyProfile,
+  CriterionConfirmation,
   CriterionDimension,
   Eligibility,
   NormalizedGrant,
@@ -16,6 +17,8 @@ export interface EvaluateProfileUpdateImpactInput<TPayload = unknown> {
   afterProfile: CompanyProfile;
   dimension: CriterionDimension;
   windowLimit?: number;
+  asOf?: Date;
+  confirmationsByGrantId?: ReadonlyMap<string, CriterionConfirmation[]>;
 }
 
 /**
@@ -25,6 +28,7 @@ export interface EvaluateProfileUpdateImpactInput<TPayload = unknown> {
 export function evaluateProfileUpdateImpact<TPayload>(
   input: EvaluateProfileUpdateImpactInput<TPayload>,
 ): ProfileUpdateImpact {
+  const asOf = input.asOf ?? new Date();
   let targetedConditionalCount = 0;
   let dimensionResolvedGrantCount = 0;
   let conditionalToEligibleCount = 0;
@@ -34,8 +38,10 @@ export function evaluateProfileUpdateImpact<TPayload>(
   const refreshGrantIds: string[] = [];
 
   for (const grant of input.grants) {
-    const before = matchNormalizedGrant(grant, input.beforeProfile);
-    const after = matchNormalizedGrant(grant, input.afterProfile);
+    const confirmations = input.confirmationsByGrantId?.get(grantKey(grant.grant));
+    const context = { asOf, ...(confirmations ? { confirmations } : {}) };
+    const before = matchNormalizedGrant(grant, input.beforeProfile, context);
+    const after = matchNormalizedGrant(grant, input.afterProfile, context);
     const transition = `${before.eligibility}_to_${after.eligibility}`;
     transitionCounts[transition] = (transitionCounts[transition] ?? 0) + 1;
     if (matchStateChanged(before, after)) refreshGrantIds.push(grantKey(grant.grant));

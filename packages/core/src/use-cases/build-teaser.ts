@@ -40,7 +40,7 @@ export function buildTeaser<TPayload>({
 }: BuildTeaserOptions<TPayload>): TeaserResult {
   const matched = grants.map<MatchedGrant<TPayload>>((item) => ({
     item,
-    match: withMatchRanking(item, company, matchNormalizedGrant(item, company), { asOf }),
+    match: withMatchRanking(item, company, matchNormalizedGrant(item, company, { asOf }), { asOf }),
   }));
   const sorted = sortMatchedGrants(matched);
   // 자동 검수·승격이 끝나지 않은 공고의 불확실성은 OPS가 해소할 문제다.

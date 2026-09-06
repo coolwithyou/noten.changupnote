@@ -1,6 +1,7 @@
 import { appData, appNotImplemented, invalidAuthRequest } from "@/lib/server/appApi/envelope";
 import { issueAppTokens } from "@/lib/server/auth/appIssueToken";
 import { mockUserId } from "@/lib/server/auth/mockIdentity";
+import { isDevelopmentAuthAllowed } from "@/lib/server/auth/runtimePolicy";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -16,7 +17,7 @@ export async function POST(request: Request) {
   const email = body.email?.trim().toLowerCase();
   if (!email) return invalidAuthRequest("이메일이 필요합니다.", "email");
 
-  if (!isLoginAllowed()) {
+  if (!isDevelopmentAuthAllowed()) {
     return appNotImplemented("앱 이메일/PW 로그인 검증기");
   }
 
@@ -28,14 +29,6 @@ export async function POST(request: Request) {
   if (body.deviceId) tokenInput.deviceId = body.deviceId;
   const tokens = await issueAppTokens(tokenInput);
   return appData(tokens);
-}
-
-function isLoginAllowed(): boolean {
-  return (
-    process.env.CUNOTE_AUTH_MODE === "mock" ||
-    process.env.CUNOTE_APP_AUTH_ALLOW_DEV_LOGIN === "true" ||
-    process.env.NODE_ENV !== "production"
-  );
 }
 
 async function readBody(request: Request): Promise<LoginRequest> {

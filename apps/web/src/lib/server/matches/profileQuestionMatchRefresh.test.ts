@@ -107,6 +107,37 @@ assert.deepEqual(partialRefresh, {
   failedGrantIds: ["bizinfo:second-revenue-grant"],
 });
 
+const confirmedGrant = revenueGrant();
+confirmedGrant.grant.id = "confirmed-grant";
+confirmedGrant.criteria.push({
+  id: "prior-condition", dimension: "prior_award", kind: "exclusion", operator: "exists",
+  value: { scope: "self", self_kind: "current_similar", channel: "general" },
+  confidence: 1, source_span: "현재 유사 지원사업 참여 기업 제외",
+});
+const confirmationsByGrantId = new Map([["confirmed-grant", [{ criterion_id: "prior-condition", disqualified: false }]]]);
+const confirmedAfter: CompanyProfile = { revenue_krw: 80_000_000, confidence: { revenue: 0.6 } };
+const confirmedImpact = evaluateProfileUpdateImpact({
+  grants: [confirmedGrant], beforeProfile: {}, afterProfile: confirmedAfter,
+  dimension: "revenue", confirmationsByGrantId,
+});
+let confirmedSaveCount = 0;
+const confirmedRepositories = {
+  matches: {
+    async saveMatchState(input: Parameters<ServiceRepositories["matches"]["saveMatchState"]>[0]) {
+      confirmedSaveCount += 1;
+      assert.equal(input.match.eligibility, "eligible", "공용 상태 저장도 확인 답변을 반영한다");
+      assert.equal(input.match.rule_trace.find((row) => row.dimension === "prior_award")?.resolution, "confirmed_by_user");
+    },
+  },
+} as unknown as ServiceRepositories<{ fixture: true }>;
+const confirmedRefresh = await refreshProfileQuestionMatchStates({
+  repositories: confirmedRepositories, companyId: "company-1", stateScope: "company",
+  company: confirmedAfter, grants: [confirmedGrant], impact: confirmedImpact,
+  asOf: new Date("2026-07-12T00:00:00.000Z"), confirmationsByGrantId,
+});
+assert.equal(confirmedRefresh.status, "succeeded");
+assert.equal(confirmedSaveCount, 1);
+
 console.log("profile-question-match-refresh: ok");
 
 function revenueGrant(): NormalizedGrant<{ fixture: true }> {

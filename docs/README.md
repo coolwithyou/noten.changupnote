@@ -26,6 +26,7 @@
 
 ## 현재 구현 핸드오프
 
+- [현재 제품 방향과 순차 개선](./STATUS.md) — 사용자가 사업자 정보를 완성한 뒤 정밀 매칭·작성을 진행하는 현행 방향과 단계별 완료 기준
 - [Kordoc 선분석에서 RHWP 실시간 작성 가이드로 전환](./plans/2026-08-25-kordoc-rhwp-목표구조-전환.md) — 공고 분석의 verified authoring guide 발행과 draft/revision 단위 RHWP 편집을 독립 seam으로 만드는 목표 구조·단계·검증 정본
 - [공고 딥분석과 RHWP 작성 가이드 운영 가이드](./guides/deep-analysis-and-rhwp-authoring-guide-operations.md) — 현재 공고 분석·authoring guide 발행·RHWP 사용자 요청형 LLM 작성·비용/운영 경계
 - [지원서 작성 워크스페이스 디자인 핸드오프](./design/2026-08-21-apply-workspace-design-handoff/) — 데스크톱·모바일 화면 7종과 필드 도우미, 큰 대화 모달, Markdown 스트리밍, exact 필드 적용의 디자인 기능 가이드

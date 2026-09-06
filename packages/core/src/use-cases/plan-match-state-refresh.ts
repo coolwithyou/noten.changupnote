@@ -57,7 +57,7 @@ export function planMatchStateRefresh<TPayload>({
 }: PlanMatchStateRefreshOptions<TPayload>): MatchStateRefreshPlan {
   const states = grants.map<MatchStateRefreshItem>((item) => {
     const confirmations = confirmationsByGrantId?.get(grantKey(item.grant));
-    const match = matchNormalizedGrant(item, company, confirmations ? { confirmations } : {});
+    const match = matchNormalizedGrant(item, company, { asOf, ...(confirmations ? { confirmations } : {}) });
     const transitionWindow = calculateMatchTransitionWindow(match, { asOf });
     return {
       ...(companyId ? { companyId } : {}),

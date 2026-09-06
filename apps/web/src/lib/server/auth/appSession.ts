@@ -2,12 +2,13 @@ import { appError } from "@/lib/server/appApi/envelope";
 import { demoCompanyId } from "@/lib/server/repositories/runtime";
 import { getServiceRepositories } from "@/lib/server/serviceData";
 import {
-  CompanyAccessForbiddenError,
+  resolveDemoCompanyAccess,
   resolveCompanyAccessFromRecords,
   type CompanyAccessPermission,
 } from "./companyAccessPolicy";
 import { verifyAppJwt } from "./appTokens";
 import { mockUserEmail, mockUserId } from "./mockIdentity";
+import { isAuthEnforced, isMockAuthEnabled } from "./runtimePolicy";
 
 export interface AppSession {
   user: {
@@ -50,7 +51,7 @@ export async function requireAppSession(request: Request): Promise<AppSession> {
     };
   }
 
-  if (process.env.CUNOTE_AUTH_REQUIRED === "true") throw new AppAuthError();
+  if (isAuthEnforced()) throw new AppAuthError();
 
   return {
     user: {
@@ -69,11 +70,15 @@ export async function requireAppCompanyAccess(
 ): Promise<AppCompanyAccess> {
   const session = await requireAppSession(request);
   if (session.mode === "demo") {
-    const defaultCompanyId = demoCompanyId();
-    const requestedCompanyId = companyId ?? defaultCompanyId;
-    if (requestedCompanyId !== defaultCompanyId) throw new CompanyAccessForbiddenError();
+    const access = resolveDemoCompanyAccess({
+      defaultCompanyId: demoCompanyId(),
+      userId: session.user.id,
+      allowMockWrite: isMockAuthEnabled(),
+      ...(companyId ? { companyId } : {}),
+      ...(options.permission ? { permission: options.permission } : {}),
+    });
     return {
-      companyId: defaultCompanyId,
+      companyId: access.companyId,
       userId: session.user.id,
       deviceId: session.deviceId,
       mode: session.mode,

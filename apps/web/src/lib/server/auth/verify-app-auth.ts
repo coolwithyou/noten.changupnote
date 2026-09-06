@@ -14,6 +14,7 @@ import { getAppPreferencesStore } from "../appApi/preferencesStore";
 
 process.env.CUNOTE_REPOSITORY_ADAPTER = "runtime";
 process.env.CUNOTE_AUTH_REQUIRED = "false";
+process.env.CUNOTE_AUTH_MODE = "nextauth";
 process.env.CUNOTE_DEMO_COMPANY_ID = "00000000-0000-4000-8000-000000000202";
 
 const issued = await issueAppTokens({
@@ -76,6 +77,34 @@ await assert.rejects(
   (error) => error instanceof CompanyAccessForbiddenError,
   "demo app session must reject outside company ids",
 );
+
+await assert.rejects(
+  () => requireAppCompanyAccess(new Request("http://localhost"), demoCompanyId(), { permission: "write" }),
+  (error) => error instanceof CompanyAccessForbiddenError && error.code === "company_write_forbidden",
+  "anonymous demo app requests cannot write company data",
+);
+
+const previousVercelEnv = process.env.VERCEL_ENV;
+const previousAuthMode = process.env.CUNOTE_AUTH_MODE;
+try {
+  process.env.VERCEL_ENV = "production";
+  process.env.CUNOTE_AUTH_MODE = "mock";
+  await assert.rejects(
+    () => requireAppCompanyAccess(new Request("http://localhost")),
+    /앱 인증 토큰이 필요합니다/,
+    "production app access requires a token even with mock and AUTH_REQUIRED=false",
+  );
+  await assert.rejects(
+    () => issueDevAppOAuthTokens({ provider: "google", code: "fake-code" }),
+    /개발용 OAuth 인증은 운영에서 사용할 수 없습니다/,
+    "direct developer OAuth token issuance must also be closed in production",
+  );
+} finally {
+  if (previousVercelEnv === undefined) delete process.env.VERCEL_ENV;
+  else process.env.VERCEL_ENV = previousVercelEnv;
+  if (previousAuthMode === undefined) delete process.env.CUNOTE_AUTH_MODE;
+  else process.env.CUNOTE_AUTH_MODE = previousAuthMode;
+}
 
 const preferences = getAppPreferencesStore();
 const registered = await preferences.registerDevice(mockUserId(), {

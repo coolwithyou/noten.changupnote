@@ -123,8 +123,8 @@ export function buildBusinessNumberFirstResultReport<TPayload>(input: {
     const initialMatched: Array<MatchedGrant<TPayload>> = [];
     const companyPairs: PairObservation[] = [];
     for (const grant of input.grants) {
-      const initial = matchNormalizedGrant(grant, initialProfile);
-      const full = matchNormalizedGrant(grant, company.profile);
+      const initial = matchNormalizedGrant(grant, initialProfile, { asOf });
+      const full = matchNormalizedGrant(grant, company.profile, { asOf });
       const observation: PairObservation = { businessKind: company.businessKind, source: grant.grant.source, initial, full };
       pairs.push(observation);
       companyPairs.push(observation);

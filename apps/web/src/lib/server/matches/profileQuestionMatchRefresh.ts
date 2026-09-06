@@ -1,4 +1,4 @@
-import type { CompanyProfile, NormalizedGrant, ProfileQuestionRefreshDto } from "@cunote/contracts";
+import type { CompanyProfile, CriterionConfirmation, NormalizedGrant, ProfileQuestionRefreshDto } from "@cunote/contracts";
 import {
   planMatchStateRefresh,
   selectProfileUpdateRefreshGrants,
@@ -14,6 +14,7 @@ export async function refreshProfileQuestionMatchStates<TPayload>(input: {
   grants: Array<NormalizedGrant<TPayload>>;
   impact: ProfileUpdateImpact;
   asOf: Date;
+  confirmationsByGrantId?: ReadonlyMap<string, CriterionConfirmation[]>;
 }): Promise<ProfileQuestionRefreshDto> {
   const scopedGrants = selectProfileUpdateRefreshGrants(input.grants, input.impact);
   if (scopedGrants.length === 0) {
@@ -43,6 +44,7 @@ export async function refreshProfileQuestionMatchStates<TPayload>(input: {
       grants: scopedGrants,
       asOf: input.asOf,
       companyId: input.companyId,
+      ...(input.confirmationsByGrantId ? { confirmationsByGrantId: input.confirmationsByGrantId } : {}),
     });
     const results = await Promise.allSettled(plan.states.map((state) => input.repositories.matches.saveMatchState({
       companyId: input.companyId,

@@ -18,6 +18,7 @@ import {
   countByEligibility,
   companySummary,
   daysUntil,
+  grantKey,
   sortMatchedGrants,
   toMatchCard,
   type MatchedGrant,
@@ -46,9 +47,12 @@ export function buildDashboard<TPayload>({
       matchNormalizedGrant(
         item,
         company,
-        confirmationsByGrantId
-          ? { confirmations: confirmationsByGrantId.get(item.grant.id ?? item.grant.source_id) ?? [] }
-          : undefined,
+        {
+          asOf,
+          ...(confirmationsByGrantId
+            ? { confirmations: confirmationsByGrantId.get(grantKey(item.grant)) ?? [] }
+            : {}),
+        },
       ),
       { asOf },
     ),

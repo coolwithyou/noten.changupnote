@@ -2,6 +2,8 @@ import { getServerSession } from "next-auth";
 import type { Session } from "next-auth";
 import { authOptions } from "./options";
 import { mockUserEmail, mockUserId, mockUserName } from "./mockIdentity";
+import { isMockAuthEnabled } from "./runtimePolicy";
+export { isAuthEnforced } from "./runtimePolicy";
 
 export interface WebSession {
   user: {
@@ -22,12 +24,8 @@ export class AuthRequiredError extends Error {
   }
 }
 
-export function isAuthEnforced(env: NodeJS.ProcessEnv = process.env): boolean {
-  return env.CUNOTE_AUTH_REQUIRED === "true";
-}
-
 export async function getOptionalWebSession(): Promise<WebSession | null> {
-  if (process.env.CUNOTE_AUTH_MODE === "mock") {
+  if (isMockAuthEnabled()) {
     return {
       user: {
         id: mockUserId(),

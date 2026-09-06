@@ -3,6 +3,7 @@ import { maskCorpNum, sanitizeCorpNum } from "@cunote/core";
 import { appData, appError, appErrorFromUnknown, appNotImplemented } from "@/lib/server/appApi/envelope";
 import { requireAppCompanyAccess } from "@/lib/server/auth/appSession";
 import { getServiceRepositories } from "@/lib/server/serviceData";
+import { isDevelopmentAuthAllowed } from "@/lib/server/auth/runtimePolicy";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,7 +19,7 @@ interface CompanyVerificationRequest {
 }
 
 export async function POST(request: Request, context: RouteContext) {
-  if (!isCompanyVerificationAllowed()) {
+  if (!isDevelopmentAuthAllowed()) {
     return appNotImplemented("국세청 사업자 진위확인");
   }
 
@@ -53,14 +54,6 @@ export async function POST(request: Request, context: RouteContext) {
   } catch (error) {
     return appErrorFromUnknown(error, "회사 소유권 검증을 처리하지 못했습니다.");
   }
-}
-
-function isCompanyVerificationAllowed(): boolean {
-  return (
-    process.env.CUNOTE_AUTH_MODE === "mock" ||
-    process.env.CUNOTE_COMPANY_VERIFY_ALLOW_DEV === "true" ||
-    process.env.NODE_ENV !== "production"
-  );
 }
 
 async function readBody(request: Request): Promise<CompanyVerificationRequest> {

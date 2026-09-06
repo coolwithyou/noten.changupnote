@@ -92,7 +92,7 @@ export function simulateBusinessAudienceFilter<TPayload>(input: {
     grantCountAfter: filteredGrants.length,
     excludedGrantCount: excludedRows.length,
     audienceCounts: histogram(classified.map(({ classification }) => classification.audience)),
-    excluded: excludedRows.map(({ grant, classification }) => excludedGrant(grant, classification, input.companies)),
+    excluded: excludedRows.map(({ grant, classification }) => excludedGrant(grant, classification, input.companies, asOf)),
     before,
     after,
     deltas: {
@@ -145,10 +145,12 @@ function excludedGrant<TPayload>(
   grant: NormalizedGrant<TPayload>,
   classification: GrantAudienceClassification,
   companies: BusinessNumberCompanyFixture[],
+  asOf: Date,
 ): BusinessAudienceExcludedGrant {
   const matches = companies.map((company) => matchNormalizedGrant(
     grant,
     projectBusinessNumberInitialProfile(company.profile, company.businessKind),
+    { asOf },
   ));
   return {
     grantId: grantId(grant),

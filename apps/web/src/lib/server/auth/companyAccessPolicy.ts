@@ -62,3 +62,53 @@ export function resolveCompanyAccessFromRecords(input: {
 export function canWriteCompany(role: CompanyRole): boolean {
   return role === "owner" || role === "admin" || role === "member";
 }
+
+/** 익명 데모는 고정된 회사의 읽기만 허용한다. 명시적인 로컬 mock만 쓰기를 허용한다. */
+export function resolveDemoCompanyAccess(input: {
+  userId: string;
+  defaultCompanyId: string;
+  companyId?: string;
+  permission?: CompanyAccessPermission;
+  allowMockWrite?: boolean;
+}): CompanyAccessResult {
+  if (input.companyId && input.companyId !== input.defaultCompanyId) {
+    throw new CompanyAccessForbiddenError();
+  }
+  if (input.permission === "write" && !input.allowMockWrite) {
+    throw new CompanyAccessForbiddenError("데모 정보는 수정할 수 없습니다.", "company_write_forbidden");
+  }
+  return {
+    companyId: input.defaultCompanyId,
+    userId: input.userId,
+    role: input.allowMockWrite ? "owner" : "viewer",
+    mode: "demo",
+  };
+}
+
+export function resolveCompanyAccessWithFallback(input: {
+  companies: CompanyRecord[];
+  userId: string;
+  companyId?: string;
+  permission?: CompanyAccessPermission;
+  selectedFromCookie: boolean;
+}): CompanyAccessResult {
+  const selection = {
+    companies: input.companies,
+    userId: input.userId,
+    mode: "session" as const,
+    ...(input.permission ? { permission: input.permission } : {}),
+  };
+  try {
+    return resolveCompanyAccessFromRecords({
+      ...selection,
+      ...(input.companyId ? { companyId: input.companyId } : {}),
+    });
+  } catch (error) {
+    // 쓰기 중 회사를 바꾸면 사용자가 선택하지 않은 회사의 정보를 수정하게 된다.
+    if (!(error instanceof CompanyAccessForbiddenError)
+      || error.code !== "company_forbidden"
+      || !input.selectedFromCookie
+      || input.permission === "write") throw error;
+    return resolveCompanyAccessFromRecords(selection);
+  }
+}

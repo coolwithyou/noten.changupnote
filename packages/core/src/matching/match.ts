@@ -166,10 +166,11 @@ function confirmationAwareExtractionManifest(
 export function matchNormalizedGrant<TPayload>(
   entry: NormalizedGrant<TPayload>,
   company: CompanyProfile,
-  options: { confirmations?: CriterionConfirmation[] } = {},
+  options: { asOf?: Date; confirmations?: CriterionConfirmation[] } = {},
 ): MatchResult {
   return matchGrantCriteria(entry.criteria, company, {
     extractionManifest: resolveGrantExtractionManifest(entry),
+    ...(options.asOf ? { asOf: options.asOf } : {}),
     ...(options.confirmations ? { confirmations: options.confirmations } : {}),
   });
 }

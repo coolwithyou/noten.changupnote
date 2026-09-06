@@ -2,13 +2,14 @@ import { AuthRequiredError, getOptionalWebSession, isAuthEnforced } from "./sess
 import { getServiceRepositories } from "@/lib/server/serviceData";
 import { demoCompanyId } from "@/lib/server/repositories/runtime";
 import {
-  CompanyAccessForbiddenError,
-  resolveCompanyAccessFromRecords,
+  resolveCompanyAccessWithFallback,
+  resolveDemoCompanyAccess,
   type CompanyAccessPermission,
   type CompanyAccessResult,
 } from "./companyAccessPolicy";
 import { readSelectedCompanyId } from "./companySelection";
 import { mockUserId } from "./mockIdentity";
+import { isMockAuthEnabled } from "./runtimePolicy";
 
 export interface CompanyAccessOptions {
   companyId?: string;
@@ -23,9 +24,10 @@ export async function requireCompanyAccess(options: CompanyAccessOptions = {}): 
   const session = await getOptionalWebSession();
   if (session) {
     if (isDefaultMockSession(session.user.id) && !isAuthEnforced()) {
-      return requireDemoCompanyAccess({
+      return resolveDemoCompanyAccess({
         userId: session.user.id,
-        selectedFromCookie,
+        defaultCompanyId: demoCompanyId(),
+        allowMockWrite: true,
         ...(selectedCompanyId ? { companyId: selectedCompanyId } : {}),
         ...(options.permission ? { permission: options.permission } : {}),
       });
@@ -45,60 +47,15 @@ export async function requireCompanyAccess(options: CompanyAccessOptions = {}): 
     throw new AuthRequiredError();
   }
 
-  return requireDemoCompanyAccess({
+  return resolveDemoCompanyAccess({
     userId: mockUserId(),
-    selectedFromCookie,
+    defaultCompanyId: demoCompanyId(),
     ...(selectedCompanyId ? { companyId: selectedCompanyId } : {}),
     ...(options.permission ? { permission: options.permission } : {}),
   });
 }
 
-function requireDemoCompanyAccess(input: {
-  userId: string;
-  companyId?: string;
-  permission?: CompanyAccessPermission;
-  selectedFromCookie?: boolean;
-}): CompanyAccess {
-  const defaultCompanyId = demoCompanyId();
-  const companyId = input.companyId ?? defaultCompanyId;
-  if (companyId !== defaultCompanyId && !input.selectedFromCookie) {
-    throw new CompanyAccessForbiddenError();
-  }
-  return {
-    companyId,
-    userId: input.userId,
-    role: "owner",
-    mode: "demo",
-  };
-}
-
-function resolveCompanyAccessWithFallback(input: {
-  companies: Parameters<typeof resolveCompanyAccessFromRecords>[0]["companies"];
-  userId: string;
-  companyId?: string;
-  permission?: CompanyAccessPermission;
-  selectedFromCookie: boolean;
-}): CompanyAccess {
-  try {
-    return resolveCompanyAccessFromRecords({
-      companies: input.companies,
-      userId: input.userId,
-      mode: "session",
-      ...(input.companyId ? { companyId: input.companyId } : {}),
-      ...(input.permission ? { permission: input.permission } : {}),
-    });
-  } catch (error) {
-    if (!(error instanceof CompanyAccessForbiddenError) || !input.selectedFromCookie) throw error;
-    return resolveCompanyAccessFromRecords({
-      companies: input.companies,
-      userId: input.userId,
-      mode: "session",
-      ...(input.permission ? { permission: input.permission } : {}),
-    });
-  }
-}
-
 function isDefaultMockSession(userId: string): boolean {
-  return process.env.CUNOTE_AUTH_MODE === "mock"
+  return isMockAuthEnabled()
     && userId === mockUserId();
 }

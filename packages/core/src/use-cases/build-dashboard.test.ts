@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import type { CompanyProfile, NormalizedGrant } from "@cunote/contracts";
 import { buildDashboard } from "./build-dashboard.js";
+import { buildTeaser } from "./build-teaser.js";
+import { buildInitialCompanyMatch } from "./build-initial-company-match.js";
+import { planMatchStateRefresh } from "./plan-match-state-refresh.js";
+import { evaluateProfileUpdateImpact } from "./evaluate-profile-update-impact.js";
 
 const grantId = "00000000-0000-4000-8000-000000000099";
 const criterionId = "00000000-0000-4000-8000-000000000100";
@@ -64,6 +68,56 @@ const grants: Array<NormalizedGrant<Record<string, never>>> = [{
 
 const before = buildDashboard({ company, grants });
 assert.equal(before.counts.conditional, 1);
+
+// 현재 시각과 무관하게 2026년/2030년 기준 수혜기간을 모든 제품 경로가 같은 방식으로 판정한다.
+const periodGrant = structuredClone(grants[0]!);
+periodGrant.criteria[0] = {
+  ...periodGrant.criteria[0]!,
+  operator: "in",
+  value: { scope: "program", programs: ["chogi_startup_package"], within: { value: 3, unit: "year" } },
+  source_span: "최근 3년 이내 초기창업패키지 수혜기업 제외",
+};
+const awardedCompany: CompanyProfile = {
+  prior_award_history: {
+    records: [{ program: "초기창업패키지", state: "completed", year: 2025 }],
+    known_programs: ["chogi_startup_package"],
+    known_program_types: [],
+  },
+  confidence: { prior_award: 0.6 },
+};
+for (const [year, expected] of [[2026, "ineligible"], [2030, "eligible"]] as const) {
+  const asOf = new Date(`${year}-07-01T00:00:00.000Z`);
+  const context = { company: awardedCompany, grants: [periodGrant], asOf };
+  assert.equal(buildDashboard(context).matches[0]?.eligibility, expected, `dashboard ${year}`);
+  assert.equal(buildInitialCompanyMatch(context).matches[0]?.eligibility, expected, `initial ${year}`);
+  assert.equal(planMatchStateRefresh(context).states[0]?.eligibility, expected, `refresh ${year}`);
+  assert.equal(buildTeaser(context).counts[expected], 1, `teaser ${year}`);
+  const impact = evaluateProfileUpdateImpact({
+    grants: [periodGrant], beforeProfile: {}, afterProfile: awardedCompany, dimension: "prior_award", asOf,
+  });
+  assert.equal(impact.transitionCounts[`conditional_to_${expected}`], 1, `impact ${year}`);
+}
+
+const confirmationsByGrantId = new Map([[grantId, [{ criterion_id: criterionId, disqualified: false }]]]);
+const updatedCompany: CompanyProfile = { revenue_krw: 10_000_000, confidence: { revenue: 0.6 } };
+const confirmedContext = { grants, company: updatedCompany, confirmationsByGrantId };
+assert.equal(buildInitialCompanyMatch(confirmedContext).matches[0]?.eligibility, "eligible",
+  "다른 프로필 답변 뒤에도 공고별 기존 확인 답변을 유지한다");
+assert.equal(planMatchStateRefresh(confirmedContext).states[0]?.eligibility, "eligible");
+const unchangedConfirmation = evaluateProfileUpdateImpact({
+  grants, beforeProfile: {}, afterProfile: updatedCompany, dimension: "revenue", confirmationsByGrantId,
+});
+assert.equal(unchangedConfirmation.transitionCounts.eligible_to_eligible, 1);
+assert.equal(unchangedConfirmation.changedMatchStateCount, 0);
+
+const unpersistedGrant = structuredClone(grants[0]!);
+delete unpersistedGrant.grant.id;
+const sourceKeyConfirmation = buildDashboard({
+  company,
+  grants: [unpersistedGrant],
+  confirmationsByGrantId: new Map([[`bizinfo:${unpersistedGrant.grant.source_id}`, [{ criterion_id: criterionId, disqualified: false }]]]),
+});
+assert.equal(sourceKeyConfirmation.matches[0]?.eligibility, "eligible", "확인 답변 키는 공고 ID가 없는 경로에서도 grantKey와 일치한다");
 
 const opsReviewGrant = structuredClone(grants[0]!);
 opsReviewGrant.grant.id = "00000000-0000-4000-8000-000000000098";

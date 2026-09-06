@@ -19,6 +19,7 @@ import {
 import { annotateMatchCardWriteSupport } from "@/lib/server/matches/annotateWriteSupport";
 import { bestEffortMatchCardAnnotation } from "@/lib/server/matches/bestEffortMatchCardAnnotation";
 import { refreshProfileQuestionMatchStates } from "@/lib/server/matches/profileQuestionMatchRefresh";
+import { loadCriterionConfirmations } from "@/lib/server/matches/matchStateRefresh";
 import {
   getServiceRepositories,
   loadServiceGrantUniverse,
@@ -80,6 +81,13 @@ export async function applyCompanyProfileAnswer(
     throw new CompanyProfileAnswerError("company_not_found", "회사를 찾지 못했습니다.", 404, "companyId");
   }
 
+  // 답변 전후 판정·응답 카드·저장 상태는 동일한 공고별 확인 답변과 기준일을 사용한다.
+  // 확인 답변을 읽지 못했을 때는 프로필 저장 전에 실패해 부분 반영을 피한다.
+  const confirmationsByGrantId = await loadCriterionConfirmations({
+    repositories, companyId: input.companyId, grants,
+  });
+  const matchContext = { asOf, ...(confirmationsByGrantId ? { confirmationsByGrantId } : {}) };
+
   const updatedStoredProfile = applyAnswer(current, answer, asOf);
   const effectiveProfile = applyAnswer(before.profile, answer, asOf);
   await repositories.companies.saveCompanyProfile({
@@ -89,6 +97,7 @@ export async function applyCompanyProfileAnswer(
   });
 
   const impact = evaluateProfileUpdateImpact({
+    ...matchContext,
     grants,
     beforeProfile: before.profile,
     afterProfile: effectiveProfile,
@@ -96,21 +105,21 @@ export async function applyCompanyProfileAnswer(
     windowLimit: grants.length,
   });
   const initialMatch = buildInitialCompanyMatch({
+    ...matchContext,
     company: effectiveProfile,
     grants,
-    asOf,
     limit: 12,
   });
   const sessionId = validUuid(input.questionSessionId) ?? crypto.randomUUID();
   const [refresh, annotatedMatches, event] = await Promise.all([
     refreshProfileQuestionMatchStates({
+      ...matchContext,
       repositories,
       companyId: input.companyId,
       stateScope: before.stateScope,
       company: effectiveProfile,
       grants,
       impact,
-      asOf,
     }),
     bestEffortMatchCardAnnotation(initialMatch.matches, annotateMatchCardWriteSupport),
     recordQuestionEvent({

@@ -11,6 +11,7 @@ import { getLegalConfig } from "@/lib/server/legal/legalConfig";
 import { ensureWalletWithSignupBonus } from "@/lib/server/credits/ensureWalletWithSignupBonus";
 import { mockUserEmail, mockUserId, mockUserName } from "./mockIdentity";
 import { normalizeEmail, verifyPassword } from "./password";
+import { isMockAuthEnabled } from "./runtimePolicy";
 
 ensureAuthEnv();
 
@@ -59,7 +60,7 @@ if (secret) authOptions.secret = secret;
 
 export function getWebAuthProviderSummaries(env: NodeJS.ProcessEnv = process.env): WebAuthProviderSummary[] {
   const providers: WebAuthProviderSummary[] = [];
-  if (env.CUNOTE_AUTH_MODE === "mock") {
+  if (isMockAuthEnabled(env)) {
     providers.push({ id: "demo", name: "Demo", kind: "credentials" });
   }
   providers.push({ id: "password", name: "이메일", kind: "credentials" });
@@ -75,7 +76,7 @@ export function getWebAuthProviderSummaries(env: NodeJS.ProcessEnv = process.env
 function createProviders(): NextAuthOptions["providers"] {
   const providers: NextAuthOptions["providers"] = [];
 
-  if (process.env.CUNOTE_AUTH_MODE === "mock") {
+  if (isMockAuthEnabled()) {
     providers.push(CredentialsProvider({
       id: "demo",
       name: "Demo",

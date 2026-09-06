@@ -1,6 +1,7 @@
 import type { AppTokenResponse } from "./appIssueToken";
 import { issueAppTokens } from "./appIssueToken";
 import { mockUserEmail, mockUserId } from "./mockIdentity";
+import { isDevelopmentAuthAllowed } from "./runtimePolicy";
 
 export const SUPPORTED_APP_OAUTH_PROVIDERS = ["google", "kakao"] as const;
 export type AppOAuthProvider = typeof SUPPORTED_APP_OAUTH_PROVIDERS[number];
@@ -25,12 +26,7 @@ export class AppOAuthExchangeError extends Error {
 }
 
 export function isAppOAuthExchangeAllowed(): boolean {
-  return (
-    process.env.CUNOTE_AUTH_MODE === "mock" ||
-    process.env.CUNOTE_APP_AUTH_ALLOW_DEV_OAUTH === "true" ||
-    process.env.CUNOTE_APP_AUTH_ALLOW_DEV_LOGIN === "true" ||
-    process.env.NODE_ENV !== "production"
-  );
+  return isDevelopmentAuthAllowed();
 }
 
 export function normalizeAppOAuthProvider(provider: string): AppOAuthProvider | null {
@@ -39,6 +35,9 @@ export function normalizeAppOAuthProvider(provider: string): AppOAuthProvider | 
 }
 
 export async function issueDevAppOAuthTokens(input: AppOAuthExchangeInput): Promise<AppTokenResponse> {
+  if (!isDevelopmentAuthAllowed()) {
+    throw new AppOAuthExchangeError("dev_auth_disabled", "개발용 OAuth 인증은 운영에서 사용할 수 없습니다.", 403);
+  }
   const provider = normalizeAppOAuthProvider(input.provider);
   if (!provider) {
     throw new AppOAuthExchangeError(

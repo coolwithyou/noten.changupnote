@@ -1,6 +1,7 @@
 import type {
   CompanyInitialMatchResult,
   CompanyProfile,
+  CriterionConfirmation,
   NormalizedGrant,
 } from "@cunote/contracts";
 import { buildDashboard } from "./build-dashboard.js";
@@ -10,6 +11,7 @@ export interface BuildInitialCompanyMatchOptions<TPayload = unknown> {
   grants: Array<NormalizedGrant<TPayload>>;
   asOf?: Date;
   limit?: number;
+  confirmationsByGrantId?: ReadonlyMap<string, CriterionConfirmation[]>;
 }
 
 /**
@@ -21,8 +23,12 @@ export function buildInitialCompanyMatch<TPayload>({
   grants,
   asOf = new Date(),
   limit = 12,
+  confirmationsByGrantId,
 }: BuildInitialCompanyMatchOptions<TPayload>): CompanyInitialMatchResult {
-  const dashboard = buildDashboard({ company, grants, asOf, limit });
+  const dashboard = buildDashboard({
+    company, grants, asOf, limit,
+    ...(confirmationsByGrantId ? { confirmationsByGrantId } : {}),
+  });
   return {
     asOf: asOf.toISOString(),
     evaluatedGrantCount: grants.length,

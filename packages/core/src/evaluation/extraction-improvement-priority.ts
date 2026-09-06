@@ -63,7 +63,7 @@ export function planExtractionImprovements<TPayload>(input: {
     let ineligibleCompanyCount = 0;
     let hardUnknownConditionCount = 0;
     for (const company of input.companies) {
-      const match = matchNormalizedGrant(grant, company);
+      const match = matchNormalizedGrant(grant, company, { asOf });
       if (match.eligibility === "eligible") {
         if (match.review_gate?.tier !== "recommendable") eligibleBlockedCompanyCount += 1;
       } else if (match.eligibility === "conditional") {

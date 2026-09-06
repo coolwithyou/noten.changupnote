@@ -48,6 +48,8 @@ jobs:
           pnpm verify:rls-context
           pnpm verify:rls-policy
           pnpm verify:db-migrations
+          pnpm verify:company-access
+          pnpm verify:app-auth
 
       - name: Run document editor agent regression gates
         run: pnpm test:document-agent
@@ -58,3 +60,4 @@ jobs:
           pnpm verify:first-mission-recovery
           pnpm verify:matching-eval
           pnpm verify:profile-product-paths
+          pnpm test:profile-answer-consistency

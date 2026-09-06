@@ -108,7 +108,7 @@ function simulateCompanyQuestionFlow<TPayload>(input: {
 }): SimulatedCompanyQuestionFlow {
   const initialProfile = projectBusinessNumberInitialProfile(input.company.profile, input.company.businessKind);
   let currentProfile = initialProfile;
-  const initialMatches = input.grants.map((grant) => matchNormalizedGrant(grant, initialProfile));
+  const initialMatches = input.grants.map((grant) => matchNormalizedGrant(grant, initialProfile, { asOf: input.asOf }));
   const initialConditionalCount = initialMatches.filter((match) => match.eligibility === "conditional").length;
   const excludedDimensions = new Set<CriterionDimension>();
   const steps: SimulatedQuestionStep[] = [];
@@ -117,7 +117,7 @@ function simulateCompanyQuestionFlow<TPayload>(input: {
   while (steps.length < input.maxQuestions) {
     const matched = input.grants.map<MatchedGrant<TPayload>>((item) => ({
       item,
-      match: matchNormalizedGrant(item, currentProfile),
+      match: matchNormalizedGrant(item, currentProfile, { asOf: input.asOf }),
     }));
     const planned = planProfileQuestions(matched, {
       asOf: input.asOf,
@@ -133,6 +133,7 @@ function simulateCompanyQuestionFlow<TPayload>(input: {
           beforeProfile: currentProfile,
           afterProfile: revealed,
           dimension,
+          asOf: input.asOf,
           windowLimit: input.grants.length,
         })
       : null;
@@ -150,7 +151,7 @@ function simulateCompanyQuestionFlow<TPayload>(input: {
     if (revealed) currentProfile = revealed;
   }
 
-  const finalMatches = input.grants.map((grant) => matchNormalizedGrant(grant, currentProfile));
+  const finalMatches = input.grants.map((grant) => matchNormalizedGrant(grant, currentProfile, { asOf: input.asOf }));
   let resolvedInitialConditionalCount = 0;
   for (let index = 0; index < initialMatches.length; index += 1) {
     if (initialMatches[index]?.eligibility === "conditional" && finalMatches[index]?.eligibility !== "conditional") {
@@ -163,7 +164,7 @@ function simulateCompanyQuestionFlow<TPayload>(input: {
     .filter((trace) => trace.result === "unknown" && (trace.kind === "required" || trace.kind === "exclusion"))
     .map((trace) => trace.dimension));
   const hasRemainingQuestion = planProfileQuestions(
-    input.grants.map<MatchedGrant<TPayload>>((item) => ({ item, match: matchNormalizedGrant(item, currentProfile) })),
+    input.grants.map<MatchedGrant<TPayload>>((item) => ({ item, match: matchNormalizedGrant(item, currentProfile, { asOf: input.asOf }) })),
     { asOf: input.asOf, limit: 1, excludeDimensions: [...excludedDimensions] },
   ).length > 0;
   return {
