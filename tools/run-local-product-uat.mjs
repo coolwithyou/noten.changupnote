@@ -129,6 +129,15 @@ const result = await withIsolatedProductUatPostgres(async (postgresRuntime) => {
     logPath: join(logsPath, "build-packages.log"),
     timeout: 300_000,
   });
+  const initialConfirmationFixture = runConfirmationFixture({
+    action: "r1",
+    sourceRoot: source.snapshotRoot,
+    env: createProductUatEnv({
+      ...buildEnv,
+      CUNOTE_PRODUCT_UAT_RUNTIME_ROOT: postgresRuntime.runRoot,
+    }),
+    logPath: join(logsPath, "confirmation-r1.log"),
+  });
   runLogged({
     command: "pnpm",
     args: ["--filter", "@cunote/web", "build"],
@@ -180,6 +189,7 @@ const result = await withIsolatedProductUatPostgres(async (postgresRuntime) => {
       waitForHttp(`${adminUrl}/login`, admin),
     ]);
     const webAccounts = [];
+    const webAuthenticationByUserId = new Map();
     for (const account of [
       {
         email: "sw@noten.im",
@@ -207,8 +217,35 @@ const result = await withIsolatedProductUatPostgres(async (postgresRuntime) => {
         expectedUserId: account.userId,
       });
       await verifyVisibleCompanies(authenticated.jar, webUrl, account.companies);
+      webAuthenticationByUserId.set(account.userId, authenticated);
       webAccounts.push(authenticated.proof);
     }
+    const ownerAuthentication = webAuthenticationByUserId.get(LOCAL_UAT_IDS.owner);
+    assert.ok(ownerAuthentication);
+    const initialConfirmationRoundTrip = await verifyInitialConfirmationRoundTrip({
+      jar: ownerAuthentication.jar,
+      baseUrl: webUrl,
+      grantId: initialConfirmationFixture.fixture.grantId,
+      companyId: LOCAL_UAT_IDS.companyA,
+    });
+    const confirmationScenarios = await verifyConfirmationScenarios({
+      baseUrl: webUrl,
+      grantId: initialConfirmationFixture.fixture.grantId,
+      owner: ownerAuthentication,
+      editor: webAuthenticationByUserId.get(LOCAL_UAT_IDS.editor),
+      viewer: webAuthenticationByUserId.get(LOCAL_UAT_IDS.viewer),
+      userPassword,
+      initial: initialConfirmationRoundTrip.internal,
+      runFixture: (action, label) => runConfirmationFixture({
+        action,
+        sourceRoot: source.snapshotRoot,
+        env: createProductUatEnv({
+          ...buildEnv,
+          CUNOTE_PRODUCT_UAT_RUNTIME_ROOT: postgresRuntime.runRoot,
+        }),
+        logPath: join(logsPath, `confirmation-${label}.log`),
+      }),
+    });
     await verifyRejectedWebAccess({ baseUrl: webUrl, password: userPassword });
     const relogin = await verifyLogoutAndRelogin({
       baseUrl: webUrl,
@@ -223,6 +260,14 @@ const result = await withIsolatedProductUatPostgres(async (postgresRuntime) => {
       expectedUserId: LOCAL_UAT_IDS.admin,
       expectedRole: "admin",
     });
+    const confirmationFixtureReceiptPath = join(postgresRuntime.runRoot, "confirmation-fixture-receipt.json");
+    writeFileSync(confirmationFixtureReceiptPath, `${JSON.stringify({
+      schema: "cunote-local-product-uat-confirmation-fixture-receipt-v1",
+      grantId: initialConfirmationFixture.fixture.grantId,
+      publicationAuthority: "isolated_publisher_fixture_not_release_approval",
+      scenarios: confirmationScenarios.proof,
+      finalState: confirmationScenarios.finalState,
+    }, null, 2)}\n`, { flag: "wx", mode: 0o600 });
     const connectionPath = join(postgresRuntime.runRoot, "connection.json");
     const holdUntil = new Date(Date.now() + holdSeconds * 1_000).toISOString();
     writeFileSync(connectionPath, `${JSON.stringify({
@@ -236,6 +281,9 @@ const result = await withIsolatedProductUatPostgres(async (postgresRuntime) => {
       admin: "manager@noten.im",
       postgresSocketPath: postgresRuntime.socketPath,
       snapshotRoot: source.snapshotRoot,
+      confirmationFixtureReceiptPath,
+      syntheticGrantId: initialConfirmationFixture.fixture.grantId,
+      activeConfirmationQuestions: confirmationScenarios.finalState.activePrompts,
     }, null, 2)}\n`, { flag: "wx", mode: 0o600 });
     if (holdSeconds > 0) {
       console.log(JSON.stringify({
@@ -274,6 +322,12 @@ const result = await withIsolatedProductUatPostgres(async (postgresRuntime) => {
         logoutRelogin: relogin,
         admin: adminLogin.proof,
       },
+      confirmationAcceptance: {
+        fixturePublication: "isolated_publisher_fixture_not_release_approval",
+        initialOwnerRoundTrip: initialConfirmationRoundTrip.proof,
+        scenarios: confirmationScenarios.proof,
+        fixtureReceiptPath: confirmationFixtureReceiptPath,
+      },
       connectionPath,
       exclusions: {
         mockAuth: true,
@@ -300,6 +354,7 @@ console.log(JSON.stringify({
   sourceFileCount: result.receipt.source.fileCount,
   builds: result.receipt.builds,
   httpCredentialsAcceptance: result.receipt.httpCredentialsAcceptance,
+  confirmationAcceptance: result.receipt.confirmationAcceptance,
   connectionPath: result.receipt.connectionPath,
   postgresNetwork: result.receipt.postgres.network,
 }));
@@ -324,6 +379,30 @@ function runLogged({ command, args, cwd, env, logPath, timeout }) {
     });
   }
   throwIfRunnerAborted();
+  return output;
+}
+
+function runConfirmationFixture({ action, sourceRoot, env, logPath }) {
+  const output = runLogged({
+    command: "pnpm",
+    args: [
+      "exec",
+      "tsx",
+      "--tsconfig",
+      "apps/web/tsconfig.json",
+      "tools/product-uat/confirmation-fixture.ts",
+      `--action=${action}`,
+    ],
+    cwd: sourceRoot,
+    env,
+    logPath,
+    timeout: 120_000,
+  });
+  const lastLine = output.trim().split("\n").at(-1);
+  const parsed = lastLine ? JSON.parse(lastLine) : null;
+  assert.equal(parsed?.ok, true);
+  assert.equal(parsed?.action, action);
+  return parsed;
 }
 
 function startNextServer({ app, sourceRoot, port, env, logPath }) {
@@ -430,6 +509,324 @@ async function verifyVisibleCompanies(jar, baseUrl, expected) {
   assert.deepEqual(actual, [...expected].sort((left, right) => left.id.localeCompare(right.id)));
 }
 
+async function verifyInitialConfirmationRoundTrip({ jar, baseUrl, grantId, companyId }) {
+  const endpoint = confirmationEndpoint(baseUrl, grantId, companyId);
+  const initial = await readConfirmations(jar, endpoint);
+  assert.equal(initial.answers.length, 0);
+  const required = initial.questions.find((question) => question.prompt === "최초 필수 질문");
+  const legacy = initial.questions.find((question) => question.prompt === "기존 제외 질문");
+  assert.ok(required?.binding);
+  assert.ok(legacy && !legacy.binding);
+  const response = await jar.fetch(endpoint, {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      answers: [
+        {
+          questionId: required.id,
+          values: ["yes"],
+          binding: required.binding,
+          expectedAnswerRevision: 0,
+        },
+        { questionId: legacy.id, values: ["clear"] },
+      ],
+    }),
+  });
+  assert.equal(response.status, 200);
+  const payload = await response.json();
+  assert.equal(payload?.ok, true);
+  assert.equal(payload?.data?.saved?.length, 2);
+  assert.equal(payload.data.saved.find((answer) => answer.questionId === required.id)?.evaluation, "satisfied");
+  assert.equal(payload.data.saved.find((answer) => answer.questionId === required.id)?.answerRevision, 1);
+  assert.equal(payload.data.saved.find((answer) => answer.questionId === legacy.id)?.disqualified, false);
+  assert.equal(payload.data.refresh?.status, "not_persisted_user_scope");
+  assert.equal(payload.data.refresh?.plannedCount, 1);
+  assert.equal(payload.data.refresh?.savedCount, 0);
+  assert.equal(payload.data.match?.eligibility, "eligible");
+  const requiredTrace = payload.data.match?.ruleTrace?.find(
+    (trace) => trace.criterionId === required.binding.criterionId,
+  );
+  assert.equal(requiredTrace?.result, "pass");
+  assert.equal(requiredTrace?.resolution, "confirmed_by_user");
+  const reloaded = await readConfirmations(jar, endpoint);
+  assert.equal(reloaded.answers.find((answer) => answer.questionId === required.id)?.evaluation, "satisfied");
+  assert.equal(reloaded.answers.find((answer) => answer.questionId === required.id)?.answerRevision, 1);
+  assert.deepEqual(reloaded.answers.find((answer) => answer.questionId === legacy.id)?.values, ["clear"]);
+  return {
+    proof: {
+      status: "passed",
+      questionCount: initial.questions.length,
+      savedCount: payload.data.saved.length,
+      refreshStatus: payload.data.refresh.status,
+      refreshPlannedCount: payload.data.refresh.plannedCount,
+      refreshSavedCount: payload.data.refresh.savedCount,
+      matchPresent: Boolean(payload.data.match),
+      matchEligibility: payload.data.match.eligibility,
+      requiredTrace: { result: requiredTrace.result, resolution: requiredTrace.resolution },
+      requiredEvaluation: "satisfied",
+      requiredAnswerRevision: 1,
+      legacyDisqualified: false,
+    },
+    internal: { required, legacy },
+  };
+}
+
+async function verifyConfirmationScenarios({
+  baseUrl,
+  grantId,
+  owner,
+  editor,
+  viewer,
+  userPassword,
+  initial,
+  runFixture,
+}) {
+  assert.ok(owner && editor && viewer);
+  const endpointA = confirmationEndpoint(baseUrl, grantId, LOCAL_UAT_IDS.companyA);
+  const endpointB = confirmationEndpoint(baseUrl, grantId, LOCAL_UAT_IDS.companyB);
+
+  const ownerBInitial = await readConfirmations(owner.jar, endpointB);
+  assert.equal(ownerBInitial.answers.length, 0, "회사 A 답변은 회사 B에 재사용하지 않는다");
+  const requiredB = ownerBInitial.questions.find((question) => question.prompt === "최초 필수 질문");
+  const legacyB = ownerBInitial.questions.find((question) => question.prompt === "기존 제외 질문");
+  assert.ok(requiredB?.binding && legacyB);
+  const companyBSave = await submitConfirmations(owner.jar, endpointB, [
+    {
+      questionId: requiredB.id,
+      values: ["no"],
+      binding: requiredB.binding,
+      expectedAnswerRevision: 0,
+    },
+    { questionId: legacyB.id, values: ["restricted"] },
+  ]);
+  assert.equal(companyBSave.status, 200);
+  assert.equal(companyBSave.body?.data?.match?.eligibility, "ineligible");
+  assert.equal((await readConfirmations(owner.jar, endpointA)).answers.find(
+    (answer) => answer.questionId === initial.required.id,
+  )?.evaluation, "satisfied");
+
+  const editorA = await readConfirmations(editor.jar, endpointA);
+  const editorRequired = editorA.questions.find((question) => question.id === initial.required.id);
+  assert.ok(editorRequired?.binding);
+  assert.equal(editorA.answers.find((answer) => answer.questionId === editorRequired.id)?.answerRevision, 1);
+  const editorSave = await submitConfirmations(editor.jar, endpointA, [{
+    questionId: editorRequired.id,
+    values: ["unknown"],
+    binding: editorRequired.binding,
+    expectedAnswerRevision: 1,
+  }]);
+  assert.equal(editorSave.status, 200);
+  assert.equal(editorSave.body?.data?.saved?.[0]?.evaluation, "unknown");
+  assert.equal(editorSave.body?.data?.saved?.[0]?.answerRevision, 2);
+
+  const beforeStale = runFixture("inspect", "before-stale");
+  const stale = await submitConfirmations(owner.jar, endpointA, [{
+    questionId: initial.required.id,
+    values: ["no"],
+    binding: initial.required.binding,
+    expectedAnswerRevision: 1,
+  }]);
+  assert.equal(stale.status, 409);
+  assert.equal(stale.body?.error?.code, "confirmation_answer_conflict");
+  const afterStale = runFixture("inspect", "after-stale");
+  assert.equal(ledgerSha(afterStale), ledgerSha(beforeStale));
+
+  const beforeViewer = runFixture("inspect", "before-viewer-forbidden");
+  const viewerSave = await submitConfirmations(viewer.jar, endpointA, [{
+    questionId: initial.required.id,
+    values: ["yes"],
+    binding: initial.required.binding,
+    expectedAnswerRevision: 2,
+  }]);
+  assert.equal(viewerSave.status, 403);
+  assert.equal(viewerSave.body?.error?.code, "company_write_forbidden");
+  const editorBRead = await editor.jar.fetch(endpointB);
+  assert.equal(editorBRead.status, 403);
+  const editorBSave = await submitConfirmations(editor.jar, endpointB, [{
+    questionId: requiredB.id,
+    values: ["yes"],
+    binding: requiredB.binding,
+    expectedAnswerRevision: 1,
+  }]);
+  assert.equal(editorBSave.status, 403);
+  const afterForbidden = runFixture("inspect", "after-forbidden");
+  assert.equal(ledgerSha(afterForbidden), ledgerSha(beforeViewer));
+
+  await signOut(owner.jar, baseUrl);
+  await assertNoSession(owner.jar, baseUrl);
+  const reloggedOwner = await verifyPasswordLogin({
+    baseUrl,
+    email: "sw@noten.im",
+    password: userPassword,
+    expectedUserId: LOCAL_UAT_IDS.owner,
+  });
+  const reloggedA = await readConfirmations(reloggedOwner.jar, endpointA);
+  assert.equal(reloggedA.answers.find((answer) => answer.questionId === initial.required.id)?.evaluation, "unknown");
+  assert.equal(reloggedA.answers.find((answer) => answer.questionId === initial.required.id)?.answerRevision, 2);
+
+  const revision2 = runFixture("r2", "r2");
+  const revisedA = await readConfirmations(reloggedOwner.jar, endpointA);
+  assert.deepEqual(revisedA.questions.map((question) => question.prompt).sort(), [
+    "기존 제외 질문",
+    "수정한 필수 질문",
+    "추가한 우대 질문",
+  ]);
+  const revisedRequired = revisedA.questions.find((question) => question.prompt === "수정한 필수 질문");
+  const preferred = revisedA.questions.find((question) => question.prompt === "추가한 우대 질문");
+  const unchangedLegacy = revisedA.questions.find((question) => question.prompt === "기존 제외 질문");
+  assert.ok(revisedRequired?.binding && preferred?.binding && unchangedLegacy);
+  assert.equal(revisedA.answers.some((answer) => answer.questionId === revisedRequired.id), false);
+  assert.deepEqual(revisedA.answers.find((answer) => answer.questionId === unchangedLegacy.id)?.values, ["clear"]);
+  const beforeOldDefinition = runFixture("inspect", "before-old-definition");
+  const oldDefinitionSave = await submitConfirmations(reloggedOwner.jar, endpointA, [{
+    questionId: initial.required.id,
+    values: ["yes"],
+    binding: initial.required.binding,
+    expectedAnswerRevision: 2,
+  }]);
+  assert.equal(oldDefinitionSave.status, 404);
+  const afterOldDefinition = runFixture("inspect", "after-old-definition");
+  assert.equal(ledgerSha(afterOldDefinition), ledgerSha(beforeOldDefinition));
+  const revisedSave = await submitConfirmations(reloggedOwner.jar, endpointA, [
+    {
+      questionId: revisedRequired.id,
+      values: ["satisfied"],
+      binding: revisedRequired.binding,
+      expectedAnswerRevision: 0,
+    },
+    {
+      questionId: preferred.id,
+      values: ["unknown"],
+      binding: preferred.binding,
+      expectedAnswerRevision: 0,
+    },
+  ]);
+  assert.equal(revisedSave.status, 200);
+  assert.equal(revisedSave.body?.data?.match?.eligibility, "eligible");
+
+  const withdrawal = runFixture("withdraw", "withdraw");
+  assert.equal(withdrawal.state.answers.length, 6, "manual 철회는 A/B·legacy·r2 답변 이력을 삭제하지 않는다");
+  assert.equal(withdrawal.state.answers.filter((answer) => answer.companyId === LOCAL_UAT_IDS.companyA).length, 4);
+  assert.equal(withdrawal.state.answers.filter((answer) => answer.companyId === LOCAL_UAT_IDS.companyB).length, 2);
+  assert.ok(withdrawal.state.answers.some((answer) =>
+    answer.companyId === LOCAL_UAT_IDS.companyA
+    && answer.questionId === initial.required.id
+    && answer.evaluation === "unknown"
+    && answer.answerRevision === 2));
+  assert.ok(withdrawal.state.answers.some((answer) =>
+    answer.companyId === LOCAL_UAT_IDS.companyB
+    && answer.questionId === requiredB.id
+    && answer.evaluation === "unsatisfied"
+    && answer.answerRevision === 1));
+  assert.ok(withdrawal.state.answers.some((answer) =>
+    answer.companyId === LOCAL_UAT_IDS.companyA
+    && answer.questionId === initial.legacy.id
+    && answer.evaluation === null));
+  const withdrawnA = await readConfirmations(reloggedOwner.jar, endpointA);
+  assert.deepEqual(withdrawnA.questions.map((question) => question.prompt), ["기존 제외 질문"]);
+  assert.deepEqual(withdrawnA.answers.map((answer) => answer.questionId), [unchangedLegacy.id]);
+  const beforeWithdrawnSave = runFixture("inspect", "before-withdrawn-save");
+  const withdrawnSave = await submitConfirmations(reloggedOwner.jar, endpointA, [{
+    questionId: revisedRequired.id,
+    values: ["satisfied"],
+    binding: revisedRequired.binding,
+    expectedAnswerRevision: 1,
+  }]);
+  assert.equal(withdrawnSave.status, 404);
+  const afterWithdrawnSave = runFixture("inspect", "after-withdrawn-save");
+  assert.equal(ledgerSha(afterWithdrawnSave), ledgerSha(beforeWithdrawnSave));
+
+  const rollback = runFixture("rollback", "rollback");
+  const restoredA = await readConfirmations(reloggedOwner.jar, endpointA);
+  assert.deepEqual(restoredA.questions.map((question) => question.prompt).sort(), ["기존 제외 질문", "최초 필수 질문"]);
+  assert.equal(restoredA.answers.find((answer) => answer.questionId === initial.required.id)?.evaluation, "unknown");
+  assert.equal(restoredA.answers.find((answer) => answer.questionId === initial.required.id)?.answerRevision, 2);
+  assert.deepEqual(restoredA.answers.find((answer) => answer.questionId === initial.legacy.id)?.values, ["clear"]);
+  assert.equal(rollback.state.answers.length, 6);
+
+  const listingResponse = await reloggedOwner.jar.fetch(`${baseUrl}/api/web/matches?limit=40`);
+  assert.equal(listingResponse.status, 200);
+  const listingBody = await listingResponse.json();
+  assert.equal(listingBody?.ok, true);
+  assert.equal(listingBody?.data?.matches?.some((match) => match.grantId === grantId), false);
+
+  return {
+    proof: {
+      status: "passed",
+      companyIsolation: "A_and_B_answers_independent",
+      editorAWrite: "passed",
+      viewerAWrite: "forbidden_403",
+      editorBReadWrite: "forbidden_403",
+      staleAnswerRevision: "conflict_409_without_ledger_change",
+      reloginAnswerRevision: 2,
+      revision2: {
+        changedQuestionRequiresNewAnswer: true,
+        preferredQuestionAdded: true,
+        unchangedLegacyAnswerPreserved: true,
+        oldDefinitionStatus: oldDefinitionSave.status,
+      },
+      withdrawAll: {
+        manualQuestionsActive: 0,
+        legacyQuestionsActive: 1,
+        withdrawnSaveStatus: withdrawnSave.status,
+      },
+      rollback: {
+        restoredInitialManualQuestion: true,
+        restoredAnswerRevision: 2,
+        preservedLegacyAnswer: true,
+      },
+      naturalListing: {
+        syntheticGrantVisible: false,
+        reason: "serving_release_registry_not_seeded",
+        directConfirmationHttpIsNotNaturalUiAcceptance: true,
+      },
+      matcherObservations: {
+        companyBEligibility: companyBSave.body.data.match.eligibility,
+        revision2Eligibility: revisedSave.body.data.match.eligibility,
+        revision2RefreshStatus: revisedSave.body.data.refresh?.status ?? "unreported",
+      },
+      fixtureTransitions: {
+        r2LedgerSha256: ledgerSha(revision2),
+        withdrawnLedgerSha256: ledgerSha(withdrawal),
+        rollbackLedgerSha256: ledgerSha(rollback),
+      },
+    },
+    finalState: rollback.state,
+  };
+}
+
+async function submitConfirmations(jar, endpoint, answers) {
+  const response = await jar.fetch(endpoint, {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ answers }),
+  });
+  let body = null;
+  try {
+    body = await response.json();
+  } catch {}
+  return { status: response.status, body };
+}
+
+function ledgerSha(result) {
+  const value = result?.ledgerSha256 ?? result?.state?.ledgerSha256;
+  assert.match(value ?? "", /^[0-9a-f]{64}$/);
+  return value;
+}
+
+async function readConfirmations(jar, endpoint) {
+  const response = await jar.fetch(endpoint);
+  assert.equal(response.status, 200);
+  const payload = await response.json();
+  assert.equal(payload?.ok, true);
+  assert.ok(payload?.data);
+  return payload.data;
+}
+
+function confirmationEndpoint(baseUrl, grantId, companyId) {
+  return `${baseUrl}/api/web/matches/${encodeURIComponent(grantId)}/confirmations?${new URLSearchParams({ companyId })}`;
+}
+
 async function verifyRejectedWebAccess({ baseUrl, password }) {
   const anonymous = new CookieJar();
   await assertNoSession(anonymous, baseUrl);
@@ -453,20 +850,7 @@ async function verifyLogoutAndRelogin({ baseUrl, email, password, expectedUserId
     password,
     expectedUserId,
   });
-  const csrfResponse = await authenticated.jar.fetch(`${baseUrl}/api/auth/csrf`);
-  assert.equal(csrfResponse.status, 200);
-  const { csrfToken } = await csrfResponse.json();
-  assert.equal(typeof csrfToken, "string");
-  const signoutResponse = await authenticated.jar.fetch(`${baseUrl}/api/auth/signout`, {
-    method: "POST",
-    headers: {
-      "content-type": "application/x-www-form-urlencoded",
-      "x-auth-return-redirect": "1",
-    },
-    body: new URLSearchParams({ csrfToken, callbackUrl: `${baseUrl}/login`, json: "true" }),
-    redirect: "manual",
-  });
-  assert.equal(signoutResponse.status, 200);
+  await signOut(authenticated.jar, baseUrl);
   await assertNoSession(authenticated.jar, baseUrl);
   const relogin = await verifyPasswordLogin({
     jar: authenticated.jar,
@@ -480,6 +864,23 @@ async function verifyLogoutAndRelogin({ baseUrl, email, password, expectedUserId
     userIdBefore: authenticated.proof.userId,
     userIdAfter: relogin.proof.userId,
   };
+}
+
+async function signOut(jar, baseUrl) {
+  const csrfResponse = await jar.fetch(`${baseUrl}/api/auth/csrf`);
+  assert.equal(csrfResponse.status, 200);
+  const { csrfToken } = await csrfResponse.json();
+  assert.equal(typeof csrfToken, "string");
+  const signoutResponse = await jar.fetch(`${baseUrl}/api/auth/signout`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/x-www-form-urlencoded",
+      "x-auth-return-redirect": "1",
+    },
+    body: new URLSearchParams({ csrfToken, callbackUrl: `${baseUrl}/login`, json: "true" }),
+    redirect: "manual",
+  });
+  assert.equal(signoutResponse.status, 200);
 }
 
 async function submitPassword({ jar, baseUrl, email, password }) {
