@@ -83,7 +83,22 @@ export interface AnalysisLaunchReceiptTarget {
   readonly applicationDocumentCount: number | null;
   readonly fieldReadyDocumentCount: number | null;
   readonly recognizedFieldCount: number | null;
+  /** 구 receipt에는 없다. 부재는 verified가 아니라 unverified다. */
+  readonly primaryMatchingProjection?: AnalysisLaunchMatchingProjectionBinding;
   readonly error: string | null;
+}
+
+export interface AnalysisLaunchMatchingProjectionBinding {
+  readonly schema: "analysis-launch-primary-matching-projection-binding-v1";
+  readonly verification: "verified" | "failed";
+  readonly snapshotSha256: string;
+  readonly sourceCriteriaSha256: string;
+  readonly projectedCriteriaSha256: string;
+  readonly reportSha256: string;
+  readonly conversionContractVersion: string;
+  readonly converterVersion: string;
+  readonly normalizerContractVersion: string;
+  readonly matcherRulesetVersion: string;
 }
 
 export interface AnalysisLaunchReceipt {
@@ -633,6 +648,15 @@ export function normalizeAnalysisLaunchReceipt(value: unknown): AnalysisLaunchRe
     const error = target.error === null
       ? null
       : requireNonEmpty(target.error, `receipt.targets[${index}].error`);
+    const primaryMatchingProjection = target.primaryMatchingProjection === undefined
+      ? undefined
+      : normalizeAnalysisLaunchMatchingProjectionBinding(
+          target.primaryMatchingProjection,
+          `receipt.targets[${index}].primaryMatchingProjection`,
+        );
+    if (primaryMatchingProjection && runArtifactPath === null) {
+      throw new Error(`receipt.targets[${index}] matching projection에 run artifact가 없습니다.`);
+    }
     if (
       status === "skipped"
       && (
@@ -656,6 +680,7 @@ export function normalizeAnalysisLaunchReceipt(value: unknown): AnalysisLaunchRe
       applicationDocumentCount,
       fieldReadyDocumentCount,
       recognizedFieldCount,
+      ...(primaryMatchingProjection ? { primaryMatchingProjection } : {}),
       error,
     });
   });
@@ -701,6 +726,43 @@ export function normalizeAnalysisLaunchReceipt(value: unknown): AnalysisLaunchRe
       : requireNonEmpty(record.systemicFailure, "receipt.systemicFailure"),
     summary: normalizedSummary,
     targets: Object.freeze(targets),
+  });
+}
+
+function normalizeAnalysisLaunchMatchingProjectionBinding(
+  value: unknown,
+  location: string,
+): AnalysisLaunchMatchingProjectionBinding {
+  const binding = object(value, location);
+  if (binding.schema !== "analysis-launch-primary-matching-projection-binding-v1") {
+    throw new Error(`${location}.schema가 잘못됐습니다.`);
+  }
+  if (binding.verification !== "verified" && binding.verification !== "failed") {
+    throw new Error(`${location}.verification이 잘못됐습니다.`);
+  }
+  return Object.freeze({
+    schema: "analysis-launch-primary-matching-projection-binding-v1",
+    verification: binding.verification,
+    snapshotSha256: exactSha(String(binding.snapshotSha256), `${location}.snapshotSha256`),
+    sourceCriteriaSha256: exactSha(String(binding.sourceCriteriaSha256), `${location}.sourceCriteriaSha256`),
+    projectedCriteriaSha256: exactSha(
+      String(binding.projectedCriteriaSha256),
+      `${location}.projectedCriteriaSha256`,
+    ),
+    reportSha256: exactSha(String(binding.reportSha256), `${location}.reportSha256`),
+    conversionContractVersion: requireNonEmpty(
+      binding.conversionContractVersion,
+      `${location}.conversionContractVersion`,
+    ),
+    converterVersion: requireNonEmpty(binding.converterVersion, `${location}.converterVersion`),
+    normalizerContractVersion: requireNonEmpty(
+      binding.normalizerContractVersion,
+      `${location}.normalizerContractVersion`,
+    ),
+    matcherRulesetVersion: requireNonEmpty(
+      binding.matcherRulesetVersion,
+      `${location}.matcherRulesetVersion`,
+    ),
   });
 }
 

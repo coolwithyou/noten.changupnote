@@ -37,7 +37,7 @@ import {
   type CohortEntry,
   type CohortFileV2,
 } from "./cohort-file";
-import { analysisLabDir } from "./run-store";
+import { analysisLabDir, isPrimaryLabRunFilename } from "./run-store";
 import { resolveGrantRunStates, type ScannedLabRunStateRecord } from "./run-scan-state";
 import { classifyLabRunOutcome } from "./run-outcome";
 
@@ -202,18 +202,8 @@ export async function scanExistingRuns(): Promise<LabBatchRunScan> {
       continue;
     }
     for (const file of files) {
-      if (!file.startsWith("run-") || !file.endsWith(".json")) continue;
-      // 부속 파일(검수·AI 검수·감사·질문 사이드카)은 런이 아니다 — 버전 무관 스킵 판정에서
-      // 런으로 오인되면 안 된다(파일명 + 아래 startedAt 이중 방어, e4556df 오인 편입 전례).
-      if (
-        file.endsWith(".review.json") ||
-        file.includes(".ai-review.") ||
-        file.includes(".audit.") ||
-        file.includes(".confirmations.") ||
-        file.endsWith(".human-overlay.json")
-      ) {
-        continue;
-      }
+      // 부속 파일은 공용 primary-run 판정으로 제외한다. 아래 startedAt은 내용 이중 방어다.
+      if (!isPrimaryLabRunFilename(file)) continue;
       let parsed: {
         grantId?: unknown;
         promptVersion?: unknown;

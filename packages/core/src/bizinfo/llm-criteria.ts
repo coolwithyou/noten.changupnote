@@ -18,11 +18,22 @@ import {
   validateGrantCriteriaContract,
   type GrantCriteriaContractIssue,
 } from "./criteria-contract.js";
-import { canonicalizeGrantCriteria, canonicalizeGrantCriterion } from "../criteria/canonicalize.js";
+import {
+  canonicalizeCriterionValue,
+  canonicalizeGrantCriteria,
+  canonicalizeGrantCriterion,
+} from "../criteria/canonicalize.js";
 import { buildBizInfoDeterministicCriteria, mergeBizInfoDeterministicCriteria } from "./deterministic-criteria.js";
 import type { BizInfoProgramExtractionInput } from "./types.js";
 
 export const DEFAULT_ANTHROPIC_MODEL = "claude-haiku-4-5-20251001";
+
+/**
+ * BizInfo/K-Startup/Lab이 함께 쓰는 LLM criterion 정규화 계약.
+ * source별 parser/prompt 버전과 분리해 정규화 구현 변경만 provenance에 결속한다.
+ */
+export const LLM_CRITERIA_NORMALIZATION_CONTRACT_VERSION =
+  "grant-llm-criteria-normalization-v1" as const;
 
 interface AnthropicToolUseBlock {
   type: "tool_use";
@@ -39,6 +50,7 @@ export interface AnthropicCriteriaResult {
   criteria: GrantCriterion[];
   requiredDocuments: GrantRequiredDocument[];
   model: string;
+  normalizerContractVersion: typeof LLM_CRITERIA_NORMALIZATION_CONTRACT_VERSION;
   usage: Record<string, unknown> | null;
 }
 
@@ -141,6 +153,7 @@ export async function extractBizInfoCriteriaWithAnthropic(options: {
     criteria,
     requiredDocuments: normalizeBizInfoLlmRequiredDocuments(toolUse.input),
     model,
+    normalizerContractVersion: LLM_CRITERIA_NORMALIZATION_CONTRACT_VERSION,
     usage: payload.usage ?? null,
   };
 }
@@ -198,6 +211,8 @@ function downgradeContractInvalidCriterion(
       note: sourceSpan ?? `${criterion.dimension} 조건 원문 확인 필요`,
       downgrade_reason: "contract_validation_failed",
       original_dimension: criterion.dimension,
+      original_operator: criterion.operator,
+      original_value: criterion.value,
       contract_issues: issueSummary,
     },
     confidence: criterion.confidence,
@@ -225,7 +240,7 @@ export function normalizeBizInfoLlmRequiredDocuments(payload: unknown): GrantReq
 
 /**
  * 구조화 금지 축 강등(M4). LLM 이 아래를 반환하면 evaluator·프로필이 없어 false pass·해소 불가 unknown 을
- * 유발하므로 other/text_only exclusion 으로 강등한다(span·label 보존):
+ * 유발하므로 other/text_only 로 강등한다. 표현 능력만 낮추며 원래 kind·축·연산자·근거를 보존한다:
  *   - premises / export_performance (예약 2축) — M4: 파이프라인 미활성
  */
 function shouldDowngradeToOther(dimension: CriterionDimension): boolean {
@@ -263,13 +278,45 @@ function normalizeCriterionRow(
 
   const sourceSpan = cleanString(value.source_span);
 
-  // 강등 판정(M4·M1). 강등 대상은 other/text_only exclusion 으로 내리고 span·라벨을 note 로 보존한다.
-  let downgraded = shouldDowngradeToOther(dimension);
-  if (!downgraded && SPAN_REQUIRED_DIMENSIONS.has(dimension) && operator !== "text_only" && !sourceSpan) {
+  // 강등 판정(M4·M1). 표현만 other/text_only 로 낮추고 자격 의미(kind)는 바꾸지 않는다.
+  // 원래 축·연산자와 강등 사유는 matcher의 원천 정정 보호 및 오프라인 진단에서 사용한다.
+  let downgradeReason:
+    | "reserved_dimension"
+    | "missing_required_source_span"
+    | "exclusive_upper_bound_mismatch"
+    | "sanction_cause_state_flattening"
+    | null = shouldDowngradeToOther(dimension) ? "reserved_dimension" : null;
+  if (!downgradeReason && SPAN_REQUIRED_DIMENSIONS.has(dimension) && operator !== "text_only" && !sourceSpan) {
     // M1: 신규 구조화 축이 source_span 없이 왔으면 판정 근거를 신뢰할 수 없다 → 강등.
-    downgraded = true;
+    downgradeReason = "missing_required_source_span";
   }
-  if (downgraded) {
+  if (
+    !downgradeReason
+    && dimension === "biz_age"
+    && operator !== "text_only"
+    && sourceSpan
+    && hasExclusiveYearUpperBoundMismatch(sourceSpan, value.value, operator, kind)
+  ) {
+    // matcher의 정수 월 upper bound는 inclusive다. 원문 "N년 미만"과 모델의 N*12개월
+    // 값이 충돌하면 N*12-1로 의도를 추정해 고치지 않고 원문 확인으로 명시 보류한다.
+    downgradeReason = "exclusive_upper_bound_mismatch";
+  }
+  if (
+    !downgradeReason
+    && dimension === "sanction"
+    && (operator === "in" || operator === "not_in")
+    && kind === "exclusion"
+    && sourceSpan
+    && hasSanctionCauseStateFlattening(sourceSpan, value.value)
+  ) {
+    // "협약 위반 때문에 현재 참여 제한 중"은 원인과 현재 상태의 AND/인과 조건이다.
+    // 두 flag를 OR로 평가하면 과거 위반만 있는 회사를 자동 탈락시키므로, 어느 한쪽을
+    // 추정해 삭제하지 않고 공용 normalizer에서 원문 확인 대상으로 보류한다.
+    downgradeReason = "sanction_cause_state_flattening";
+  }
+  if (downgradeReason) {
+    const originalDimension = dimension;
+    const originalOperator = operator;
     const note =
       cleanString(readNote(value.value)) ||
       sourceSpan ||
@@ -281,8 +328,14 @@ function normalizeCriterionRow(
       grant_id: sourceId,
       dimension,
       operator,
-      kind: "exclusion",
-      value: { note },
+      kind,
+      value: {
+        note,
+        downgrade_reason: downgradeReason,
+        original_dimension: originalDimension,
+        original_operator: originalOperator,
+        original_value: value.value,
+      },
       confidence: clampNumber(value.confidence, 0.1, 0.95, 0.65),
       needs_review: true,
       parser_version: options.parserVersion,
@@ -327,12 +380,64 @@ function normalizeCriterionRow(
       return {
         ...canonical,
         operator: "text_only",
-        value: { note: labelText ? `지역 조건 원문 확인 필요: ${labelText}` : "지역 조건 원문 확인 필요" },
+        value: {
+          note: labelText ? `지역 조건 원문 확인 필요: ${labelText}` : "지역 조건 원문 확인 필요",
+          downgrade_reason: "region_unresolved",
+          original_dimension: canonical.dimension,
+          original_operator: canonical.operator,
+          original_value: canonical.value,
+        },
         needs_review: true,
       };
     }
   }
   return canonical;
+}
+
+function hasExclusiveYearUpperBoundMismatch(
+  sourceSpan: string,
+  rawValue: unknown,
+  operator: CriterionOperator,
+  kind: CriterionKind,
+): boolean {
+  const match = /(?:업력(?:\s*조건)?|창업(?:기업|\s*후)?|설립(?:\s*후)?|개업(?:\s*후)?)\s*(?:은|이|가)?\s*[:：]?\s*(\d{1,2})(?![.\d])\s*년\s*미만/u.exec(
+    sourceSpan,
+  );
+  if (!match?.[1]) return false;
+  const years = Number.parseInt(match[1], 10);
+  if (!Number.isSafeInteger(years) || years <= 0) return false;
+  const canonical = canonicalizeCriterionValue(
+    "biz_age",
+    operator,
+    rawValue as CriterionValue,
+    kind,
+  ) as {
+    max_months?: unknown;
+  };
+  const maxMonths = canonical.max_months;
+  if (typeof maxMonths !== "number" || !Number.isInteger(maxMonths)) return false;
+  // 더 좁은 상한은 원문과 충돌하지 않는다. exclusive 경계를 포함하거나 넘길 때만 보류한다.
+  return maxMonths >= years * 12;
+}
+
+function hasSanctionCauseStateFlattening(sourceSpan: string, rawValue: unknown): boolean {
+  const canonical = canonicalizeCriterionValue(
+    "sanction",
+    "in",
+    rawValue as CriterionValue,
+    "exclusion",
+  ) as { flags?: unknown };
+  const flags = Array.isArray(canonical.flags)
+    ? canonical.flags.filter((flag): flag is string => typeof flag === "string")
+    : [];
+  if (!flags.includes("agreement_breach") || !flags.includes("participation_restricted")) {
+    return false;
+  }
+  // 단순 나열("협약 위반 또는 참여 제한")은 잡지 않는다. 실제 원문처럼 위반이
+  // 현재 참여 제한의 원인으로 연결되고, 현재 상태("중")가 명시된 경우만 fail-closed한다.
+  return /(?:협약|계약)[^\n]{0,24}위반[^\n]{0,16}(?:등으로|으로|로\s*인해|로\s*인하여|사유로)[^\n]{0,20}참여\s*제한[^\n]{0,12}(?:조치\s*)?중/u.test(
+    sourceSpan,
+  );
 }
 
 /** value.note(text_only placeholder) 추출 편의 — 강등 시 note 보존용. */

@@ -14,6 +14,7 @@
 //   안정 키 기준 grant_criteria upsert → 질문 upsert(ID/FK 보존) → 소멸 질문 soft-invalidate
 //   → 소멸 criterion만 삭제 → 해당 grantId의 match_state 삭제.
 import { and, eq, inArray } from "drizzle-orm";
+import { pathToFileURL } from "node:url";
 import {
   executePromotionWrites,
   findExistingQuestionForDefinition,
@@ -32,6 +33,7 @@ import {
 } from "../documents/applicationPrecomputeMaterialization";
 import { expandConfirmedGrantComponentIds } from "../ingestion/grantRevisionInvalidation";
 import { acquireGrantPublicationLock } from "../ingestion/grantPublicationLock";
+import { loadDeepAnalysisSourceBinding } from "../deep-analysis/prepareInput";
 import { criterionInsertValues } from "../ingestion/normalizedGrantPublisher";
 import { loadMonorepoEnv } from "../loadMonorepoEnv";
 import { createR2ObjectStorageFromEnv } from "../storage/r2ObjectStorage";
@@ -74,7 +76,8 @@ function hasFlag(name: string): boolean {
 
 // ---- Drizzle 쓰기 포트 (per-grant 트랜잭션 — 승인된 exact release만 호출) ---------------
 
-function createDrizzlePromotionPort(
+/** 실제 발행 트랜잭션 포트. CLI와 격리 PostgreSQL 통합검사가 같은 구현을 사용한다. */
+export function createDrizzlePromotionPort(
   db: CunoteDb,
   confirmedLinks: Array<{ canonicalGrantId: string; memberGrantId: string }>,
   releaseContext?: {
@@ -95,12 +98,30 @@ function createDrizzlePromotionPort(
         ? await releaseContext.prepareApplicationPrecompute(plan.grantId, plan.runId)
         : null;
       const publishResult = await db.transaction(async (tx) => {
+        await acquireGrantPublicationLock(tx, plan.grantId);
+        const hasV2Questions = plan.questions.some(
+          (question) => question.evaluationContractVersion === "confirmation-evaluation-v2",
+        );
+        const currentSource = hasV2Questions
+          ? await loadDeepAnalysisSourceBinding({ db: tx, grantId: plan.grantId, lockRaw: true })
+          : null;
+        if (hasV2Questions && (
+          !currentSource
+          || plan.questions.some((question) => (
+            question.evaluationContractVersion === "confirmation-evaluation-v2"
+            && (
+              question.sourceRevisionSha256 !== currentSource.sourceRevisionSha256
+              || question.sourceRawSha256 !== currentSource.sourceRawSha256
+            )
+          ))
+        )) {
+          throw new Error(`confirmation source drift: ${plan.grantId}`);
+        }
         const releasePlanItem = releaseContext?.itemByGrantId.get(plan.grantId);
         if (releaseContext && !releasePlanItem) {
           throw new Error(`release manifest 밖의 공고 쓰기 거부: ${plan.grantId}`);
         }
         if (releasePlanItem) {
-          await acquireGrantPublicationLock(tx, plan.grantId);
           const [ledgerItem] = await tx
             .select()
             .from(schema.analysisLabPromotionItems)
@@ -156,6 +177,8 @@ function createDrizzlePromotionPort(
           .select({
             id: schema.grantConfirmationQuestions.id,
             grantCriteriaId: schema.grantConfirmationQuestions.grantCriteriaId,
+            evaluationCriterionId: schema.grantConfirmationQuestions.evaluationCriterionId,
+            evaluationContractVersion: schema.grantConfirmationQuestions.evaluationContractVersion,
             criterionStableKey: schema.grantConfirmationQuestions.criterionStableKey,
             definitionSha256: schema.grantConfirmationQuestions.definitionSha256,
             version: schema.grantConfirmationQuestions.version,
@@ -220,9 +243,14 @@ function createDrizzlePromotionPort(
           if (!grantCriteriaId) {
             throw new Error(`질문 앵커 누락: position ${question.criteriaPosition} (${plan.grantId})`);
           }
+          const isV2 = question.evaluationContractVersion === "confirmation-evaluation-v2";
           const values = {
             grantId: plan.grantId,
-            grantCriteriaId,
+            grantCriteriaId: isV2 ? null : grantCriteriaId,
+            evaluationCriterionId: isV2 ? grantCriteriaId : null,
+            evaluationContractVersion: isV2 ? question.evaluationContractVersion : null,
+            sourceRevisionSha256: isV2 ? question.sourceRevisionSha256 : null,
+            sourceRawSha256: isV2 ? question.sourceRawSha256 : null,
             criterionStableKey: question.criterionStableKey,
             definitionSha256: question.definitionSha256,
             criterionRef: question.criterionRef as unknown as Record<string, unknown>,
@@ -245,7 +273,8 @@ function createDrizzlePromotionPort(
           const previousActive = existingQuestionModels.find((row) =>
             (
               row.criterionStableKey === question.criterionStableKey
-              || (row.criterionStableKey === null && row.grantCriteriaId === grantCriteriaId)
+              || (row.criterionStableKey === null
+                && (row.evaluationCriterionId ?? row.grantCriteriaId) === grantCriteriaId)
             )
             && row.invalidatedAt === null
             && row.id !== existing?.id);
@@ -254,6 +283,7 @@ function createDrizzlePromotionPort(
               .update(schema.grantConfirmationQuestions)
               .set({
                 grantCriteriaId: null,
+                evaluationCriterionId: null,
                 invalidatedAt: new Date(),
                 invalidationReason: "semantic_definition_superseded",
               })
@@ -264,7 +294,11 @@ function createDrizzlePromotionPort(
             const [row] = await tx
               .update(schema.grantConfirmationQuestions)
               .set({
-                grantCriteriaId,
+                grantCriteriaId: values.grantCriteriaId,
+                evaluationCriterionId: values.evaluationCriterionId,
+                evaluationContractVersion: values.evaluationContractVersion,
+                sourceRevisionSha256: values.sourceRevisionSha256,
+                sourceRawSha256: values.sourceRawSha256,
                 criterionStableKey: question.criterionStableKey,
                 criterionRef: question.criterionRef as unknown as Record<string, unknown>,
                 promptVer: question.promptVer,
@@ -296,7 +330,11 @@ function createDrizzlePromotionPort(
                   schema.grantConfirmationQuestions.definitionSha256,
                 ],
                 set: {
-                  grantCriteriaId,
+                  grantCriteriaId: values.grantCriteriaId,
+                  evaluationCriterionId: values.evaluationCriterionId,
+                  evaluationContractVersion: values.evaluationContractVersion,
+                  sourceRevisionSha256: values.sourceRevisionSha256,
+                  sourceRawSha256: values.sourceRawSha256,
                   criterionRef: question.criterionRef as unknown as Record<string, unknown>,
                   promptVer: question.promptVer,
                   provenance: question.provenance as unknown as Record<string, unknown>,
@@ -322,6 +360,7 @@ function createDrizzlePromotionPort(
                 .update(schema.grantConfirmationQuestions)
                 .set({
                   grantCriteriaId: null,
+                  evaluationCriterionId: null,
                   invalidatedAt: new Date(),
                   invalidationReason: "anchor_criterion_removed_or_changed",
                 })
@@ -660,13 +699,15 @@ async function closeDbIfLoaded(): Promise<void> {
   }
 }
 
-main()
-  .then(async (code) => {
-    await closeDbIfLoaded();
-    process.exit(code);
-  })
-  .catch(async (error) => {
-    console.error("[promote] 실패:", error instanceof Error ? error.message : error);
-    await closeDbIfLoaded();
-    process.exit(1);
-  });
+if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
+  main()
+    .then(async (code) => {
+      await closeDbIfLoaded();
+      process.exit(code);
+    })
+    .catch(async (error) => {
+      console.error("[promote] 실패:", error instanceof Error ? error.message : error);
+      await closeDbIfLoaded();
+      process.exit(1);
+    });
+}

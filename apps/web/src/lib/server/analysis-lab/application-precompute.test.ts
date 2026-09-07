@@ -8,6 +8,10 @@ import {
   classifyApplicationFieldAnalysis,
   runAnalysisPair,
 } from "./application-precompute";
+import {
+  capturePrimaryMatchingProjectionSnapshot,
+  primaryProjectionSource,
+} from "./primary-matching-projection";
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -17,6 +21,45 @@ function deferred<T>() {
     reject = rej;
   });
   return { promise, resolve, reject };
+}
+
+// 실제 pair 조합에서도 primary 진단은 지연된 Kordoc보다 먼저 종결되고 진단 실패는 outcome을 지우지 않는다.
+{
+  const application = deferred<string>();
+  const events: string[] = [];
+  let pairSettled = false;
+  const pending = runAnalysisPair({
+    primary: async () => {
+      const primary = { outcome: "publishable" as const, criteria: [] };
+      const projection = capturePrimaryMatchingProjectionSnapshot({
+        source: primaryProjectionSource({
+          runId: "run-2026-09-07T000000.000Z-pair",
+          grantId: "grant-pair",
+          source: "bizinfo",
+          sourceId: "pair",
+          inputSha256: "1".repeat(64),
+          criteria: primary.criteria,
+        }),
+        primaryExtractionAvailable: true,
+      }, {
+        build: () => {
+          throw new Error("synthetic projection failure");
+        },
+      });
+      events.push(`primary:${projection.verification}`);
+      return { ...primary, projection };
+    },
+    application: () => application.promise,
+  });
+  void pending.then(() => { pairSettled = true; });
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.deepEqual(events, ["primary:failed"]);
+  assert.equal(pairSettled, false, "Kordoc은 아직 지연 중");
+  application.resolve("Kordoc 완료");
+  const result = await pending;
+  assert.equal(result.primary.outcome, "publishable", "진단 실패가 primary outcome을 바꾸지 않는다");
+  assert.equal(result.primary.projection.verification, "failed");
 }
 
 // await 전에 두 형제 작업이 모두 시작되고, sidecar 실패가 primary를 오염시키지 않는다.

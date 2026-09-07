@@ -16,6 +16,7 @@ import type {
 import { WRITE_SUPPORT_LABELS } from "@cunote/contracts";
 import {
   answerableHardUnknownDimensions,
+  hasUnanswerableHardUnknown,
   isPreparableMatchCard,
 } from "@cunote/core";
 import { URGENT_MAX_DDAY } from "@/components/app/notice-card";
@@ -642,14 +643,53 @@ export interface MatchDisplayGroups {
   upcoming: MatchCard[];
 }
 
+export interface MatchCardNextActions {
+  companyProfile: MatchCard["ruleTrace"];
+  userConfirmation: MatchCard["ruleTrace"];
+  adminSourceReview: MatchCard["ruleTrace"];
+}
+
+/**
+ * matcher/server가 실은 구조화 action만 소비한다. 메시지 문구나 editable dimension으로
+ * 행동을 다시 추정하지 않으며, 혼합 카드도 각 경로를 모두 보존한다.
+ */
+export function matchCardNextActions(match: MatchCard): MatchCardNextActions {
+  return {
+    companyProfile: match.ruleTrace.filter((trace) => trace.confirmationNextAction === "company_profile"),
+    userConfirmation: match.ruleTrace.filter((trace) => trace.confirmationNextAction === "user_confirmation"),
+    adminSourceReview: match.ruleTrace.filter((trace) => trace.confirmationNextAction === "admin_source_review"),
+  };
+}
+
+export interface MatchConfirmationCtaState {
+  count: number;
+  showConfirmation: boolean;
+  showReconfirm: boolean;
+  hasAdminSourceReview: boolean;
+}
+
+export function matchConfirmationCtaState(match: MatchCard): MatchConfirmationCtaState {
+  const actions = matchCardNextActions(match);
+  const count = match.confirmationQuestionCount ?? 0;
+  const showConfirmation = count > 0 && actions.userConfirmation.length > 0;
+  return {
+    count,
+    showConfirmation,
+    showReconfirm: (match.userConfirmedCount ?? 0) > 0 && count > 0 && !showConfirmation,
+    hasAdminSourceReview: actions.adminSourceReview.length > 0,
+  };
+}
+
 /** 사용자 입력으로 해소할 미확인 축이 정확히 하나일 때만 "답하면 확정"으로 약속한다. */
 export function isOneAnswerMatch(match: MatchCard): boolean {
   if (recommendationTierForMatch(match) !== "needs_profile_input") return false;
+  if (hasUnanswerableHardUnknown(match)) return false;
   return answerableHardUnknownDimensions(match).size === 1;
 }
 
 export function isMultiAnswerMatch(match: MatchCard): boolean {
   if (recommendationTierForMatch(match) !== "needs_profile_input") return false;
+  if (hasUnanswerableHardUnknown(match)) return false;
   return answerableHardUnknownDimensions(match).size > 1;
 }
 
@@ -666,6 +706,7 @@ export function matchVerdictStatus(match: MatchCard): VerdictStatus {
   if (
     tier === "needs_core_review" ||
     match.criteriaExtracted === false ||
+    hasUnanswerableHardUnknown(match) ||
     (tier === "needs_profile_input" && answerableHardUnknownDimensions(match).size === 0) ||
     (tier === "recommendable" && match.scoreDisplay === "hidden")
   ) {

@@ -23,6 +23,7 @@ import {
   type DeepAnalysisMatcherRepresentabilityAssessment,
 } from "./matcherRepresentability";
 import { stableJson } from "./sourceRevision";
+import { inspectMatchingConversionReport } from "../analysis-serving/matchingConversionContract";
 
 type NormalizedDeepAnalysisResult = Omit<
   DeepAnalysisModelResult,
@@ -161,12 +162,26 @@ export function assessDeepAnalysisPromotionReadiness(input: {
         detail: refusal.detail,
       });
     }
-    if (input.plan.conversion.dropped > 0) {
+    const conversionIntegrity = inspectMatchingConversionReport(
+      input.plan.conversion,
+      input.plan.criteria,
+    );
+    const legacyConversionReport = input.plan.conversion.contractVersion === undefined
+      && input.plan.conversion.items === undefined;
+    const blockingConversionCount = conversionIntegrity.completeItemAccounting
+      ? conversionIntegrity.blockingCriterionIndexes.length
+      : input.plan.conversion.dropped;
+    if (
+      blockingConversionCount > 0
+      || (!legacyConversionReport && !conversionIntegrity.completeItemAccounting)
+    ) {
       blockers.push({
         code: "conversion_dropped",
         stage: "matcher_representable",
-        count: input.plan.conversion.dropped,
-        detail: `발행 변환에서 criterion ${input.plan.conversion.dropped}건이 탈락했습니다.`,
+        count: blockingConversionCount,
+        detail: conversionIntegrity.completeItemAccounting
+          ? `발행 변환에서 criterion ${blockingConversionCount}건이 명시 보류/탈락했습니다.`
+          : `발행 변환 항목 accounting이 불완전합니다: ${conversionIntegrity.issues.join(",")}`,
       });
     }
     const unexpectedDowngradeCount = input.matcherRepresentability

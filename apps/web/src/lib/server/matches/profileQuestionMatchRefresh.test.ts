@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import type { CompanyProfile, NormalizedGrant } from "@cunote/contracts";
-import { evaluateProfileUpdateImpact, type ServiceRepositories } from "@cunote/core";
+import { evaluateProfileUpdateImpact, type MatchStateInputBinding, type ServiceRepositories } from "@cunote/core";
 import { refreshProfileQuestionMatchStates } from "./profileQuestionMatchRefresh";
 
 const before: CompanyProfile = { employees_count: 3 };
@@ -20,6 +20,7 @@ const refresh = await refreshProfileQuestionMatchStates({
   grants,
   impact,
   asOf: new Date("2026-07-12T00:00:00.000Z"),
+  inputBindings: bindingsFor(grants),
 });
 assert.deepEqual(refresh, {
   scope: "company_dimension",
@@ -64,6 +65,7 @@ const noChangeRefresh = await refreshProfileQuestionMatchStates({
   grants,
   impact: noChangeImpact,
   asOf: new Date("2026-07-12T00:00:00.000Z"),
+  inputBindings: bindingsFor(grants),
 });
 assert.deepEqual(noChangeRefresh, {
   scope: "company_dimension",
@@ -96,6 +98,7 @@ const partialRefresh = await refreshProfileQuestionMatchStates({
   grants: twoRevenueGrants,
   impact: twoGrantImpact,
   asOf: new Date("2026-07-12T00:00:00.000Z"),
+  inputBindings: bindingsFor(twoRevenueGrants),
 });
 assert.deepEqual(attemptedGrantIds, ["bizinfo:revenue-grant", "bizinfo:second-revenue-grant"]);
 assert.deepEqual(partialRefresh, {
@@ -127,6 +130,7 @@ const confirmedRepositories = {
       confirmedSaveCount += 1;
       assert.equal(input.match.eligibility, "eligible", "공용 상태 저장도 확인 답변을 반영한다");
       assert.equal(input.match.rule_trace.find((row) => row.dimension === "prior_award")?.resolution, "confirmed_by_user");
+      return { status: "saved" as const };
     },
   },
 } as unknown as ServiceRepositories<{ fixture: true }>;
@@ -134,6 +138,7 @@ const confirmedRefresh = await refreshProfileQuestionMatchStates({
   repositories: confirmedRepositories, companyId: "company-1", stateScope: "company",
   company: confirmedAfter, grants: [confirmedGrant], impact: confirmedImpact,
   asOf: new Date("2026-07-12T00:00:00.000Z"), confirmationsByGrantId,
+  inputBindings: bindingsFor([confirmedGrant]),
 });
 assert.equal(confirmedRefresh.status, "succeeded");
 assert.equal(confirmedSaveCount, 1);
@@ -180,9 +185,25 @@ function repositoriesWithSave(
     matches: {
       async saveMatchState(input: { grantId: string }) {
         await save(input.grantId);
+        return { status: "saved" as const };
       },
     },
   } as unknown as ServiceRepositories<{ fixture: true }>;
+}
+
+function bindingsFor(
+  grants: Array<NormalizedGrant<{ fixture: true }>>,
+): MatchStateInputBinding[] {
+  return grants.map((entry) => {
+    const grantId = entry.grant.id ?? `${entry.raw.source}:${entry.raw.source_id}`;
+    return {
+      version: "match-state-input-v1",
+      companyId: "company-1",
+      companyRevision: "1",
+      grantId,
+      grantComponentRevisions: [{ grantId, revision: "1" }],
+    };
+  });
 }
 
 function grant(

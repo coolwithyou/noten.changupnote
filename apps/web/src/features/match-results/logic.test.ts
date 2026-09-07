@@ -9,9 +9,12 @@ import {
   criterionSubjectLabel,
   confirmationResumePath,
   groupMatchesForDisplay,
+  matchCardNextActions,
+  matchConfirmationCtaState,
   matchCriterionPresentation,
   matchingProfileCoverage,
   matchDetailHref,
+  isMultiAnswerMatch,
   matchVerdictStatus,
   profileCoverageLabel,
   profileFieldAsOfLabel,
@@ -91,6 +94,7 @@ const answerMatch = {
     kind: "required",
     result: "unknown",
     action: { type: "progressive", target: "region", label: "지금 확인" },
+    confirmationNextAction: "company_profile",
   }],
 } as MatchCard;
 const reviewMatch = {
@@ -113,12 +117,14 @@ const preparableMatch = {
       kind: "required",
       result: "unknown",
       action: { type: "progressive", target: "industry", label: "지금 확인" },
+      confirmationNextAction: "company_profile",
     },
     {
       dimension: "revenue",
       kind: "required",
       result: "unknown",
       action: { type: "progressive", target: "revenue", label: "지금 확인" },
+      confirmationNextAction: "company_profile",
     },
   ],
 } as unknown as MatchCard;
@@ -139,6 +145,7 @@ const multiAnswerMatch = {
       kind: "required",
       result: "unknown",
       action: { type: "progressive", target: "revenue", label: "지금 확인" },
+      confirmationNextAction: "company_profile",
     },
   ],
 } as MatchCard;
@@ -171,6 +178,56 @@ const answerWithPreferredMatch = {
       result: "unknown",
       label: "수혜·참여 이력 확인 필요",
       action: { type: "progressive", target: "prior_award", label: "지금 확인" },
+      confirmationNextAction: "company_profile",
+    },
+  ],
+} as MatchCard;
+const mixedHardAdminMatch = {
+  ...answerMatch,
+  grantId: "grant-mixed-hard-admin",
+  ruleTrace: [
+    ...answerMatch.ruleTrace,
+    {
+      dimension: "other",
+      kind: "required",
+      result: "text_only",
+      label: "공고 원문 관리자 확인 필요",
+      confirmationNextAction: "admin_source_review",
+    },
+    {
+      dimension: "prior_award",
+      kind: "preferred",
+      result: "text_only",
+      label: "공고별 우대 확인",
+      confirmationNextAction: "user_confirmation",
+    },
+  ],
+} as MatchCard;
+const preferredAdminWithOneHardProfileMatch = {
+  ...answerMatch,
+  grantId: "grant-preferred-admin-with-one-hard-profile",
+  ruleTrace: [
+    ...answerMatch.ruleTrace,
+    {
+      dimension: "other",
+      kind: "preferred",
+      result: "text_only",
+      label: "우대 원문 관리자 확인 필요",
+      confirmationNextAction: "admin_source_review",
+    },
+  ],
+} as MatchCard;
+const mixedHardAdminMultiProfileMatch = {
+  ...multiAnswerMatch,
+  grantId: "grant-mixed-hard-admin-multi-profile",
+  ruleTrace: [
+    ...multiAnswerMatch.ruleTrace,
+    {
+      dimension: "other",
+      kind: "exclusion",
+      result: "text_only",
+      label: "배제 원문 관리자 확인 필요",
+      confirmationNextAction: "admin_source_review",
     },
   ],
 } as MatchCard;
@@ -186,10 +243,104 @@ assert.equal(matchVerdictStatus(multiAnswerMatch), "closed");
 assert.equal(matchVerdictStatus(reviewMatch), "check_source");
 assert.equal(matchVerdictStatus(unknownStatusMatch), "check_source");
 assert.equal(
+  matchVerdictStatus(mixedHardAdminMatch),
+  "check_source",
+  "미해소 hard 관리자 조건이 남으면 사용자 답만으로 확정된다고 약속하지 않는다",
+);
+assert.equal(
+  matchVerdictStatus(preferredAdminWithOneHardProfileMatch),
+  "one_answer",
+  "우대 관리자 검토만 남은 경우 필수 자격의 답하면 확정 약속은 유지한다",
+);
+assert.equal(
+  isMultiAnswerMatch(mixedHardAdminMultiProfileMatch),
+  false,
+  "회사정보 두 축을 채워도 hard 관리자 조건이 남으면 준비 완료를 약속하지 않는다",
+);
+assert.equal(matchVerdictStatus(mixedHardAdminMultiProfileMatch), "check_source");
+assert.equal(
   matchVerdictStatus(hiddenScoreHardFailMatch),
   "closed",
   "확정 미해당 공고를 점수 숨김만으로 원문 확인 필요로 표시하면 안 됨",
 );
+const mixedActions = matchCardNextActions({
+  ...answerMatch,
+  ruleTrace: [
+    answerMatch.ruleTrace[0]!,
+    {
+      dimension: "other",
+      kind: "required",
+      result: "text_only",
+      label: "원문 확인",
+      confirmationNextAction: "admin_source_review",
+    },
+    {
+      dimension: "prior_award",
+      kind: "preferred",
+      result: "text_only",
+      label: "공고별 확인",
+      confirmationNextAction: "user_confirmation",
+    },
+  ],
+} as MatchCard);
+assert.equal(mixedActions.companyProfile.length, 1);
+assert.equal(mixedActions.adminSourceReview.length, 1);
+assert.equal(mixedActions.userConfirmation.length, 1, "혼합 카드의 사용자 질문을 admin 행 뒤에서도 보존한다");
+const preferredEligibleConfirmation = {
+  ...openMatch,
+  confirmationQuestionCount: 1,
+  ruleTrace: [{
+    dimension: "prior_award",
+    kind: "preferred",
+    result: "text_only",
+    label: "우대 이력 확인",
+    confirmationNextAction: "user_confirmation",
+  }],
+} as MatchCard;
+assert.equal(matchVerdictStatus(preferredEligibleConfirmation), "open");
+assert.equal(
+  matchConfirmationCtaState(preferredEligibleConfirmation).showConfirmation,
+  true,
+  "우대 질문만 남은 eligible 카드도 확인 시트 진입을 제공한다",
+);
+assert.equal(matchConfirmationCtaState({
+  ...answerMatch,
+  confirmationQuestionCount: 1,
+  ruleTrace: [{
+    dimension: "region",
+    kind: "required",
+    result: "unknown",
+    label: "공식 정보 정정 검토",
+    confirmationNextAction: "admin_source_review",
+  }],
+} as MatchCard).showConfirmation, false, "admin 조건은 count가 있어도 사용자 확인 CTA를 열지 않는다");
+assert.equal(matchConfirmationCtaState({
+  ...answerMatch,
+  confirmationQuestionCount: 1,
+  ruleTrace: [{
+    dimension: "region",
+    kind: "required",
+    result: "unknown",
+    label: "원인 계약 이전 카드",
+  }],
+} as MatchCard).showConfirmation, false, "원인 없는 legacy count만으로 확인 CTA를 추정하지 않는다");
+assert.deepEqual(matchConfirmationCtaState({
+  ...openMatch,
+  confirmationQuestionCount: 1,
+  userConfirmedCount: 1,
+  ruleTrace: [{
+    dimension: "region",
+    kind: "required",
+    result: "pass",
+    label: "확인 완료",
+    resolution: "confirmed_by_user",
+  }],
+} as MatchCard), {
+  count: 1,
+  showConfirmation: false,
+  showReconfirm: true,
+  hasAdminSourceReview: false,
+});
 const grouped = groupMatchesForDisplay([
   openMatch,
   answerMatch,
@@ -199,10 +350,11 @@ const grouped = groupMatchesForDisplay([
   preparableMatch,
   hardFailLegacyPreparableMatch,
   unknownStatusMatch,
+  mixedHardAdminMatch,
 ]);
 assert.equal(grouped.oneAnswer.length, 2);
 assert.equal(grouped.preparable.length, 2);
-assert.equal(grouped.checkSource.length, 2);
+assert.equal(grouped.checkSource.length, 3);
 assert.equal(grouped.closed.length, 1, "hard fail은 legacy preparable bucket이어도 준비 목록에서 제외");
 
 assert.equal(profileSheetValueState({
@@ -287,6 +439,7 @@ const criterionPresentation = matchCriterionPresentation({
       result: "unknown",
       label: "수혜·참여 이력 확인 필요",
       action: { type: "progressive", target: "prior_award", label: "지금 확인" },
+      confirmationNextAction: "company_profile",
     },
     ...(["other", "other", "biz_age", "employees", "revenue"] as const).map((dimension) => ({
       dimension,

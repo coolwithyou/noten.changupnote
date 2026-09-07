@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import type { Grant, MatchResult, NormalizedGrant, RuleTraceEntry } from "@cunote/contracts";
-import { deriveGrantBenefits, normalizeSupportAmount, toMatchCard } from "./match-card.js";
+import { deriveGrantBenefits, normalizeSupportAmount, toMatchCard, toRuleTraceChip } from "./match-card.js";
 
 assert.deepEqual(
   normalizeSupportAmount({
@@ -125,6 +125,29 @@ assert.ok(!("userConfirmedCount" in toMatchCard(matchedGrant([]))));
 assert.equal(toMatchCard(matchedGrant([confirmedPass, plainPass])).userConfirmedCount, 1);
 assert.equal(toMatchCard(matchedGrant([confirmedPass, confirmedFail, plainPass])).userConfirmedCount, 2);
 assert.equal(toMatchCard(matchedGrant([confirmedFail])).userConfirmedCount, 1);
+assert.equal(toRuleTraceChip(traceEntry()).confirmationNextAction, "company_profile");
+assert.equal(toRuleTraceChip(traceEntry({ dimension: "region" })).confirmationNextAction, "company_profile");
+assert.equal(toRuleTraceChip(traceEntry({
+  dimension: "other",
+  operator: "text_only",
+  unresolved_reason: "criterion_text_only",
+})).confirmationNextAction, "admin_source_review");
+assert.equal(toRuleTraceChip(traceEntry({
+  unresolved_reason: "source_dispute",
+})).confirmationNextAction, "admin_source_review");
+assert.equal(toRuleTraceChip(traceEntry({
+  unresolved_reason: "criterion_needs_review",
+})).action?.type, "external_link");
+assert.equal(toRuleTraceChip(traceEntry({
+  kind: "preferred",
+  unresolved_reason: "company_profile_missing",
+})).confirmationNextAction, "company_profile");
+assert.equal(toRuleTraceChip(traceEntry({
+  operator: "text_only",
+  result: "pass",
+  resolution: "confirmed_by_user",
+  criterion_id: "criterion-confirmed",
+})).confirmationNextAction, undefined);
 
 console.log("match-card.test.ts: all assertions passed");
 
@@ -134,6 +157,7 @@ function traceEntry(overrides: Partial<RuleTraceEntry> = {}): RuleTraceEntry {
     kind: "exclusion",
     operator: "exists",
     result: "unknown",
+    unresolved_reason: "company_profile_missing",
     message: "제재 여부 확인 필요",
     ...overrides,
   };

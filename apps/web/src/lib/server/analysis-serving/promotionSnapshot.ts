@@ -29,6 +29,11 @@ export interface PromotionQuestionSnapshot {
   id: string;
   grantId: string;
   grantCriteriaId: string | null;
+  /** v2 snapshot에만 존재한다. legacy snapshot hash에는 null 필드를 추가하지 않는다. */
+  evaluationCriterionId?: string | null;
+  evaluationContractVersion?: string | null;
+  sourceRevisionSha256?: string | null;
+  sourceRawSha256?: string | null;
   criterionStableKey: string | null;
   definitionSha256: string;
   version: number;
@@ -119,11 +124,7 @@ export async function loadPromotionGrantSnapshot(
     .sort((left, right) => left.id.localeCompare(right.id));
 
   const questions = questionRows
-    .map((row): PromotionQuestionSnapshot => ({
-      ...row,
-      invalidatedAt: row.invalidatedAt?.toISOString() ?? null,
-      createdAt: row.createdAt.toISOString(),
-    }))
+    .map(toPromotionQuestionSnapshot)
     .sort((left, right) => left.id.localeCompare(right.id));
 
   const answerIdentitiesByQuestion = new Map<string, string[]>();
@@ -148,6 +149,43 @@ export async function loadPromotionGrantSnapshot(
     answerBindings,
     dedupComponentGrantIds: componentGrantIds,
     dedupLinks: componentLinks,
+  };
+}
+
+/** migration 이후에도 v1 역사 snapshot의 canonical JSON/hash를 그대로 유지한다. */
+export function toPromotionQuestionSnapshot(
+  row: typeof schema.grantConfirmationQuestions.$inferSelect,
+): PromotionQuestionSnapshot {
+  const legacy = {
+    id: row.id,
+    grantId: row.grantId,
+    grantCriteriaId: row.grantCriteriaId,
+    criterionStableKey: row.criterionStableKey,
+    definitionSha256: row.definitionSha256,
+    version: row.version,
+    supersedesQuestionId: row.supersedesQuestionId,
+    criterionRef: row.criterionRef,
+    prompt: row.prompt,
+    options: row.options,
+    answerType: row.answerType,
+    reusable: row.reusable,
+    conditionKey: row.conditionKey,
+    promptVer: row.promptVer,
+    provenance: row.provenance,
+    invalidatedAt: row.invalidatedAt?.toISOString() ?? null,
+    invalidationReason: row.invalidationReason,
+    createdAt: row.createdAt.toISOString(),
+  };
+  if (row.evaluationContractVersion === null) return legacy;
+  if (row.evaluationContractVersion !== "confirmation-evaluation-v2") {
+    throw new Error(`지원하지 않는 confirmation snapshot contract: ${row.evaluationContractVersion}`);
+  }
+  return {
+    ...legacy,
+    evaluationCriterionId: row.evaluationCriterionId,
+    evaluationContractVersion: row.evaluationContractVersion,
+    sourceRevisionSha256: row.sourceRevisionSha256,
+    sourceRawSha256: row.sourceRawSha256,
   };
 }
 

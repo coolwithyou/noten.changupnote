@@ -4,6 +4,7 @@ import type { DeepAnalysisPromotionReadiness } from "../deep-analysis/promotion"
 import type { DeepRepairPromotionReadiness } from "../analysis-lab/deep-repair-promotion";
 import type { AnalysisLaunchPromotionReadiness } from "../analysis-lab/analysis-launch-promotion";
 import type { GrantPromotionPlan } from "../analysis-lab/promote";
+import { matchingConversionIsPromotionSafe } from "./matchingConversionContract";
 import {
   validatePromotionApplicationPrecomputeEvidence,
   type PromotionApplicationPrecomputeEvidence,
@@ -17,7 +18,18 @@ export const PROMOTION_APPROVAL_SCHEMA = "analysis-lab-promotion-approval-v1" as
 export const VERIFIED_LOCAL_LAB_SOURCE_SCHEMA = "verified-local-lab-source-v1" as const;
 export const VERIFIED_DEEP_REPAIR_SOURCE_SCHEMA = "verified-deep-repair-source-v1" as const;
 export const VERIFIED_ANALYSIS_LAUNCH_SOURCE_SCHEMA = "verified-analysis-launch-source-v1" as const;
+export const MANUAL_CONFIRMATION_EVALUATION_SELECTION_SCHEMA =
+  "manual-confirmation-evaluation-selection-v1" as const;
 export const MIN_CONFIRM_HASH_PREFIX = 12;
+
+/** release/plan이 선택한 exact 수동 질문 revision. 파일 탐색이나 implicit latest를 허용하지 않는다. */
+export interface ManualConfirmationEvaluationSelection {
+  schema: typeof MANUAL_CONFIRMATION_EVALUATION_SELECTION_SCHEMA;
+  revision: number;
+  artifactSha256: string;
+  itemCount: number;
+  intent: "active" | "withdraw_all";
+}
 
 export type PromotionServingProvenance =
   | "production_deep_run"
@@ -85,6 +97,9 @@ export interface VerifiedAnalysisLaunchSourceEvidence {
   packageRuntimeSha256: string;
   validatorVersion: string;
   applicationFieldAnalysisVersion: string;
+  /** 신규 launch만 기록한다. 역사 부재는 verified로 추정하지 않는다. */
+  primaryMatchingProjectionSnapshotSha256?: string;
+  primaryMatchingProjectionContractVersion?: string;
 }
 
 export interface PromotionSourceArtifact {
@@ -96,6 +111,10 @@ export interface PromotionSourceArtifact {
   auditSha256?: string | null;
   overlaySha256: string | null;
   confirmationsSha256: string | null;
+  /** 수동 3상태 질문 sidecar. 역사 artifact에는 키가 없고, 신규 v2 질문에는 exact SHA가 필수다. */
+  manualConfirmationEvaluationsSha256?: string | null;
+  /** 신규 release의 exact revision 선택. 역사 source는 SHA-only revision 1 또는 필드 부재다. */
+  manualConfirmationEvaluationSelection?: ManualConfirmationEvaluationSelection;
   /**
    * 프로덕션 deep-analysis 원장에서 온 source. 이 필드가 있으면 source verifier는
    * 로컬 spike 파일 대신 DB run/job/S11/audit와 private R2 artifact를 검증한다.
@@ -479,8 +498,11 @@ export function isDeepRepairReceiptAcceptedPlan(plan: GrantPromotionPlan): boole
     && plan.auditState === "deep_repair_receipt"
     && plan.resolutions.length > 0
     && plan.resolutions.every((resolution) => resolution.state === "deep_repair_receipt")
-    && plan.conversion.error === null
-    && plan.conversion.dropped === (plan.scopeRejectedCriterionIndexes?.length ?? -1);
+    && matchingConversionIsPromotionSafe({
+      report: plan.conversion,
+      criteria: plan.criteria,
+      scopeRejectedCriterionIndexes: plan.scopeRejectedCriterionIndexes,
+    });
 }
 
 export function isAnalysisLaunchAcceptedPlan(plan: GrantPromotionPlan): boolean {
@@ -488,8 +510,11 @@ export function isAnalysisLaunchAcceptedPlan(plan: GrantPromotionPlan): boolean 
     && plan.auditState === "analysis_launch_independent_review"
     && plan.resolutions.length > 0
     && plan.resolutions.every((resolution) => resolution.state === "analysis_launch_reviewed")
-    && plan.conversion.error === null
-    && plan.conversion.dropped === (plan.scopeRejectedCriterionIndexes?.length ?? -1);
+    && matchingConversionIsPromotionSafe({
+      report: plan.conversion,
+      criteria: plan.criteria,
+      scopeRejectedCriterionIndexes: plan.scopeRejectedCriterionIndexes,
+    });
 }
 
 /**
@@ -687,6 +712,38 @@ export function validatePromotionReleaseManifest(value: unknown): PromotionRelea
     if (source?.runId !== item.promotionPlan.runId) {
       throw new Error(`release source runId가 promotion plan과 불일치합니다: ${item.grantId}`);
     }
+    const hasV2Questions = item.promotionPlan.questions.some(
+      (question) => question.evaluationContractVersion === "confirmation-evaluation-v2",
+    );
+    const manualSelection = item.promotionPlan.manualConfirmationEvaluationSelection;
+    const sourceManualSelection = source?.manualConfirmationEvaluationSelection;
+    if (manualSelection !== undefined || sourceManualSelection !== undefined) {
+      assertManualConfirmationEvaluationSelection(manualSelection);
+      assertManualConfirmationEvaluationSelection(sourceManualSelection);
+      if (
+        sha256Canonical(manualSelection) !== sha256Canonical(sourceManualSelection)
+        || source?.manualConfirmationEvaluationsSha256 !== manualSelection.artifactSha256
+      ) {
+        throw new Error(`수동 confirmation revision 결속이 올바르지 않습니다: ${item.grantId}`);
+      }
+      const v2QuestionCount = item.promotionPlan.questions.filter(
+        (question) => question.evaluationContractVersion === "confirmation-evaluation-v2",
+      ).length;
+      if (
+        v2QuestionCount !== manualSelection.itemCount
+        || (manualSelection.intent === "active" && !hasV2Questions)
+        || (manualSelection.intent === "withdraw_all" && hasV2Questions)
+      ) {
+        throw new Error(`수동 confirmation revision 질문 수가 plan과 일치하지 않습니다: ${item.grantId}`);
+      }
+    } else if (
+      (hasV2Questions && !isSha256(source?.manualConfirmationEvaluationsSha256))
+      || (!hasV2Questions
+        && source?.manualConfirmationEvaluationsSha256 !== undefined
+        && source.manualConfirmationEvaluationsSha256 !== null)
+    ) {
+      throw new Error(`수동 confirmation source 결속이 올바르지 않습니다: ${item.grantId}`);
+    }
     if (item.transport !== undefined) {
       const sourceTransport = resolvePromotionReleaseTransport({}, source);
       if (item.transport !== sourceTransport) {
@@ -730,9 +787,11 @@ export function validatePromotionReleaseManifest(value: unknown): PromotionRelea
         || evidence.sourceRevisionSha256 !== readiness.sourceRevisionSha256
         || source.localLabEvidence.inputSha256 !== readiness.inputSha256
         || evidence.attachmentManifestSha256 !== readiness.attachmentManifestSha256
-        || item.promotionPlan.conversion.error !== null
-        || item.promotionPlan.conversion.dropped
-          !== (item.promotionPlan.scopeRejectedCriterionIndexes?.length ?? -1)
+        || !matchingConversionIsPromotionSafe({
+          report: item.promotionPlan.conversion,
+          criteria: item.promotionPlan.criteria,
+          scopeRejectedCriterionIndexes: item.promotionPlan.scopeRejectedCriterionIndexes,
+        })
       ) {
         throw new Error(`deep-repair readiness 불일치: ${item.grantId}`);
       }
@@ -755,9 +814,11 @@ export function validatePromotionReleaseManifest(value: unknown): PromotionRelea
         || evidence.attachmentManifestSha256 !== readiness.attachmentManifestSha256
         || Boolean(source.applicationPrecompute)
           !== Boolean(readiness.applicationRoundtripRunId)
-        || item.promotionPlan.conversion.error !== null
-        || item.promotionPlan.conversion.dropped
-          !== (item.promotionPlan.scopeRejectedCriterionIndexes?.length ?? -1)
+        || !matchingConversionIsPromotionSafe({
+          report: item.promotionPlan.conversion,
+          criteria: item.promotionPlan.criteria,
+          scopeRejectedCriterionIndexes: item.promotionPlan.scopeRejectedCriterionIndexes,
+        })
       ) {
         throw new Error(`analysis-launch readiness 불일치: ${item.grantId}`);
       }
@@ -799,6 +860,26 @@ export function validatePromotionReleaseManifest(value: unknown): PromotionRelea
     }
   }
   return typed;
+}
+
+function assertManualConfirmationEvaluationSelection(
+  value: ManualConfirmationEvaluationSelection | undefined,
+): asserts value is ManualConfirmationEvaluationSelection {
+  if (
+    !value
+    || value.schema !== MANUAL_CONFIRMATION_EVALUATION_SELECTION_SCHEMA
+    || !Number.isSafeInteger(value.revision)
+    || value.revision < 1
+    || value.revision > 1_000
+    || !isSha256(value.artifactSha256)
+    || !Number.isSafeInteger(value.itemCount)
+    || value.itemCount < 0
+    || (value.intent !== "active" && value.intent !== "withdraw_all")
+    || (value.intent === "active" && value.itemCount === 0)
+    || (value.intent === "withdraw_all" && value.itemCount !== 0)
+  ) {
+    throw new Error("manual confirmation revision selection 형식이 올바르지 않습니다.");
+  }
 }
 
 export function resolvePromotionServingProvenance(

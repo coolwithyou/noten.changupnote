@@ -25,6 +25,7 @@ import { ResultsHero } from "./ResultsHero";
 import { EmptyState, ErrorState, LoadingState, NoMatchingGrantsState } from "./States";
 import { NextQuestionCard } from "./NextQuestionCard";
 import { AnalysisScopeCard } from "./AnalysisScopeCard";
+import { confirmationResultAction } from "./confirmationRequestScope";
 import {
   TEASER_FALLBACK_MESSAGE,
   TeaserError,
@@ -179,12 +180,20 @@ export function MatchResultsExperience() {
 
   // 저장 회사는 확인 답변을 포함해 건수·질문까지 재조회한다. 익명 복귀의 카드 치환은 호환 유지.
   const applyConfirmationResult = useCallback((result: GrantConfirmationSubmitResult) => {
-    const updated = result.match;
-    if (!updated) return;
-    if (companyId) {
-      void loadCompanyMatching(companyId);
+    const action = confirmationResultAction({
+      hasCompany: Boolean(companyId),
+      hasMatch: Boolean(result.match),
+      ...(result.refresh.status ? { refreshStatus: result.refresh.status } : {}),
+    });
+    if (action === "reload" || action === "reload_with_notice") {
+      if (action === "reload_with_notice") {
+        toast.info("답변은 저장됐고 판정을 다시 불러오는 중이에요.");
+      }
+      void loadCompanyMatching(companyId!);
       return;
     }
+    const updated = result.match;
+    if (action !== "replace" || !updated) return;
     setTeaser((current) =>
       current
         ? {

@@ -103,6 +103,16 @@ export function reviewGrantKey(value: { source: string; sourceId: string }): str
   return `${value.source}:${value.sourceId}`;
 }
 
+/**
+ * 역사 manifest CLI의 bulk delete/insert는 pair별 입력 revision을 봉인하지 못한다.
+ * dry-run 감사는 유지하되 write는 보호 포트로 이관되기 전까지 fail-closed한다.
+ */
+export function assertLegacyRulesetRefreshWriteSupported(write: boolean): void {
+  if (write) {
+    throw new Error("legacy ruleset match_state bulk write cannot bind current inputs; use guarded refresh");
+  }
+}
+
 export function selectRulesetRefreshTargetCompanyIds(input: {
   companyIds: Iterable<string>;
   activeGrantIds: Iterable<string>;

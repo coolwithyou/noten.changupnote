@@ -3,6 +3,7 @@ import {
   planMatchStateRefresh,
   selectProfileUpdateRefreshGrants,
   type ProfileUpdateImpact,
+  type MatchStateInputBinding,
   type ServiceRepositories,
 } from "@cunote/core";
 
@@ -15,6 +16,7 @@ export async function refreshProfileQuestionMatchStates<TPayload>(input: {
   impact: ProfileUpdateImpact;
   asOf: Date;
   confirmationsByGrantId?: ReadonlyMap<string, CriterionConfirmation[]>;
+  inputBindings?: MatchStateInputBinding[];
 }): Promise<ProfileQuestionRefreshDto> {
   const scopedGrants = selectProfileUpdateRefreshGrants(input.grants, input.impact);
   if (scopedGrants.length === 0) {
@@ -46,23 +48,35 @@ export async function refreshProfileQuestionMatchStates<TPayload>(input: {
       companyId: input.companyId,
       ...(input.confirmationsByGrantId ? { confirmationsByGrantId: input.confirmationsByGrantId } : {}),
     });
+    const bindingByGrantId = new Map((input.inputBindings ?? [])
+      .filter((binding) => binding.companyId === input.companyId)
+      .map((binding) => [binding.grantId, binding]));
+    if (plan.states.some((state) => !bindingByGrantId.has(state.grantId))) {
+      throw new Error("company match_state refresh requires pre-read input bindings");
+    }
     const results = await Promise.allSettled(plan.states.map((state) => input.repositories.matches.saveMatchState({
       companyId: input.companyId,
       grantId: state.grantId,
       match: state.match,
+      inputBinding: bindingByGrantId.get(state.grantId)!,
+      calculationAsOf: input.asOf,
       eligibleFrom: parsePlanDate(state.eligibleFrom),
       eligibleUntil: parsePlanDate(state.eligibleUntil),
     })));
+    const staleGrantIds = results.flatMap((result, index) =>
+      result.status === "fulfilled" && result.value.status !== "saved" ? [plan.states[index]!.grantId] : []);
     const failedGrantIds = results.flatMap((result, index) =>
       result.status === "rejected" ? [plan.states[index]!.grantId] : []);
-    const savedCount = results.length - failedGrantIds.length;
+    const unsavedGrantIds = [...failedGrantIds, ...staleGrantIds];
+    const savedCount = results.length - unsavedGrantIds.length;
     return {
       scope: "company_dimension",
-      status: failedGrantIds.length === 0 ? "succeeded" : savedCount === 0 ? "failed" : "partial",
+      status: unsavedGrantIds.length === 0 ? "succeeded" : savedCount === 0 ? "failed" : "partial",
       plannedCount: plan.states.length,
       savedCount,
-      failedCount: failedGrantIds.length,
-      failedGrantIds,
+      failedCount: unsavedGrantIds.length,
+      failedGrantIds: unsavedGrantIds,
+      ...(staleGrantIds.length > 0 ? { staleCount: staleGrantIds.length, staleGrantIds } : {}),
     };
   } catch (error) {
     console.warn("profile_question_match_refresh_not_completed", error);

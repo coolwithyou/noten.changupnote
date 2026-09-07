@@ -8,6 +8,7 @@ import {
 } from "./kstartup-drafts.js";
 import { planReviewedGrantPublication } from "./reviewed-publication.js";
 import type { V3GrantAnnotation } from "./v3-annotations.js";
+import { LLM_CRITERIA_NORMALIZATION_CONTRACT_VERSION } from "../bizinfo/llm-criteria.js";
 
 const draftRecord = {
   recordType: "kstartup_criteria_draft",
@@ -15,6 +16,7 @@ const draftRecord = {
   sourceId: "123",
   title: "소프트웨어 지원",
   extractorVersion: "kstartup-llm-criteria-v1",
+  normalizerContractVersion: LLM_CRITERIA_NORMALIZATION_CONTRACT_VERSION,
   model: "test-model",
   inputSha256: "a".repeat(64),
   criteria: [{
@@ -47,6 +49,15 @@ const current = normalized();
 const task = buildKStartupDraftReviewTask(current, parsed.drafts[0]!);
 assert.equal(task.predictedCriteria.length, 1);
 assert.equal(task.predictionProvenance?.inputSha256, "a".repeat(64));
+assert.equal(
+  task.predictionProvenance?.normalizerContractVersion,
+  LLM_CRITERIA_NORMALIZATION_CONTRACT_VERSION,
+);
+const legacyDraft = parseKStartupCriteriaDraftJsonl(JSON.stringify({
+  ...draftRecord,
+  normalizerContractVersion: undefined,
+})).drafts[0]!;
+assert.equal(legacyDraft.normalizerContractVersion, undefined, "역사 draft는 unverified provenance로 호환");
 assert.equal(task.predictedRequiredDocuments?.[0]?.name, "사업계획서");
 assert.equal(task.annotationTemplate.labelStatus, "draft");
 assert.equal(task.annotationTemplate.sourceRevision, "raw-revision-1");
@@ -85,6 +96,10 @@ assert.equal(parsedBizInfo.errors.length, 0);
 const bizInfoTask = buildBizInfoDraftReviewTask(normalizedBizInfo(), parsedBizInfo.drafts[0]!);
 assert.equal(bizInfoTask.source, "bizinfo");
 assert.equal(bizInfoTask.sourceFixture, `draft:bizinfo:PBLN_TEST:${"a".repeat(64)}`);
+assert.equal(
+  bizInfoTask.predictionProvenance?.normalizerContractVersion,
+  LLM_CRITERIA_NORMALIZATION_CONTRACT_VERSION,
+);
 assert.equal(bizInfoTask.annotationTemplate.labelStatus, "draft");
 assert.throws(() => parseKStartupCriteriaDraftJsonl(JSON.stringify(bizInfoDraftRecord)), /source must be kstartup/);
 

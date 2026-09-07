@@ -57,6 +57,8 @@ import type {
   LotBreakdownLine,
   MatchEventReceipt,
   MatchRepository,
+  MatchStateInputBinding,
+  MatchStateSaveResult,
   ProfileQuestionEventReceipt,
   PricingRule,
   ResolveCompanyProfileInput,
@@ -254,8 +256,16 @@ class RuntimeMatchRepository<TPayload> implements MatchRepository<TPayload> {
     }));
   }
 
-  async saveMatchState() {
-    // The runtime adapter is stateless until DB-backed match_state is connected.
+  async captureMatchStateInputBindings(
+    _input: Parameters<MatchRepository<TPayload>["captureMatchStateInputBindings"]>[0],
+  ): Promise<MatchStateInputBinding[]> {
+    throw new Error("runtime repository cannot bind persistent match_state inputs");
+  }
+
+  async saveMatchState(
+    _input: Parameters<MatchRepository<TPayload>["saveMatchState"]>[0],
+  ): Promise<MatchStateSaveResult> {
+    throw new Error("runtime repository cannot persist match_state");
   }
 
   async listDueMatchTransitions() {

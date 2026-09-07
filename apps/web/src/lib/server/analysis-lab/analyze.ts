@@ -44,6 +44,10 @@ import {
   runValidatedLabPrimary,
   ValidatedLabPrimaryError,
 } from "./validated-primary";
+import {
+  capturePrimaryMatchingProjectionSnapshot,
+  primaryProjectionSource,
+} from "./primary-matching-projection";
 
 /** 공고 자체가 없을 때 — 라우트는 404 로 매핑한다(런 저장 없음). */
 export class LabGrantNotFoundError extends Error {
@@ -441,11 +445,33 @@ async function executePreparedLabAnalysisInternal(
     }
   };
 
-  let primary: Awaited<ReturnType<typeof runPrimary>>;
+  // primary 품질 결과를 먼저 값으로 종결한 뒤 진단을 별도 total seam에서 붙인다.
+  // Kordoc 형제 Promise는 이 함수의 해소를 기다리지 않으므로 진단 시점도 Kordoc과 분리된다.
+  const runPrimaryWithMatchingProjection = async () => {
+    const primary = await runPrimary();
+    const primaryExtractionAvailable = primary.extraction !== null;
+    return {
+      ...primary,
+      matchingProjection: capturePrimaryMatchingProjectionSnapshot({
+        source: primaryProjectionSource({
+          runId,
+          grantId,
+          source: grant.source,
+          sourceId: grant.sourceId,
+          inputSha256: input.inputSha256,
+          attachmentManifestSha256: input.attachmentManifestSha256,
+          criteria: primary.extraction?.criteria ?? [],
+        }),
+        primaryExtractionAvailable,
+      }),
+    };
+  };
+
+  let primary: Awaited<ReturnType<typeof runPrimaryWithMatchingProjection>>;
   let applicationRoundtrip: LabRun["applicationRoundtrip"];
   if (opts?.withApplicationRoundtrip === true) {
     const paired = await runAnalysisPair({
-      primary: runPrimary,
+      primary: runPrimaryWithMatchingProjection,
       application: async () => {
         if (preparedRoundtripReuse) return preparedRoundtripReuse.materialize(runId);
         const [binding, roundtripModule] = await Promise.all([
@@ -474,7 +500,7 @@ async function executePreparedLabAnalysisInternal(
       });
     }
   } else {
-    primary = await runPrimary();
+    primary = await runPrimaryWithMatchingProjection();
   }
   const { extraction, error } = primary;
 
@@ -512,6 +538,7 @@ async function executePreparedLabAnalysisInternal(
     ...(primary.outcome ? { primaryValidationOutcome: primary.outcome } : {}),
     ...(primary.matchingReadiness ? { matchingReadiness: primary.matchingReadiness } : {}),
     ...(primary.passes ? { primaryPasses: primary.passes } : {}),
+    primaryMatchingProjection: primary.matchingProjection,
     ...(opts?.reviewRepair ? { reviewRepair: opts.reviewRepair } : {}),
     ...(applicationRoundtrip !== undefined ? { applicationRoundtrip } : {}),
     error,

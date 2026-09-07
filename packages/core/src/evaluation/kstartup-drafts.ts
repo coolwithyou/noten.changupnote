@@ -9,6 +9,8 @@ export interface KStartupCriteriaDraft {
   sourceId: string;
   title: string;
   extractorVersion: string;
+  /** 구 draft에는 없으며 부재 시 정규화 구현 provenance는 unverified다. */
+  normalizerContractVersion?: string;
   model: string;
   inputSha256: string;
   criteria: GrantCriterion[];
@@ -23,6 +25,7 @@ export interface KStartupCriteriaDraftError {
   sourceId: string;
   title: string;
   extractorVersion: string;
+  normalizerContractVersion?: string;
   error: string;
   operationalReady: false;
 }
@@ -38,6 +41,7 @@ export interface BizInfoCriteriaDraft {
   sourceId: string;
   title: string;
   extractorVersion: string;
+  normalizerContractVersion?: string;
   model: string;
   inputSha256: string;
   criteria: GrantCriterion[];
@@ -52,6 +56,7 @@ export interface BizInfoCriteriaDraftError {
   sourceId: string;
   title: string;
   extractorVersion: string;
+  normalizerContractVersion?: string;
   error: string;
   operationalReady: false;
 }
@@ -129,6 +134,9 @@ function buildCriteriaDraftReviewTask<TPayload>(
     predictedCriteria: draft.criteria,
     predictionProvenance: {
       extractorVersion: draft.extractorVersion,
+      ...(draft.normalizerContractVersion
+        ? { normalizerContractVersion: draft.normalizerContractVersion }
+        : {}),
       model: draft.model,
       inputSha256: draft.inputSha256,
     },
@@ -151,6 +159,14 @@ function parseDraftRecord(line: string, location: string, source: DraftSource): 
     sourceId: requireString(record.sourceId, `${location}.sourceId`),
     title: requireString(record.title, `${location}.title`),
     extractorVersion: requireString(record.extractorVersion, `${location}.extractorVersion`),
+    ...(record.normalizerContractVersion === undefined
+      ? {}
+      : {
+          normalizerContractVersion: requireString(
+            record.normalizerContractVersion,
+            `${location}.normalizerContractVersion`,
+          ),
+        }),
     operationalReady: false as const,
   };
   const draftRecordType = `${source}_criteria_draft` as CriteriaDraft["recordType"];

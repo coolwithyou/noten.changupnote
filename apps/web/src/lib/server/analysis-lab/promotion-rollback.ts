@@ -1,4 +1,5 @@
 import { and, eq, inArray } from "drizzle-orm";
+import { pathToFileURL } from "node:url";
 import {
   assertManifestConfirmation,
   readPromotionReleaseManifest,
@@ -55,6 +56,10 @@ function questionRestoreValues(row: PromotionQuestionSnapshot) {
     id: row.id,
     grantId: row.grantId,
     grantCriteriaId: row.grantCriteriaId,
+    evaluationCriterionId: row.evaluationCriterionId ?? null,
+    evaluationContractVersion: row.evaluationContractVersion ?? null,
+    sourceRevisionSha256: row.sourceRevisionSha256 ?? null,
+    sourceRawSha256: row.sourceRawSha256 ?? null,
     criterionStableKey: row.criterionStableKey,
     definitionSha256: row.definitionSha256,
     version: row.version,
@@ -73,7 +78,8 @@ function questionRestoreValues(row: PromotionQuestionSnapshot) {
   };
 }
 
-async function restoreBeforeSnapshot(
+/** 실제 rollback이 사용하는 snapshot 복원 코어. 격리 PostgreSQL 통합검사에도 공유한다. */
+export async function restoreBeforeSnapshot(
   tx: CunoteDbSession,
   before: PromotionGrantSnapshot,
 ): Promise<void> {
@@ -92,6 +98,7 @@ async function restoreBeforeSnapshot(
       .update(schema.grantConfirmationQuestions)
       .set({
         grantCriteriaId: null,
+        evaluationCriterionId: null,
         invalidatedAt: new Date(),
         invalidationReason: "release_rolled_back",
       })
@@ -281,7 +288,7 @@ async function closeDbIfLoaded(): Promise<void> {
   }
 }
 
-if (process.argv[1]?.endsWith("promotion-rollback.ts")) {
+if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
   main()
     .then(async (code) => {
       await closeDbIfLoaded();

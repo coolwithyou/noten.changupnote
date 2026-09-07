@@ -12,6 +12,7 @@ import { buildActionQueue } from "./build-action-queue.js";
 import { buildRoadmap } from "./build-roadmap.js";
 import {
   answerableHardUnknownDimensions,
+  hasUnanswerableHardUnknown,
   isPreparableMatchCard,
 } from "./select-match-cards.js";
 import {
@@ -128,7 +129,11 @@ function dashboardCounts<TPayload>(
     const card = toMatchCard(entry, { asOf });
     const answerableUnknownCount = answerableHardUnknownDimensions(card).size;
     if (tier === "recommendable" && card.status === "open") openNow += 1;
-    if (tier === "needs_profile_input" && answerableUnknownCount === 1) oneAnswer += 1;
+    if (
+      tier === "needs_profile_input"
+      && answerableUnknownCount === 1
+      && !hasUnanswerableHardUnknown(card)
+    ) oneAnswer += 1;
     if (isPreparableMatchCard(card)) preparable += 1;
 
     const dDay = daysUntil(entry.item.grant.apply_end ?? null, asOf);

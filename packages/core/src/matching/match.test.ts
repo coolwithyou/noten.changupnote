@@ -8,7 +8,7 @@
  */
 import assert from "node:assert/strict";
 import type { CompanyProfile, GrantCriterion } from "@cunote/contracts";
-import { matchGrantCriteria } from "./match.js";
+import { matchGrantCriteria, RULESET_VERSION } from "./match.js";
 
 let passed = 0;
 function check(name: string, fn: () => void): void {
@@ -26,6 +26,10 @@ const company: CompanyProfile = {
   business_status: { active: true, label: "정상" },
   confidence: { region: 0.8, biz_age: 0.8, industry: 0.6, size: 0.6 },
 };
+
+check("매처 행동 원인 계약 변경은 ruleset v12로 귀속된다", () => {
+  assert.equal(RULESET_VERSION, "ruleset-kstartup-spine-v12");
+});
 
 check("조건 0건이면 conditional로 강등되고 조건 확인도는 0이다", () => {
   const result = matchGrantCriteria([], company);
@@ -46,6 +50,8 @@ check("조건 0건이면 unknown chip 1건(other/required/unknown)이 추가된�
   assert.equal(entry.result, "unknown");
   assert.notEqual(entry.operator, "text_only"); // UI에서 unknown chip으로 표시되어야 함
   assert.match(entry.message, /구조화되지 않았/);
+  assert.equal(entry.unresolved_reason, "criterion_invalid");
+  assert.equal(result.next_question, undefined);
   assert.deepEqual(result.unknown_fields, ["other"]);
 });
 
@@ -774,6 +780,23 @@ check("regions가 빈 제외 지역 조건은 무성 pass가 아니라 unknown�
   const result = matchGrantCriteria(criteria, company);
   assert.equal(result.eligibility, "conditional");
   assert.equal(result.rule_trace[0]?.result, "unknown");
+  assert.equal(result.rule_trace[0]?.unresolved_reason, "criterion_invalid");
+  assert.equal(result.next_question, undefined);
+});
+
+check("회사 프로필 누락만 점진 질문 원인으로 분류한다", () => {
+  const { region: _region, ...companyWithoutRegion } = company;
+  const result = matchGrantCriteria([{
+    id: "criterion-company-region",
+    dimension: "region",
+    operator: "in",
+    kind: "required",
+    confidence: 0.9,
+    source_span: "경기 소재 기업",
+    value: { regions: ["41"], labels: ["경기"] },
+  }], companyWithoutRegion);
+  assert.equal(result.rule_trace[0]?.unresolved_reason, "company_profile_missing");
+  assert.equal(result.next_question?.field, "region");
 });
 
 // ── 확인 루프 Phase B: (company, grant) 자가신고 확인 답변 해소 ──────────────────
@@ -814,6 +837,168 @@ check("비결격 확인 답변은 exclusion unknown을 pass로 소거하고 elig
   assert.deepEqual(result.unknown_fields, []);
   // 해소된 entry는 더 이상 unknown 게이트에 걸리지 않아 추천 가능 tier까지 열린다.
   assert.equal(result.review_gate?.tier, "recommendable");
+});
+
+check("강등된 exclusion의 원래 축 source dispute는 비결격 자가확인보다 우선한다", () => {
+  const result = matchGrantCriteria([{
+    id: "criterion-downgraded-tax",
+    dimension: "other",
+    operator: "text_only",
+    kind: "exclusion",
+    confidence: 0.9,
+    needs_review: true,
+    value: {
+      note: "tax_compliance 조건 원문 확인 필요",
+      downgrade_reason: "missing_required_source_span",
+      original_dimension: "tax_compliance",
+      original_operator: "in",
+    },
+  }], {
+    ...company,
+    source_disputes: ["tax_compliance"],
+  }, {
+    confirmations: [{ criterion_id: "criterion-downgraded-tax", disqualified: false }],
+  });
+  assert.equal(result.eligibility, "conditional");
+  assert.equal(result.rule_trace[0]?.result, "unknown");
+  assert.equal(result.rule_trace[0]?.resolution, undefined);
+  assert.equal(result.rule_trace[0]?.unresolved_reason, "source_dispute");
+  assert.match(result.rule_trace[0]?.message ?? "", /공식 원천 정정 검토 중/);
+});
+
+check("알 수 없는 original_dimension 메타데이터는 원천 dispute 축으로 채택하지 않는다", () => {
+  const result = matchGrantCriteria([{
+    id: "criterion-untrusted-original-axis",
+    dimension: "other",
+    operator: "text_only",
+    kind: "exclusion",
+    confidence: 0.9,
+    value: {
+      note: "임의 메타데이터",
+      downgrade_reason: "missing_required_source_span",
+      original_dimension: "not_a_real_dimension",
+      original_operator: "in",
+    },
+  }], {
+    ...company,
+    source_disputes: ["tax_compliance"],
+  }, {
+    confirmations: [{ criterion_id: "criterion-untrusted-original-axis", disqualified: false }],
+  });
+  assert.equal(result.eligibility, "eligible");
+  assert.equal(result.rule_trace[0]?.result, "pass");
+  assert.equal(result.rule_trace[0]?.resolution, "confirmed_by_user");
+});
+
+check("legacy contract 강등은 original_operator 없이도 원래 축 dispute가 확인보다 우선한다", () => {
+  const result = matchGrantCriteria([{
+    id: "criterion-legacy-downgraded-tax",
+    dimension: "other",
+    operator: "text_only",
+    kind: "exclusion",
+    confidence: 0.9,
+    value: {
+      note: "세금 요건 원문 확인 필요",
+      downgrade_reason: "contract_validation_failed",
+      original_dimension: "tax_compliance",
+    },
+    source_span: "체납기업 제외",
+  }], {
+    ...company,
+    source_disputes: ["tax_compliance"],
+  }, {
+    confirmations: [{ criterion_id: "criterion-legacy-downgraded-tax", disqualified: false }],
+  });
+  assert.equal(result.eligibility, "conditional");
+  assert.equal(result.rule_trace[0]?.result, "unknown");
+  assert.equal(result.rule_trace[0]?.resolution, undefined);
+});
+
+check("제재 원인·현재 상태 평탄화 강등도 원래 sanction dispute가 확인보다 우선한다", () => {
+  const result = matchGrantCriteria([{
+    id: "criterion-downgraded-sanction-cause",
+    dimension: "other",
+    operator: "text_only",
+    kind: "exclusion",
+    confidence: 0.9,
+    needs_review: true,
+    value: {
+      note: "협약 위반 등으로 참여 제한 조치 중인지 원문 확인",
+      downgrade_reason: "sanction_cause_state_flattening",
+      original_dimension: "sanction",
+      original_operator: "in",
+      original_value: { flags: ["agreement_breach", "participation_restricted"] },
+    },
+    source_span: "협약 및 계약 위반 등으로 참여 제한 조치 중인 경우",
+  }], {
+    ...company,
+    source_disputes: ["sanction"],
+  }, {
+    confirmations: [{ criterion_id: "criterion-downgraded-sanction-cause", disqualified: false }],
+  });
+  assert.equal(result.eligibility, "conditional");
+  assert.equal(result.rule_trace[0]?.result, "unknown");
+  assert.equal(result.rule_trace[0]?.resolution, undefined);
+});
+
+check("공식 원천의 구조화 exclusion fail은 비결격 자가확인으로 뒤집지 못한다", () => {
+  const result = matchGrantCriteria([{
+    id: "criterion-official-tax-fail",
+    dimension: "tax_compliance",
+    operator: "in",
+    kind: "exclusion",
+    confidence: 0.95,
+    source_span: "국세 체납 기업은 제외한다.",
+    value: { flags: ["national_tax_delinquent"] },
+  }], {
+    ...company,
+    tax_compliance: {
+      flags: ["national_tax_delinquent"],
+      known_flags: ["national_tax_delinquent"],
+      exceptions: [],
+    },
+    confidence: { ...company.confidence, tax_compliance: 0.95 },
+  }, {
+    confirmations: [{ criterion_id: "criterion-official-tax-fail", disqualified: false }],
+  });
+  assert.equal(result.eligibility, "ineligible");
+  assert.equal(result.rule_trace[0]?.result, "fail");
+  assert.equal(result.rule_trace[0]?.resolution, undefined);
+});
+
+check("known pass의 명시 unsatisfied 자가신고는 보수적으로 fail 처리한다", () => {
+  const result = matchGrantCriteria([{
+    id: "criterion-known-region-pass",
+    dimension: "region",
+    operator: "in",
+    kind: "required",
+    confidence: 0.95,
+    source_span: "경기 소재 기업",
+    value: { regions: ["41"], labels: ["경기"] },
+  }], company, {
+    confirmations: [{ criterion_id: "criterion-known-region-pass", evaluation: "unsatisfied" }],
+  });
+  assert.equal(result.eligibility, "ineligible");
+  assert.equal(result.rule_trace[0]?.result, "fail");
+  assert.equal(result.rule_trace[0]?.resolution, "confirmed_by_user");
+});
+
+check("criterion invalid unknown은 자가신고 satisfied로 우회하지 않는다", () => {
+  const result = matchGrantCriteria([{
+    id: "criterion-invalid-biz-age",
+    dimension: "biz_age",
+    operator: "lte",
+    kind: "required",
+    confidence: 0.7,
+    source_span: "창업기업 대상",
+    value: {},
+  }], company, {
+    confirmations: [{ criterion_id: "criterion-invalid-biz-age", evaluation: "satisfied" }],
+  });
+  assert.equal(result.eligibility, "conditional");
+  assert.equal(result.rule_trace[0]?.result, "unknown");
+  assert.equal(result.rule_trace[0]?.unresolved_reason, "criterion_invalid");
+  assert.equal(result.rule_trace[0]?.resolution, undefined);
 });
 
 check("검수된 text_only의 유일한 경고는 사용자 확인 뒤 해소되어 추천 가능해진다", () => {

@@ -5,6 +5,7 @@ import type { CunoteDb } from "../db/client";
 import * as schema from "../db/schema";
 import { createDrizzleRepositories } from "../repositories/drizzle";
 import { resolveSystemProductCompanyProfile } from "../productProfile/resolveProductCompanyProfile";
+import { loadCriterionConfirmations } from "./matchStateRefresh";
 
 export interface RunReviewedFeedbackScopedRefreshInput {
   db: CunoteDb;
@@ -34,7 +35,7 @@ export async function runReviewedFeedbackScopedRefresh(
     };
   }
 
-  const loaded = await loadScopeCandidates({
+  const preliminary = await loadScopeCandidates({
     db: input.db,
     repositories,
     scope: context.scope,
@@ -43,27 +44,61 @@ export async function runReviewedFeedbackScopedRefresh(
     limit: input.limit,
     asOf: input.asOf,
   });
-  if (input.write && loaded.truncated) throw new Error("refusing incomplete scoped refresh: increase --limit");
+  if (input.write && preliminary.truncated) throw new Error("refusing incomplete scoped refresh: increase --limit");
+  const inputBindings = input.write
+    ? await repositories.matches.captureMatchStateInputBindings({
+        companyIds: preliminary.companies.map((item) => item.companyId),
+        grantIds: preliminary.grants.flatMap((grant) => grant.grant.id ? [grant.grant.id] : []),
+      })
+    : [];
+  const loaded = input.write
+    ? await loadScopeCandidates({
+        db: input.db,
+        repositories,
+        scope: context.scope,
+        companyId: context.companyId,
+        grantId: context.grantId,
+        limit: input.limit,
+        asOf: input.asOf,
+      })
+    : preliminary;
+  if (input.write && loaded.truncated) throw new Error("refusing incomplete scoped refresh after binding: increase --limit");
+  const confirmationsByCompanyId = new Map(await Promise.all(loaded.companies.map(async (company) => [
+    company.companyId,
+    await loadCriterionConfirmations({
+      repositories,
+      companyId: company.companyId,
+      grants: loaded.grants,
+    }) ?? new Map(),
+  ] as const)));
   const existingStates = await loadExistingStates(input.db, loaded.companies.map((item) => item.companyId), loaded.grants);
   const plan = planScopedMatchStateRefresh({
     scope: context.scope,
     companies: loaded.companies,
     grants: loaded.grants,
     existingStates,
+    confirmationsByCompanyId,
     asOf: input.asOf,
   });
   const changedStates = plan.states.filter((state) => state.changed);
   let savedCount = 0;
+  let staleCount = 0;
+  const bindingByPair = new Map(inputBindings.map((binding) => [`${binding.companyId}:${binding.grantId}`, binding]));
   if (input.write) {
     for (const state of changedStates) {
-      await repositories.matches.saveMatchState({
+      const inputBinding = bindingByPair.get(`${state.companyId}:${state.grantId}`);
+      if (!inputBinding) throw new Error(`missing match_state input binding: ${state.companyId}:${state.grantId}`);
+      const saved = await repositories.matches.saveMatchState({
         companyId: state.companyId,
         grantId: state.grantId,
         match: state.match,
+        inputBinding,
+        calculationAsOf: input.asOf,
         eligibleFrom: parseDate(state.eligibleFrom),
         eligibleUntil: parseDate(state.eligibleUntil),
       });
-      savedCount += 1;
+      if (saved.status === "saved") savedCount += 1;
+      else staleCount += 1;
     }
   }
   return {
@@ -82,6 +117,7 @@ export async function runReviewedFeedbackScopedRefresh(
     changedCount: plan.changedCount,
     unchangedCount: plan.unchangedCount,
     savedCount,
+    staleCount,
     changeReasonCounts: histogram(changedStates.flatMap((state) => state.changeReasons)),
     changedSamples: changedStates.slice(0, 20).map((state) => ({
       companyId: state.companyId,
@@ -136,7 +172,7 @@ async function loadScopeCandidates(input: {
   truncated: boolean;
 }> {
   if (input.scope === "company") {
-    const profile = await requiredCompanyProfile(input.repositories, input.companyId, input.asOf);
+    const profile = await requiredCompanyProfile(input.repositories, input.companyId, input.asOf, input.db);
     const candidates = await input.repositories.grants.listActiveGrants({ limit: input.limit + 1, asOf: input.asOf });
     return {
       companies: [{ companyId: input.companyId, profile }],
@@ -147,7 +183,7 @@ async function loadScopeCandidates(input: {
   const grant = await input.repositories.grants.findGrantById(input.grantId);
   if (!grant) throw new Error(`grant not found: ${input.grantId}`);
   if (input.scope === "pair") {
-    const profile = await requiredCompanyProfile(input.repositories, input.companyId, input.asOf);
+    const profile = await requiredCompanyProfile(input.repositories, input.companyId, input.asOf, input.db);
     return { companies: [{ companyId: input.companyId, profile }], grants: [grant], truncated: false };
   }
   const rows = await input.db.select({ id: schema.companies.id }).from(schema.companies)
@@ -155,7 +191,7 @@ async function loadScopeCandidates(input: {
   const companyRows = rows.slice(0, input.limit);
   const companies = [];
   for (const row of companyRows) {
-    const profile = await requiredCompanyProfile(input.repositories, row.id, input.asOf);
+    const profile = await requiredCompanyProfile(input.repositories, row.id, input.asOf, input.db);
     companies.push({ companyId: row.id, profile });
   }
   return { companies, grants: [grant], truncated: rows.length > input.limit };
@@ -165,6 +201,7 @@ async function requiredCompanyProfile(
   repositories: ReturnType<typeof createDrizzleRepositories<unknown>>,
   companyId: string,
   asOf: Date,
+  db: CunoteDb,
 ) {
   return (await resolveSystemProductCompanyProfile({
     companyId,
@@ -172,7 +209,7 @@ async function requiredCompanyProfile(
   }, {
     companies: repositories.companies,
     enrichmentCache: repositories.enrichmentCache,
-  })).profile;
+  }, { sourceCorrectionsDb: db })).profile;
 }
 
 async function loadExistingStates(

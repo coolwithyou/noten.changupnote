@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
 import type {
   ActionResult,
@@ -21,6 +21,11 @@ import {
 } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import {
+  confirmationResponseIsCurrent,
+  invalidateConfirmationRequestScope,
+  type ConfirmationRequestScope,
+} from "./confirmationRequestScope";
 
 type LoadStatus = "loading" | "ready" | "error";
 
@@ -51,11 +56,27 @@ export function ConfirmationSheet({
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const endpoint = `/api/web/matches/${encodeURIComponent(grantId)}/confirmations${companyId ? `?${new URLSearchParams({ companyId })}` : ""}`;
+  const requestScopeRef = useRef<ConfirmationRequestScope & { key: string }>({
+    endpoint,
+    generation: 0,
+    key: "",
+  });
+  const scopeKey = `${open ? "open" : "closed"}:${endpoint}:${reloadKey}`;
+  if (requestScopeRef.current.key !== scopeKey) {
+    requestScopeRef.current = {
+      endpoint,
+      generation: requestScopeRef.current.generation + 1,
+      key: scopeKey,
+    };
+  }
+  const [answerRevisionByQuestion, setAnswerRevisionByQuestion] = useState<Record<string, number>>({});
 
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
+    const requestScope = { ...requestScopeRef.current };
     setStatus("loading");
+    setSubmitting(false);
     setError(null);
     (async () => {
       try {
@@ -64,7 +85,11 @@ export function ConfirmationSheet({
           { signal: AbortSignal.timeout(15_000) },
         );
         const payload = (await response.json()) as ActionResult<GrantConfirmationsResult>;
-        if (cancelled) return;
+        if (cancelled || !confirmationResponseIsCurrent({
+          request: requestScope,
+          current: requestScopeRef.current,
+          open,
+        })) return;
         if (!response.ok || !payload.ok || !payload.data) {
           throw new Error(payload.error?.message ?? "확인 질문을 불러오지 못했습니다.");
         }
@@ -73,36 +98,63 @@ export function ConfirmationSheet({
         setDraft(Object.fromEntries(
           payload.data.answers.map((answer) => [answer.questionId, answer.values]),
         ));
+        setAnswerRevisionByQuestion(Object.fromEntries(
+          payload.data.answers.map((answer) => [answer.questionId, answer.answerRevision ?? 0]),
+        ));
         setStatus("ready");
       } catch (caught) {
-        if (cancelled) return;
+        if (cancelled || !confirmationResponseIsCurrent({
+          request: requestScope,
+          current: requestScopeRef.current,
+          open,
+        })) return;
         setError(caught instanceof Error ? caught.message : "확인 질문을 불러오지 못했습니다.");
         setStatus("error");
       }
     })();
     return () => {
       cancelled = true;
+      // dependency 교체 뒤에는 render가 이미 새 세대를 만들었다. unmount처럼 아직 같은
+      // 세대일 때만 한 번 더 무효화해 pending PUT closure도 onSaved를 호출하지 못하게 한다.
+      if (requestScopeRef.current.generation === requestScope.generation) {
+        requestScopeRef.current = invalidateConfirmationRequestScope({
+          request: requestScope,
+          current: requestScopeRef.current,
+        });
+      }
     };
   }, [open, endpoint, reloadKey]);
 
   function setAnswer(question: GrantConfirmationQuestionDto, next: string[]) {
     const optionValues = new Set(question.options.map((option) => option.value));
     const values = next.filter((value) => optionValues.has(value));
+    const unknownValue = question.options.find((option) => option.isUnknown)?.value;
     setDraft((current) => ({
       ...current,
-      // single 은 마지막 선택 1개만 유지(재선택 시 교체), 전부 해제하면 미답변으로 되돌린다.
-      [question.id]: question.answerType === "single" ? values.slice(-1) : values,
+      // 저장된 값을 모두 해제하는 행위는 삭제가 아니다. v2는 명시적 '확인할 수 없음'으로
+      // 바꾸고, legacy에는 기존 미답변/답변 보존 관례를 유지한다.
+      [question.id]: question.answerType === "single"
+        ? (values.length > 0 ? values.slice(-1) : unknownValue ? [unknownValue] : [])
+        : values,
     }));
   }
 
   const answeredEntries = questions
-    .map((question) => ({ questionId: question.id, values: draft[question.id] ?? [] }))
+    .map((question) => ({
+      questionId: question.id,
+      values: draft[question.id] ?? [],
+      ...(question.binding ? {
+        binding: question.binding,
+        expectedAnswerRevision: answerRevisionByQuestion[question.id] ?? 0,
+      } : {}),
+    }))
     .filter((entry) => entry.values.length > 0);
 
   async function save() {
     if (submitting || answeredEntries.length === 0) return;
     setSubmitting(true);
     setError(null);
+    const requestScope = { ...requestScopeRef.current };
     try {
       const response = await fetch(
         endpoint,
@@ -117,12 +169,26 @@ export function ConfirmationSheet({
       if (!response.ok || !payload.ok || !payload.data) {
         throw new Error(payload.error?.message ?? "확인 답변을 저장하지 못했습니다.");
       }
+      if (!confirmationResponseIsCurrent({
+        request: requestScope,
+        current: requestScopeRef.current,
+        open,
+      })) return;
       onSaved?.(payload.data);
       onOpenChange(false);
     } catch (caught) {
+      if (!confirmationResponseIsCurrent({
+        request: requestScope,
+        current: requestScopeRef.current,
+        open,
+      })) return;
       setError(caught instanceof Error ? caught.message : "확인 답변을 저장하지 못했습니다.");
     } finally {
-      setSubmitting(false);
+      if (confirmationResponseIsCurrent({
+        request: requestScope,
+        current: requestScopeRef.current,
+        open,
+      })) setSubmitting(false);
     }
   }
 
@@ -207,7 +273,17 @@ export function ConfirmationSheet({
                   </div>
                 ))}
                 {error ? (
-                  <p className="text-xs text-destructive" aria-live="polite">{error}</p>
+                  <div className="flex items-center gap-2">
+                    <p className="text-xs text-destructive" aria-live="polite">{error}</p>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setReloadKey((key) => key + 1)}
+                    >
+                      다시 불러오기
+                    </Button>
+                  </div>
                 ) : null}
               </div>
             ) : null}

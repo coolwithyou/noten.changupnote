@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import {
   assessRulesetRefreshSafety,
+  assertLegacyRulesetRefreshWriteSupported,
   parseRulesetRefreshManifest,
   selectRulesetRefreshTargetCompanyIds,
   stableSha256,
@@ -28,6 +29,11 @@ const raw = {
     title: "지역 제한 공고",
   }],
 };
+assert.doesNotThrow(() => assertLegacyRulesetRefreshWriteSupported(false));
+assert.throws(
+  () => assertLegacyRulesetRefreshWriteSupported(true),
+  /cannot bind current inputs/,
+);
 const manifest = parseRulesetRefreshManifest(raw);
 assert.equal(assessRulesetRefreshSafety({
   expected: manifest,

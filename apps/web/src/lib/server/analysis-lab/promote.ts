@@ -20,7 +20,6 @@
 // 가능한 포트 인터페이스(PromotionWritePort)와 실행 오케스트레이션만 정의한다(테스트는 페이크).
 import { createHash } from "node:crypto";
 import type { GrantAuthoringGuideV1, GrantCriterion } from "@cunote/contracts";
-import { nonMatchingCriterionReason } from "@cunote/core";
 import type {
   LabAudit,
   LabConfirmationOption,
@@ -43,13 +42,30 @@ import {
   type CriterionResolution,
   type CriterionResolutionState,
 } from "./criterion-resolution";
-import { convertSelectedLabCriteria, type ShadowConversionReport } from "./shadow-convert";
+import {
+  convertSelectedLabCriteria,
+  shadowConversionIsPromotionSafe,
+  type ShadowConversionReport,
+} from "./shadow-convert";
 import {
   assessPromotionReviewRisk,
   type PromotionReviewRisk,
 } from "./promotion-review-risk";
 import { isPublishableLabRun } from "./run-outcome";
 import { buildGrantAuthoringGuide } from "./authoring-guide";
+import {
+  inspectPrimaryMatchingProjectionSnapshot,
+  primaryProjectionSource,
+} from "./primary-matching-projection";
+import {
+  MANUAL_CONFIRMATION_EVALUATIONS_SCHEMA,
+  MANUAL_CONFIRMATION_EVALUATIONS_REVISION_SCHEMA,
+  assertManualConfirmationEvaluationSelectionForArtifact,
+  mergeManualConfirmationEvaluations,
+  parseManualConfirmationEvaluationsArtifact,
+  type ManualConfirmationEvaluationsArtifact,
+} from "./manual-confirmation-evaluations";
+import type { ManualConfirmationEvaluationSelection } from "../analysis-serving/promotionReleaseContract";
 
 // ---- 대상 선정 (사람 우선 dedupe — confirmations-cli 규칙의 순수화) -------------------
 
@@ -181,6 +197,8 @@ export interface ExistingPromotionCriterion {
 export interface ExistingPromotionQuestion {
   id: string;
   grantCriteriaId: string | null;
+  evaluationCriterionId?: string | null;
+  evaluationContractVersion?: string | null;
   criterionStableKey: string | null;
   definitionSha256: string;
   version: number;
@@ -226,7 +244,8 @@ export function findExistingQuestionForDefinition<T extends ExistingPromotionQue
   return rows.find((row) =>
     (
       row.criterionStableKey === stableKey
-      || (row.criterionStableKey === null && row.grantCriteriaId === legacyGrantCriteriaId)
+      || (row.criterionStableKey === null
+        && (row.evaluationCriterionId ?? row.grantCriteriaId) === legacyGrantCriteriaId)
     )
     && effectiveQuestionDefinitionSha256(row) === definitionSha256) ?? null;
 }
@@ -241,7 +260,8 @@ export function nextQuestionVersion(
     ...rows
       .filter((row) =>
         row.criterionStableKey === stableKey
-        || (row.criterionStableKey === null && row.grantCriteriaId === legacyGrantCriteriaId))
+        || (row.criterionStableKey === null
+          && (row.evaluationCriterionId ?? row.grantCriteriaId) === legacyGrantCriteriaId))
       .map((row) => row.version),
   ) + 1;
 }
@@ -265,6 +285,9 @@ export function questionDefinitionSha256(input: {
   answerType: "single" | "multi";
   reusable: LabConfirmationReusable;
   conditionKey: string | null;
+  evaluationContractVersion?: "confirmation-evaluation-v2";
+  sourceRevisionSha256?: string;
+  sourceRawSha256?: string;
 }): string {
   const material = semanticStableJson({
     prompt: input.prompt.normalize("NFC").replace(/\s+/g, " ").trim(),
@@ -272,6 +295,11 @@ export function questionDefinitionSha256(input: {
     answerType: input.answerType,
     reusable: input.reusable,
     conditionKey: input.conditionKey,
+    ...(input.evaluationContractVersion ? {
+      evaluationContractVersion: input.evaluationContractVersion,
+      sourceRevisionSha256: input.sourceRevisionSha256,
+      sourceRawSha256: input.sourceRawSha256,
+    } : {}),
   });
   return createHash("sha256").update(material).digest("hex");
 }
@@ -309,6 +337,10 @@ export interface PromotionQuestionPlan {
   /** 질문 의미가 같을 때만 기존 ID를 재사용하는 semantic definition hash. */
   definitionSha256: string;
   resolutionState: CriterionResolutionState;
+  /** 신규 3상태 질문만 존재. 부재는 역사 exclusion 질문이다. */
+  evaluationContractVersion?: "confirmation-evaluation-v2";
+  sourceRevisionSha256?: string;
+  sourceRawSha256?: string;
 }
 
 export interface GrantPromotionPlan {
@@ -319,11 +351,7 @@ export interface GrantPromotionPlan {
   auditState: PromotionAuditState;
   /** 발행 B criteria — shadow-convert 산출 그대로(needs_review=false, 강등분만 true). */
   criteria: GrantCriterion[];
-  /**
-   * 발행 배열 위치 → 런 criterionIndex. normalize 는 순서를 보존하고 산출 id 에 입력 row
-   * 순번(llm-<n>)을 새기므로, 탈락(dropped)이 있어도 위치 이동에 안전하게 역산된다.
-   * 역산 실패는 -1 — 정상 경로에서는 나올 수 없다(테스트로 봉인).
-   */
+  /** 발행 배열 위치 → 런 criterionIndex. converter의 항목별 결과가 직접 제공하는 anchor. */
   criterionIndexByPosition: number[];
   /** criteriaPosition과 1:1인 DB upsert 키. */
   criterionStableKeys: string[];
@@ -333,6 +361,8 @@ export interface GrantPromotionPlan {
   /** matcher 입력이 아닌 신청절차·사후의무로 명시적으로 제외한 원본 criterion index. */
   scopeRejectedCriterionIndexes?: number[];
   questions: PromotionQuestionPlan[];
+  /** 신규 release가 명시적으로 선택한 exact 수동 질문 revision. */
+  manualConfirmationEvaluationSelection?: ManualConfirmationEvaluationSelection;
   /**
    * 병합 confirmation 을 보유한 correct exclusion 인데 발행 criteria 에 앵커를 잃어
    * 질문이 되지 못한 수(변환 탈락 등) — 무은폐 원칙.
@@ -342,12 +372,6 @@ export interface GrantPromotionPlan {
   reviewRisk?: PromotionReviewRisk;
   /** 서비스 작성 도우미용 advisory. 구 release manifest에는 없을 수 있다. */
   authoringGuide?: GrantAuthoringGuideV1 | null;
-}
-
-/** 산출 criterion id(…:llm-<n>)에서 변환 입력 row 순번을 역산한다 — llm-criteria 의 id 계약. */
-function rowIndexFromCriterionId(id: string | undefined): number {
-  const matched = /:llm-(\d+)$/.exec(id ?? "");
-  return matched ? Number(matched[1]) - 1 : -1;
 }
 
 /**
@@ -369,12 +393,70 @@ export function planGrantPromotion(input: {
   analysisLaunchReceiptSha256?: string;
   /** <runId>.confirmations.json 사이드카(없으면 null) — 병합 규칙은 confirmations.ts 그대로. */
   sidecar: LabConfirmationsFile | null;
+  /** 사람 검수자가 별도 불변 sidecar로 확정한 3상태 질문. */
+  manualEvaluationSidecar?: ManualConfirmationEvaluationsArtifact | null;
+  /** revision sidecar는 필수. revision 1도 신규 release에서는 이 결속을 함께 사용한다. */
+  manualConfirmationEvaluationSelection?: ManualConfirmationEvaluationSelection;
+  /** v2 질문을 현재 grant_raw에 묶는다. 수동 sidecar가 없으면 읽지 않는다. */
+  sourceRawSha256?: string;
 }): GrantPromotionPlan {
   if (!isPublishableLabRun(input.run)) {
     throw new Error(`발행 가능한 런이 아닙니다: ${input.run.runId}`);
   }
+  if (input.run.primaryMatchingProjection) {
+    const projectionInspection = inspectPrimaryMatchingProjectionSnapshot(
+      primaryProjectionSource({
+        runId: input.run.runId,
+        grantId: input.run.grantId,
+        source: input.run.source,
+        sourceId: input.run.sourceId,
+        inputSha256: input.run.inputSha256,
+        ...(input.run.attachmentManifestSha256
+          ? { attachmentManifestSha256: input.run.attachmentManifestSha256 }
+          : {}),
+        criteria: input.run.criteria,
+      }),
+      input.run.primaryMatchingProjection,
+    );
+    if (projectionInspection.status !== "verified") {
+      throw new Error(
+        `primary matching projection이 현재 변환과 일치하지 않습니다: ${input.run.runId}`,
+      );
+    }
+  }
   // 질문 소스: v3 인라인 + 사이드카 병합(인라인 우선·범위 밖 드롭 — 기존 병합 규칙 재사용).
-  const mergedRun = mergeConfirmationsIntoRun(input.run, input.sidecar);
+  const manualEvaluationSidecar = input.manualEvaluationSidecar
+    ? parseManualConfirmationEvaluationsArtifact(input.manualEvaluationSidecar, input.run)
+    : null;
+  if (input.manualConfirmationEvaluationSelection) {
+    if (!manualEvaluationSidecar) {
+      throw new Error("manual confirmation selection에는 exact sidecar가 필요합니다.");
+    }
+    assertManualConfirmationEvaluationSelectionForArtifact(
+      manualEvaluationSidecar,
+      input.manualConfirmationEvaluationSelection,
+    );
+  } else if (manualEvaluationSidecar?.schema === MANUAL_CONFIRMATION_EVALUATIONS_REVISION_SCHEMA) {
+    throw new Error("manual confirmation revision sidecar에는 exact selection이 필요합니다.");
+  }
+  const manualCriterionIndexes = new Set(
+    manualEvaluationSidecar?.items.map((item) => item.criterionIndex) ?? [],
+  );
+  const mergedRun = mergeConfirmationsIntoRun(
+    mergeManualConfirmationEvaluations(input.run, manualEvaluationSidecar),
+    input.sidecar,
+  );
+  for (const [criterionIndex, criterion] of mergedRun.criteria.entries()) {
+    if (
+      criterion.confirmation?.evaluationContractVersion === "confirmation-evaluation-v2"
+      && !manualCriterionIndexes.has(criterionIndex)
+    ) {
+      throw new Error(`criterionIndex ${criterionIndex}의 v2 질문은 검증된 manual sidecar가 필요합니다.`);
+    }
+  }
+  if (manualCriterionIndexes.size > 0 && !input.sourceRawSha256) {
+    throw new Error("manual confirmation 발행에는 current sourceRawSha256가 필요합니다.");
+  }
   const resolutions = resolveCriterionStates({
     run: mergedRun,
     humanReview: input.review,
@@ -393,23 +475,8 @@ export function planGrantPromotion(input: {
   const selected = resolutions.filter((item) =>
     publishesCriterion(item.state)
     && !suppressedCriterionIndexes.has(item.criterionIndex));
-  const scopeRejected = selected.filter((item) => {
-    const criterion = mergedRun.criteria[item.criterionIndex];
-    return criterion
-      ? nonMatchingCriterionReason({
-          dimension: criterion.dimension,
-          operator: criterion.operator,
-          kind: criterion.kind,
-          source_span: criterion.sourceSpan,
-        }) !== null
-      : false;
-  });
-  const scopeRejectedIndexes = new Set(scopeRejected.map((item) => item.criterionIndex));
-  const publishableSelected = selected.filter(
-    (item) => !scopeRejectedIndexes.has(item.criterionIndex),
-  );
   const converted = convertSelectedLabCriteria(mergedRun, {
-    selections: publishableSelected.map((item) => ({
+    selections: selected.map((item) => ({
       criterionIndex: item.criterionIndex,
       needsReview: criterionNeedsReview(item.state),
     })),
@@ -423,22 +490,18 @@ export function planGrantPromotion(input: {
     missedConditions: (input.review?.axisReviews ?? input.aiReview?.axisReviews ?? [])
       .filter((axis) => axis.verdict === "missed_condition").length,
   });
-  const conversion = scopeRejected.length === 0
-    ? converted
-    : {
-        ...converted,
-        report: {
-          ...converted.report,
-          inputRows: converted.report.inputRows + scopeRejected.length,
-          dropped: converted.report.dropped + scopeRejected.length,
-        },
-      };
-
-  const rowCriterionIndexes = publishableSelected.map((item) => item.criterionIndex);
-  const criterionIndexByPosition = conversion.criteria.map((criterion) => {
-    const rowIndex = rowIndexFromCriterionId(criterion.id);
-    return rowCriterionIndexes[rowIndex] ?? -1;
-  });
+  const conversion = converted;
+  const conversionItems = conversion.report.items ?? [];
+  const criterionIndexByPosition = conversionItems
+    .filter((item) => item.outputPosition !== null)
+    .sort((left, right) => left.outputPosition! - right.outputPosition!)
+    .map((item) => item.criterionIndex);
+  if (criterionIndexByPosition.length !== conversion.criteria.length) {
+    throw new Error(`변환 항목별 원본 mapping이 불완전합니다: ${input.run.runId}`);
+  }
+  const scopeRejectedIndexes = new Set(conversionItems
+    .filter((item) => item.status === "scope_rejected")
+    .map((item) => item.criterionIndex));
 
   const auditState: PromotionAuditState =
     input.origin === "human"
@@ -457,12 +520,14 @@ export function planGrantPromotion(input: {
 
   const questions: PromotionQuestionPlan[] = [];
   conversion.criteria.forEach((criterion, position) => {
-    if (criterion.kind !== "exclusion") return; // 질문은 발행 exclusion 에만 앵커된다.
     const criterionIndex = criterionIndexByPosition[position] ?? -1;
     const resolution = resolutionByIndex.get(criterionIndex);
     if (!resolution || !publishesConfirmationQuestion(resolution.state)) return;
     const confirmation = criterionIndex >= 0 ? mergedRun.criteria[criterionIndex]?.confirmation : null;
     if (!confirmation) return;
+    const v2 = confirmation.evaluationContractVersion === "confirmation-evaluation-v2";
+    if (!v2 && criterion.kind !== "exclusion") return;
+    if (v2 && !input.run.sourceRevisionSha256) return;
     const inline = Boolean(input.run.criteria[criterionIndex]?.confirmation);
     const question = {
       criteriaPosition: position,
@@ -473,7 +538,11 @@ export function planGrantPromotion(input: {
       reusable: confirmation.reusable,
       conditionKey: confirmation.conditionKey,
       // 인라인은 런 세대, 보강 사이드카는 자체 promptVersion.
-      promptVer: inline ? input.run.promptVersion : (input.sidecar?.promptVersion ?? CONFIRMATIONS_PROMPT_VERSION),
+      promptVer: v2
+        ? (manualEvaluationSidecar?.schema ?? MANUAL_CONFIRMATION_EVALUATIONS_SCHEMA)
+        : inline
+          ? input.run.promptVersion
+          : (input.sidecar?.promptVersion ?? CONFIRMATIONS_PROMPT_VERSION),
       inline,
       provenance: {
         runId: input.run.runId,
@@ -488,6 +557,11 @@ export function planGrantPromotion(input: {
       },
       criterionStableKey: criterionStableKeys[position]!,
       resolutionState: resolution.state,
+      ...(v2 ? {
+        evaluationContractVersion: "confirmation-evaluation-v2" as const,
+        sourceRevisionSha256: input.run.sourceRevisionSha256,
+        sourceRawSha256: input.sourceRawSha256,
+      } : {}),
     };
     questions.push({
       ...question,
@@ -502,7 +576,11 @@ export function planGrantPromotion(input: {
     if (!publishesConfirmationQuestion(resolution.state)) continue;
     const criterionIndex = resolution.criterionIndex;
     const labCriterion = mergedRun.criteria[criterionIndex];
-    if (!labCriterion?.confirmation || labCriterion.kind !== "exclusion") continue;
+    if (!labCriterion?.confirmation) continue;
+    if (
+      labCriterion.confirmation.evaluationContractVersion !== "confirmation-evaluation-v2"
+      && labCriterion.kind !== "exclusion"
+    ) continue;
     if (!publishedQuestionIndexes.has(criterionIndex)) droppedQuestionCandidates += 1;
   }
 
@@ -519,6 +597,9 @@ export function planGrantPromotion(input: {
     conversion: conversion.report,
     scopeRejectedCriterionIndexes: [...scopeRejectedIndexes].sort((left, right) => left - right),
     questions,
+    ...(input.manualConfirmationEvaluationSelection ? {
+      manualConfirmationEvaluationSelection: input.manualConfirmationEvaluationSelection,
+    } : {}),
     droppedQuestionCandidates,
     authoringGuide: buildGrantAuthoringGuide({
       run: mergedRun,
@@ -592,6 +673,21 @@ export function applyPublishGuards(
   for (const plan of plans) {
     if (plan.conversion.error !== null) {
       refused.push({ plan, reason: "conversion_error", detail: `변환 계약 실패: ${plan.conversion.error}` });
+      continue;
+    }
+    if (
+      (plan.conversion.contractVersion !== undefined || plan.conversion.items !== undefined)
+      && !shadowConversionIsPromotionSafe({
+        report: plan.conversion,
+        criteria: plan.criteria,
+        scopeRejectedCriterionIndexes: plan.scopeRejectedCriterionIndexes,
+      })
+    ) {
+      refused.push({
+        plan,
+        reason: "conversion_error",
+        detail: "변환 항목별 원본 mapping 또는 terminal outcome 결속이 불완전합니다.",
+      });
       continue;
     }
     if (plan.criteria.length === 0) {

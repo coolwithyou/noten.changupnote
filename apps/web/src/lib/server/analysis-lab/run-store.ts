@@ -84,19 +84,7 @@ export async function listLabRunSummaries(source: string, sourceId: string): Pro
   }
   const summaries: LabRunSummary[] = [];
   for (const file of files) {
-    if (!file.startsWith("run-") || !file.endsWith(".json")) continue;
-    // 검수 시트(<runId>.review.json)는 런 파일이 아니다 — 런 목록에서 제외.
-    if (file.endsWith(".review.json")) continue;
-    // AI 검수(<runId>.ai-review.<slug>.json)·감사(<runId>.audit.<slug>.json)·질문 보강
-    // 사이드카(<runId>.confirmations.json, Phase B-0) 파일도 런이 아니다 — runId/grantId 를
-    // 갖고 있어 readRunFile 관대 파싱을 통과해 버리므로(감사 파일은 startedAt 이 없어
-    // 정렬에서 크래시) 파일명으로 먼저 제외한다.
-    if (
-      file.includes(".ai-review.")
-      || file.includes(".audit.")
-      || file.includes(".confirmations.")
-      || file.endsWith(".human-overlay.json")
-    ) continue;
+    if (!isPrimaryLabRunFilename(file)) continue;
     const run = await readRunFile(join(dir, file));
     if (!run) continue;
     const reviewedAt = await readReviewedAt(join(dir, `${run.runId}.review.json`));
@@ -121,7 +109,7 @@ export async function readLatestLabRun(source: string, sourceId: string): Promis
 
   let latest: LabRun | null = null;
   for (const file of files) {
-    if (!isPrimaryRunFilename(file)) continue;
+    if (!isPrimaryLabRunFilename(file)) continue;
     const run = await readRunFile(join(dir, file));
     if (!run) continue;
     if (!latest || run.startedAt > latest.startedAt) latest = run;
@@ -213,7 +201,7 @@ async function buildLatestLabRunIndex(
       }
       const candidates: LabRun[] = [];
       for (const file of files) {
-        if (!isPrimaryRunFilename(file)) continue;
+        if (!isPrimaryLabRunFilename(file)) continue;
         const run = await readRunFile(join(dir, file));
         if (run) candidates.push(run);
       }
@@ -361,12 +349,14 @@ async function readRunFile(path: string): Promise<LabRun | null> {
   }
 }
 
-function isPrimaryRunFilename(file: string): boolean {
+/** 모든 Lab filesystem consumer가 공유하는 primary-run 파일명 판정. */
+export function isPrimaryLabRunFilename(file: string): boolean {
   return file.startsWith("run-")
     && file.endsWith(".json")
     && !file.endsWith(".review.json")
     && !file.includes(".ai-review.")
     && !file.includes(".audit.")
     && !file.includes(".confirmations.")
+    && !file.includes(".confirmation-evaluations.")
     && !file.endsWith(".human-overlay.json");
 }

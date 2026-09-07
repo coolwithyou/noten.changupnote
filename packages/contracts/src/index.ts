@@ -585,19 +585,34 @@ export interface RuleTraceEntry {
   source_span?: string;
   company_value?: unknown;
   message: string;
+  /**
+   * unknown 판정의 구조화된 원인. UI가 message 문자열을 추측하지 않고 다음 행동을 고른다.
+   * criterion_invalid/needs_review/source_dispute는 사용자 입력으로 우회할 수 없다.
+   */
+  unresolved_reason?:
+    | "company_profile_missing"
+    | "criterion_text_only"
+    | "criterion_invalid"
+    | "criterion_needs_review"
+    | "source_dispute";
   /** 사용자 자가신고 확인으로 판정이 해소·확정된 entry 표시("본인 확인 기반" 뱃지 근거). */
   resolution?: "confirmed_by_user";
 }
 
 /**
- * (company, grant) 스코프 자가신고 확인 답변 1건이 해소하는 exclusion criterion 연결(확인 루프 Phase B).
- * criterion 연결은 grant_criteria.id 단일 기준 — 재발행으로 연결이 끊긴 질문의 답변은 전달하지 않는다(미답변과 동일).
+ * (company, grant, criterion) 스코프 자가 확인 답변이 criterion을 평가한 결과.
+ * 신규 저장은 evaluation을 사용한다. disqualified는 역사 exclusion 답변만 읽기 위한
+ * 호환 필드이며 required/preferred에는 절대 해석하지 않는다.
  */
+export type CriterionConfirmationEvaluation = "satisfied" | "unsatisfied" | "unknown";
+
 export interface CriterionConfirmation {
   /** grant_criteria.id — 질문 발행 시 앵커된 criterion. */
   criterion_id: string;
-  /** 판정 시점 옵션 극성 스냅샷: true = 결격 해당(자가신고). */
-  disqualified: boolean;
+  /** criterion의 자격 의미 기준 평가. kind와 무관하게 satisfied=pass, unsatisfied=fail이다. */
+  evaluation?: CriterionConfirmationEvaluation;
+  /** @deprecated legacy exclusion 전용. true=결격 해당(unsatisfied), false=결격 없음(satisfied). */
+  disqualified?: boolean;
 }
 
 export interface MatchReviewReason {

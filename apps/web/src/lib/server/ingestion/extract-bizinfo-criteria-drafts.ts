@@ -3,6 +3,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import {
   BIZINFO_NORMALIZER_VERSION,
+  LLM_CRITERIA_NORMALIZATION_CONTRACT_VERSION,
   buildBizInfoDeterministicCriteria,
   buildBizInfoProgramExtractionInput,
   extractBizInfoCriteriaWithAnthropic,
@@ -132,6 +133,7 @@ try {
           sourceId: entry.grant.source_id,
           title: entry.grant.title,
           extractorVersion: BIZINFO_NORMALIZER_VERSION,
+          normalizerContractVersion: result.normalizerContractVersion,
           model: result.model,
           inputSha256: createHash("sha256").update(input.text).digest("hex"),
           criteria: result.criteria,
@@ -154,6 +156,7 @@ try {
           sourceId: entry.grant.source_id,
           title: entry.grant.title,
           extractorVersion: BIZINFO_NORMALIZER_VERSION,
+          normalizerContractVersion: LLM_CRITERIA_NORMALIZATION_CONTRACT_VERSION,
           error: error instanceof Error ? error.message.slice(0, 500) : String(error).slice(0, 500),
           operationalReady: false,
         });

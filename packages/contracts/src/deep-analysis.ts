@@ -211,7 +211,10 @@ export type DeepAnalysisConfirmationReusable = "company_fact" | "per_notice";
 export interface DeepAnalysisConfirmationOption {
   value: string;
   label: string;
-  disqualifies: boolean;
+  /** 역사 exclusion 생성 계약. */
+  disqualifies?: boolean;
+  /** 수동 검수 v2 계약. 문구에서 추정하지 않는 criterion 기준 평가 의미. */
+  evaluation?: "satisfied" | "unsatisfied" | "unknown";
 }
 
 export interface DeepAnalysisCriterionConfirmation {
@@ -220,6 +223,8 @@ export interface DeepAnalysisCriterionConfirmation {
   answerType: "single" | "multi";
   reusable: DeepAnalysisConfirmationReusable;
   conditionKey: string | null;
+  /** 부재하면 역사 exclusion/disqualifies 질문이다. */
+  evaluationContractVersion?: "confirmation-evaluation-v2";
 }
 
 export interface DeepAnalysisCriterion {

@@ -48,6 +48,7 @@ import {
 } from "./promotion-snapshot";
 import {
   convertReviewedLabRun,
+  shadowConversionIsGenericReleaseSafe,
   type ShadowConversionReport,
 } from "./shadow-convert";
 
@@ -217,9 +218,25 @@ interface GrantShadowRecord {
 }
 
 function questionPolarityIsValid(
-  question: { options: Array<{ value: string; disqualifies: boolean }> },
+  question: {
+    evaluationContractVersion?: string;
+    options: Array<{
+      value: string;
+      disqualifies?: boolean;
+      evaluation?: "satisfied" | "unsatisfied" | "unknown";
+    }>;
+  },
 ): boolean {
   const values = new Set(question.options.map((option) => option.value));
+  if (question.evaluationContractVersion === "confirmation-evaluation-v2") {
+    const evaluations = new Set(question.options.map((option) => option.evaluation));
+    return question.options.length === 3
+      && values.size === question.options.length
+      && evaluations.size === 3
+      && evaluations.has("satisfied")
+      && evaluations.has("unsatisfied")
+      && evaluations.has("unknown");
+  }
   const polarities = new Set(question.options.map((option) => option.disqualifies));
   return values.size === question.options.length
     && question.options.length >= 2
@@ -292,8 +309,11 @@ async function mainReleaseShadow(options: ShadowOptions, releaseId: string): Pro
     }
     const plan = planItem.promotionPlan;
     if (
-      plan.conversion.error
-      || plan.conversion.dropped > 0
+      !shadowConversionIsGenericReleaseSafe({
+        report: plan.conversion,
+        criteria: plan.criteria,
+        scopeRejectedCriterionIndexes: plan.scopeRejectedCriterionIndexes,
+      })
       || plan.droppedQuestionCandidates > 0
       || releasePlanItemHasUnsafePendingCriteria(planItem)
     ) {

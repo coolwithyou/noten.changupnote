@@ -310,6 +310,8 @@ export interface MatchCard {
 }
 
 export interface RuleTraceChip {
+  /** 질문과 rule trace를 같은 DB criterion에 정확히 결속하는 식별자. 구 응답에는 없다. */
+  criterionId?: string;
   dimension: CriterionDimension;
   kind: CriterionKind;
   result: RuleTraceChipResult;
@@ -327,6 +329,17 @@ export interface RuleTraceChip {
     detail: string;
     etaDate?: string;
   };
+  /** text_only도 사용자 확인으로 해소되면 실제 pass/fail을 표시하기 위한 provenance. */
+  resolution?: "confirmed_by_user";
+  /** matcher가 판정한 unknown 원인. exact 질문 주석도 보호 원인을 사용자 확인으로 바꾸지 않는다. */
+  unresolvedReason?:
+    | "company_profile_missing"
+    | "criterion_text_only"
+    | "criterion_invalid"
+    | "criterion_needs_review"
+    | "source_dispute";
+  /** 미해소 조건의 다음 행동. v2 질문 주석이 검수된 exact 질문만 user로 좁힌다. */
+  confirmationNextAction?: "user_confirmation" | "company_profile" | "admin_source_review";
 }
 
 export interface RoadmapNode {
@@ -620,6 +633,8 @@ export interface ProfileQuestionRefreshDto {
   savedCount: number;
   failedCount: number;
   failedGrantIds: string[];
+  staleCount?: number;
+  staleGrantIds?: string[];
 }
 
 export interface ProfileQuestionEventReceiptDto {
@@ -737,6 +752,8 @@ export interface FeedbackResult {
 export interface GrantConfirmationOptionDto {
   value: string;
   label: string;
+  /** 평가 극성을 노출하지 않고 명시적 '확인할 수 없음' 선택지만 구분한다. */
+  isUnknown?: boolean;
 }
 
 export interface GrantConfirmationQuestionDto {
@@ -744,13 +761,27 @@ export interface GrantConfirmationQuestionDto {
   prompt: string;
   answerType: "single" | "multi";
   options: GrantConfirmationOptionDto[];
+  /** 신규 3상태 평가 질문의 optimistic-CAS 결속. 역사 질문에는 없다. */
+  binding?: {
+    contractVersion: "confirmation-evaluation-v2";
+    criterionId: string;
+    sourceRevisionSha256: string;
+    sourceRawSha256: string;
+    definitionSha256: string;
+    questionVersion: number;
+  };
 }
 
-/** (company, question) 저장된 자가신고 답변. disqualified 는 저장 시점 옵션 극성 스냅샷. */
+export type GrantConfirmationEvaluation = "satisfied" | "unsatisfied" | "unknown";
+
+/** (company, question) 저장된 자가신고 답변. 신규 답변은 evaluation을 정본으로 쓴다. */
 export interface GrantConfirmationAnswerDto {
   questionId: string;
   values: string[];
-  disqualified: boolean;
+  evaluation?: GrantConfirmationEvaluation;
+  /** @deprecated 역사 exclusion 답변 호환 필드. */
+  disqualified?: boolean;
+  answerRevision?: number;
   answeredAt: string;
 }
 
@@ -766,6 +797,10 @@ export interface GrantConfirmationSubmitRequest {
   answers: Array<{
     questionId: string;
     values: string[];
+    /** 신규 질문은 GET에서 받은 binding을 그대로 돌려보내야 한다. */
+    binding?: NonNullable<GrantConfirmationQuestionDto["binding"]>;
+    /** 같은 질문을 동시에 수정할 때 마지막 읽은 answer revision. 최초 저장은 0. */
+    expectedAnswerRevision?: number;
   }>;
 }
 
@@ -780,6 +815,8 @@ export interface GrantConfirmationSubmitResult {
   refresh: {
     plannedCount: number;
     savedCount: number;
+    /** 답변은 저장됐지만 재계산/후속 주석을 완료하지 못해 클라이언트 재조회가 필요한 상태. */
+    status?: "succeeded" | "not_persisted_user_scope" | "stale" | "failed";
   };
 }
 

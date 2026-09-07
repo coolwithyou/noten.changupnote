@@ -113,6 +113,23 @@ export interface MatchState<TPayload = unknown> {
   match: MatchResult;
 }
 
+/**
+ * 공유 match_state 계산이 읽은 회사/공고 입력의 DB revision 결속.
+ * grantComponentRevisions에는 confirmed dedup으로 합쳐진 모든 occurrence가 포함된다.
+ */
+export interface MatchStateInputBinding {
+  version: "match-state-input-v1";
+  companyId: string;
+  companyRevision: string;
+  grantId: string;
+  grantComponentRevisions: Array<{ grantId: string; revision: string }>;
+}
+
+export type MatchStateSaveResult =
+  | { status: "saved" }
+  | { status: "stale_input" }
+  | { status: "stale_as_of" };
+
 export interface MatchRepository<TPayload = unknown> {
   calculateGrantMatch(input: {
     company: CompanyProfile;
@@ -122,14 +139,21 @@ export interface MatchRepository<TPayload = unknown> {
     company: CompanyProfile;
     grants: Array<NormalizedGrant<TPayload>>;
   }): Promise<Array<MatchState<TPayload>>>;
+  /** 계산 입력을 읽기 전에 호출한다. 누락된 회사/공고는 결과에서 제외한다. */
+  captureMatchStateInputBindings(input: {
+    companyIds: string[];
+    grantIds: string[];
+  }): Promise<MatchStateInputBinding[]>;
   saveMatchState(input: {
     companyId: string;
     grantId: string;
     match: MatchResult;
+    inputBinding: MatchStateInputBinding;
+    calculationAsOf: Date;
     eligibleFrom?: Date | null;
     eligibleUntil?: Date | null;
     userId?: string;
-  }): Promise<void>;
+  }): Promise<MatchStateSaveResult>;
   listDueMatchTransitions(input: {
     asOf: Date;
     limit?: number;

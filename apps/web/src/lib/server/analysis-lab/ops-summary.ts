@@ -34,7 +34,7 @@ import { readCohortFileV2, type CohortEntry, type CohortFileV2 } from "./cohort-
 import { resolveLabTransport } from "./claude-cli-transport";
 import { resolveLabModel } from "./extractor";
 import { selectReviewedRuns } from "./reviewed-runs";
-import { analysisLabDir } from "./run-store";
+import { analysisLabDir, isPrimaryLabRunFilename } from "./run-store";
 import { resolveGrantRunStates, type ScannedLabRunStateRecord } from "./run-scan-state";
 import { LAB_SOURCES } from "./strata";
 
@@ -79,18 +79,8 @@ export async function scanLabRunsForOps(
       continue;
     }
     for (const file of files) {
-      if (!file.startsWith("run-") || !file.endsWith(".json")) continue;
-      // 이중 방어 ① — 부속 파일(검수·AI 검수·감사·질문 사이드카·사람 검수 오버레이)은
-      // 런이 아니다(run-store listLabRunSummaries 와 같은 제외 목록).
-      if (
-        file.endsWith(".review.json") ||
-        file.includes(".ai-review.") ||
-        file.includes(".audit.") ||
-        file.includes(".confirmations.") ||
-        file.endsWith(".human-overlay.json")
-      ) {
-        continue;
-      }
+      // 이중 방어 ① — 부속 파일은 공용 primary-run 판정으로 제외한다.
+      if (!isPrimaryLabRunFilename(file)) continue;
       let parsed: {
         grantId?: unknown;
         promptVersion?: unknown;

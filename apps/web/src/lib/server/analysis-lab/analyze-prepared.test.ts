@@ -82,5 +82,21 @@ assert.ok(
   "exact authority binding 검사는 transport/model 시작보다 먼저여야 한다",
 );
 assert.match(internalSource, /runValidatedLabPrimary\(\{[\s\S]*opts\?\.signal/);
+const rawPrimaryStart = internalSource.indexOf("const runPrimary = async");
+const projectionSeamStart = internalSource.indexOf("const runPrimaryWithMatchingProjection = async");
+const pairStart = internalSource.indexOf("const paired = await runAnalysisPair");
+assert.ok(rawPrimaryStart >= 0 && projectionSeamStart > rawPrimaryStart && pairStart > projectionSeamStart);
+const rawPrimarySource = internalSource.slice(rawPrimaryStart, projectionSeamStart);
+assert.doesNotMatch(
+  rawPrimarySource,
+  /MatchingProjection|matchingProjection/,
+  "primary 품질 try/catch 안에서 진단 예외를 primary error로 바꾸지 않는다",
+);
+assert.match(
+  internalSource.slice(projectionSeamStart, pairStart),
+  /const primary = await runPrimary\(\);[\s\S]*capturePrimaryMatchingProjectionSnapshot/,
+  "primary가 값으로 종결된 직후 total 진단 seam을 붙인다",
+);
+assert.match(internalSource, /primary: runPrimaryWithMatchingProjection/);
 
 console.log("analysis-lab prepared execution tests: ok");

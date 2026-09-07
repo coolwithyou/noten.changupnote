@@ -15,6 +15,7 @@ import {
 } from "./match-card.js";
 import {
   answerableHardUnknownDimensions,
+  hasUnanswerableHardUnknown,
   isPreparableMatchCard,
 } from "./select-match-cards.js";
 
@@ -199,6 +200,7 @@ function isNotRecommendedCard(card: MatchCard): boolean {
 
 function isOneAnswerCard(card: MatchCard): boolean {
   if (recommendationTierForCard(card) !== "needs_profile_input") return false;
+  if (hasUnanswerableHardUnknown(card)) return false;
   return answerableHardUnknownDimensions(card).size === 1;
 }
 

@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import type { CunoteDbSession } from "@/lib/server/db/client";
 import * as schema from "@/lib/server/db/schema";
 import { listVerifiedArchiveMaterialEntries } from "@/lib/server/ingestion/archiveContainerInspection";
@@ -77,7 +77,142 @@ export async function prepareDeepAnalysisInput(input: {
     }
   }));
 
-  const grantSourceFields = {
+  const grantSourceFields = deepAnalysisGrantSourceFields(grant);
+  const sourceRevision = buildDeepAnalysisSourceRevision({
+    grant: grantSourceFields,
+    rawHash: raw?.rawHash ?? null,
+    attachments: hydrated.map(sourceRevisionAttachment),
+  });
+  const structuredText = stableJson({
+    schema: "deep-analysis-structured-source-v1",
+    grant: grantSourceFields,
+    rawPayload: raw?.payload ?? null,
+  });
+  return sealDeepAnalysisInput({
+    grantId: grant.id,
+    sourceRevisionSha256: sourceRevision.sha256,
+    structuredText,
+    attachments: hydrated,
+    ...(input.chunkChars !== undefined ? { chunkChars: input.chunkChars } : {}),
+    ...(input.maxTotalChars !== undefined ? { maxTotalChars: input.maxTotalChars } : {}),
+  });
+}
+
+/**
+ * 질문/답변 source CAS용 DB-only binding. 모델/R2 내용을 읽지 않고 primary input과 같은
+ * 공고 필드·raw hash·첨부 inventory projection으로 현재 revision을 계산한다.
+ */
+export async function loadDeepAnalysisSourceBinding(input: {
+  db: CunoteDbSession;
+  grantId: string;
+  /** 답변 transaction은 raw read→commit 사이 material raw 갱신을 막는다. */
+  lockRaw?: boolean;
+}): Promise<{ sourceRevisionSha256: string; sourceRawSha256: string } | null> {
+  return (await loadDeepAnalysisSourceBindings({
+    db: input.db,
+    grantIds: [input.grantId],
+    ...(input.lockRaw !== undefined ? { lockRows: input.lockRaw } : {}),
+  })).get(input.grantId) ?? null;
+}
+
+/** 목록 matcher/CTA도 공고 수와 무관한 4개 bounded query로 같은 fingerprint를 계산한다. */
+export async function loadDeepAnalysisSourceBindings(input: {
+  db: CunoteDbSession;
+  grantIds: readonly string[];
+  /** 단건 답변 저장 전용. grant/raw 행을 SHARE 잠금한다. */
+  lockRows?: boolean;
+}): Promise<Map<string, { sourceRevisionSha256: string; sourceRawSha256: string }>> {
+  const grantIds = [...new Set(input.grantIds)];
+  const result = new Map<string, { sourceRevisionSha256: string; sourceRawSha256: string }>();
+  if (grantIds.length === 0) return result;
+  if (input.lockRows && grantIds.length !== 1) {
+    throw new Error("source binding row lock은 단건 transaction에서만 지원합니다.");
+  }
+  const grantQuery = input.db.select({
+    id: schema.grants.id,
+    source: schema.grants.source,
+    sourceId: schema.grants.sourceId,
+    title: schema.grants.title,
+    url: schema.grants.url,
+    agencyJurisdiction: schema.grants.agencyJurisdiction,
+    agencyOperator: schema.grants.agencyOperator,
+    agencyPrimary: schema.grants.agencyPrimary,
+    categoryL1: schema.grants.categoryL1,
+    categoryL2: schema.grants.categoryL2,
+    applyStart: schema.grants.applyStart,
+    applyEnd: schema.grants.applyEnd,
+    applyMethod: schema.grants.applyMethod,
+    supportAmount: schema.grants.supportAmount,
+    benefits: schema.grants.benefits,
+    requiredDocuments: schema.grants.requiredDocuments,
+    status: schema.grants.status,
+  }).from(schema.grants).where(inArray(schema.grants.id, grantIds));
+  const grants = input.lockRows ? await grantQuery.for("share") : await grantQuery;
+  if (grants.length === 0) return result;
+  const sources = [...new Set(grants.map((grant) => grant.source))];
+  const sourceIds = [...new Set(grants.map((grant) => grant.sourceId))];
+  const rawQuery = input.db.select({
+    source: schema.grantRaw.source,
+    sourceId: schema.grantRaw.sourceId,
+    rawHash: schema.grantRaw.rawHash,
+    attachments: schema.grantRaw.attachments,
+  }).from(schema.grantRaw).where(and(
+    inArray(schema.grantRaw.source, sources),
+    inArray(schema.grantRaw.sourceId, sourceIds),
+  ));
+  const rawRows = input.lockRows ? await rawQuery.for("share") : await rawQuery;
+  const [archiveRows, convertedArtifacts] = await Promise.all([
+    input.db.select().from(schema.grantAttachmentArchives).where(and(
+      inArray(schema.grantAttachmentArchives.source, sources),
+      inArray(schema.grantAttachmentArchives.sourceId, sourceIds),
+    )),
+    input.db.select({
+      grantId: schema.grantApplicationSurfaces.grantId,
+      sourceAttachment: schema.grantApplicationSurfaces.sourceAttachment,
+      title: schema.grantApplicationSurfaces.title,
+      storageKey: schema.documentArtifacts.storageKey,
+      sha256: schema.documentArtifacts.sha256,
+    }).from(schema.grantApplicationSurfaces).innerJoin(
+      schema.documentArtifacts,
+      eq(schema.documentArtifacts.surfaceId, schema.grantApplicationSurfaces.id),
+    ).where(and(
+      inArray(schema.grantApplicationSurfaces.grantId, grantIds),
+      eq(schema.documentArtifacts.kind, "markdown"),
+    )),
+  ]);
+  const rawBySource = new Map(rawRows.map((raw) => [`${raw.source}\u0000${raw.sourceId}`, raw]));
+  for (const grant of grants) {
+    const key = `${grant.source}\u0000${grant.sourceId}`;
+    const raw = rawBySource.get(key);
+    if (!raw?.rawHash) continue;
+    const inventory = applyVerifiedConversionArtifacts(
+      mergeAttachmentInventory(
+        raw.attachments ?? [],
+        archiveRows.filter((archive) => `${archive.source}\u0000${archive.sourceId}` === key),
+      ),
+      convertedArtifacts.filter((artifact) => artifact.grantId === grant.id),
+    );
+    result.set(grant.id, {
+      sourceRawSha256: raw.rawHash,
+      sourceRevisionSha256: buildDeepAnalysisSourceRevision({
+        grant: deepAnalysisGrantSourceFields(grant),
+        rawHash: raw.rawHash,
+        attachments: inventory.map(sourceRevisionAttachment),
+      }).sha256,
+    });
+  }
+  return result;
+}
+
+type DeepAnalysisGrantSourceRow = Pick<typeof schema.grants.$inferSelect,
+  | "source" | "sourceId" | "title" | "url"
+  | "agencyJurisdiction" | "agencyOperator" | "agencyPrimary"
+  | "categoryL1" | "categoryL2" | "applyStart" | "applyEnd"
+  | "applyMethod" | "supportAmount" | "benefits" | "requiredDocuments" | "status"
+>;
+
+function deepAnalysisGrantSourceFields(grant: DeepAnalysisGrantSourceRow) {
+  return {
     source: grant.source,
     sourceId: grant.sourceId,
     title: grant.title,
@@ -95,30 +230,16 @@ export async function prepareDeepAnalysisInput(input: {
     requiredDocuments: grant.requiredDocuments,
     status: grant.status,
   };
-  const sourceRevision = buildDeepAnalysisSourceRevision({
-    grant: grantSourceFields,
-    rawHash: raw?.rawHash ?? null,
-    attachments: hydrated.map((attachment) => ({
-      sourceUri: attachment.sourceUri,
-      filename: attachment.filename,
-      sha256: attachment.sha256,
-      markdownSha256: attachment.markdownSha256,
-      conversionStatus: attachment.conversionStatus,
-    })),
-  });
-  const structuredText = stableJson({
-    schema: "deep-analysis-structured-source-v1",
-    grant: grantSourceFields,
-    rawPayload: raw?.payload ?? null,
-  });
-  return sealDeepAnalysisInput({
-    grantId: grant.id,
-    sourceRevisionSha256: sourceRevision.sha256,
-    structuredText,
-    attachments: hydrated,
-    ...(input.chunkChars !== undefined ? { chunkChars: input.chunkChars } : {}),
-    ...(input.maxTotalChars !== undefined ? { maxTotalChars: input.maxTotalChars } : {}),
-  });
+}
+
+function sourceRevisionAttachment(attachment: DeepAnalysisInputAttachment) {
+  return {
+    sourceUri: attachment.sourceUri,
+    filename: attachment.filename,
+    sha256: attachment.sha256,
+    markdownSha256: attachment.markdownSha256,
+    conversionStatus: attachment.conversionStatus,
+  };
 }
 
 function mergeAttachmentInventory(

@@ -86,20 +86,27 @@ export function toRuleTraceChip(
   trace: MatchResult["rule_trace"][number],
   options: { asOf?: Date } = {},
 ): RuleTraceChip {
-  const result: RuleTraceChipResult = trace.operator === "text_only" ? "text_only" : trace.result;
-  const action = actionForTrace(result, trace.dimension);
+  const result: RuleTraceChipResult = trace.operator === "text_only" && !trace.resolution
+    ? "text_only"
+    : trace.result;
+  const confirmationNextAction = confirmationNextActionForTrace(trace, result);
+  const action = actionForTrace(result, trace.dimension, confirmationNextAction);
   const chip: RuleTraceChip = {
+    ...(trace.criterion_id ? { criterionId: trace.criterion_id } : {}),
     dimension: trace.dimension,
     kind: trace.kind,
     result,
     label: trace.message,
     checklistSection: checklistSectionFor(result, trace.kind),
+    ...(trace.resolution ? { resolution: trace.resolution } : {}),
+    ...(trace.unresolved_reason ? { unresolvedReason: trace.unresolved_reason } : {}),
   };
   const companyValue = summarizeCompanyValue(trace.company_value);
   const unlock = unlockForTrace(trace, options.asOf);
   if (companyValue) chip.companyValue = companyValue;
   if (trace.source_span) chip.sourceSpan = trace.source_span;
   if (action) chip.action = action;
+  if (confirmationNextAction) chip.confirmationNextAction = confirmationNextAction;
   if (unlock) chip.unlock = unlock;
   return chip;
 }
@@ -340,8 +347,19 @@ function checklistSectionFor(result: RuleTraceChipResult, kind: RuleTraceChip["k
   return "needs_check";
 }
 
-function actionForTrace(result: RuleTraceChipResult, dimension: CriterionDimension): RuleTraceChip["action"] | undefined {
+function actionForTrace(
+  result: RuleTraceChipResult,
+  dimension: CriterionDimension,
+  confirmationNextAction?: RuleTraceChip["confirmationNextAction"],
+): RuleTraceChip["action"] | undefined {
   if (result === "unknown") {
+    if (confirmationNextAction === "admin_source_review") {
+      return {
+        type: "external_link",
+        target: "source",
+        label: "원문 확인",
+      };
+    }
     return {
       type: "progressive",
       target: dimension,
@@ -363,6 +381,16 @@ function actionForTrace(result: RuleTraceChipResult, dimension: CriterionDimensi
     };
   }
   return undefined;
+}
+
+function confirmationNextActionForTrace(
+  trace: MatchResult["rule_trace"][number],
+  result: RuleTraceChipResult,
+): RuleTraceChip["confirmationNextAction"] | undefined {
+  if (result !== "unknown" && result !== "text_only") return undefined;
+  return trace.unresolved_reason === "company_profile_missing"
+    ? "company_profile"
+    : "admin_source_review";
 }
 
 function isTimeUnlockableMatch(match: MatchResult): boolean {

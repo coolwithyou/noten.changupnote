@@ -107,12 +107,13 @@ function candidatesForMatch<TPayload>(
       item.trace.result === "unknown" &&
       (item.trace.kind === "required" || item.trace.kind === "exclusion") &&
       item.criterion !== undefined);
-  const resolvable = hardUnknowns.filter(({ criterion }) => isProfileResolvableCriterion(criterion));
+  const resolvable = hardUnknowns.filter(({ trace, criterion }) =>
+    trace.unresolved_reason === "company_profile_missing" && isProfileResolvableCriterion(criterion));
   if (resolvable.length === 0) return [];
 
   const unresolvedDimensions = new Set(hardUnknowns.map((item) => item.trace.dimension));
-  const allHardUnknownsProfileResolvable = hardUnknowns.every(({ criterion }) =>
-    isProfileResolvableCriterion(criterion));
+  const allHardUnknownsProfileResolvable = hardUnknowns.every(({ trace, criterion }) =>
+    trace.unresolved_reason === "company_profile_missing" && isProfileResolvableCriterion(criterion));
   const grantId = grantKey(entry.item.grant);
   const dDay = daysUntil(entry.item.grant.apply_end ?? null, asOf);
   return resolvable.map(({ trace, criterion }) => ({

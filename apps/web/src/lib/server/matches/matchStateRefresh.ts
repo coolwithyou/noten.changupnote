@@ -1,6 +1,7 @@
 import type { CompanyProfile, CriterionConfirmation, NormalizedGrant } from "@cunote/contracts";
 import {
   planMatchStateRefresh,
+  type MatchStateInputBinding,
   type MatchStateRefreshPlan,
   type ServiceRepositories,
 } from "@cunote/core";
@@ -13,11 +14,15 @@ export interface RefreshMatchStatesInput<TPayload = unknown> {
   grants: Array<NormalizedGrant<TPayload>>;
   asOf: Date;
   write: boolean;
+  /** write=true일 때 입력을 읽기 전에 캡처한 exact pair binding. */
+  inputBindings?: MatchStateInputBinding[];
 }
 
 export interface RefreshMatchStatesResult {
   plan: MatchStateRefreshPlan;
   savedCount: number;
+  staleCount: number;
+  staleGrantIds: string[];
 }
 
 export async function refreshMatchStates<TPayload>({
@@ -28,6 +33,7 @@ export async function refreshMatchStates<TPayload>({
   grants,
   asOf,
   write,
+  inputBindings,
 }: RefreshMatchStatesInput<TPayload>): Promise<RefreshMatchStatesResult> {
   // (company, grant) 자가신고 확인 답변(확인 루프 Phase B)을 배치 로드해 엔진 입력에 싣는다.
   // 리포지토리가 미구현이거나 답변이 없으면 undefined — 엔진은 기존 동작과 완전히 동일하다.
@@ -41,19 +47,35 @@ export async function refreshMatchStates<TPayload>({
   });
 
   if (!write) {
-    return { plan, savedCount: 0 };
+    return { plan, savedCount: 0, staleCount: 0, staleGrantIds: [] };
   }
 
-  await Promise.all(plan.states.map((state) => repositories.matches.saveMatchState({
-    companyId,
-    grantId: state.grantId,
-    match: state.match,
-    eligibleFrom: parsePlanDate(state.eligibleFrom),
-    eligibleUntil: parsePlanDate(state.eligibleUntil),
-    ...(userId ? { userId } : {}),
-  })));
+  const bindingByGrantId = new Map((inputBindings ?? [])
+    .filter((binding) => binding.companyId === companyId)
+    .map((binding) => [binding.grantId, binding]));
+  const missingBindings = plan.states.filter((state) => !bindingByGrantId.has(state.grantId));
+  if (missingBindings.length > 0) {
+    throw new Error(`match_state write requires current input binding: ${missingBindings.map((state) => state.grantId).join(",")}`);
+  }
+  const results = await Promise.all(plan.states.map((state) => repositories.matches.saveMatchState({
+      companyId,
+      grantId: state.grantId,
+      match: state.match,
+      inputBinding: bindingByGrantId.get(state.grantId)!,
+      calculationAsOf: asOf,
+      eligibleFrom: parsePlanDate(state.eligibleFrom),
+      eligibleUntil: parsePlanDate(state.eligibleUntil),
+      ...(userId ? { userId } : {}),
+    })));
+  const staleGrantIds = results.flatMap((result, index) =>
+    result.status === "saved" ? [] : [plan.states[index]!.grantId]);
 
-  return { plan, savedCount: plan.states.length };
+  return {
+    plan,
+    savedCount: results.length - staleGrantIds.length,
+    staleCount: staleGrantIds.length,
+    staleGrantIds,
+  };
 }
 
 export async function loadCriterionConfirmations<TPayload>(input: {

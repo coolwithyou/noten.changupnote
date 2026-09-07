@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import { buildBizInfoProgramExtractionInput } from "./extraction-input.js";
 import { buildBizInfoDeterministicCriteria, mergeBizInfoDeterministicCriteria } from "./deterministic-criteria.js";
-import { extractBizInfoCriteriaWithAnthropic } from "./llm-criteria.js";
+import {
+  LLM_CRITERIA_NORMALIZATION_CONTRACT_VERSION,
+  extractBizInfoCriteriaWithAnthropic,
+} from "./llm-criteria.js";
 
 const input = buildBizInfoProgramExtractionInput({
   pblancId: "PBLN_TEST",
@@ -53,6 +56,11 @@ assert.deepEqual(
   emptyLlmResult.criteria.map((criterion) => criterion.dimension),
   ["size", "region", "target_type"],
   "LLM이 0건을 반환해도 structured field backstop은 유지된다",
+);
+assert.equal(
+  emptyLlmResult.normalizerContractVersion,
+  LLM_CRITERIA_NORMALIZATION_CONTRACT_VERSION,
+  "외부 BizInfo extraction result가 공용 normalizer provenance를 보존한다",
 );
 
 console.log(JSON.stringify({

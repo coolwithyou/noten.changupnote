@@ -118,6 +118,110 @@ function manifest(item: PromotionReleasePlanItem = planItem) {
 }
 
 {
+  const v2Plan: GrantPromotionPlan = {
+    ...plan,
+    questions: [{
+      criteriaPosition: 0,
+      criterionIndex: 0,
+      prompt: "충족하나요?",
+      options: [
+        { value: "yes", label: "예", evaluation: "satisfied" },
+        { value: "no", label: "아니요", evaluation: "unsatisfied" },
+        { value: "unknown", label: "확인 불가", evaluation: "unknown" },
+      ],
+      answerType: "single",
+      reusable: "per_notice",
+      conditionKey: null,
+      promptVer: "lab-manual-confirmation-evaluations-v1",
+      inline: false,
+      provenance: { runId: plan.runId, auditState: "human_reviewed", criterionIndex: 0 },
+      criterionRef: { dimension: "other", kind: "required", sourceSpanHash: null },
+      criterionStableKey: "manual-stable-key",
+      definitionSha256: "9".repeat(64),
+      resolutionState: "confirmed_correct",
+      evaluationContractVersion: "confirmation-evaluation-v2",
+      sourceRevisionSha256: "7".repeat(64),
+      sourceRawSha256: "8".repeat(64),
+    }],
+  };
+  const v2Item = { ...planItem, planSha256: planSha256(v2Plan), promotionPlan: v2Plan };
+  const withoutManualSource = manifest(v2Item);
+  assert.throws(
+    () => validatePromotionReleaseManifest(withoutManualSource),
+    /수동 confirmation source 결속/,
+  );
+  const { manifestSha256: _manifestSha256, ...withoutStoredHash } = withoutManualSource;
+  const withManualSource = createPromotionReleaseManifest({
+    ...withoutStoredHash,
+    sourceArtifacts: withoutManualSource.sourceArtifacts.map((source) => ({
+      ...source,
+      manualConfirmationEvaluationsSha256: "6".repeat(64),
+    })),
+  });
+  assert.doesNotThrow(() => validatePromotionReleaseManifest(withManualSource));
+
+  const exactSelection = {
+    schema: "manual-confirmation-evaluation-selection-v1" as const,
+    revision: 2,
+    artifactSha256: "5".repeat(64),
+    itemCount: 1,
+    intent: "active" as const,
+  };
+  const selectedPlan = { ...v2Plan, manualConfirmationEvaluationSelection: exactSelection };
+  const selectedItem = {
+    ...planItem,
+    planSha256: planSha256(selectedPlan),
+    promotionPlan: selectedPlan,
+  };
+  const selectedManifest = createPromotionReleaseManifest({
+    ...withoutStoredHash,
+    plans: [selectedItem],
+    sourceArtifacts: withoutManualSource.sourceArtifacts.map((source) => ({
+      ...source,
+      manualConfirmationEvaluationsSha256: exactSelection.artifactSha256,
+      manualConfirmationEvaluationSelection: exactSelection,
+    })),
+  });
+  assert.doesNotThrow(() => validatePromotionReleaseManifest(selectedManifest));
+  const withdrawSelection = {
+    ...exactSelection,
+    revision: 3,
+    artifactSha256: "4".repeat(64),
+    itemCount: 0,
+    intent: "withdraw_all" as const,
+  };
+  const withdrawPlan: GrantPromotionPlan = {
+    ...plan,
+    manualConfirmationEvaluationSelection: withdrawSelection,
+  };
+  const withdrawItem = {
+    ...planItem,
+    planSha256: planSha256(withdrawPlan),
+    promotionPlan: withdrawPlan,
+  };
+  const withdrawManifest = createPromotionReleaseManifest({
+    ...withoutStoredHash,
+    plans: [withdrawItem],
+    sourceArtifacts: withoutManualSource.sourceArtifacts.map((source) => ({
+      ...source,
+      manualConfirmationEvaluationsSha256: withdrawSelection.artifactSha256,
+      manualConfirmationEvaluationSelection: withdrawSelection,
+    })),
+  });
+  assert.doesNotThrow(() => validatePromotionReleaseManifest(withdrawManifest));
+  const tamperedWithdraw = structuredClone(withdrawManifest);
+  tamperedWithdraw.sourceArtifacts[0]!.manualConfirmationEvaluationSelection = {
+    ...tamperedWithdraw.sourceArtifacts[0]!.manualConfirmationEvaluationSelection!,
+    itemCount: 1,
+  };
+  const { manifestSha256: _tamperedSha, ...tamperedBody } = tamperedWithdraw;
+  assert.throws(
+    () => validatePromotionReleaseManifest(createPromotionReleaseManifest(tamperedBody)),
+    /selection 형식|revision 결속|질문 수/,
+  );
+}
+
+{
   const merged = mergePromotionApprovalGateEvidence({
     schema: "aggregate-split-publication-gate-v1",
     verdict: "PASS",

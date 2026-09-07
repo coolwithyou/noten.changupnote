@@ -46,6 +46,7 @@ import {
   stableCanonicalStringify,
   type CompanyProfileFieldUpdate,
 } from "@cunote/core";
+import { loadDeepAnalysisSourceBindings } from "../deep-analysis/prepareInput";
 import type {
   CompanyRecord,
   CompanyRepository,
@@ -60,6 +61,8 @@ import type {
   GrantRepository,
   MatchEventReceipt,
   MatchRepository,
+  MatchStateInputBinding,
+  MatchStateSaveResult,
   ProfileQuestionEventReceipt,
   ReadEnrichmentCacheInput,
   RegistryCandidateQuery,
@@ -806,6 +809,62 @@ class DrizzleMatchRepository<TPayload> implements MatchRepository<TPayload> {
     }));
   }
 
+  async captureMatchStateInputBindings(input: {
+    companyIds: string[];
+    grantIds: string[];
+  }): Promise<MatchStateInputBinding[]> {
+    const companyIds = uniqueStrings(input.companyIds).sort();
+    const requestedGrantIds = uniqueStrings(input.grantIds).sort();
+    if (companyIds.length === 0 || requestedGrantIds.length === 0) return [];
+    if (companyIds.some((id) => !UUID_PATTERN.test(id)) || requestedGrantIds.some((id) => !UUID_PATTERN.test(id))) {
+      throw new Error("match_state input binding requires persisted UUIDs");
+    }
+    // 한 SQL statement snapshot에서 revision과 confirmed component를 함께 읽는다.
+    const rows = await this.db.client.execute<{
+      company_id: string;
+      company_revision: string;
+      root_grant_id: string;
+      component_grant_id: string;
+      grant_revision: string;
+    }>(sql`
+      with recursive requested_grants(root_grant_id) as (
+        select unnest(${uuidSqlArray(requestedGrantIds)})
+      ), components(root_grant_id, component_grant_id) as (
+        select root_grant_id, root_grant_id from requested_grants
+        union
+        select components.root_grant_id, links.member_grant_id
+        from components
+        join ${schema.dedupLinks} links
+          on links.canonical_grant_id = components.component_grant_id and links.confirmed = true
+      )
+      select company_revision.company_id::text as company_id,
+             company_revision.revision::text as company_revision,
+             components.root_grant_id::text as root_grant_id,
+             grant_revision.grant_id::text as component_grant_id,
+             grant_revision.revision::text as grant_revision
+      from ${schema.matchCompanyInputRevisions} company_revision
+      cross join components
+      join ${schema.matchGrantInputRevisions} grant_revision
+        on grant_revision.grant_id = components.component_grant_id
+      where company_revision.company_id = any(${uuidSqlArray(companyIds)})
+      order by company_revision.company_id, components.root_grant_id, grant_revision.grant_id
+    `);
+    const resultByPair = new Map<string, MatchStateInputBinding>();
+    for (const row of rows) {
+      const key = `${row.company_id}:${row.root_grant_id}`;
+      const current = resultByPair.get(key) ?? {
+        version: "match-state-input-v1" as const,
+        companyId: row.company_id,
+        companyRevision: row.company_revision,
+        grantId: row.root_grant_id,
+        grantComponentRevisions: [],
+      };
+      current.grantComponentRevisions.push({ grantId: row.component_grant_id, revision: row.grant_revision });
+      resultByPair.set(key, current);
+    }
+    return [...resultByPair.values()];
+  }
+
   /**
    * (company, grants) 자가신고 확인 답변을 두 테이블 조인으로 배치 로드한다(확인 루프 Phase B).
    * 반환 Map 키는 grants.id. 재발행으로 criterion 연결이 끊긴(grant_criteria_id null) 답변은
@@ -820,23 +879,76 @@ class DrizzleMatchRepository<TPayload> implements MatchRepository<TPayload> {
     const rows = await this.db.client
       .select({
         grantId: schema.companyGrantConfirmations.grantId,
+        questionGrantId: schema.grantConfirmationQuestions.grantId,
         criterionId: schema.grantConfirmationQuestions.grantCriteriaId,
+        evaluationCriterionId: schema.grantConfirmationQuestions.evaluationCriterionId,
+        evaluationContractVersion: schema.grantConfirmationQuestions.evaluationContractVersion,
+        questionSourceRevisionSha256: schema.grantConfirmationQuestions.sourceRevisionSha256,
+        questionSourceRawSha256: schema.grantConfirmationQuestions.sourceRawSha256,
+        questionDefinitionSha256: schema.grantConfirmationQuestions.definitionSha256,
+        questionVersion: schema.grantConfirmationQuestions.version,
+        criterionGrantId: schema.grantCriteria.grantId,
+        criterionKind: schema.grantCriteria.kind,
         disqualified: schema.companyGrantConfirmations.disqualified,
+        evaluation: schema.companyGrantConfirmations.evaluation,
+        answerCriterionId: schema.companyGrantConfirmations.evaluationCriterionId,
+        answerSourceRevisionSha256: schema.companyGrantConfirmations.sourceRevisionSha256,
+        answerSourceRawSha256: schema.companyGrantConfirmations.sourceRawSha256,
+        answerDefinitionSha256: schema.companyGrantConfirmations.questionDefinitionSha256,
+        answerQuestionVersion: schema.companyGrantConfirmations.questionVersion,
       })
       .from(schema.companyGrantConfirmations)
       .innerJoin(
         schema.grantConfirmationQuestions,
         eq(schema.companyGrantConfirmations.questionId, schema.grantConfirmationQuestions.id),
       )
+      .innerJoin(
+        schema.grantCriteria,
+        eq(
+          schema.grantCriteria.id,
+          sql`coalesce(${schema.grantConfirmationQuestions.evaluationCriterionId}, ${schema.grantConfirmationQuestions.grantCriteriaId})`,
+        ),
+      )
       .where(and(
         eq(schema.companyGrantConfirmations.companyId, input.companyId),
         inArray(schema.companyGrantConfirmations.grantId, input.grantIds),
         isNull(schema.grantConfirmationQuestions.invalidatedAt),
       ));
+    const v2GrantIds = [...new Set(rows
+      .filter((row) => row.evaluationContractVersion === "confirmation-evaluation-v2")
+      .map((row) => row.grantId))];
+    const currentSourceByGrant = await loadDeepAnalysisSourceBindings({
+      db: this.db.client,
+      grantIds: v2GrantIds,
+    });
     for (const row of rows) {
-      if (!row.criterionId) continue;
+      const isV2 = row.evaluationContractVersion === "confirmation-evaluation-v2";
+      const criterionId = isV2 ? row.evaluationCriterionId : row.criterionId;
+      if (
+        !criterionId
+        || row.questionGrantId !== row.grantId
+        || row.criterionGrantId !== row.grantId
+      ) continue;
       const list = byGrant.get(row.grantId) ?? [];
-      list.push({ criterion_id: row.criterionId, disqualified: row.disqualified });
+      if (isV2) {
+        if (
+          (row.evaluation !== "satisfied"
+            && row.evaluation !== "unsatisfied"
+            && row.evaluation !== "unknown")
+          || row.answerCriterionId !== criterionId
+          || row.answerSourceRevisionSha256 !== row.questionSourceRevisionSha256
+          || row.answerSourceRawSha256 !== row.questionSourceRawSha256
+          || row.answerDefinitionSha256 !== row.questionDefinitionSha256
+          || row.answerQuestionVersion !== row.questionVersion
+          || row.questionSourceRawSha256 !== currentSourceByGrant.get(row.grantId)?.sourceRawSha256
+          || row.questionSourceRevisionSha256 !== currentSourceByGrant.get(row.grantId)?.sourceRevisionSha256
+        ) continue;
+        list.push({ criterion_id: criterionId, evaluation: row.evaluation });
+      } else {
+        // 알 수 없는 신규 contract와 legacy non-exclusion은 fail-closed한다.
+        if (row.evaluationContractVersion !== null || row.criterionKind !== "exclusion") continue;
+        list.push({ criterion_id: criterionId, disqualified: row.disqualified });
+      }
       byGrant.set(row.grantId, list);
     }
     return byGrant;
@@ -846,15 +958,51 @@ class DrizzleMatchRepository<TPayload> implements MatchRepository<TPayload> {
     companyId: string;
     grantId: string;
     match: MatchResult;
+    inputBinding: MatchStateInputBinding;
+    calculationAsOf: Date;
     eligibleFrom?: Date | null;
     eligibleUntil?: Date | null;
     userId?: string;
-  }): Promise<void> {
+  }): Promise<MatchStateSaveResult> {
     const grantId = await this.resolveGrantRowId(input.grantId);
     if (!grantId) throw new Error("공고를 찾지 못했습니다.");
+    assertMatchStateInputBinding(input.inputBinding, input.companyId, grantId);
+    if (Number.isNaN(input.calculationAsOf.getTime())) throw new Error("calculationAsOf must be a valid date");
 
-    await this.withOptionalUser(input.userId, async (db) => {
-      await db
+    return this.transactionWithOptionalUser(input.userId, async (db) => {
+      const [companyRevision] = await db.select({
+        revision: schema.matchCompanyInputRevisions.revision,
+      }).from(schema.matchCompanyInputRevisions)
+        .where(eq(schema.matchCompanyInputRevisions.companyId, input.companyId))
+        .for("share");
+      const expectedComponents = [...input.inputBinding.grantComponentRevisions]
+        .sort((left, right) => left.grantId.localeCompare(right.grantId));
+      const grantRevisions = await db.select({
+        grantId: schema.matchGrantInputRevisions.grantId,
+        revision: schema.matchGrantInputRevisions.revision,
+      }).from(schema.matchGrantInputRevisions)
+        .where(inArray(schema.matchGrantInputRevisions.grantId, expectedComponents.map((entry) => entry.grantId)))
+        .orderBy(asc(schema.matchGrantInputRevisions.grantId))
+        .for("share");
+      if (
+        companyRevision?.revision.toString() !== input.inputBinding.companyRevision
+        || grantRevisions.length !== expectedComponents.length
+        || grantRevisions.some((row, index) => (
+          row.grantId !== expectedComponents[index]?.grantId
+          || row.revision.toString() !== expectedComponents[index]?.revision
+        ))
+      ) return { status: "stale_input" };
+      const links = await db.select({
+        canonicalGrantId: schema.dedupLinks.canonicalGrantId,
+        memberGrantId: schema.dedupLinks.memberGrantId,
+      }).from(schema.dedupLinks).where(eq(schema.dedupLinks.confirmed, true));
+      const currentComponentIds = reachableGrantComponentIds(grantId, links);
+      if (
+        currentComponentIds.length !== expectedComponents.length
+        || currentComponentIds.some((id, index) => id !== expectedComponents[index]?.grantId)
+      ) return { status: "stale_input" };
+
+      const saved = await db
       .insert(schema.matchState)
       .values({
         companyId: input.companyId,
@@ -870,6 +1018,8 @@ class DrizzleMatchRepository<TPayload> implements MatchRepository<TPayload> {
         eligibleUntil: input.eligibleUntil ?? null,
         rulesetVer: input.match.ruleset_ver,
         scoringVer: input.match.scoring_ver,
+        inputBinding: input.inputBinding as unknown as Record<string, unknown>,
+        calculationAsOf: input.calculationAsOf,
         updatedAt: new Date(),
       })
       .onConflictDoUpdate({
@@ -886,9 +1036,17 @@ class DrizzleMatchRepository<TPayload> implements MatchRepository<TPayload> {
           eligibleUntil: input.eligibleUntil ?? null,
           rulesetVer: input.match.ruleset_ver,
           scoringVer: input.match.scoring_ver,
+          inputBinding: input.inputBinding as unknown as Record<string, unknown>,
+          calculationAsOf: input.calculationAsOf,
           updatedAt: new Date(),
         },
-      });
+        setWhere: or(
+          isNull(schema.matchState.calculationAsOf),
+          lte(schema.matchState.calculationAsOf, input.calculationAsOf),
+        )!,
+      })
+      .returning({ companyId: schema.matchState.companyId });
+      return saved.length > 0 ? { status: "saved" } : { status: "stale_as_of" };
     });
   }
 
@@ -1007,6 +1165,48 @@ class DrizzleMatchRepository<TPayload> implements MatchRepository<TPayload> {
     if (userId) return withCunoteDbUser(this.db.client, userId, run);
     return run(this.db.client);
   }
+
+  private async transactionWithOptionalUser<T>(
+    userId: string | undefined,
+    run: (db: CunoteDbSession) => Promise<T>,
+  ): Promise<T> {
+    if (userId) return withCunoteDbUser(this.db.client, userId, run);
+    return this.db.client.transaction(async (tx) => run(tx as unknown as CunoteDbSession));
+  }
+}
+
+function assertMatchStateInputBinding(
+  binding: MatchStateInputBinding,
+  companyId: string,
+  grantId: string,
+): void {
+  if (
+    binding.version !== "match-state-input-v1"
+    || binding.companyId !== companyId
+    || binding.grantId !== grantId
+    || !/^\d+$/.test(binding.companyRevision)
+    || binding.grantComponentRevisions.length === 0
+    || binding.grantComponentRevisions.some((entry) => !entry.grantId || !/^\d+$/.test(entry.revision))
+    || new Set(binding.grantComponentRevisions.map((entry) => entry.grantId)).size !== binding.grantComponentRevisions.length
+    || !binding.grantComponentRevisions.some((entry) => entry.grantId === grantId)
+  ) throw new Error("invalid match_state input binding");
+}
+
+function reachableGrantComponentIds(
+  rootGrantId: string,
+  links: Array<{ canonicalGrantId: string; memberGrantId: string }>,
+): string[] {
+  const reachable = new Set([rootGrantId]);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const link of links) {
+      if (!reachable.has(link.canonicalGrantId) || reachable.has(link.memberGrantId)) continue;
+      reachable.add(link.memberGrantId);
+      changed = true;
+    }
+  }
+  return [...reachable].sort();
 }
 
 class DrizzleFeedbackRepository implements FeedbackRepository {
@@ -2191,6 +2391,13 @@ function parseGrantId(value: string): { source: "kstartup" | "bizinfo" | "bizinf
     return { source, sourceId };
   }
   return null;
+}
+
+// PostgreSQL uuid는 RFC version nibble에 제한되지 않으며 회사 id는 의도적으로 v8 결정형 UUID를 쓴다.
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function uuidSqlArray(values: string[]) {
+  return sql`array[${sql.join(values.map((value) => sql`${value}::uuid`), sql`, `)}]::uuid[]`;
 }
 
 function dateString(value: Date | null): string | null {

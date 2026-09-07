@@ -15,7 +15,9 @@ import type {
   DeepAnalysisTaxonomyProposal,
   DeepAnalysisUsage,
   GrantBenefitFamily,
+  GrantCriterion,
 } from "@cunote/contracts";
+import type { MatchingConversionReport } from "@/lib/server/analysis-serving/matchingConversionContract";
 
 // v2: 구조화 필드 렌더를 인용 친화("라벨: 값")로 변경 + 인용 지침 강화 — v1 런과 입력 형식이 다르다.
 // v5: 운영 v2와 동일하게 investment 상한을 안전한 text_only로 제한한다.
@@ -241,6 +243,39 @@ export interface LabPrimaryRepairProvenance {
   sourceIncompleteIssueAfterRepairCount?: number;
 }
 
+export const PRIMARY_MATCHING_PROJECTION_SNAPSHOT_SCHEMA =
+  "analysis-lab-primary-matching-projection-v1" as const;
+
+/**
+ * primary 결과를 실제 공용 matcher criterion으로 즉시 재투영한 additive 진단.
+ * 이 상태는 primary publishable/held/failed 판정을 바꾸지 않는다.
+ */
+export interface LabPrimaryMatchingProjectionSnapshot {
+  schema: typeof PRIMARY_MATCHING_PROJECTION_SNAPSHOT_SCHEMA;
+  verification: "verified" | "failed";
+  source: {
+    runId: string;
+    grantId: string;
+    source: string;
+    sourceId: string;
+    inputSha256: string;
+    attachmentManifestSha256: string | null;
+    criteriaSha256: string;
+    primaryExtractionAvailable: boolean;
+  };
+  runtime: {
+    conversionContractVersion: string;
+    converterVersion: string;
+    normalizerContractVersion: string;
+    matcherRulesetVersion: string;
+  };
+  projectedCriteria: GrantCriterion[];
+  projectedCriteriaSha256: string;
+  report: MatchingConversionReport;
+  reportSha256: string;
+  issues: string[];
+}
+
 export interface LabRun {
   runId: string;
   grantId: string;
@@ -288,6 +323,8 @@ export interface LabRun {
   primaryPasses?: LabPrimaryPassDiagnostic[];
   /** 구 런에는 없으며, 부재 시 repair 소유권과 신규 issue 유입 여부를 추측하지 않는다. */
   primaryRepairProvenance?: LabPrimaryRepairProvenance;
+  /** 구 런에는 없으며 부재는 verified가 아니라 unverified로 읽는다. */
+  primaryMatchingProjection?: LabPrimaryMatchingProjectionSnapshot;
   /** 완료된 독립 검수의 blocking 판정을 Opus 재분석에 되먹임한 로컬 루프 provenance. */
   reviewRepair?: {
     sourceRunId: string;

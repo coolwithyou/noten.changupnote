@@ -3,12 +3,22 @@ import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, relative, sep } from "node:path";
-import type { LabRun } from "@/lib/server/analysis-lab/lab-contract";
+import type { LabReview, LabRun } from "@/lib/server/analysis-lab/lab-contract";
 import {
   APPLICATION_ROUNDTRIP_ADOPTED_MODEL,
   APPLICATION_ROUNDTRIP_VERSION,
 } from "./application-roundtrip/contract";
-import { loadAnalysisLaunchPromotionCohort } from "./analysis-launch-promotion";
+import {
+  guardAnalysisLaunchPromotionPlan,
+  loadAnalysisLaunchPromotionCohort,
+  verifyAnalysisLaunchPrimaryMatchingProjection,
+} from "./analysis-launch-promotion";
+import {
+  buildAnalysisLaunchMatchingProjectionBinding,
+  buildPrimaryMatchingProjectionSnapshot,
+  capturePrimaryMatchingProjectionSnapshot,
+  primaryProjectionSource,
+} from "./primary-matching-projection";
 import {
   writeAnalysisLaunchArtifact,
   type AnalysisLaunchGrant,
@@ -16,9 +26,14 @@ import {
   type AnalysisLaunchReceipt,
 } from "./launch-batch-artifacts";
 import { isVerifiedLocalLabSourceArtifact } from "./promotion-release";
+import {
+  buildManualConfirmationEvaluationsArtifact,
+  manualConfirmationEvaluationSelectionForArtifact,
+  type SelectedManualConfirmationEvaluations,
+} from "./manual-confirmation-evaluations";
 
 const grantId = "00000000-0000-4000-8000-000000000931";
-const runId = "run-2026-08-31T000000.000Z-launch";
+const runId = "run-2026-08-31T000000.000Z-1a2b3c";
 const roundtripRunId = "roundtrip-2026-08-31T000001.000Z-launch";
 const inputSha256 = "1".repeat(64);
 const attachmentManifestSha256 = "2".repeat(64);
@@ -74,6 +89,38 @@ try {
   };
   const storedGrant = await writeAnalysisLaunchArtifact("grants", grant, root);
   const run = fixtureRun();
+  const manualReview: LabReview = {
+    grantId,
+    runId,
+    reviewerEmail: "reviewer@example.invalid",
+    createdAt: "2026-08-31T00:00:02.500Z",
+    updatedAt: "2026-08-31T00:00:02.500Z",
+    criterionReviews: [{ criterionIndex: 0, verdict: "correct", note: null }],
+    axisReviews: [],
+    overallNote: null,
+  };
+  const manualArtifact = buildManualConfirmationEvaluationsArtifact({
+    run,
+    review: manualReview,
+    questionAuthorEmail: "author@example.invalid",
+    createdAt: "2026-08-31T00:00:02.600Z",
+    items: [{
+      criterionIndex: 0,
+      resolutionScope: "per_notice",
+      prompt: "검수된 공고별 조건을 충족하나요?",
+      options: [
+        { value: "yes", label: "충족해요", evaluation: "satisfied" },
+        { value: "no", label: "충족하지 않아요", evaluation: "unsatisfied" },
+        { value: "unknown", label: "확인할 수 없어요", evaluation: "unknown" },
+      ],
+    }],
+  });
+  const selectedManual: SelectedManualConfirmationEvaluations = {
+    artifact: manualArtifact,
+    selection: manualConfirmationEvaluationSelectionForArtifact(manualArtifact),
+    path: join(root, "synthetic-confirmation-evaluations.json"),
+    legacyShaOnly: false,
+  };
   const runPath = join(root, "spike-out", "analysis-lab", "test", "run.json");
   await mkdir(join(root, "spike-out", "analysis-lab", "test"), { recursive: true });
   const runBody = Buffer.from(JSON.stringify(run));
@@ -127,10 +174,18 @@ try {
   const cohort = await loadAnalysisLaunchPromotionCohort({
     launchReceiptSha256s: [storedReceipt.sha256],
     grantIds: [grantId],
+    manualConfirmationSelections: [{
+      grantId,
+      runId,
+      revision: selectedManual.selection.revision,
+      artifactSha256: selectedManual.selection.artifactSha256,
+    }],
     dependencies: {
       repositoryRoot: root,
+      resolveManualConfirmationEvaluations: async () => selectedManual,
       loadCurrentGrantEvidence: async () => ({
         sourceRevisionSha256,
+        sourceRawSha256: "9".repeat(64),
         inputSha256,
         attachmentManifestSha256,
         status: "open",
@@ -145,10 +200,17 @@ try {
   assert.equal(cohort.candidates.length, 1);
   const candidate = cohort.candidates[0]!;
   assert.equal(candidate.plan.origin, "analysis_launch");
+  assert.deepEqual(candidate.plan.manualConfirmationEvaluationSelection, selectedManual.selection);
+  assert.deepEqual(
+    candidate.sourceArtifact.manualConfirmationEvaluationSelection,
+    selectedManual.selection,
+  );
+  assert.equal(candidate.plan.questions[0]?.evaluationContractVersion, "confirmation-evaluation-v2");
   assert.equal(candidate.plan.auditState, "analysis_launch_independent_review");
   assert.ok(candidate.plan.resolutions.every((item) => item.state === "analysis_launch_reviewed"));
   assert.equal(candidate.readiness.disposition, "conditional");
   assert.equal(candidate.readiness.reasons.length, 0);
+  assert.equal(candidate.readiness.primaryMatchingProjectionStatus, "unverified");
   assert.deepEqual(candidate.readiness.unresolvedAxes, [{ dimension: "size", status: "ambiguous" }]);
   assert.equal(
     candidate.sourceArtifact.localLabEvidence?.analysisLaunch?.launchReceiptSha256,
@@ -160,6 +222,70 @@ try {
     "같은 packet coverage면 최신 검수 정책을 선택한다",
   );
   assert.equal(isVerifiedLocalLabSourceArtifact(candidate.sourceArtifact), true);
+  const { items: _items, ...v3MissingItems } = candidate.plan.conversion;
+  assert.deepEqual(
+    guardAnalysisLaunchPromotionPlan(candidate.readiness, {
+      criteria: candidate.plan.criteria,
+      conversion: v3MissingItems,
+      ...(candidate.plan.scopeRejectedCriterionIndexes
+        ? { scopeRejectedCriterionIndexes: candidate.plan.scopeRejectedCriterionIndexes }
+        : {}),
+    }),
+    {
+      ...candidate.readiness,
+      disposition: "held",
+      reasons: ["promotion_conversion_drop"],
+    },
+    "analysis-launch 소비자는 v3 item accounting 누락을 fail-closed한다",
+  );
+
+  const projectionSource = primaryProjectionSource({
+    runId: run.runId,
+    grantId: run.grantId,
+    source: run.source,
+    sourceId: run.sourceId,
+    inputSha256: run.inputSha256,
+    attachmentManifestSha256: run.attachmentManifestSha256!,
+    criteria: run.criteria,
+  });
+  const newSnapshot = buildPrimaryMatchingProjectionSnapshot({
+    source: projectionSource,
+    primaryExtractionAvailable: true,
+  });
+  const newRun = { ...run, primaryMatchingProjection: newSnapshot };
+  const newBinding = buildAnalysisLaunchMatchingProjectionBinding(newSnapshot);
+  assert.deepEqual(
+    verifyAnalysisLaunchPrimaryMatchingProjection(newRun, {
+      grantId,
+      primaryMatchingProjection: newBinding,
+    }),
+    { status: "verified", snapshotSha256: newBinding.snapshotSha256 },
+  );
+  assert.throws(
+    () => verifyAnalysisLaunchPrimaryMatchingProjection(newRun, { grantId }),
+    /한쪽 결속/,
+    "신규 run snapshot만 있고 receipt binding이 없으면 역사 호환으로 우회하지 않는다",
+  );
+  assert.throws(
+    () => verifyAnalysisLaunchPrimaryMatchingProjection(run, {
+      grantId,
+      primaryMatchingProjection: newBinding,
+    }),
+    /한쪽 결속/,
+    "receipt binding만 있고 run snapshot이 없어도 거부한다",
+  );
+  const failedSnapshot = capturePrimaryMatchingProjectionSnapshot({
+    source: projectionSource,
+    primaryExtractionAvailable: true,
+  }, { build: () => { throw new Error("synthetic projection failure"); } });
+  assert.throws(
+    () => verifyAnalysisLaunchPrimaryMatchingProjection(
+      { ...run, primaryMatchingProjection: failedSnapshot },
+      { grantId, primaryMatchingProjection: buildAnalysisLaunchMatchingProjectionBinding(failedSnapshot) },
+    ),
+    /exact binding/,
+    "양쪽 hash가 맞아도 명시 failed snapshot은 승격 PASS가 아니다",
+  );
 } finally {
   await rm(root, { recursive: true, force: true });
 }
@@ -181,13 +307,14 @@ function fixtureRun(): LabRun {
     inputBlocks: [],
     inputTotalChars: 1,
     inputSha256,
+    sourceRevisionSha256,
     attachmentManifestSha256,
     usage: null,
     costUsd: null,
     analysisMarkdown: "분석",
     programIntent: null,
     criteria: [{
-      dimension: "region",
+      dimension: "other",
       kind: "required",
       operator: "text_only",
       value: { note: "서울 소재" },

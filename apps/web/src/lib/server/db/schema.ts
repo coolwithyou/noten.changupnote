@@ -820,6 +820,16 @@ export const grantConfirmationQuestions = pgTable("grant_confirmation_questions"
   grantId: uuid("grant_id").notNull().references(() => grants.id, { onDelete: "cascade" }),
   // 재발행 내성: criterion 재발행으로 연결이 끊길 수 있어 nullable. 끊긴 질문의 답변은 매칭에 쓰지 않는다.
   grantCriteriaId: uuid("grant_criteria_id").references(() => grantCriteria.id, { onDelete: "set null" }),
+  /**
+   * v2 3상태 평가 전용 anchor. legacy grantCriteriaId와 의도적으로 분리해 구 boolean reader가
+   * 신규 답변을 읽지 않게 한다. v2에서는 grantCriteriaId=null이어야 한다.
+   */
+  evaluationCriterionId: uuid("evaluation_criterion_id")
+    .references(() => grantCriteria.id, { onDelete: "set null" }),
+  evaluationContractVersion: text("evaluation_contract_version"),
+  /** 분석 입력의 source revision과 발행 시점 raw source hash. 둘 중 하나라도 바뀌면 재확인한다. */
+  sourceRevisionSha256: text("source_revision_sha256"),
+  sourceRawSha256: text("source_raw_sha256"),
   /** criterion 행이 교체돼도 같은 질문 id를 upsert하기 위한 안정 키. */
   criterionStableKey: text("criterion_stable_key"),
   /** prompt/options/answerType/reusable/conditionKey 의미 계약의 canonical SHA-256. */
@@ -870,6 +880,14 @@ export const companyGrantConfirmations = pgTable("company_grant_confirmations", 
   // { values: [...] }
   answer: jsonb("answer").$type<Record<string, unknown>>().notNull(),
   disqualified: boolean("disqualified").notNull(),
+  /** v2 정본. legacy 행은 null이며 disqualified를 exclusion에만 해석한다. */
+  evaluation: text("evaluation"),
+  evaluationCriterionId: uuid("evaluation_criterion_id"),
+  sourceRevisionSha256: text("source_revision_sha256"),
+  sourceRawSha256: text("source_raw_sha256"),
+  questionDefinitionSha256: text("question_definition_sha256"),
+  questionVersion: integer("question_version"),
+  answerRevision: integer("answer_revision").default(1).notNull(),
   // 답변자 삭제 시에도 회사 스코프 답변은 보존한다(무단 롤백 방지) — companies.createdBy와 동일 정책.
   answeredBy: uuid("answered_by").references(() => users.id, { onDelete: "set null" }),
   answeredAt: timestamp("answered_at", { withTimezone: true }).defaultNow().notNull(),
@@ -2537,12 +2555,29 @@ export const matchState = pgTable("match_state", {
   eligibleUntil: timestamp("eligible_until", { withTimezone: true }),
   rulesetVer: text("ruleset_ver").notNull(),
   scoringVer: text("scoring_ver").notNull(),
+  /** legacy 행은 null. 신규 공유 계산은 입력 revision과 평가 기준시각을 함께 봉인한다. */
+  inputBinding: jsonb("input_binding").$type<Record<string, unknown>>(),
+  calculationAsOf: timestamp("calculation_as_of", { withTimezone: true }),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 }, (table) => ({
   pk: primaryKey({ columns: [table.companyId, table.grantId] }),
   eligibleFromIdx: index("match_state_eligible_from_idx").on(table.eligibleFrom),
   eligibleUntilIdx: index("match_state_eligible_until_idx").on(table.eligibleUntil),
 }));
+
+/** matcher가 실제 읽는 회사 입력의 단조 revision. 제품 snapshot/source revision과 별개다. */
+export const matchCompanyInputRevisions = pgTable("match_company_input_revisions", {
+  companyId: uuid("company_id").primaryKey().references(() => companies.id, { onDelete: "cascade" }),
+  revision: bigint("revision", { mode: "bigint" }).default(1n).notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+/** matcher가 실제 읽는 공고 occurrence 입력의 단조 revision. dedup binding은 여러 행을 묶는다. */
+export const matchGrantInputRevisions = pgTable("match_grant_input_revisions", {
+  grantId: uuid("grant_id").primaryKey().references(() => grants.id, { onDelete: "cascade" }),
+  revision: bigint("revision", { mode: "bigint" }).default(1n).notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+});
 
 export const matchEvents = pgTable("match_events", {
   id: uuid("id").defaultRandom().primaryKey(),

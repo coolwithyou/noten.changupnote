@@ -33,6 +33,7 @@ assert.equal(normalizeConfirmationAnswerType("something-else"), "single");
 
 const singleQuestion: ConfirmationQuestionRecord = {
   id: "q-single",
+  kind: "exclusion",
   answerType: "single",
   options: [
     { value: "none", label: "해당 없음", disqualifies: false },
@@ -41,6 +42,7 @@ const singleQuestion: ConfirmationQuestionRecord = {
 };
 const multiQuestion: ConfirmationQuestionRecord = {
   id: "q-multi",
+  kind: "exclusion",
   answerType: "multi",
   options: [
     { value: "a", label: "A", disqualifies: false },
@@ -152,6 +154,8 @@ const cards = [
     label: "동일 사업 수혜 이력",
     sourceSpan: "동일 사업에 선정된 이력이 있는 기업은 제외",
     checklistSection: "needs_check",
+    unresolvedReason: "company_profile_missing",
+    confirmationNextAction: "company_profile",
   }]),
   card(blockedGrantId, [
     {
@@ -161,6 +165,8 @@ const cards = [
       label: "허위 정보 제출",
       sourceSpan: "허위 또는 과장된 정보 제출 시 선정 취소",
       checklistSection: "needs_check",
+      unresolvedReason: "criterion_text_only",
+      confirmationNextAction: "admin_source_review",
     },
     {
       dimension: "industry",
@@ -169,6 +175,8 @@ const cards = [
       label: "금융 AI 기업",
       sourceSpan: "금융 AI 기업 모집",
       checklistSection: "needs_check",
+      unresolvedReason: "company_profile_missing",
+      confirmationNextAction: "company_profile",
     },
   ]),
 ];
@@ -184,14 +192,191 @@ const annotated = applyActionableConfirmationQuestions(cards, anchors);
 assert.equal(annotated[0]?.confirmationQuestionCount, 1, "모든 hard unknown을 해소하는 질문은 노출한다");
 assert.equal(
   annotated[1]?.confirmationQuestionCount,
-  undefined,
-  "답해도 업종 blocker가 남는 질문은 먼저 노출하지 않는다",
+  1,
+  "다른 blocker가 남아도 답할 수 있는 일부 사실부터 확인한다",
 );
+assert.equal(annotated[1]?.ruleTrace[0]?.confirmationNextAction, "user_confirmation");
 
 const reconfirm = applyActionableConfirmationQuestions([
   { ...cards[0]!, userConfirmedCount: 1, ruleTrace: [] },
 ], anchors);
 assert.equal(reconfirm[0]?.confirmationQuestionCount, 1, "기존 답변이 있으면 재확인 진입을 유지한다");
+
+const preferredGrantId = "33333333-3333-1333-8333-333333333333";
+const preferredCriterionId = "criterion-preferred-confirmation";
+const preferredCard = card(preferredGrantId, [{
+  criterionId: preferredCriterionId,
+  dimension: "prior_award",
+  kind: "preferred",
+  result: "text_only",
+  label: "공고별 우대 이력 확인",
+  sourceSpan: "해당 이력이 있으면 가점",
+  checklistSection: "preferred_miss",
+  unresolvedReason: "criterion_text_only",
+  confirmationNextAction: "admin_source_review",
+}]);
+preferredCard.eligibility = "eligible";
+preferredCard.bucket = "now";
+const preferredAnnotated = applyActionableConfirmationQuestions([preferredCard], [{
+  questionId: "q-preferred",
+  grantId: preferredGrantId,
+  criterionId: preferredCriterionId,
+  dimension: "prior_award",
+  kind: "preferred",
+  operator: "text_only",
+  sourceSpan: "해당 이력이 있으면 가점",
+}]);
+assert.equal(preferredAnnotated[0]?.eligibility, "eligible", "우대 질문은 eligibility를 바꾸지 않는다");
+assert.equal(preferredAnnotated[0]?.confirmationQuestionCount, 1);
+assert.equal(preferredAnnotated[0]?.ruleTrace[0]?.confirmationNextAction, "user_confirmation");
+
+const protectedGrantId = "44444444-4444-1444-8444-444444444444";
+for (const unresolvedReason of ["source_dispute", "criterion_needs_review", "criterion_invalid"] as const) {
+  const protectedCriterionId = `criterion-${unresolvedReason}`;
+  const protectedCard = card(protectedGrantId, [{
+    criterionId: protectedCriterionId,
+    dimension: "tax_compliance",
+    kind: "exclusion",
+    result: "unknown",
+    label: "세금 조건 확인",
+    sourceSpan: "체납 기업 제외",
+    checklistSection: "needs_check",
+    unresolvedReason,
+    confirmationNextAction: "admin_source_review",
+  }]);
+  const protectedResult = applyActionableConfirmationQuestions([protectedCard], [{
+    questionId: `q-${unresolvedReason}`,
+    grantId: protectedGrantId,
+    criterionId: protectedCriterionId,
+    dimension: "tax_compliance",
+    kind: "exclusion",
+    operator: "in",
+    sourceSpan: "체납 기업 제외",
+  }]);
+  assert.equal(protectedResult[0]?.confirmationQuestionCount, undefined);
+  assert.equal(protectedResult[0]?.ruleTrace[0]?.confirmationNextAction, "admin_source_review");
+}
+
+const cleared = applyActionableConfirmationQuestions(preferredAnnotated, []);
+assert.equal(cleared[0]?.confirmationQuestionCount, undefined, "질문 조회 결과가 비면 과거 주석 count를 제거한다");
+assert.equal(cleared[0]?.ruleTrace[0]?.confirmationNextAction, "admin_source_review", "stale user CTA를 기본 원인으로 되돌린다");
+assert.equal(cleared[0]?.eligibility, "eligible");
+
+const legacyUnclassified = card(preferredGrantId, [{
+  criterionId: preferredCriterionId,
+  dimension: "prior_award",
+  kind: "preferred",
+  result: "text_only",
+  label: "원인 계약 이전 카드",
+  sourceSpan: "해당 이력이 있으면 가점",
+  checklistSection: "preferred_miss",
+}]);
+const legacyAnnotated = applyActionableConfirmationQuestions([legacyUnclassified], [{
+  questionId: "q-preferred",
+  grantId: preferredGrantId,
+  criterionId: preferredCriterionId,
+  dimension: "prior_award",
+  kind: "preferred",
+  operator: "text_only",
+  sourceSpan: "해당 이력이 있으면 가점",
+}]);
+assert.equal(legacyAnnotated[0]?.confirmationQuestionCount, undefined, "원인 없는 legacy unknown은 질문으로 추정 승격하지 않는다");
+
+const mixedGrantId = "55555555-5555-1555-8555-555555555555";
+const mixedCard = card(mixedGrantId, [
+  {
+    criterionId: "criterion-already-confirmed",
+    dimension: "region",
+    kind: "required",
+    result: "pass",
+    label: "지역 확인 완료",
+    checklistSection: "satisfied",
+    resolution: "confirmed_by_user",
+  },
+  {
+    criterionId: "criterion-unanswered-preferred",
+    dimension: "prior_award",
+    kind: "preferred",
+    result: "text_only",
+    label: "우대 이력 확인",
+    checklistSection: "preferred_miss",
+    unresolvedReason: "criterion_text_only",
+    confirmationNextAction: "admin_source_review",
+  },
+]);
+mixedCard.userConfirmedCount = 1;
+const mixedAnnotated = applyActionableConfirmationQuestions([mixedCard], [
+  {
+    questionId: "q-already-confirmed",
+    grantId: mixedGrantId,
+    criterionId: "criterion-already-confirmed",
+    dimension: "region",
+    kind: "required",
+    operator: "in",
+    sourceSpan: null,
+  },
+  {
+    questionId: "q-unanswered-preferred",
+    grantId: mixedGrantId,
+    criterionId: "criterion-unanswered-preferred",
+    dimension: "prior_award",
+    kind: "preferred",
+    operator: "text_only",
+    sourceSpan: null,
+  },
+]);
+assert.equal(mixedAnnotated[0]?.confirmationQuestionCount, 2, "기존 답변이 있어도 다른 미답변 질문을 함께 보존한다");
+assert.equal(mixedAnnotated[0]?.ruleTrace[1]?.confirmationNextAction, "user_confirmation");
+
+/* ── v2 명시 3상태: 단일 선택·정확한 binding·revision, 문구 추론 없음 ── */
+
+const binding = {
+  contractVersion: "confirmation-evaluation-v2" as const,
+  criterionId: "00000000-0000-4000-8000-000000000222",
+  sourceRevisionSha256: "a".repeat(64),
+  sourceRawSha256: "b".repeat(64),
+  definitionSha256: "c".repeat(64),
+  questionVersion: 2,
+};
+const v2Question: ConfirmationQuestionRecord = {
+  id: "q-v2",
+  kind: "required",
+  answerType: "single",
+  binding,
+  options: normalizeConfirmationOptions([
+    { value: "yes", label: "예", evaluation: "satisfied" },
+    { value: "no", label: "아니요", evaluation: "unsatisfied" },
+    { value: "unknown", label: "확인할 수 없음", evaluation: "unknown" },
+  ], binding.contractVersion),
+};
+for (const [value, evaluation] of [
+  ["yes", "satisfied"],
+  ["no", "unsatisfied"],
+  ["unknown", "unknown"],
+] as const) {
+  const result = validateConfirmationAnswers({
+    questions: [v2Question],
+    answers: [{ questionId: v2Question.id, values: [value], binding, expectedAnswerRevision: 0 }],
+  });
+  assert.equal(result.ok, true);
+  if (result.ok) assert.equal(result.answers[0]?.evaluation, evaluation);
+}
+assert.equal(normalizeConfirmationOptions([
+  { value: "yes", label: "예" },
+], binding.contractVersion).length, 0, "v2 missing evaluation을 false/pass로 정규화하지 않는다");
+assert.equal(failCode(validateConfirmationAnswers({
+  questions: [v2Question],
+  answers: [{ questionId: v2Question.id, values: ["yes"], binding }],
+})), "confirmation_answer_revision_required");
+assert.equal(failCode(validateConfirmationAnswers({
+  questions: [v2Question],
+  answers: [{
+    questionId: v2Question.id,
+    values: ["yes"],
+    binding: { ...binding, sourceRawSha256: "d".repeat(64) },
+    expectedAnswerRevision: 0,
+  }],
+})), "confirmation_question_stale");
 
 console.log("grant-confirmation-answers: ok");
 
@@ -223,6 +408,7 @@ function anchor(
   return {
     questionId,
     grantId,
+    criterionId: `criterion-${questionId}`,
     dimension,
     kind: "exclusion",
     operator: dimension === "prior_award" ? "exists" : "text_only",

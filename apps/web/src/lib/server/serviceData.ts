@@ -418,8 +418,6 @@ export async function loadServiceDashboard(options: {
     const visibleGrantIds = new Set(dashboard.matches.map((match) => match.grantId));
     await persistMatchStates({
       ...(stateCompanyId ? { companyId: stateCompanyId } : {}),
-      ...(options.userId ? { userId: options.userId } : {}),
-      company,
       grants: grants.filter((grant) => visibleGrantIds.has(grantKey(grant.grant))),
       asOf,
     });
@@ -1726,19 +1724,33 @@ async function resolveDashboardProductProfile(input: {
 
 async function persistMatchStates(input: {
   companyId?: string;
-  userId?: string;
-  company: CompanyProfile;
   grants: Array<NormalizedGrant<ServiceGrantPayload>>;
   asOf: Date;
 }) {
   if (!input.companyId) return;
+  const repositories = resolveServiceRepositories();
+  const requestedGrantIds = input.grants.flatMap((grant) => grant.grant.id ? [grant.grant.id] : []);
+  const inputBindings = await repositories.matches.captureMatchStateInputBindings({
+    companyIds: [input.companyId],
+    grantIds: requestedGrantIds,
+  });
+  // 화면 계산에 사용한 객체를 재사용하지 않는다. binding 뒤에 공용 company/grant 입력을 다시 읽는다.
+  const [resolution, currentUniverse] = await Promise.all([
+    resolveProductCompanyProfile({
+      context: "system_recompute",
+      companyId: input.companyId,
+      asOf: input.asOf.toISOString(),
+    }),
+    loadServiceGrantUniverse({ asOf: input.asOf }),
+  ]);
+  const requested = new Set(requestedGrantIds);
   await refreshMatchStates({
-    repositories: resolveServiceRepositories(),
-    company: input.company,
-    grants: input.grants,
+    repositories,
+    company: resolution.profile,
+    grants: currentUniverse.filter((grant) => grant.grant.id && requested.has(grant.grant.id)),
     asOf: input.asOf,
     companyId: input.companyId,
-    ...(input.userId ? { userId: input.userId } : {}),
+    inputBindings,
     write: true,
   });
 }

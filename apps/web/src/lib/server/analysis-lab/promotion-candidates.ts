@@ -20,10 +20,12 @@ import {
 } from "./promote";
 import {
   hashFileIfPresent,
+  sha256Canonical,
   type PromotionSourceArtifact,
 } from "./promotion-release";
 import { labReviewFilePath } from "./review-store";
 import { labRunFilePath, modelSlug } from "./run-store";
+import { resolveManualConfirmationEvaluationsForSource } from "./manual-confirmation-evaluations";
 import { isPublishableLabRun } from "./run-outcome";
 import { getCunoteDb } from "../db/client";
 import * as schema from "../db/schema";
@@ -133,7 +135,16 @@ export async function verifyPromotionSourceArtifact(
   if (!run) return { ok: false, changed: ["run_missing"] };
   if (!isPublishableLabRun(run)) return { ok: false, changed: ["run_outcome"] };
   const runPath = labRunFilePath(run.source, run.sourceId, run.runId);
-  const checks: Array<[string, string | null | undefined, string | null]> = [
+  const selectedManual = await resolveManualConfirmationEvaluationsForSource({
+    run,
+    ...(artifact.manualConfirmationEvaluationsSha256 !== undefined ? {
+      manualConfirmationEvaluationsSha256: artifact.manualConfirmationEvaluationsSha256,
+    } : {}),
+    ...(artifact.manualConfirmationEvaluationSelection ? {
+      selection: artifact.manualConfirmationEvaluationSelection,
+    } : {}),
+  });
+  const checks: Array<[string, unknown, unknown]> = [
     ["run", artifact.runSha256, await hashFileIfPresent(runPath) ?? null],
     [
       "review",
@@ -163,6 +174,16 @@ export async function verifyPromotionSourceArtifact(
       "confirmations",
       artifact.confirmationsSha256,
       await hashFileIfPresent(labConfirmationsFilePath(run.source, run.sourceId, run.runId)) ?? null,
+    ],
+    [
+      "manual_confirmation_evaluations",
+      artifact.manualConfirmationEvaluationsSha256,
+      selectedManual?.selection.artifactSha256 ?? null,
+    ],
+    [
+      "manual_confirmation_evaluation_selection",
+      sha256Canonical(artifact.manualConfirmationEvaluationSelection ?? null),
+      sha256Canonical(selectedManual?.legacyShaOnly ? null : selectedManual?.selection ?? null),
     ],
   ];
   const changed = checks

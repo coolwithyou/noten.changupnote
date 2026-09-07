@@ -50,7 +50,7 @@ import { readCohortFileV2, cohortFilePath } from "./cohort-file";
 import { DIMENSION_LABELS } from "./diff";
 import { loadAnalysisLabEnv } from "../loadMonorepoEnv";
 import { selectReviewedRuns } from "./reviewed-runs";
-import { analysisLabDir } from "./run-store";
+import { analysisLabDir, isPrimaryLabRunFilename } from "./run-store";
 import { hasHumanReviewForRun } from "./run-review-policy";
 import { isPublishableLabRun } from "./run-outcome";
 import { resolveLabCostPolicy, shouldStopForSettledCost } from "./cost-policy";
@@ -168,16 +168,7 @@ async function scanRunDirs(): Promise<Map<string, GrantRunScan>> {
         .map((file) => file.replace(/\.review\.json$/, "")),
     );
     for (const file of files) {
-      if (!file.startsWith("run-") || !file.endsWith(".json")) continue;
-      // 질문 보강 사이드카(.confirmations., Phase B-0)도 런이 아니다 — 오인 편입 방어.
-      if (
-        file.endsWith(".review.json") ||
-        file.includes(".ai-review.") ||
-        file.includes(".audit.") ||
-        file.includes(".confirmations.")
-      ) {
-        continue;
-      }
+      if (!isPrimaryLabRunFilename(file)) continue;
       let run: LabRun;
       try {
         run = JSON.parse(await readFile(join(root, entry, file), "utf8")) as LabRun;

@@ -1,6 +1,7 @@
 import type { GrantCriterion, GrantRequiredDocument } from "@cunote/contracts";
 import {
   DEFAULT_ANTHROPIC_MODEL,
+  LLM_CRITERIA_NORMALIZATION_CONTRACT_VERSION,
   buildGrantCriteriaToolSchema,
   normalizeBizInfoLlmRequiredDocuments,
   normalizeGrantLlmCriteria,
@@ -33,6 +34,7 @@ export interface KStartupAnthropicCriteriaResult {
   criteria: GrantCriterion[];
   requiredDocuments: GrantRequiredDocument[];
   model: string;
+  normalizerContractVersion: typeof LLM_CRITERIA_NORMALIZATION_CONTRACT_VERSION;
   usage: Record<string, unknown> | null;
   input: KStartupExtractionInput;
 }
@@ -99,7 +101,14 @@ export async function extractKStartupCriteriaWithAnthropic(options: {
   assertGrantCriteriaContract(criteria, `kstartup:${input.source_id}:merged`);
   const requiredDocuments = normalizeBizInfoLlmRequiredDocuments(toolUse.input)
     .filter((document) => Boolean(findEvidenceBlock(document.source_span ?? "", input.blocks)));
-  return { criteria, requiredDocuments, model, usage: payload.usage ?? null, input };
+  return {
+    criteria,
+    requiredDocuments,
+    model,
+    normalizerContractVersion: LLM_CRITERIA_NORMALIZATION_CONTRACT_VERSION,
+    usage: payload.usage ?? null,
+    input,
+  };
 }
 
 export function gateKStartupLlmEvidence(

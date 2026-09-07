@@ -30,11 +30,25 @@ import {
 import {
   VERIFIED_ANALYSIS_LAUNCH_SOURCE_SCHEMA,
   VERIFIED_LOCAL_LAB_SOURCE_SCHEMA,
+  sha256Canonical,
   type PromotionSourceArtifact,
 } from "./promotion-release";
 import type { PromotionCandidate } from "./promotion-candidates";
 import { findMonorepoRoot } from "./run-store";
 import { isPublishableLabRun } from "./run-outcome";
+import { shadowConversionIsPromotionSafe } from "./shadow-convert";
+import {
+  buildAnalysisLaunchMatchingProjectionBinding,
+  inspectPrimaryMatchingProjectionSnapshot,
+  primaryProjectionSource,
+} from "./primary-matching-projection";
+import {
+  indexManualConfirmationEvaluationSelectors,
+  resolveManualConfirmationEvaluationsForPreparation,
+  resolveManualConfirmationEvaluationsForSource,
+  type ManualConfirmationEvaluationSelector,
+  type SelectedManualConfirmationEvaluations,
+} from "./manual-confirmation-evaluations";
 
 const SHA256 = /^[a-f0-9]{64}$/u;
 
@@ -61,6 +75,9 @@ export interface AnalysisLaunchPromotionReadiness {
   applicationDocumentCount: number;
   fieldReadyDocumentCount: number;
   recognizedFieldCount: number;
+  /** 역사 run/receipt의 부재는 ready로 추정하지 않고 별도 unverified로 노출한다. */
+  primaryMatchingProjectionStatus?: "verified" | "unverified";
+  primaryMatchingProjectionSnapshotSha256?: string | null;
 }
 
 export interface AnalysisLaunchPromotionCandidate extends PromotionCandidate {
@@ -76,6 +93,10 @@ export interface AnalysisLaunchPromotionDependencies {
   repositoryRoot?: string;
   now?: Date;
   loadCurrentGrantEvidence?: (run: LabRun) => Promise<CurrentGrantEvidence>;
+  /** source 재검증은 역사 무선택 파일 무시와 신규 exact 선택을 이 seam으로 구분한다. */
+  resolveManualConfirmationEvaluations?: (
+    run: LabRun,
+  ) => Promise<SelectedManualConfirmationEvaluations | null>;
 }
 
 interface ReviewManifestPacket {
@@ -107,6 +128,8 @@ interface LoadedTarget {
   target: AnalysisLaunchReceiptTarget;
   run: LabRun;
   runArtifactSha256: string;
+  primaryMatchingProjectionStatus: "verified" | "unverified";
+  primaryMatchingProjectionSnapshotSha256: string | null;
 }
 
 /**
@@ -117,10 +140,15 @@ interface LoadedTarget {
 export async function loadAnalysisLaunchPromotionCohort(input: {
   launchReceiptSha256s: readonly string[];
   grantIds: readonly string[];
+  manualConfirmationSelections?: readonly ManualConfirmationEvaluationSelector[];
   dependencies?: AnalysisLaunchPromotionDependencies;
 }): Promise<AnalysisLaunchPromotionCohort> {
   const receiptSha256s = normalizeExactShaList(input.launchReceiptSha256s, "launch receipt");
   const requestedGrantIds = normalizeExactGrantIds(input.grantIds);
+  const manualSelectionByGrantId = indexManualConfirmationEvaluationSelectors(
+    input.manualConfirmationSelections ?? [],
+    requestedGrantIds,
+  );
   const root = input.dependencies?.repositoryRoot ?? findMonorepoRoot();
   const launches = await Promise.all(
     receiptSha256s.map((sha256) => loadLaunch(root, sha256, requestedGrantIds)),
@@ -163,6 +191,22 @@ export async function loadAnalysisLaunchPromotionCohort(input: {
   const candidates: AnalysisLaunchPromotionCandidate[] = [];
   for (const loaded of selected) {
     const current = await loadCurrent(loaded.run);
+    const manualSelector = manualSelectionByGrantId.get(loaded.run.grantId);
+    if (manualSelector && manualSelector.runId !== loaded.run.runId) {
+      throw new Error(`manual confirmation selector runId 불일치: ${loaded.run.grantId}`);
+    }
+    const selectedManual = input.dependencies?.resolveManualConfirmationEvaluations
+      ? await input.dependencies.resolveManualConfirmationEvaluations(loaded.run)
+      : await resolveManualConfirmationEvaluationsForPreparation(loaded.run, manualSelector);
+    if (manualSelector && (
+      !selectedManual
+      || selectedManual.selection.revision !== manualSelector.revision
+      || selectedManual.selection.artifactSha256 !== manualSelector.artifactSha256
+    )) {
+      throw new Error(`manual confirmation selector와 resolved artifact가 다릅니다: ${loaded.run.grantId}`);
+    }
+    const manualEvaluationSidecar = selectedManual?.artifact ?? null;
+    const manualConfirmationEvaluationsSha256 = selectedManual?.selection.artifactSha256 ?? null;
     let readiness = classifyAnalysisLaunchPromotionReadiness({ loaded, current });
     let promotionPlan: GrantPromotionPlan | null = null;
     if (readiness.disposition === "ready" || readiness.disposition === "conditional") {
@@ -174,6 +218,11 @@ export async function loadAnalysisLaunchPromotionCohort(input: {
         origin: "analysis_launch",
         analysisLaunchReceiptSha256: loaded.launch.receiptSha256,
         sidecar: null,
+        manualEvaluationSidecar,
+        ...(!selectedManual?.legacyShaOnly && selectedManual ? {
+          manualConfirmationEvaluationSelection: selectedManual.selection,
+        } : {}),
+        ...(current.sourceRawSha256 ? { sourceRawSha256: current.sourceRawSha256 } : {}),
       });
       readiness = guardAnalysisLaunchPromotionPlan(readiness, promotionPlan);
     }
@@ -192,6 +241,10 @@ export async function loadAnalysisLaunchPromotionCohort(input: {
       runSha256: loaded.runArtifactSha256,
       overlaySha256: null,
       confirmationsSha256: null,
+      manualConfirmationEvaluationsSha256,
+      ...(!selectedManual?.legacyShaOnly && selectedManual ? {
+        manualConfirmationEvaluationSelection: selectedManual.selection,
+      } : {}),
       sourceRevisionSha256: current.sourceRevisionSha256,
       localLabEvidence: {
         schema: VERIFIED_LOCAL_LAB_SOURCE_SCHEMA,
@@ -214,6 +267,12 @@ export async function loadAnalysisLaunchPromotionCohort(input: {
           packageRuntimeSha256: execution.packageRuntimeSha256,
           validatorVersion: execution.validatorVersion,
           applicationFieldAnalysisVersion: execution.applicationFieldAnalysisVersion!,
+          ...(loaded.primaryMatchingProjectionStatus === "verified" ? {
+            primaryMatchingProjectionSnapshotSha256:
+              loaded.primaryMatchingProjectionSnapshotSha256!,
+            primaryMatchingProjectionContractVersion:
+              loaded.target.primaryMatchingProjection!.conversionContractVersion,
+          } : {}),
         },
       },
     };
@@ -251,6 +310,17 @@ export async function verifyAnalysisLaunchPromotionSourceArtifactDetailed(
           ...await loadCurrent(run),
           hasPromotionItem: false,
         }),
+        resolveManualConfirmationEvaluations: (run) =>
+          resolveManualConfirmationEvaluationsForSource({
+            run,
+            ...(artifact.manualConfirmationEvaluationsSha256 !== undefined ? {
+              manualConfirmationEvaluationsSha256:
+                artifact.manualConfirmationEvaluationsSha256,
+            } : {}),
+            ...(artifact.manualConfirmationEvaluationSelection ? {
+              selection: artifact.manualConfirmationEvaluationSelection,
+            } : {}),
+          }),
       },
     });
     const candidate = cohort.candidates[0];
@@ -272,6 +342,14 @@ export async function verifyAnalysisLaunchPromotionSourceArtifactDetailed(
       ["package_runtime", evidence.packageRuntimeSha256, expected.localLabEvidence?.analysisLaunch?.packageRuntimeSha256],
       ["validator", evidence.validatorVersion, expected.localLabEvidence?.analysisLaunch?.validatorVersion],
       ["field_analysis", evidence.applicationFieldAnalysisVersion, expected.localLabEvidence?.analysisLaunch?.applicationFieldAnalysisVersion],
+      ["primary_matching_projection", evidence.primaryMatchingProjectionSnapshotSha256, expected.localLabEvidence?.analysisLaunch?.primaryMatchingProjectionSnapshotSha256],
+      ["primary_matching_projection_contract", evidence.primaryMatchingProjectionContractVersion, expected.localLabEvidence?.analysisLaunch?.primaryMatchingProjectionContractVersion],
+      ["manual_confirmation_evaluations", artifact.manualConfirmationEvaluationsSha256 ?? null, expected.manualConfirmationEvaluationsSha256 ?? null],
+      [
+        "manual_confirmation_evaluation_selection",
+        sha256Canonical(artifact.manualConfirmationEvaluationSelection ?? null),
+        sha256Canonical(expected.manualConfirmationEvaluationSelection ?? null),
+      ],
     ];
     const changed = checks.filter(([, left, right]) => left !== right).map(([name]) => name);
     if (!artifact.applicationPrecompute) {
@@ -388,10 +466,13 @@ function classifyAnalysisLaunchPromotionReadiness(input: {
     applicationDocumentCount: roundtrip?.applicationDocumentCount ?? 0,
     fieldReadyDocumentCount: roundtrip?.fieldReadyDocumentCount ?? 0,
     recognizedFieldCount: roundtrip?.recognizedFieldCount ?? 0,
+    primaryMatchingProjectionStatus: input.loaded.primaryMatchingProjectionStatus,
+    primaryMatchingProjectionSnapshotSha256:
+      input.loaded.primaryMatchingProjectionSnapshotSha256,
   };
 }
 
-function guardAnalysisLaunchPromotionPlan(
+export function guardAnalysisLaunchPromotionPlan(
   readiness: AnalysisLaunchPromotionReadiness,
   plan: Pick<GrantPromotionPlan, "criteria" | "conversion" | "scopeRejectedCriterionIndexes">,
 ): AnalysisLaunchPromotionReadiness {
@@ -400,7 +481,11 @@ function guardAnalysisLaunchPromotionPlan(
   }
   const reasons = [...readiness.reasons];
   if (plan.conversion.error) reasons.push("promotion_conversion_error");
-  if (plan.conversion.dropped > (plan.scopeRejectedCriterionIndexes?.length ?? 0)) {
+  if (!shadowConversionIsPromotionSafe({
+    report: plan.conversion,
+    criteria: plan.criteria,
+    scopeRejectedCriterionIndexes: plan.scopeRejectedCriterionIndexes,
+  })) {
     reasons.push("promotion_conversion_drop");
   }
   if (plan.criteria.length === 0) reasons.push("empty_promotion_plan");
@@ -480,6 +565,7 @@ async function loadAndVerifyTarget(
   ) {
     throw new Error(`launch run/manifest/review exact binding이 다릅니다: ${target.grantId}`);
   }
+  const matchingProjection = verifyAnalysisLaunchPrimaryMatchingProjection(run, target);
   const packetPath = safePathInside(root, resolve(root, packet.path));
   const packetBytes = await readFile(packetPath);
   if (sha256(packetBytes) !== packet.sha256) {
@@ -497,7 +583,75 @@ async function loadAndVerifyTarget(
   ) {
     throw new Error(`independent review packet 결속이 다릅니다: ${target.grantId}`);
   }
-  return { launch, target, run, runArtifactSha256: target.runArtifactSha256 };
+  return {
+    launch,
+    target,
+    run,
+    runArtifactSha256: target.runArtifactSha256,
+    primaryMatchingProjectionStatus: matchingProjection.status,
+    primaryMatchingProjectionSnapshotSha256: matchingProjection.snapshotSha256,
+  };
+}
+
+/** 신규 run/receipt는 양쪽 exact binding을 강제하고, 진짜 역사 양쪽 부재만 unverified다. */
+export function verifyAnalysisLaunchPrimaryMatchingProjection(
+  run: LabRun,
+  target: Pick<AnalysisLaunchReceiptTarget, "grantId" | "primaryMatchingProjection">,
+): {
+  status: "verified" | "unverified";
+  snapshotSha256: string | null;
+} {
+  if (!run.primaryMatchingProjection && !target.primaryMatchingProjection) {
+    return { status: "unverified", snapshotSha256: null };
+  }
+  if (!run.primaryMatchingProjection || !target.primaryMatchingProjection) {
+    throw new Error(`launch matching projection 한쪽 결속이 없습니다: ${target.grantId}`);
+  }
+  const projectionSource = primaryProjectionSource({
+    runId: run.runId,
+    grantId: run.grantId,
+    source: run.source,
+    sourceId: run.sourceId,
+    inputSha256: run.inputSha256,
+    ...(run.attachmentManifestSha256
+      ? { attachmentManifestSha256: run.attachmentManifestSha256 }
+      : {}),
+    criteria: run.criteria,
+  });
+  const projectionInspection = inspectPrimaryMatchingProjectionSnapshot(
+    projectionSource,
+    run.primaryMatchingProjection,
+  );
+  const expectedBinding = buildAnalysisLaunchMatchingProjectionBinding(
+    run.primaryMatchingProjection,
+  );
+  if (
+    projectionInspection.status !== "verified"
+    || target.primaryMatchingProjection.verification !== "verified"
+    || !matchingProjectionBindingsEqual(target.primaryMatchingProjection, expectedBinding)
+  ) {
+    throw new Error(`launch matching projection exact binding이 다릅니다: ${target.grantId}`);
+  }
+  return {
+    status: "verified",
+    snapshotSha256: expectedBinding.snapshotSha256,
+  };
+}
+
+function matchingProjectionBindingsEqual(
+  left: NonNullable<AnalysisLaunchReceiptTarget["primaryMatchingProjection"]>,
+  right: NonNullable<AnalysisLaunchReceiptTarget["primaryMatchingProjection"]>,
+): boolean {
+  return left.schema === right.schema
+    && left.verification === right.verification
+    && left.snapshotSha256 === right.snapshotSha256
+    && left.sourceCriteriaSha256 === right.sourceCriteriaSha256
+    && left.projectedCriteriaSha256 === right.projectedCriteriaSha256
+    && left.reportSha256 === right.reportSha256
+    && left.conversionContractVersion === right.conversionContractVersion
+    && left.converterVersion === right.converterVersion
+    && left.normalizerContractVersion === right.normalizerContractVersion
+    && left.matcherRulesetVersion === right.matcherRulesetVersion;
 }
 
 async function loadReviewEvidence(

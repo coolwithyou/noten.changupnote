@@ -358,6 +358,7 @@ export async function resolveProductCompanyProfile(
 export async function resolveSystemProductCompanyProfile(
   input: { companyId: string; asOf: string },
   dependencies: Pick<ProductProfileResolverDependencies, "companies" | "enrichmentCache">,
+  options: { sourceCorrectionsDb?: import("../db/client").CunoteDb } = {},
 ): Promise<ResolvedProductCompanyProfile> {
   const resolution = await resolveProductCompanyProfile({
     context: "system_recompute",
@@ -370,7 +371,7 @@ export async function resolveSystemProductCompanyProfile(
     },
   });
   const { applySourceCorrectionState } = await import("./sourceCorrections");
-  return applySourceCorrectionState(resolution, input.companyId);
+  return applySourceCorrectionState(resolution, input.companyId, options.sourceCorrectionsDb);
 }
 
 function buildIdentityBaseProfile(profiles: readonly ProfileInput[]): CompanyProfile {

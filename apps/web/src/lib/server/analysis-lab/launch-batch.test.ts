@@ -279,6 +279,41 @@ test("작성 가이드 adoption 재분석은 source-sealed rerun만 exact 기존
     normalizeAnalysisLaunchReceipt(JSON.parse(encodeCanonical(firstReceipt).toString("utf8"))),
     firstReceipt,
   );
+  const projectionBinding = {
+    schema: "analysis-launch-primary-matching-projection-binding-v1" as const,
+    verification: "verified" as const,
+    snapshotSha256: SHA_A,
+    sourceCriteriaSha256: SHA_B,
+    projectedCriteriaSha256: SHA_C,
+    reportSha256: SHA_D,
+    conversionContractVersion: "analysis-lab-shadow-conversion-v3",
+    converterVersion: "analysis-lab-shadow-v3",
+    normalizerContractVersion: "grant-llm-criteria-normalization-v1",
+    matcherRulesetVersion: "ruleset-kstartup-spine-v10",
+  };
+  const boundReceipt = launchReceipt([{
+    ...launchReceiptTarget(0, GRANT_0, "publishable"),
+    primaryMatchingProjection: projectionBinding,
+  }], "2026-08-26T00:40:00.000Z");
+  assert.deepEqual(
+    normalizeAnalysisLaunchReceipt(JSON.parse(encodeCanonical(boundReceipt).toString("utf8"))),
+    boundReceipt,
+    "신규 receipt가 projection runtime/source/output hash 결속을 보존한다",
+  );
+  assert.throws(() => normalizeAnalysisLaunchReceipt({
+    ...boundReceipt,
+    targets: [{
+      ...boundReceipt.targets[0],
+      primaryMatchingProjection: { ...projectionBinding, snapshotSha256: "not-a-sha" },
+    }],
+  }), /snapshotSha256/);
+  assert.throws(() => normalizeAnalysisLaunchReceipt({
+    ...launchReceipt([launchReceiptTarget(0, GRANT_0, "skipped")], "2026-08-26T00:50:00.000Z"),
+    targets: [{
+      ...launchReceiptTarget(0, GRANT_0, "skipped"),
+      primaryMatchingProjection: projectionBinding,
+    }],
+  }), /run artifact/);
 });
 
 test("독립 검수 합의 결함 재분석은 exact 원본 대상과 RHWP 필드 분석을 함께 봉인한다", () => {

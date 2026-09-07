@@ -10,6 +10,7 @@ import * as schema from "../db/schema";
 import { createDrizzleRepositories } from "../repositories/drizzle";
 import { resolveSystemProductCompanyProfile } from "../productProfile/resolveProductCompanyProfile";
 import { expandConfirmedGrantComponentIds } from "../ingestion/grantRevisionInvalidation";
+import { loadCriterionConfirmations } from "./matchStateRefresh";
 
 export interface RunGrantRevisionScopedRefreshInput {
   db: CunoteDb;
@@ -29,40 +30,37 @@ export async function runGrantRevisionScopedRefresh(
   if (requestedGrantIds.length === 0) throw new Error("at least one grantId is required");
 
   const repositories = createDrizzleRepositories<unknown>({ dialect: "drizzle", client: input.db });
-  const links = await input.db.select({
-    canonicalGrantId: schema.dedupLinks.canonicalGrantId,
-    memberGrantId: schema.dedupLinks.memberGrantId,
-  }).from(schema.dedupLinks).where(eq(schema.dedupLinks.confirmed, true));
-
-  const effectiveById = new Map<string, NormalizedGrant<unknown>>();
-  for (const requestedId of requestedGrantIds) {
-    const resolvedId = await resolveGrantRowId(input.db, requestedId);
-    if (!resolvedId) throw new Error(`grant not found: ${requestedId}`);
-    const componentIds = expandConfirmedGrantComponentIds([resolvedId], links);
-    const entries = (await Promise.all(componentIds.map((id) => repositories.grants.findGrantById(id))))
-      .filter((entry): entry is NormalizedGrant<unknown> => entry !== null);
-    if (entries.length === 0) throw new Error(`grant not found: ${requestedId}`);
-    const [effective] = collapseConfirmedGrantOccurrences(entries, links.map((link) => ({
-      canonicalGrantKey: link.canonicalGrantId,
-      memberGrantKey: link.memberGrantId,
-    })));
-    if (!effective?.grant.id) throw new Error(`effective canonical grant not found: ${requestedId}`);
-    effectiveById.set(effective.grant.id, effective);
-  }
-  const grants = [...effectiveById.values()];
-
   const requestedCompanyIds = input.companyIds
     ? [...new Set(input.companyIds.filter(Boolean))].sort()
     : null;
-  const companyQuery = input.db.select({ id: schema.companies.id }).from(schema.companies);
-  const companyRows = requestedCompanyIds
-    ? requestedCompanyIds.length === 0
-      ? []
-      : await companyQuery.where(inArray(schema.companies.id, requestedCompanyIds))
-        .orderBy(asc(schema.companies.id)).limit(input.companyLimit + 1)
-    : await companyQuery.orderBy(asc(schema.companies.id)).limit(input.companyLimit + 1);
+  const preliminaryGrantIds = (await loadEffectiveGrants(input.db, repositories, requestedGrantIds))
+    .map((grant) => grant.grant.id)
+    .filter((id): id is string => Boolean(id));
+  const preliminaryCompanyRows = await loadCompanyRows(
+    input.db,
+    requestedCompanyIds,
+    input.companyLimit,
+  );
+  if (input.write && preliminaryCompanyRows.length > input.companyLimit) {
+    throw new Error("refusing incomplete grant-scope refresh: increase --companyLimit");
+  }
+  const inputBindings = input.write
+    ? await repositories.matches.captureMatchStateInputBindings({
+        companyIds: preliminaryCompanyRows.slice(0, input.companyLimit).map((row) => row.id),
+        grantIds: preliminaryGrantIds,
+      })
+    : [];
+
+  // 캡처 전의 객체는 계산에 재사용하지 않는다. dedup/company/source 변경이 캡처와 입력 읽기
+  // 사이에 끼어도 실제 계산은 캡처 이후 snapshot을 사용하고 save guard가 다시 확인한다.
+  const [grants, companyRows] = input.write
+    ? await Promise.all([
+        loadEffectiveGrants(input.db, repositories, requestedGrantIds),
+        loadCompanyRows(input.db, requestedCompanyIds, input.companyLimit),
+      ])
+    : [await loadEffectiveGrants(input.db, repositories, requestedGrantIds), preliminaryCompanyRows];
   const truncated = companyRows.length > input.companyLimit;
-  if (input.write && truncated) throw new Error("refusing incomplete grant-scope refresh: increase --companyLimit");
+  if (input.write && truncated) throw new Error("refusing incomplete grant-scope refresh after binding: increase --companyLimit");
   const companies = [];
   for (const row of companyRows.slice(0, input.companyLimit)) {
     const resolution = await resolveSystemProductCompanyProfile({
@@ -71,7 +69,7 @@ export async function runGrantRevisionScopedRefresh(
     }, {
       companies: repositories.companies,
       enrichmentCache: repositories.enrichmentCache,
-    });
+    }, { sourceCorrectionsDb: input.db });
     companies.push({ companyId: row.id, profile: resolution.profile });
   }
   if (companies.length === 0) {
@@ -86,6 +84,7 @@ export async function runGrantRevisionScopedRefresh(
       plannedStateCount: 0,
       changedCount: 0,
       savedCount: 0,
+      staleCount: 0,
     };
   }
 
@@ -97,14 +96,23 @@ export async function runGrantRevisionScopedRefresh(
   let changedCount = 0;
   let unchangedCount = 0;
   let savedCount = 0;
+  let staleCount = 0;
   const changeReasons: string[] = [];
   const samples: Array<Record<string, unknown>> = [];
+  const confirmationsByCompanyId = new Map(await Promise.all(companies.map(async (company) => [
+    company.companyId,
+    await loadCriterionConfirmations({ repositories, companyId: company.companyId, grants }) ?? new Map(),
+  ] as const)));
+  const bindingByPair = new Map(inputBindings.map((binding) => [`${binding.companyId}:${binding.grantId}`, binding]));
   for (const grant of grants) {
+    // grant scope의 cardinality 계약(exactly one)을 유지한다. 여러 요청 공고는 같은 캡처와
+    // 확인답변 snapshot을 공유하되 계획은 공고별로 독립 생성한다.
     const plan = planScopedMatchStateRefresh({
       scope: "grant",
       companies,
       grants: [grant],
       existingStates,
+      confirmationsByCompanyId,
       asOf: input.asOf,
     });
     changedCount += plan.changedCount;
@@ -121,14 +129,19 @@ export async function runGrantRevisionScopedRefresh(
         changeReasons: state.changeReasons,
       });
       if (input.write) {
-        await repositories.matches.saveMatchState({
+        const inputBinding = bindingByPair.get(`${state.companyId}:${state.grantId}`);
+        if (!inputBinding) throw new Error(`missing match_state input binding: ${state.companyId}:${state.grantId}`);
+        const result = await repositories.matches.saveMatchState({
           companyId: state.companyId,
           grantId: state.grantId,
           match: state.match,
+          inputBinding,
+          calculationAsOf: input.asOf,
           eligibleFrom: parseDate(state.eligibleFrom),
           eligibleUntil: parseDate(state.eligibleUntil),
         });
-        savedCount += 1;
+        if (result.status === "saved") savedCount += 1;
+        else staleCount += 1;
       }
     }
   }
@@ -146,9 +159,51 @@ export async function runGrantRevisionScopedRefresh(
     changedCount,
     unchangedCount,
     savedCount,
+    staleCount,
     changeReasonCounts: histogram(changeReasons),
     changedSamples: samples,
   };
+}
+
+async function loadEffectiveGrants(
+  db: CunoteDb,
+  repositories: ReturnType<typeof createDrizzleRepositories<unknown>>,
+  requestedGrantIds: string[],
+): Promise<Array<NormalizedGrant<unknown>>> {
+  const links = await db.select({
+    canonicalGrantId: schema.dedupLinks.canonicalGrantId,
+    memberGrantId: schema.dedupLinks.memberGrantId,
+  }).from(schema.dedupLinks).where(eq(schema.dedupLinks.confirmed, true));
+  const effectiveById = new Map<string, NormalizedGrant<unknown>>();
+  for (const requestedId of requestedGrantIds) {
+    const resolvedId = await resolveGrantRowId(db, requestedId);
+    if (!resolvedId) throw new Error(`grant not found: ${requestedId}`);
+    const componentIds = expandConfirmedGrantComponentIds([resolvedId], links);
+    const entries = (await Promise.all(componentIds.map((id) => repositories.grants.findGrantById(id))))
+      .filter((entry): entry is NormalizedGrant<unknown> => entry !== null);
+    if (entries.length === 0) throw new Error(`grant not found: ${requestedId}`);
+    const [effective] = collapseConfirmedGrantOccurrences(entries, links.map((link) => ({
+      canonicalGrantKey: link.canonicalGrantId,
+      memberGrantKey: link.memberGrantId,
+    })));
+    if (!effective?.grant.id) throw new Error(`effective canonical grant not found: ${requestedId}`);
+    effectiveById.set(effective.grant.id, effective);
+  }
+  return [...effectiveById.values()];
+}
+
+async function loadCompanyRows(
+  db: CunoteDb,
+  requestedCompanyIds: string[] | null,
+  companyLimit: number,
+): Promise<Array<{ id: string }>> {
+  const query = db.select({ id: schema.companies.id }).from(schema.companies);
+  return requestedCompanyIds
+    ? requestedCompanyIds.length === 0
+      ? []
+      : query.where(inArray(schema.companies.id, requestedCompanyIds))
+        .orderBy(asc(schema.companies.id)).limit(companyLimit + 1)
+    : query.orderBy(asc(schema.companies.id)).limit(companyLimit + 1);
 }
 
 async function resolveGrantRowId(db: CunoteDb, grantIdOrSourceId: string): Promise<string | null> {
@@ -161,7 +216,7 @@ async function resolveGrantRowId(db: CunoteDb, grantIdOrSourceId: string): Promi
   return rows[0]?.id ?? null;
 }
 
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 async function loadExistingStates(
   db: CunoteDb,

@@ -1,4 +1,4 @@
-import type { CompanyProfile, MatchResult, NormalizedGrant } from "@cunote/contracts";
+import type { CompanyProfile, CriterionConfirmation, MatchResult, NormalizedGrant } from "@cunote/contracts";
 import { planMatchStateRefresh, type MatchStateRefreshItem } from "./plan-match-state-refresh.js";
 
 export type ScopedMatchRefreshScope = "none" | "pair" | "company" | "grant" | "manual";
@@ -42,6 +42,7 @@ export function planScopedMatchStateRefresh<TPayload>(input: {
   companies: ScopedRefreshCompany[];
   grants: Array<NormalizedGrant<TPayload>>;
   existingStates?: ExistingMatchStateSnapshot[];
+  confirmationsByCompanyId?: ReadonlyMap<string, ReadonlyMap<string, CriterionConfirmation[]>>;
   asOf?: Date;
 }): ScopedMatchStateRefreshPlan {
   const asOf = validDate(input.asOf ?? new Date(), "asOf");
@@ -65,6 +66,9 @@ export function planScopedMatchStateRefresh<TPayload>(input: {
       grants: input.grants,
       asOf,
       companyId: company.companyId,
+      ...(input.confirmationsByCompanyId?.get(company.companyId)
+        ? { confirmationsByGrantId: input.confirmationsByCompanyId.get(company.companyId)! }
+        : {}),
     });
     return planned.states.map((state) => {
       const existing = existingByKey.get(stateKey(company.companyId, state.grantId));

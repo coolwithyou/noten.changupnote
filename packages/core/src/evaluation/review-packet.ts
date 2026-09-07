@@ -39,6 +39,7 @@ export interface MatchingV3GrantReviewTask {
   annotationTemplate: V3GrantAnnotation;
   predictionProvenance?: {
     extractorVersion: string;
+    normalizerContractVersion?: string;
     model: string;
     inputSha256: string;
   };

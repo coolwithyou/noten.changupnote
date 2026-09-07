@@ -29,6 +29,7 @@ import {
   type AnalysisLaunchReceipt,
   type AnalysisLaunchReceiptTarget,
 } from "./launch-batch-artifacts";
+import { buildAnalysisLaunchMatchingProjectionBinding } from "./primary-matching-projection";
 import { withAnalysisLaunchBatchExecution } from "./launch-batch-context";
 import {
   applyAnalysisLaunchEvent,
@@ -314,6 +315,11 @@ export async function runApprovedAnalysisLaunchBatch(input: {
               applicationDocumentCount: run.applicationRoundtrip?.applicationDocumentCount ?? null,
               fieldReadyDocumentCount: run.applicationRoundtrip?.fieldReadyDocumentCount ?? null,
               recognizedFieldCount: run.applicationRoundtrip?.recognizedFieldCount ?? null,
+              ...(run.primaryMatchingProjection ? {
+                primaryMatchingProjection: buildAnalysisLaunchMatchingProjectionBinding(
+                  run.primaryMatchingProjection,
+                ),
+              } : {}),
               error: run.error ?? fieldAnalysisError,
             }));
             return run;

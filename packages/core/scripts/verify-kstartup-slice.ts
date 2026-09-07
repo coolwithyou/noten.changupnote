@@ -153,9 +153,25 @@ function assertKnownSampleRegressions() {
     "single 20~39 bracket should be preserved as youth-only founder age criteria",
   );
 
-  const conditional = matches.find((item) => item.match.eligibility === "conditional");
-  assert.ok(conditional, "fixture should include at least one conditional match");
-  assert.ok(conditional.match.next_question, "conditional match should suggest a next question");
+  const reviewOnlyConditional = matches.find((item) => item.grant.source_id === "178235");
+  assert.equal(reviewOnlyConditional?.match.eligibility, "conditional");
+  assert.ok(
+    reviewOnlyConditional?.match.rule_trace.some((trace) =>
+      trace.kind === "required" && trace.unresolved_reason === "criterion_needs_review"
+    ),
+    "fixture 178235 should preserve its admin-only criterion review reason",
+  );
+  assert.equal(
+    reviewOnlyConditional?.match.next_question,
+    undefined,
+    "admin criterion review must not be routed back to the company as a profile question",
+  );
+  const profileMissing = matchGrantCriteria(techBridge.criteria, { confidence: {} });
+  assert.ok(
+    profileMissing.rule_trace.some((trace) => trace.unresolved_reason === "company_profile_missing"),
+    "reviewed structured criteria should distinguish missing company data",
+  );
+  assert.ok(profileMissing.next_question, "missing company data should still suggest a profile question");
 
   const fashionPopup = bySourceId.get("178249");
   assert.ok(fashionPopup, "fixture must include K-fashion popup program");

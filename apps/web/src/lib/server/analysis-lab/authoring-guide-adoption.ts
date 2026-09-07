@@ -3,7 +3,7 @@ import type { GrantAuthoringGuideV1 } from "@cunote/contracts";
 import type { LabRun } from "./lab-contract";
 import { buildGrantAuthoringGuide } from "./authoring-guide";
 import { isPublishableLabRun } from "./run-outcome";
-import { convertSelectedLabCriteria } from "./shadow-convert";
+import { convertSelectedLabCriteria, inspectShadowConversionReport } from "./shadow-convert";
 
 export const AUTHORING_GUIDE_ADOPTION_SCHEMA = "authoring-guide-adoption-manifest-v1" as const;
 
@@ -207,7 +207,12 @@ export function classifyAuthoringGuideAdoptionCandidate(
       needsReview: false,
     })),
   });
-  if (conversion.report.error !== null) reasons.push("criterion_projection_failed");
+  const conversionIntegrity = inspectShadowConversionReport(conversion.report, conversion.criteria);
+  if (
+    conversion.report.error !== null
+    || !conversionIntegrity.completeItemAccounting
+    || conversionIntegrity.blockingCriterionIndexes.length > 0
+  ) reasons.push("criterion_projection_failed");
 
   const rerunReasons = new Set<AuthoringGuideAdoptionReason>([
     "input_sha256_drift",

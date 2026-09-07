@@ -25,22 +25,35 @@ export async function runRefreshMatchStates(
     dialect: "drizzle",
     client: input.db,
   });
+  // 공고 id를 먼저 고른 뒤 revision을 캡처하고, 실제 계산 입력은 캡처 이후 다시 읽는다.
+  // 따라서 첫 조회와 capture 사이 변경도 오래된 객체+새 token 조합으로 우회되지 않는다.
+  const candidates = await repositories.grants.listActiveGrants({ limit: input.limit, asOf: input.asOf });
+  const candidateGrantIds = candidates.flatMap((grant) => grant.grant.id ? [grant.grant.id] : []);
+  const inputBindings = input.write
+    ? await repositories.matches.captureMatchStateInputBindings({
+        companyIds: [input.companyId],
+        grantIds: candidateGrantIds,
+      })
+    : undefined;
   const resolution = await resolveSystemProductCompanyProfile({
     companyId: input.companyId,
     asOf: input.asOf.toISOString(),
   }, {
     companies: repositories.companies,
     enrichmentCache: repositories.enrichmentCache,
-  });
+  }, { sourceCorrectionsDb: input.db });
 
-  const grants = await repositories.grants.listActiveGrants({ limit: input.limit, asOf: input.asOf });
-  const { plan, savedCount } = await refreshMatchStates({
+  const grants = input.write
+    ? await repositories.grants.listActiveGrants({ limit: input.limit, asOf: input.asOf })
+    : candidates;
+  const { plan, savedCount, staleCount, staleGrantIds } = await refreshMatchStates({
     repositories,
     company: resolution.profile,
     grants,
     asOf: input.asOf,
     companyId: input.companyId,
     write: input.write,
+    ...(inputBindings ? { inputBindings } : {}),
   });
   const recommendationTierCounts = histogram(plan.states.map((state) =>
     state.match.review_gate?.tier ?? "unknown"));
@@ -67,6 +80,8 @@ export async function runRefreshMatchStates(
   return {
     dryRun: !input.write,
     savedCount,
+    staleCount,
+    staleGrantIds,
     companyId: input.companyId,
     stateScope: resolution.stateScope,
     limit: input.limit,

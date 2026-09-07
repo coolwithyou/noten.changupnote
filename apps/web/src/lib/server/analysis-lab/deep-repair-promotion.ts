@@ -27,6 +27,7 @@ import {
 import {
   canonicalJson,
   hashFile,
+  sha256Canonical,
   VERIFIED_DEEP_REPAIR_SOURCE_SCHEMA,
   VERIFIED_LOCAL_LAB_SOURCE_SCHEMA,
   type PromotionSourceArtifact,
@@ -34,6 +35,14 @@ import {
 import type { PromotionCandidate } from "./promotion-candidates";
 import { analysisLabDir, findMonorepoRoot } from "./run-store";
 import { isPublishableLabRun } from "./run-outcome";
+import { shadowConversionIsPromotionSafe } from "./shadow-convert";
+import {
+  indexManualConfirmationEvaluationSelectors,
+  resolveManualConfirmationEvaluationsForPreparation,
+  resolveManualConfirmationEvaluationsForSource,
+  type ManualConfirmationEvaluationSelector,
+  type SelectedManualConfirmationEvaluations,
+} from "./manual-confirmation-evaluations";
 
 export const DEEP_REPAIR_PROMOTION_READINESS_SCHEMA =
   "deep-repair-promotion-readiness-v1" as const;
@@ -81,6 +90,8 @@ export interface DeepRepairPromotionReadinessItem {
 
 export interface CurrentGrantEvidence {
   sourceRevisionSha256: string;
+  /** 실제 발행 질문/답변 CAS가 묶이는 현재 grant_raw hash. */
+  sourceRawSha256?: string;
   inputSha256: string;
   attachmentManifestSha256: string;
   status: string;
@@ -94,6 +105,9 @@ export interface CurrentGrantEvidence {
 export interface DeepRepairPromotionDependencies {
   now?: Date;
   loadCurrentGrantEvidence?: (run: LabRun) => Promise<CurrentGrantEvidence>;
+  resolveManualConfirmationEvaluations?: (
+    run: LabRun,
+  ) => Promise<SelectedManualConfirmationEvaluations | null>;
 }
 
 interface SeriesMarker {
@@ -124,6 +138,7 @@ interface LoadedTarget {
 export async function loadDeepRepairPromotionCohort(input: {
   seriesId: string;
   grantIds: readonly string[];
+  manualConfirmationSelections?: readonly ManualConfirmationEvaluationSelector[];
   dependencies?: DeepRepairPromotionDependencies;
 }): Promise<DeepRepairPromotionCohort> {
   const seriesId = safeSeriesId(input.seriesId);
@@ -133,6 +148,10 @@ export async function loadDeepRepairPromotionCohort(input: {
   if (requestedGrantIds.length !== input.grantIds.length) {
     throw new Error("exact grantIds에 빈 값 또는 중복이 있습니다.");
   }
+  const manualSelectionByGrantId = indexManualConfirmationEvaluationSelectors(
+    input.manualConfirmationSelections ?? [],
+    requestedGrantIds,
+  );
 
   const root = findMonorepoRoot();
   const experimentsDir = join(analysisLabDir(), "experiments");
@@ -171,6 +190,22 @@ export async function loadDeepRepairPromotionCohort(input: {
       receipt,
     });
     const current = await loadCurrent(loaded.run);
+    const manualSelector = manualSelectionByGrantId.get(loaded.run.grantId);
+    if (manualSelector && manualSelector.runId !== loaded.run.runId) {
+      throw new Error(`manual confirmation selector runId 불일치: ${loaded.run.grantId}`);
+    }
+    const selectedManual = input.dependencies?.resolveManualConfirmationEvaluations
+      ? await input.dependencies.resolveManualConfirmationEvaluations(loaded.run)
+      : await resolveManualConfirmationEvaluationsForPreparation(loaded.run, manualSelector);
+    if (manualSelector && (
+      !selectedManual
+      || selectedManual.selection.revision !== manualSelector.revision
+      || selectedManual.selection.artifactSha256 !== manualSelector.artifactSha256
+    )) {
+      throw new Error(`manual confirmation selector와 resolved artifact가 다릅니다: ${loaded.run.grantId}`);
+    }
+    const manualEvaluationSidecar = selectedManual?.artifact ?? null;
+    const manualConfirmationEvaluationsSha256 = selectedManual?.selection.artifactSha256 ?? null;
     let readiness = classifyDeepRepairPromotionReadiness(loaded.run, current, receipt.receiptSha256);
     let promotionPlan: GrantPromotionPlan | null = null;
     if (readiness.disposition === "ready" || readiness.disposition === "conditional") {
@@ -182,6 +217,11 @@ export async function loadDeepRepairPromotionCohort(input: {
         origin: "deep_repair",
         deepRepairReceiptSha256: receipt.receiptSha256,
         sidecar: null,
+        manualEvaluationSidecar,
+        ...(!selectedManual?.legacyShaOnly && selectedManual ? {
+          manualConfirmationEvaluationSelection: selectedManual.selection,
+        } : {}),
+        ...(current.sourceRawSha256 ? { sourceRawSha256: current.sourceRawSha256 } : {}),
       });
       readiness = guardDeepRepairPromotionPlan(readiness, promotionPlan);
     }
@@ -217,6 +257,10 @@ export async function loadDeepRepairPromotionCohort(input: {
       runSha256: loaded.runArtifactSha256,
       overlaySha256: null,
       confirmationsSha256: null,
+      manualConfirmationEvaluationsSha256,
+      ...(!selectedManual?.legacyShaOnly && selectedManual ? {
+        manualConfirmationEvaluationSelection: selectedManual.selection,
+      } : {}),
       sourceRevisionSha256: current.sourceRevisionSha256,
       localLabEvidence: {
         schema: VERIFIED_LOCAL_LAB_SOURCE_SCHEMA,
@@ -364,6 +408,19 @@ export async function verifyDeepRepairPromotionSourceArtifactDetailed(
   const loadCurrent = dependencies.loadCurrentGrantEvidence
     ?? ((run: LabRun) => loadCurrentGrantEvidence(run, dependencies.now ?? new Date()));
   const current = await loadCurrent(loaded.run);
+  const selectedManual = dependencies.resolveManualConfirmationEvaluations
+    ? await dependencies.resolveManualConfirmationEvaluations(loaded.run)
+    : await resolveManualConfirmationEvaluationsForSource({
+      run: loaded.run,
+      ...(artifact.manualConfirmationEvaluationsSha256 !== undefined ? {
+        manualConfirmationEvaluationsSha256: artifact.manualConfirmationEvaluationsSha256,
+      } : {}),
+      ...(artifact.manualConfirmationEvaluationSelection ? {
+        selection: artifact.manualConfirmationEvaluationSelection,
+      } : {}),
+    });
+  const manualEvaluationSidecar = selectedManual?.artifact ?? null;
+  const manualConfirmationEvaluationsSha256 = selectedManual?.selection.artifactSha256 ?? null;
   const releaseCurrent = {
     ...current,
     // release prepare가 만든 item 자체만 중복으로 오인하지 않는다. 별도 deep run이나
@@ -384,6 +441,11 @@ export async function verifyDeepRepairPromotionSourceArtifactDetailed(
       origin: "deep_repair",
       deepRepairReceiptSha256: receipt.receiptSha256,
       sidecar: null,
+      manualEvaluationSidecar,
+      ...(!selectedManual?.legacyShaOnly && selectedManual ? {
+        manualConfirmationEvaluationSelection: selectedManual.selection,
+      } : {}),
+      ...(current.sourceRawSha256 ? { sourceRawSha256: current.sourceRawSha256 } : {}),
     }));
   }
   if (readiness.disposition === "admin_review" || readiness.disposition === "held") {
@@ -410,6 +472,12 @@ export async function verifyDeepRepairPromotionSourceArtifactDetailed(
     ["validator", deepRepair.validatorVersion, plan.manifest.provenance.validatorVersion],
     ["model", artifact.localLabEvidence.model, loaded.run.model],
     ["prompt_version", artifact.localLabEvidence.promptVersion, loaded.run.promptVersion],
+    ["manual_confirmation_evaluations", artifact.manualConfirmationEvaluationsSha256 ?? null, manualConfirmationEvaluationsSha256],
+    [
+      "manual_confirmation_evaluation_selection",
+      sha256Canonical(artifact.manualConfirmationEvaluationSelection ?? null),
+      sha256Canonical(selectedManual?.legacyShaOnly ? null : selectedManual?.selection ?? null),
+    ],
   ];
   for (const [name, expectedValue, actualValue] of expected) {
     if (expectedValue !== actualValue) changed.push(name);
@@ -488,7 +556,11 @@ export function guardDeepRepairPromotionPlan(
   }
   const reasons = [...readiness.reasons];
   if (plan.conversion.error) reasons.push("promotion_conversion_error");
-  if (plan.conversion.dropped > (plan.scopeRejectedCriterionIndexes?.length ?? 0)) {
+  if (!shadowConversionIsPromotionSafe({
+    report: plan.conversion,
+    criteria: plan.criteria,
+    scopeRejectedCriterionIndexes: plan.scopeRejectedCriterionIndexes,
+  })) {
     reasons.push("promotion_conversion_drop");
   }
   if (plan.criteria.length === 0) reasons.push("empty_promotion_plan");
@@ -709,6 +781,7 @@ export async function loadCurrentGrantEvidence(run: LabRun, now: Date): Promise<
         )).limit(1),
     ]);
   if (!grant) throw new Error(`current grant가 없습니다: ${run.grantId}`);
+  if (!raw?.rawHash) throw new Error(`current grant_raw hash가 없습니다: ${run.grantId}`);
   const [assembled, operational] = await Promise.all([
     reassembleLabInputForRun(run),
     prepareDeepAnalysisInput({ db, storage, grantId: run.grantId }),
@@ -721,6 +794,7 @@ export async function loadCurrentGrantEvidence(run: LabRun, now: Date): Promise<
     && !isKStartupRecruitmentClosedPayload(grant.source, raw?.payload);
   return {
     sourceRevisionSha256: operational.sourceRevisionSha256,
+    sourceRawSha256: raw.rawHash,
     inputSha256: assembled.inputSha256,
     attachmentManifestSha256: assembled.attachmentManifestSha256,
     status: grant.status,

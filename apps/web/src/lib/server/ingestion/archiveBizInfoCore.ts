@@ -311,6 +311,7 @@ async function buildBizInfoArtifact(
         output: {
           criteria: result.criteria,
           required_documents: result.requiredDocuments,
+          normalizer_contract_version: result.normalizerContractVersion,
           usage: result.usage,
         },
         confidence: entry.grant.overall_confidence,

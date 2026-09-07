@@ -21,6 +21,18 @@
       "types": "./dist/bizinfo/llm-criteria.d.ts",
       "default": "./dist/bizinfo/llm-criteria.js"
     },
+    "./criteria/matching-scope": {
+      "types": "./dist/criteria/matching-scope.d.ts",
+      "default": "./dist/criteria/matching-scope.js"
+    },
+    "./criteria/semantic-identity": {
+      "types": "./dist/criteria/semantic-identity.d.ts",
+      "default": "./dist/criteria/semantic-identity.js"
+    },
+    "./matching/match": {
+      "types": "./dist/matching/match.d.ts",
+      "default": "./dist/matching/match.js"
+    },
     "./autofill/coverage": {
       "types": "./dist/autofill/coverage.d.ts",
       "default": "./dist/autofill/coverage.js"

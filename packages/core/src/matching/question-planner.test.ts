@@ -64,6 +64,20 @@ const textOnly = matched("text-only", "2026-07-20", [{
 }]);
 assert.equal(planProfileQuestions([malformed, textOnly], { asOf }).length, 0);
 
+const disputedRegion = matchedForCompany("disputed-region", [{
+  dimension: "region",
+  operator: "in",
+  kind: "required",
+  confidence: 0.9,
+  source_span: "경기 소재 기업",
+  value: { regions: ["41"], labels: ["경기"] },
+}], { ...company, source_disputes: ["region"] });
+assert.equal(
+  planProfileQuestions([disputedRegion], { asOf }).length,
+  0,
+  "공식 원천 정정 보류를 회사 프로필 질문으로 우회하지 않는다",
+);
+
 const mixedRevenueCriteria = matched("mixed-revenue", "2026-07-20", [
   numericCriterion("revenue", "매출 1억원 이상", { min_krw: 100_000_000 }),
   {

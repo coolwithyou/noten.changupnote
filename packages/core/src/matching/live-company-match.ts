@@ -5,6 +5,7 @@ import {
 import {
   extractBizInfoCriteriaWithAnthropic,
   DEFAULT_ANTHROPIC_MODEL,
+  LLM_CRITERIA_NORMALIZATION_CONTRACT_VERSION,
 } from "../bizinfo/llm-criteria.js";
 import { normalizeBizInfoProgram } from "../bizinfo/normalize.js";
 import { fetchBizInfoPrograms } from "../bizinfo/fetch.js";
@@ -52,6 +53,7 @@ export interface LiveCompanyMatchReport {
     evaluated_count: number;
     llm_enabled: boolean;
     llm_model: string | null;
+    normalizer_contract_version: string | null;
     match_counts: Record<string, number>;
     top_matches: MatchSummary[];
     extraction_only: Array<{
@@ -180,6 +182,9 @@ export async function runLiveCompanyMatch(
       evaluated_count: bizinfoMatches.length,
       llm_enabled: bizinfoLlm,
       llm_model: bizinfoLlm ? anthropicModel : null,
+      normalizer_contract_version: bizinfoLlm
+        ? LLM_CRITERIA_NORMALIZATION_CONTRACT_VERSION
+        : null,
       match_counts: countMatches(matchedBizinfo.map((entry) => entry.match)),
       top_matches: summarizeMatches(matchedBizinfo, 5),
       extraction_only: bizinfoMatches.filter((entry) => !entry.match).map((entry) => ({

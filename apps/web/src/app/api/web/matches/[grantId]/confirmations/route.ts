@@ -99,9 +99,35 @@ async function readAnswers(request: Request): Promise<ConfirmationAnswerInput[]>
         "answers",
       );
     }
+    const binding = readBinding(candidate.binding);
     return {
       questionId: candidate.questionId,
       values: candidate.values.filter((value): value is string => typeof value === "string"),
+      ...(binding ? { binding } : {}),
+      ...(typeof candidate.expectedAnswerRevision === "number"
+        ? { expectedAnswerRevision: candidate.expectedAnswerRevision }
+        : {}),
     };
   });
+}
+
+function readBinding(value: unknown): ConfirmationAnswerInput["binding"] | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const binding = value as Record<string, unknown>;
+  if (
+    binding.contractVersion !== "confirmation-evaluation-v2"
+    || typeof binding.criterionId !== "string"
+    || typeof binding.sourceRevisionSha256 !== "string"
+    || typeof binding.sourceRawSha256 !== "string"
+    || typeof binding.definitionSha256 !== "string"
+    || typeof binding.questionVersion !== "number"
+  ) return null;
+  return {
+    contractVersion: binding.contractVersion,
+    criterionId: binding.criterionId,
+    sourceRevisionSha256: binding.sourceRevisionSha256,
+    sourceRawSha256: binding.sourceRawSha256,
+    definitionSha256: binding.definitionSha256,
+    questionVersion: binding.questionVersion,
+  };
 }

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { LLM_CRITERIA_NORMALIZATION_CONTRACT_VERSION } from "../bizinfo/llm-criteria.js";
 import { extractKStartupCriteriaWithAnthropic, mergeKStartupLlmCriteria } from "./llm-criteria.js";
 
 const announcement = {
@@ -56,6 +57,7 @@ const result = await extractKStartupCriteriaWithAnthropic({
 });
 
 const industry = result.criteria.find((criterion) => criterion.dimension === "industry" && criterion.operator === "in");
+assert.equal(result.normalizerContractVersion, LLM_CRITERIA_NORMALIZATION_CONTRACT_VERSION);
 assert.ok(industry);
 assert.equal(industry.needs_review, true);
 assert.equal(industry.source_field, "aply_trgt_ctnt");

@@ -33,6 +33,8 @@ import { getCunoteDb } from "../db/client";
 import * as schema from "../db/schema";
 import { loadMonorepoEnv } from "../loadMonorepoEnv";
 import { readPromotionBuildProvenance } from "./promotion-build-provenance";
+import { shadowConversionIsPromotionSafe } from "./shadow-convert";
+import { readManualConfirmationEvaluationSelectionSet } from "./manual-confirmation-evaluations";
 
 loadMonorepoEnv();
 
@@ -247,13 +249,21 @@ async function prepare(): Promise<number> {
     throw new Error("자동 대상 선정을 하지 않습니다. --grantIds exact CSV가 필요합니다.");
   }
   const build = readPromotionBuildProvenance();
+  const manualSelectionSet = await readManualConfirmationEvaluationSelectionSet(
+    readArg("manual-confirmation-selections"),
+  );
   const deepRepairCohort = series
-    ? await loadDeepRepairPromotionCohort({ seriesId: series, grantIds: exactGrantIds })
+    ? await loadDeepRepairPromotionCohort({
+        seriesId: series,
+        grantIds: exactGrantIds,
+        manualConfirmationSelections: manualSelectionSet.selections,
+      })
     : null;
   const analysisLaunchCohort = launchReceiptSha256s.length > 0
     ? await loadAnalysisLaunchPromotionCohort({
         launchReceiptSha256s,
         grantIds: exactGrantIds,
+        manualConfirmationSelections: manualSelectionSet.selections,
       })
     : null;
   const excluded = deepRepairCohort
@@ -288,7 +298,11 @@ async function prepare(): Promise<number> {
   }
   const unsafePlans = guarded.publishable.filter((plan) =>
     ((plan.origin === "deep_repair" || plan.origin === "analysis_launch")
-      ? plan.conversion.dropped !== (plan.scopeRejectedCriterionIndexes?.length ?? -1)
+      ? !shadowConversionIsPromotionSafe({
+          report: plan.conversion,
+          criteria: plan.criteria,
+          scopeRejectedCriterionIndexes: plan.scopeRejectedCriterionIndexes,
+        })
       : plan.conversion.dropped > 0 || plan.droppedQuestionCandidates > 0)
     || promotionPlanHasUnsafeUnresolvedCriteria(plan));
   if (unsafePlans.length > 0) {
@@ -479,8 +493,15 @@ async function inspectReceiptBackedCohort(): Promise<number> {
     throw new Error("--inspect에는 --series 또는 --launch-receipts 중 하나가 필요합니다.");
   }
   if (grantIds.length === 0) throw new Error("--inspect에는 --grantIds exact CSV가 필요합니다.");
+  const manualSelectionSet = await readManualConfirmationEvaluationSelectionSet(
+    readArg("manual-confirmation-selections"),
+  );
   if (launchReceiptSha256s.length > 0) {
-    const cohort = await loadAnalysisLaunchPromotionCohort({ launchReceiptSha256s, grantIds });
+    const cohort = await loadAnalysisLaunchPromotionCohort({
+      launchReceiptSha256s,
+      grantIds,
+      manualConfirmationSelections: manualSelectionSet.selections,
+    });
     console.log(JSON.stringify({
       launchReceiptSha256s: cohort.launchReceiptSha256s,
       candidates: cohort.candidates.map((candidate) => ({
@@ -503,7 +524,11 @@ async function inspectReceiptBackedCohort(): Promise<number> {
     }, null, 2));
     return 0;
   }
-  const cohort = await loadDeepRepairPromotionCohort({ seriesId: series!, grantIds });
+  const cohort = await loadDeepRepairPromotionCohort({
+    seriesId: series!,
+    grantIds,
+    manualConfirmationSelections: manualSelectionSet.selections,
+  });
   console.log(JSON.stringify({
     seriesId: cohort.seriesId,
     proposalSha256: cohort.proposalSha256,

@@ -27,6 +27,8 @@ import {
   groupMatchesForDisplay,
   isUrgentDday,
   matchCriterionPresentation,
+  matchCardNextActions,
+  matchConfirmationCtaState,
   matchDetailHref,
   matchVerdictStatus,
   writeSupportCta,
@@ -161,6 +163,19 @@ export function ProgramsExperience({
           matches={groups.oneAnswer}
           status="one_answer"
           emptyCopy="답변으로 바로 확정할 수 있는 공고는 현재 목록에 없어요."
+          onOpenProfile={onOpenProfile}
+          onPrepare={onPrepare}
+          preparing={preparing}
+          onOpenConfirmation={openConfirmation}
+          virtualBizNo={virtualBizNo}
+          companyId={companyId}
+        />
+        <ResultBucket
+          label="원문 확인 필요"
+          count={groups.checkSource.length}
+          matches={groups.checkSource}
+          status="check_source"
+          emptyCopy="원문이나 공식 정보 확인이 필요한 공고는 현재 목록에 없어요."
           onOpenProfile={onOpenProfile}
           onPrepare={onPrepare}
           preparing={preparing}
@@ -363,21 +378,21 @@ function ExpandedProgramCard({
 }) {
   const criteria = matchCriterionPresentation(match);
   const hardTotal = criteria.hardPassed.length + criteria.hardFailed.length + criteria.hardNeedsCheck.length;
-  const primaryHardCheck = criteria.hardNeedsCheck[0];
-  const primaryPreferredInput = criteria.preferredNeedsInput[0];
+  const nextActions = matchCardNextActions(match);
+  const primaryProfileInput = nextActions.companyProfile[0];
+  const primaryAdminReview = nextActions.adminSourceReview[0];
   const baseDetailHref = matchDetailHref(match, virtualBizNo);
   const detailHref = companyId ? withCompanyContext(baseDetailHref, companyId) : baseDetailHref;
-  // 확인하기 CTA — one_answer/check_source 판정이고 발행된 확인 질문이 있을 때만(현재 테이블이
-  // 비어 있어 미노출, B-4 승격 파이프라인 이후 활성). 어휘는 4상태 그대로, 결과 예고 문구 금지(D9).
-  const verdict = matchVerdictStatus(match);
-  const confirmationCount = match.confirmationQuestionCount ?? 0;
-  const showConfirmation =
-    (verdict === "one_answer" || verdict === "check_source") && confirmationCount > 0;
+  // 확인하기 CTA — exact 질문 주석이 user_confirmation으로 분류한 경우에만 연다. preferred-only
+  // eligible 카드도 우대 확인을 보완할 수 있으며, 이 CTA 자체는 eligibility/verdict를 바꾸지 않는다.
+  const confirmationCta = matchConfirmationCtaState(match);
+  const confirmationCount = confirmationCta.count;
+  const showConfirmation = confirmationCta.showConfirmation;
   // 자가신고 확인이 판정에 반영된 카드(결정 3) — open 승격이든 결격 확정이든 동일하게 정직 표기.
   const userConfirmedCount = match.userConfirmedCount ?? 0;
   // 재확인(답변 수정) 진입점 — verdict 로는 가리지 않는다. 확인하기 CTA 가 이미 보이는 카드는
   // 같은 시트를 여는 중복 진입점이 되므로 그때만 생략(시트가 GET 으로 기존 답변을 복원).
-  const showReconfirm = userConfirmedCount > 0 && confirmationCount > 0 && !showConfirmation;
+  const showReconfirm = confirmationCta.showReconfirm;
 
   return (
     <Card className={cn("gap-0 rounded-2xl border-border-card px-[22px] py-5 shadow-[var(--shadow-notice-hover)] ring-0", className)}>
@@ -497,28 +512,29 @@ function ExpandedProgramCard({
         </div>
       ) : null}
 
-      {primaryHardCheck ? (
+      {primaryAdminReview ? (
         <div className="mt-3 flex items-start gap-2 rounded-xl bg-surface-soft px-3.5 py-3 text-sm leading-6 text-text-nav">
           <HelpCircleIcon className="mt-1 size-4 shrink-0 text-brand" />
           <span className="min-w-0 flex-1">
-            이 정보가 없어 신청 자격 판정을 보류했어요. {criterionSubjectLabel(primaryHardCheck.label)}
+            {primaryAdminReview.unresolvedReason === "source_dispute"
+              ? "회사 공식 정보 정정 검토가 필요한 조건이에요. "
+              : "공고 원문·분석 확인이 필요한 조건이에요. "}
+            {criterionSubjectLabel(primaryAdminReview.label)}
           </span>
-          {primaryHardCheck.action?.type === "progressive" ? (
-            <Button type="button" variant="link" onClick={onOpenProfile} className="h-auto shrink-0 px-0 text-[13px]">
-              자격정보 채우기
-            </Button>
-          ) : null}
         </div>
       ) : null}
 
-      {primaryPreferredInput ? (
+      {primaryProfileInput ? (
         <div className="mt-3 flex items-start gap-2 rounded-xl bg-surface-soft px-3.5 py-3 text-sm leading-6 text-text-nav">
           <HelpCircleIcon className="mt-1 size-4 shrink-0 text-brand" />
           <span className="min-w-0 flex-1">
-            우대점수 확인에 활용할 수 있어요. {criterionSubjectLabel(primaryPreferredInput.label)}
+            {primaryProfileInput.kind === "preferred"
+              ? "우대점수 확인에 활용할 회사 정보예요. "
+              : "회사 정보를 채우면 신청 자격을 다시 판정해요. "}
+            {criterionSubjectLabel(primaryProfileInput.label)}
           </span>
           <Button type="button" variant="link" onClick={onOpenProfile} className="h-auto shrink-0 px-0 text-[13px]">
-            우대정보 채우기
+            {primaryProfileInput.kind === "preferred" ? "우대정보 채우기" : "자격정보 채우기"}
           </Button>
         </div>
       ) : null}
@@ -526,7 +542,9 @@ function ExpandedProgramCard({
       {showConfirmation ? (
         <div className="mt-3 flex items-center gap-2 rounded-xl bg-surface-soft px-3.5 py-3 text-sm leading-6 text-text-nav">
           <span className="min-w-0 flex-1">
-            이 공고의 확인 질문 {confirmationCount}개 — 답한 내용은 판정에 바로 반영돼요
+            이 공고의 확인 질문 {confirmationCount}개 — {nextActions.adminSourceReview.length > 0
+              ? "답한 항목만 반영되며, 원문 확인 조건은 별도로 남아요"
+              : "답한 내용은 해당 조건 판정에 반영돼요"}
           </span>
           <Button
             type="button"

@@ -20,6 +20,7 @@ import { createDrizzleRepositories } from "../repositories/drizzle";
 import { resolveSystemProductCompanyProfile } from "../productProfile/resolveProductCompanyProfile";
 import {
   assessRulesetRefreshSafety,
+  assertLegacyRulesetRefreshWriteSupported,
   parseRulesetRefreshManifest,
   reviewGrantKey,
   selectRulesetRefreshTargetCompanyIds,
@@ -36,6 +37,7 @@ const write = process.argv.includes("--write");
 if (write && readArg("confirm") !== "REFRESH_MATCH_STATES_RULESET_V5") {
   throw new Error("--write requires --confirm=REFRESH_MATCH_STATES_RULESET_V5");
 }
+assertLegacyRulesetRefreshWriteSupported(write);
 if (expected.currentRulesetVer !== RULESET_VERSION || expected.currentScoringVer !== SCORING_VERSION) {
   throw new Error("refresh manifest targets a stale ruleset or scoring version");
 }

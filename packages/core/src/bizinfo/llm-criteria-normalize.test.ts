@@ -5,14 +5,18 @@
  *
  * 검증 대상(LLM 실호출 없음 — tool_use input payload 를 직접 구성):
  *  - P4: v2 prior_award + exclusion 은 구조화되고 신규 value 계약을 통과한다.
- *  - M4: premises / export_performance 예약 축은 other/text_only 로 강등된다.
- *  - M1: 신규 구조화 축은 source_span 없으면 강등되고, 있으면 raw_text 에 전문 복제가 없다.
+ *  - M4: premises / export_performance 예약 축은 kind를 보존한 other/text_only 로 강등된다.
+ *  - M1: 신규 구조화 축은 source_span 없으면 kind를 보존해 강등되고, 있으면 raw_text 에 전문 복제가 없다.
  *  - 정상 경로: prior_award required, source_span 있는 결격 축은 그대로 구조화된다.
  *  - 강등 결과도 계약(assertGrantCriteriaContract)을 통과한다.
  */
 import assert from "node:assert/strict";
-import { normalizeBizInfoLlmCriteria } from "./llm-criteria.js";
+import {
+  LLM_CRITERIA_NORMALIZATION_CONTRACT_VERSION,
+  normalizeBizInfoLlmCriteria,
+} from "./llm-criteria.js";
 import { validateGrantCriteriaContract } from "./criteria-contract.js";
+import { readCriterionDowngradeProvenance } from "../criteria/semantic-identity.js";
 
 let passed = 0;
 function check(name: string, fn: () => void): void {
@@ -26,6 +30,138 @@ function normalizeOne(row: Record<string, unknown>) {
   assert.equal(criteria.length, 1, "정확히 1개 criterion");
   return criteria[0]!;
 }
+
+check("[provenance] 공용 LLM normalizer 계약은 source parser 버전과 독립이다", () => {
+  assert.equal(
+    LLM_CRITERIA_NORMALIZATION_CONTRACT_VERSION,
+    "grant-llm-criteria-normalization-v1",
+  );
+});
+
+check("[업력 경계] 원문 3년 미만 + inclusive 36개월 모순은 원래 의미를 보존해 보류", () => {
+  const c = normalizeOne({
+    dimension: "biz_age",
+    operator: "lte",
+    kind: "required",
+    value: { max_months: 36 },
+    confidence: 0.9,
+    source_span: "업력 조건: 3년미만",
+  });
+  assert.equal(c.dimension, "other");
+  assert.equal(c.operator, "text_only");
+  assert.equal(c.kind, "required");
+  assert.equal(c.needs_review, true);
+  assert.deepEqual(c.value, {
+    note: "업력 조건: 3년미만",
+    downgrade_reason: "exclusive_upper_bound_mismatch",
+    original_dimension: "biz_age",
+    original_operator: "lte",
+    original_value: { max_months: 36 },
+  });
+});
+
+check("[업력 경계] canonical years alias의 36개월 모순도 같은 공용 guard를 탄다", () => {
+  const c = normalizeOne({
+    dimension: "biz_age",
+    operator: "lte",
+    kind: "exclusion",
+    value: { max: 3, unit: "years" },
+    confidence: 0.9,
+    source_span: "창업 3년 미만",
+  });
+  assert.equal(c.dimension, "other");
+  assert.equal((c.value as Record<string, unknown>).downgrade_reason, "exclusive_upper_bound_mismatch");
+  assert.deepEqual(
+    readCriterionDowngradeProvenance(c),
+    { dimension: "biz_age", operator: "lte", value: { max: 3, unit: "years" } },
+  );
+});
+
+check("[업력 경계] 35개월 및 더 좁은 상한은 정상 구조화한다", () => {
+  for (const maxMonths of [35, 34]) {
+    const c = normalizeOne({
+      dimension: "biz_age",
+      operator: "lte",
+      kind: "required",
+      value: { max_months: maxMonths },
+      confidence: 0.9,
+      source_span: "업력 3년 미만",
+    });
+    assert.equal(c.dimension, "biz_age");
+    assert.equal((c.value as { max_months?: number }).max_months, maxMonths);
+  }
+});
+
+check("[업력 경계] 다른 기간·소수 연수 문장은 guard가 오인하지 않는다", () => {
+  const unrelated = normalizeOne({
+    dimension: "biz_age",
+    operator: "lte",
+    kind: "required",
+    value: { max_months: 84 },
+    confidence: 0.9,
+    source_span: "업력 7년 이하, 최근 3년 미만의 수출실적을 확인",
+  });
+  const fractional = normalizeOne({
+    dimension: "biz_age",
+    operator: "lte",
+    kind: "required",
+    value: { max_months: 18 },
+    confidence: 0.9,
+    source_span: "업력 1.5년 미만 기업",
+  });
+  assert.equal(unrelated.dimension, "biz_age");
+  assert.equal(fractional.dimension, "biz_age");
+});
+
+check("[제재 상태] 위반 원인과 현재 참여제한 상태를 OR flag로 평탄화한 row는 별칭까지 보류", () => {
+  for (const inputOperator of ["in", "not_in"] as const) {
+    const c = normalizeOne({
+      dimension: "sanction",
+      operator: inputOperator,
+      kind: "exclusion",
+      value: { flags: ["agreement_breach", "participation_restricted"] },
+      confidence: 0.9,
+      source_span: "○ 진흥원과의 협약 및 계약 위반 등으로 참여 제한 조치 중인 경우",
+    });
+    assert.equal(c.dimension, "other");
+    assert.equal(c.operator, "text_only");
+    assert.equal(c.kind, "exclusion");
+    assert.equal(c.needs_review, true);
+    assert.deepEqual(c.value, {
+      note: "○ 진흥원과의 협약 및 계약 위반 등으로 참여 제한 조치 중인 경우",
+      downgrade_reason: "sanction_cause_state_flattening",
+      original_dimension: "sanction",
+      original_operator: inputOperator,
+      original_value: { flags: ["agreement_breach", "participation_restricted"] },
+    });
+    assert.deepEqual(readCriterionDowngradeProvenance(c), {
+      dimension: "sanction",
+      operator: inputOperator,
+      value: { flags: ["agreement_breach", "participation_restricted"] },
+    });
+  }
+});
+
+check("[제재 상태] 단일 현재제재와 독립 사유 나열은 과잉 보류하지 않는다", () => {
+  const currentOnly = normalizeOne({
+    dimension: "sanction",
+    operator: "in",
+    kind: "exclusion",
+    value: { flags: ["participation_restricted"] },
+    confidence: 0.9,
+    source_span: "공고일 현재 정부지원사업 참여제한 제재를 받고 있는 경우",
+  });
+  const independentList = normalizeOne({
+    dimension: "sanction",
+    operator: "in",
+    kind: "exclusion",
+    value: { flags: ["agreement_breach", "participation_restricted"] },
+    confidence: 0.9,
+    source_span: "협약 위반 또는 정부지원사업 참여제한 기업은 제외",
+  });
+  assert.equal(currentOnly.dimension, "sanction");
+  assert.equal(independentList.dimension, "sanction");
+});
 
 // ── P4: prior_award + exclusion 구조화 ────────────────────────────────────────
 
@@ -70,6 +206,14 @@ check("[M1] prior_award 구조화 값도 source_span 없으면 강등", () => {
   });
   assert.equal(c.dimension, "other");
   assert.equal(c.operator, "text_only");
+  assert.equal(c.kind, "exclusion");
+  assert.deepEqual(c.value, {
+    note: "prior_award 조건 원문 확인 필요",
+    downgrade_reason: "missing_required_source_span",
+    original_dimension: "prior_award",
+    original_operator: "exists",
+    original_value: { scope: "self", self_kind: "same_project", channel: "general" },
+  });
 });
 
 // ── M4: 예약 2축 강등 ─────────────────────────────────────────────────────────
@@ -85,6 +229,15 @@ check("[M4] premises 축 → other/text_only 강등", () => {
   });
   assert.equal(c.dimension, "other");
   assert.equal(c.operator, "text_only");
+  assert.equal(c.kind, "required", "M4 강등은 필수 의미를 배제로 바꾸지 않는다");
+  assert.equal(c.source_span, "독립된 사업장을 보유해야 한다.");
+  assert.deepEqual(c.value, {
+    note: "사업장 보유",
+    downgrade_reason: "reserved_dimension",
+    original_dimension: "premises",
+    original_operator: "exists",
+    original_value: { note: "사업장 보유" },
+  });
 });
 
 check("[M4] export_performance 축 → other/text_only 강등", () => {
@@ -98,6 +251,30 @@ check("[M4] export_performance 축 → other/text_only 강등", () => {
   });
   assert.equal(c.dimension, "other");
   assert.equal(c.operator, "text_only");
+  assert.equal(c.kind, "required");
+  assert.equal((c.value as Record<string, unknown>).original_operator, "gte");
+});
+
+check("[M4] premises preferred 강등은 우대 의미와 근거를 보존", () => {
+  const c = normalizeOne({
+    dimension: "premises",
+    operator: "in",
+    kind: "preferred",
+    value: { note: "화재에 취약한 건물 우선 지원" },
+    confidence: 0.9,
+    source_span: "화재에 취약한 건물 우선 지원",
+  });
+  assert.equal(c.dimension, "other");
+  assert.equal(c.operator, "text_only");
+  assert.equal(c.kind, "preferred");
+  assert.equal(c.source_span, "화재에 취약한 건물 우선 지원");
+  assert.deepEqual(c.value, {
+    note: "화재에 취약한 건물 우선 지원",
+    downgrade_reason: "reserved_dimension",
+    original_dimension: "premises",
+    original_operator: "in",
+    original_value: { note: "화재에 취약한 건물 우선 지원" },
+  });
 });
 
 // ── M1: span 정책 ─────────────────────────────────────────────────────────────
@@ -141,6 +318,29 @@ check("[M1] financial_health 도 source_span 없으면 강등", () => {
     confidence: 0.8,
   });
   assert.equal(c.dimension, "other");
+  assert.equal(c.kind, "exclusion");
+  assert.equal((c.value as Record<string, unknown>).downgrade_reason, "missing_required_source_span");
+});
+
+check("[M1] span 없는 required 구조 조건은 자동 통과 없이 required text_only로 보존", () => {
+  const c = normalizeOne({
+    dimension: "investment",
+    operator: "gte",
+    kind: "required",
+    value: { min_total_krw: 100_000_000 },
+    confidence: 0.9,
+  });
+  assert.equal(c.dimension, "other");
+  assert.equal(c.operator, "text_only");
+  assert.equal(c.kind, "required");
+  assert.equal(c.needs_review, true);
+  assert.deepEqual(c.value, {
+    note: "investment 조건 원문 확인 필요",
+    downgrade_reason: "missing_required_source_span",
+    original_dimension: "investment",
+    original_operator: "gte",
+    original_value: { min_total_krw: 100000000 },
+  });
 });
 
 // ── 정상 경로 + 계약 통과 ──────────────────────────────────────────────────────
@@ -226,6 +426,7 @@ check("[fail-safe] 결격 flags를 exceptions에 잘못 넣은 row만 text_only�
   assert.equal(criteria[0]?.operator, "text_only");
   assert.equal(criteria[0]?.needs_review, true);
   assert.equal((criteria[0]?.value as { downgrade_reason?: string }).downgrade_reason, "contract_validation_failed");
+  assert.equal((criteria[0]?.value as { original_operator?: string }).original_operator, "in");
   assert.equal(criteria[1]?.dimension, "size");
 });
 
@@ -315,6 +516,71 @@ check("[계약 P4] 같은 의미 슬롯의 동일 span 중복은 계속 거부",
     { ...criterion, id: "industry-exclusion-2" },
   ]);
   assert.ok(issues.some((issue) => /duplicate/.test(issue.message)), "동일 의미 중복 검출");
+});
+
+check("[계약 P4] 강등 후 같은 span이어도 원래 축·값이 다르면 별개 조건", () => {
+  const span = "본사 또는 공장은 안산에 위치하며 전년도 수출은 2천만불 이하여야 한다.";
+  const criteria = normalizeBizInfoLlmCriteria({
+    criteria: [
+      {
+        dimension: "premises",
+        operator: "in",
+        kind: "required",
+        value: { locations: ["안산"], facility_types: ["본사", "공장"] },
+        confidence: 0.9,
+        source_span: span,
+      },
+      {
+        dimension: "export_performance",
+        operator: "lte",
+        kind: "required",
+        value: { max_usd: 20_000_000 },
+        confidence: 0.9,
+        source_span: span,
+      },
+    ],
+  }, "same-span-distinct");
+  assert.equal(criteria.length, 2);
+  assert.deepEqual(validateGrantCriteriaContract(criteria), []);
+  assert.notDeepEqual(
+    (criteria[0]?.value as Record<string, unknown>).original_value,
+    (criteria[1]?.value as Record<string, unknown>).original_value,
+  );
+});
+
+check("[계약 P4] 같은 강등 축·연산자·span이어도 original_value가 다르면 별개 조건", () => {
+  const criteria = normalizeBizInfoLlmCriteria({
+    criteria: [
+      { dimension: "premises", operator: "in", kind: "preferred", value: { facilities: ["공동휴게시설"] }, confidence: 0.9, source_span: "시설별 가점" },
+      { dimension: "premises", operator: "in", kind: "preferred", value: { facilities: ["공동세탁실"] }, confidence: 0.9, source_span: "시설별 가점" },
+    ],
+  }, "same-axis-distinct-values");
+  assert.equal(criteria.length, 2);
+  assert.deepEqual(validateGrantCriteriaContract(criteria), []);
+});
+
+check("[강등 provenance] 알려진 형태와 유효 축·연산자만 원래 의미로 해석", () => {
+  assert.equal(readCriterionDowngradeProvenance({
+    dimension: "other",
+    operator: "text_only",
+    value: {
+      note: "임의 메타데이터",
+      downgrade_reason: "made_up",
+      original_dimension: "tax_compliance",
+      original_operator: "in",
+      original_value: { flags: ["national_tax_delinquent"] },
+    },
+  }), null);
+  assert.equal(readCriterionDowngradeProvenance({
+    dimension: "other",
+    operator: "text_only",
+    value: {
+      note: "잘못된 원축",
+      downgrade_reason: "reserved_dimension",
+      original_dimension: "not_a_dimension",
+      original_operator: "in",
+    },
+  }), null);
 });
 
 check("[계약 backstop] malformed prior_award exclusion 은 scope/program/state/within 위반 검출", () => {

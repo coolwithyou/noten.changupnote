@@ -113,10 +113,15 @@ export function annotateSourceCorrectionState(resolution: ResolvedProductCompany
   return { ...resolution, profile, view: buildMatchingProfileView(profile, resolution.asOf) };
 }
 
-export async function applySourceCorrectionState(resolution: ResolvedProductCompanyProfile, companyId: string) {
+export async function applySourceCorrectionState(
+  resolution: ResolvedProductCompanyProfile,
+  companyId: string,
+  db?: CunoteDb,
+) {
   if (!sourceCorrectionsEnabled()) return resolution;
+  const sourceDb = db ?? getCunoteDb();
   const table = schema.profileSourceCorrections;
-  const records = await getCunoteDb().selectDistinctOn([table.userId, table.dimension]).from(table)
+  const records = await sourceDb.selectDistinctOn([table.userId, table.dimension]).from(table)
     .where(eq(table.companyId, companyId)).orderBy(table.userId, table.dimension, desc(table.createdAt));
   return annotateSourceCorrectionState(resolution, records);
 }

@@ -4,6 +4,7 @@ import { dirname, resolve } from "node:path";
 import {
   extractKStartupCriteriaWithAnthropic,
   KSTARTUP_LLM_EXTRACTOR_VERSION,
+  LLM_CRITERIA_NORMALIZATION_CONTRACT_VERSION,
   type KStartupAnnouncement,
 } from "@cunote/core";
 import { closeCunoteDb, getCunoteDb } from "../db/client";
@@ -78,6 +79,7 @@ try {
           sourceId: entry.grant.source_id,
           title: entry.grant.title,
           extractorVersion: KSTARTUP_LLM_EXTRACTOR_VERSION,
+          normalizerContractVersion: result.normalizerContractVersion,
           model: result.model,
           inputSha256: createHash("sha256").update(result.input.text).digest("hex"),
           criteria: result.criteria,
@@ -100,6 +102,7 @@ try {
           sourceId: entry.grant.source_id,
           title: entry.grant.title,
           extractorVersion: KSTARTUP_LLM_EXTRACTOR_VERSION,
+          normalizerContractVersion: LLM_CRITERIA_NORMALIZATION_CONTRACT_VERSION,
           error: error instanceof Error ? error.message.slice(0, 500) : String(error).slice(0, 500),
           operationalReady: false,
         });

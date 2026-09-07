@@ -77,6 +77,7 @@ export function isPreparableMatchCard(match: MatchCard): boolean {
         : "needs_profile_input"
   );
   if (tier !== "needs_profile_input") return false;
+  if (hasUnanswerableHardUnknown(match)) return false;
   return answerableHardUnknownDimensions(match).size > 1;
 }
 
@@ -88,10 +89,24 @@ export function isPreparableMatchCard(match: MatchCard): boolean {
 export function answerableHardUnknownDimensions(match: MatchCard): Set<CriterionDimension> {
   return new Set(match.ruleTrace
     .filter((trace) =>
-      trace.result === "unknown"
-      && trace.action?.type === "progressive"
+      (trace.result === "unknown" || trace.result === "text_only")
+      && (trace.confirmationNextAction === "company_profile"
+        || trace.confirmationNextAction === "user_confirmation")
       && (trace.kind === "required" || trace.kind === "exclusion"))
     .map((trace) => trace.dimension));
+}
+
+/**
+ * 사용자 입력으로는 해소할 수 없는 필수·배제 미확인이 남아 있는지 판정한다.
+ * 우대 미확인은 자격 확정 약속을 막지 않는다.
+ */
+export function hasUnanswerableHardUnknown(match: MatchCard): boolean {
+  return match.ruleTrace.some((trace) =>
+    (trace.result === "unknown" || trace.result === "text_only")
+    && (trace.kind === "required" || trace.kind === "exclusion")
+    && trace.confirmationNextAction !== "company_profile"
+    && trace.confirmationNextAction !== "user_confirmation"
+  );
 }
 
 function matchesStatus(match: MatchCard, status: Exclude<MatchStatusFilter, "all">): boolean {

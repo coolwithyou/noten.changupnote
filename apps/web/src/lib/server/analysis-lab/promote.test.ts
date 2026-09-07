@@ -31,6 +31,10 @@ import {
   type PromotionGrantWriteResult,
 } from "./promote";
 import { assessPromotionReviewRisk } from "./promotion-review-risk";
+import {
+  capturePrimaryMatchingProjectionSnapshot,
+  primaryProjectionSource,
+} from "./primary-matching-projection";
 
 // ---- 픽스처 (shadow-convert.test / confirmations.test 관행) ---------------------------
 
@@ -137,6 +141,42 @@ function fixtureSidecar(
     /발행 가능한 런이 아닙니다/,
   );
   console.log("✅ 승격 최종 방어 — held 런은 error:null이어도 계획 수립 차단");
+}
+
+// 역사 snapshot 부재는 기존 호환을 유지하지만, 명시 신규 failed 진단은 모든 promotion origin에서 막는다.
+{
+  const sourceCriterion = criterion({
+    dimension: "region",
+    kind: "required",
+    operator: "text_only",
+    value: { note: "지역 확인" },
+    sourceSpan: "지역 확인",
+  });
+  const run = fixtureRun([sourceCriterion]);
+  const failed = capturePrimaryMatchingProjectionSnapshot({
+    source: primaryProjectionSource({
+      runId: run.runId,
+      grantId: run.grantId,
+      source: run.source,
+      sourceId: run.sourceId,
+      inputSha256: run.inputSha256,
+      criteria: run.criteria,
+    }),
+    primaryExtractionAvailable: true,
+  }, { build: () => { throw new Error("synthetic projection failure"); } });
+  const review = fixtureReview([{ criterionIndex: 0, verdict: "correct", note: null }]);
+  for (const origin of ["human", "deep_repair", "analysis_launch"] as const) {
+    assert.throws(
+      () => planGrantPromotion({
+        run: { ...run, primaryMatchingProjection: failed },
+        review,
+        origin,
+        sidecar: null,
+      }),
+      /primary matching projection이 현재 변환과 일치하지 않습니다/,
+      `${origin} 소비자가 명시 failed snapshot을 우회하지 않는다`,
+    );
+  }
 }
 
 // ---- 영향도별 승격 정책 — 실제 실패형 2건을 구조적으로 고정 -----------------------
@@ -481,7 +521,7 @@ const baseSidecar = fixtureSidecar([
   assert.equal(partiallyConfirmed.questions[0]?.provenance.auditState, "human_reviewed");
 }
 
-// ---- ② 변환 드롭 무은폐 + 매핑의 위치 이동 안전 ---------------------------------------
+// ---- ② 변환 드롭 무은폐 + 원본 index 직접 mapping ------------------------------------
 // #0 은 비정상 dimension 으로 normalize 가 탈락시킨다(질문 후보였으므로 앵커 상실도 집계).
 
 {
@@ -513,12 +553,91 @@ const baseSidecar = fixtureSidecar([
   assert.deepEqual(
     plan.criterionIndexByPosition,
     [1],
-    "앞 row 가 탈락해도 남은 발행분은 원래 criterionIndex 로 역산돼야 한다(id llm-<n> 계약)",
+    "앞 row 가 탈락해도 converter 항목 결과가 원래 criterionIndex를 직접 보존해야 한다",
   );
   assert.equal(plan.questions.length, 1);
   assert.equal(plan.questions[0]?.criterionIndex, 1);
   assert.equal(plan.questions[0]?.criteriaPosition, 0, "발행 배열 기준 위치여야 한다(삽입 연결 키)");
   assert.equal(plan.droppedQuestionCandidates, 1, "탈락 criterion 의 질문 후보는 앵커 상실로 집계돼야 한다");
+}
+
+// promote의 과거 별도 scope filter가 value/note를 빼서 만든 #1→#0 질문 오연결 회귀.
+{
+  const mappingRun = fixtureRun([
+    criterion({
+      dimension: "industry",
+      kind: "required",
+      operator: "text_only",
+      value: { note: "업종과 직무 구분 불가" },
+      note: "업종과 직무 구분 불가",
+      sourceSpan: "기업 참여 요건",
+    }),
+    criterion({
+      dimension: "credit_status",
+      kind: "exclusion",
+      operator: "in",
+      value: { flags: ["loan_default"] },
+      sourceSpan: "채무불이행 기업은 제외",
+      confirmation: confirmation("현재 채무불이행 상태인가요?", "credit_status_loan_default"),
+    }),
+  ]);
+  const plan = planGrantPromotion({
+    run: mappingRun,
+    review: fixtureReview([
+      { criterionIndex: 0, verdict: "correct", note: null },
+      { criterionIndex: 1, verdict: "correct", note: null },
+    ]),
+    origin: "human",
+    sidecar: null,
+  });
+  assert.deepEqual(plan.conversion.items?.map((item) => item.status), [
+    "scope_rejected",
+    "converted",
+  ]);
+  assert.deepEqual(plan.scopeRejectedCriterionIndexes, [0]);
+  assert.deepEqual(plan.criterionIndexByPosition, [1]);
+  assert.equal(plan.criteria[0]?.id, "lab-shadow:PBLN_B4_1:llm-2");
+  assert.equal(plan.questions.length, 1);
+  assert.equal(plan.questions[0]?.criterionIndex, 1);
+  assert.equal(plan.questions[0]?.criteriaPosition, 0);
+  assert.equal(plan.questions[0]?.prompt, "현재 채무불이행 상태인가요?");
+  assert.equal(plan.droppedQuestionCandidates, 0);
+}
+
+// 진짜 duplicate exclusion은 어느 질문/provenance도 임의 채택하지 않고 양쪽을 보류한다.
+{
+  const duplicateRun = fixtureRun([
+    criterion({
+      dimension: "credit_status",
+      kind: "exclusion",
+      operator: "in",
+      value: { flags: ["loan_default"] },
+      sourceSpan: "채무불이행 기업은 제외",
+      confirmation: confirmation("질문 A"),
+    }),
+    criterion({
+      dimension: "credit_status",
+      kind: "exclusion",
+      operator: "in",
+      value: { flags: ["loan_default"] },
+      sourceSpan: "채무불이행 기업은 제외",
+      confirmation: confirmation("질문 B"),
+    }),
+  ]);
+  const plan = planGrantPromotion({
+    run: duplicateRun,
+    review: fixtureReview([
+      { criterionIndex: 0, verdict: "correct", note: null },
+      { criterionIndex: 1, verdict: "correct", note: null },
+    ]),
+    origin: "human",
+    sidecar: null,
+  });
+  assert.equal(plan.criteria.length, 0);
+  assert.equal(plan.questions.length, 0);
+  assert.equal(plan.droppedQuestionCandidates, 2);
+  assert.match(plan.conversion.error ?? "", /duplicate_semantic_criterion/);
+  assert.deepEqual(plan.conversion.items?.map((item) => item.criterionIndex), [0, 1]);
 }
 
 // ---- sourceSpanHash — 정규화(NFC·공백 접기) ------------------------------------------
@@ -564,9 +683,36 @@ const baseSidecar = fixtureSidecar([
     ...okPlan,
     grantId: "g-empty",
     criteria: [],
-    conversion: { ...okPlan.conversion, converted: 0 },
+    conversion: {
+      ...okPlan.conversion,
+      inputRows: 0,
+      converted: 0,
+      downgraded: 0,
+      dropped: 0,
+      items: [],
+    },
   };
-  const guarded = applyPublishGuards([okPlan, answeredPlan, errorPlan, emptyPlan]);
+  const { items: _items, ...v3MissingItems } = okPlan.conversion;
+  const missingItemsPlan: GrantPromotionPlan = {
+    ...okPlan,
+    grantId: "g-v3-missing-items",
+    conversion: v3MissingItems,
+  };
+  const mixedMissingItemsPlan: GrantPromotionPlan = {
+    ...okPlan,
+    grantId: "g-mixed-v3-missing-items",
+    origin: "pending",
+    auditState: "mixed_resolution",
+    conversion: v3MissingItems,
+  };
+  const guarded = applyPublishGuards([
+    okPlan,
+    answeredPlan,
+    errorPlan,
+    emptyPlan,
+    missingItemsPlan,
+    mixedMissingItemsPlan,
+  ]);
   assert.deepEqual(
     guarded.publishable.map((plan) => plan.grantId),
     [okPlan.grantId, "g-answered"],
@@ -577,7 +723,10 @@ const baseSidecar = fixtureSidecar([
     [
       ["g-error", "conversion_error"],
       ["g-empty", "empty_criteria"],
+      ["g-v3-missing-items", "conversion_error"],
+      ["g-mixed-v3-missing-items", "conversion_error"],
     ],
+    "human/mixed 신규 plan은 v3 item accounting 누락을 모두 거부한다",
   );
   assert.match(guarded.refused[0]!.detail, /계약 실패/);
 }

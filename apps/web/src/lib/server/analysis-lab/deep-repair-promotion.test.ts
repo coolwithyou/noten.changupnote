@@ -196,6 +196,38 @@ assert.deepEqual(
   },
   "실제 matcher plan이 비거나 변환 실패면 publishable run도 보류한다",
 );
+assert.deepEqual(
+  guardDeepRepairPromotionPlan(readyForPlan, {
+    criteria: [{
+      id: "lab-shadow:PBLN_DEEP_REPAIR:llm-1",
+      grant_id: "PBLN_DEEP_REPAIR",
+      dimension: "region",
+      operator: "text_only",
+      kind: "required",
+      value: { note: "서울 소재" },
+      confidence: 0.9,
+    }],
+    conversion: {
+      contractVersion: "analysis-lab-shadow-conversion-v3",
+      grantId,
+      runId,
+      verdicts: { correct: 1, needs_edit: 0, wrong: 0, unsure: 0 },
+      missedConditions: 0,
+      inputRows: 1,
+      converted: 1,
+      downgraded: 0,
+      dropped: 0,
+      error: null,
+    },
+    scopeRejectedCriterionIndexes: [],
+  }),
+  {
+    ...readyForPlan,
+    disposition: "held",
+    reasons: ["promotion_conversion_drop"],
+  },
+  "deep-repair 소비자는 v3 item accounting 누락을 fail-closed한다",
+);
 
 const sourceArtifact: PromotionSourceArtifact = {
   grantId,

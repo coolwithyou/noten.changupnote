@@ -14,35 +14,48 @@
 // needs_edit/wrong/unsure 는 구조화된 수정값이 없어 변환하지 않고 건수만 보고한다.
 // missed_condition(누락 조건)도 마찬가지 — 후 지표가 하한 추정인 이유(계획 §7).
 import type { GrantCriterion } from "@cunote/contracts";
+import { normalizeGrantLlmCriteria } from "@cunote/core/bizinfo/llm-criteria";
 import {
   nonMatchingCriterionReason,
-  normalizeGrantLlmCriteria,
-} from "@cunote/core";
+} from "@cunote/core/criteria/matching-scope";
+import {
+  criterionSemanticIdentity,
+  readCriterionDowngradeProvenance,
+} from "@cunote/core/criteria/semantic-identity";
 import type { LabCriterion, LabReview, LabRun } from "@/lib/server/analysis-lab/lab-contract";
+import {
+  MATCHING_CONVERSION_CONTRACT_VERSION,
+  inspectMatchingConversionReport,
+  matchingConversionIsPromotionSafe,
+  type MatchingConversionItemReport,
+  type MatchingConversionItemStatus,
+  type MatchingConversionReport,
+} from "@/lib/server/analysis-serving/matchingConversionContract";
 
 export const ANALYSIS_LAB_SHADOW_SOURCE_PREFIX = "lab-shadow";
-export const ANALYSIS_LAB_SHADOW_PARSER_VERSION = "analysis-lab-shadow-v2";
+export const ANALYSIS_LAB_SHADOW_PARSER_VERSION = "analysis-lab-shadow-v3";
+export const ANALYSIS_LAB_SHADOW_CONVERSION_CONTRACT_VERSION =
+  MATCHING_CONVERSION_CONTRACT_VERSION;
 /** 변환 산출 criterion 의 source_field — 현행 파이프라인 산출과 육안 구분용. */
 export const ANALYSIS_LAB_SHADOW_SOURCE_FIELD = "analysis_lab_deep";
 
-/** 공고(런) 1건의 변환 보고 — 손실을 은폐하지 않고 전량 집계한다. */
-export interface ShadowConversionReport {
-  grantId: string;
-  runId: string;
-  /** 검수 verdict 별 건수. correct 만 변환 대상이다. */
-  verdicts: { correct: number; needs_edit: number; wrong: number; unsure: number };
-  /** axisReviews 의 missed_condition 수 — 섀도 미반영(하한 추정 caveat 재료). */
-  missedConditions: number;
-  /** correct 중 run.criteria 인덱스가 유효해 변환 입력 row 가 된 수. */
-  inputRows: number;
-  /** 변환 산출 criterion 수(강등 포함). */
-  converted: number;
-  /** 강등(other/text_only 다운그레이드 또는 region 방어) 수 — needs_review=true 산출분. */
-  downgraded: number;
-  /** 탈락(normalize 가 null 반환) 수. 변환 전체 실패(error≠null) 시엔 입력 전량. */
-  dropped: number;
-  /** assertGrantCriteriaContract 등 변환 전체 실패 사유 — 공고 단위로 격리한다. */
-  error: string | null;
+export type ShadowConversionItemStatus = MatchingConversionItemStatus;
+export type ShadowConversionItemReport = MatchingConversionItemReport;
+export type ShadowConversionReport = MatchingConversionReport;
+export const inspectShadowConversionReport = inspectMatchingConversionReport;
+export const shadowConversionIsPromotionSafe = matchingConversionIsPromotionSafe;
+
+/**
+ * 역사 human/mixed release shadow는 scope 목록 도입 전부터 error 없음·drop 0을 허용했다.
+ * 신규 v3는 공용 항목 accounting을 강제하되 진짜 무버전 report의 기존 shadow 정책만 보존한다.
+ */
+export function shadowConversionIsGenericReleaseSafe(
+  input: Parameters<typeof matchingConversionIsPromotionSafe>[0],
+): boolean {
+  const legacy = input.report.contractVersion === undefined && input.report.items === undefined;
+  return legacy
+    ? input.report.error === null && input.report.dropped === 0
+    : matchingConversionIsPromotionSafe(input);
 }
 
 export interface ShadowConversionResult {
@@ -114,6 +127,12 @@ export interface LabCriterionSelection {
   needsReview: boolean;
 }
 
+/** 실제 변환기가 필요한 최소 원천. primary 직후 projection이 완성 LabRun을 가장하지 않는다. */
+export type LabMatchingProjectionSource = Pick<
+  LabRun,
+  "runId" | "grantId" | "sourceId" | "criteria"
+>;
+
 /**
  * 검수 확정 런 1건을 섀도 매칭용 GrantCriterion[] 으로 변환한다.
  * 계약 검증(assertGrantCriteriaContract)이 throw 하면 공고 단위로 실패를 report 에
@@ -142,44 +161,147 @@ export function convertReviewedLabRun(run: LabRun, review: LabReview): ShadowCon
  * pending은 true로 같은 normalize 호출에 함께 넣어 순서와 llm-N id 매핑을 보존한다.
  */
 export function convertSelectedLabCriteria(
-  run: LabRun,
+  run: LabMatchingProjectionSource,
   input: {
     selections: LabCriterionSelection[];
     verdicts?: ShadowConversionReport["verdicts"];
     missedConditions?: number;
   },
 ): ShadowConversionResult {
-  const selected = input.selections.flatMap(({ criterionIndex, needsReview }) => {
-    const criterion = run.criteria[criterionIndex];
-    return criterion ? [{ criterion, needsReview }] : [];
-  });
-  const rows = selected.flatMap(({ criterion, needsReview }) => (
-    isIndustryJobFieldMisclassification(criterion)
-      ? []
-      : [toLlmRow(criterion, needsReview)]
-  ));
+  interface Candidate {
+    criterionIndex: number;
+    source: LabCriterion;
+    projected: GrantCriterion;
+    report: ShadowConversionItemReport;
+  }
+  const candidates: Candidate[] = [];
+  const items: ShadowConversionItemReport[] = input.selections.map((selection, selectionPosition) => {
+    const source = run.criteria[selection.criterionIndex];
+    const base: ShadowConversionItemReport = {
+      selectionPosition,
+      criterionIndex: selection.criterionIndex,
+      needsReview: selection.needsReview,
+      status: "failed",
+      reason: null,
+      scopeReason: null,
+      outputPosition: null,
+      outputCriterionId: null,
+      relatedCriterionIndexes: [],
+      source: source
+        ? { dimension: source.dimension, kind: source.kind, operator: source.operator }
+        : null,
+      projected: null,
+    };
+    if (!source) {
+      base.reason = "criterion_index_out_of_range";
+      return base;
+    }
 
-  let criteria: GrantCriterion[] = [];
-  let error: string | null = null;
-  try {
-    criteria = normalizeGrantLlmCriteria({ criteria: rows }, run.sourceId, {
-      sourcePrefix: ANALYSIS_LAB_SHADOW_SOURCE_PREFIX,
-      parserVersion: ANALYSIS_LAB_SHADOW_PARSER_VERSION,
-      contractLabel: `lab-shadow:${run.sourceId}`,
-      forceNeedsReview: false,
+    const scopeReason = nonMatchingCriterionReason({
+      dimension: source.dimension,
+      operator: source.operator,
+      kind: source.kind,
+      value: source.value,
+      note: source.note,
+      source_span: source.sourceSpan,
     });
-  } catch (caught) {
-    criteria = [];
-    error = caught instanceof Error ? caught.message : String(caught);
+    if (scopeReason !== null) {
+      base.status = "scope_rejected";
+      base.reason = scopeReason;
+      base.scopeReason = scopeReason;
+      return base;
+    }
+
+    try {
+      const normalized = normalizeGrantLlmCriteria({
+        criteria: [toLlmRow(source, selection.needsReview)],
+      }, run.sourceId, {
+        sourcePrefix: ANALYSIS_LAB_SHADOW_SOURCE_PREFIX,
+        parserVersion: ANALYSIS_LAB_SHADOW_PARSER_VERSION,
+        contractLabel: `lab-shadow:${run.sourceId}:criterion-${selection.criterionIndex}`,
+        forceNeedsReview: false,
+      });
+      if (normalized.length !== 1) {
+        base.status = "dropped";
+        base.reason = normalized.length === 0
+          ? "normalizer_returned_no_criterion"
+          : `normalizer_returned_${normalized.length}_criteria`;
+        return base;
+      }
+      const projected: GrantCriterion = {
+        ...normalized[0]!,
+        // 산출 순번이 아니라 불변 원본 index를 id에 결속한다. 소비자는 이 문자열을 역산하지 않는다.
+        id: `${ANALYSIS_LAB_SHADOW_SOURCE_PREFIX}:${run.sourceId}:llm-${selection.criterionIndex + 1}`,
+      };
+      const downgradeReason = conversionDowngradeReason(projected);
+      base.status = downgradeReason === null ? "converted" : "downgraded";
+      base.reason = downgradeReason;
+      base.projected = {
+        dimension: projected.dimension,
+        kind: projected.kind,
+        operator: projected.operator,
+      };
+      candidates.push({
+        criterionIndex: selection.criterionIndex,
+        source,
+        projected,
+        report: base,
+      });
+      return base;
+    } catch (caught) {
+      base.status = "failed";
+      base.reason = caught instanceof Error ? caught.message : String(caught);
+      return base;
+    }
+  });
+
+  // normalize 후 의미가 완전히 같은 조건은 질문/provenance 중 하나를 임의 선택하지 않는다.
+  // 양쪽을 명시 보류해 이후 검수가 어느 원본 index를 해소해야 하는지 보존한다.
+  const duplicateGroups = new Map<string, Candidate[]>();
+  for (const candidate of candidates) {
+    const key = criterionSemanticIdentity(candidate.projected);
+    const group = duplicateGroups.get(key) ?? [];
+    group.push(candidate);
+    duplicateGroups.set(key, group);
+  }
+  const heldCandidates = new Set<Candidate>();
+  for (const group of duplicateGroups.values()) {
+    if (group.length < 2) continue;
+    const criterionIndexes = group.map((candidate) => candidate.criterionIndex);
+    for (const candidate of group) {
+      heldCandidates.add(candidate);
+      candidate.report.status = "held_duplicate";
+      candidate.report.reason = "duplicate_semantic_criterion";
+      candidate.report.relatedCriterionIndexes = criterionIndexes.filter(
+        (criterionIndex) => criterionIndex !== candidate.criterionIndex,
+      );
+      candidate.report.projected = null;
+    }
   }
 
-  // 강등 판별: 정상 변환분은 needs_review=false(위 계약), 강등 3경로(M4 예약축·M1 span
-  // 부재·region 방어)는 모두 needs_review=true 로 산출된다 — 값 하나로 판별 가능.
-  const downgraded = criteria.filter((criterion) => criterion.needs_review === true).length;
+  const publishedCandidates = candidates.filter((candidate) => !heldCandidates.has(candidate));
+  const criteria = publishedCandidates.map((candidate, outputPosition) => {
+    candidate.report.outputPosition = outputPosition;
+    candidate.report.outputCriterionId = candidate.projected.id ?? null;
+    return candidate.projected;
+  });
+  const blockingItems = items.filter((item) => (
+    item.status === "failed" || item.status === "held_duplicate"
+  ));
+  const error = blockingItems.length === 0
+    ? null
+    : blockingItems
+        .map((item) => `criterion[${item.criterionIndex}]:${item.reason ?? item.status}`)
+        .join("; ");
+  const downgraded = items.filter((item) => item.status === "downgraded").length;
+  const dropped = items.filter((item) => (
+    item.status !== "converted" && item.status !== "downgraded"
+  )).length;
 
   return {
     criteria,
     report: {
+      contractVersion: ANALYSIS_LAB_SHADOW_CONVERSION_CONTRACT_VERSION,
       grantId: run.grantId,
       runId: run.runId,
       verdicts: input.verdicts ?? {
@@ -189,23 +311,19 @@ export function convertSelectedLabCriteria(
         unsure: input.selections.filter((item) => item.needsReview).length,
       },
       missedConditions: input.missedConditions ?? 0,
-      inputRows: selected.length,
+      inputRows: items.length,
       converted: criteria.length,
       downgraded,
-      dropped: error === null ? selected.length - criteria.length : selected.length,
+      dropped,
       error,
+      items,
     },
   };
 }
 
-function isIndustryJobFieldMisclassification(criterion: LabCriterion): boolean {
-  const reason = nonMatchingCriterionReason({
-    dimension: criterion.dimension,
-    operator: criterion.operator,
-    kind: criterion.kind,
-    value: criterion.value,
-    note: criterion.note,
-    source_span: criterion.sourceSpan,
-  });
-  return reason === "program_job_field" || reason === "unresolved_industry_job_field";
+function conversionDowngradeReason(projected: GrantCriterion): string | null {
+  const provenance = readCriterionDowngradeProvenance(projected);
+  if (!provenance) return null;
+  const value = record(projected.value);
+  return typeof value.downgrade_reason === "string" ? value.downgrade_reason : null;
 }
