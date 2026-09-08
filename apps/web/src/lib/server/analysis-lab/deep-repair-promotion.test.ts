@@ -5,6 +5,7 @@ import {
   classifyDeepRepairPromotionReadiness,
   DEEP_REPAIR_PROMOTION_READINESS_SCHEMA,
   guardDeepRepairPromotionPlan,
+  isCurrentGrantApplicationOpen,
   selectDeepRepairReceiptChain,
 } from "./deep-repair-promotion";
 import type { GrantPromotionPlan } from "./promote";
@@ -27,6 +28,35 @@ import {
 const grantId = "00000000-0000-4000-8000-000000000021";
 const runId = "run-2026-08-16T110956.775Z-6561c7";
 const sha = (char: string) => char.repeat(64);
+
+const applicationNow = new Date("2026-07-23T14:59:59.999Z");
+const applicationOpen = (overrides: Partial<Parameters<typeof isCurrentGrantApplicationOpen>[0]> = {}) =>
+  isCurrentGrantApplicationOpen({
+    status: "open",
+    applyStart: new Date("2026-07-23T00:00:00.000Z"),
+    applyEnd: new Date("2026-07-23T00:00:00.000Z"),
+    source: "bizinfo",
+    rawPayload: {},
+    now: applicationNow,
+    ...overrides,
+  });
+
+assert.equal(applicationOpen(), true, "KST 마감 당일은 current application open");
+assert.equal(applicationOpen({ applyStart: null, applyEnd: null }), true, "기간 미지정 기존 정책 유지");
+assert.equal(applicationOpen({ applyStart: new Date("2026-07-24T00:00:00.000Z") }), false);
+assert.equal(applicationOpen({ applyEnd: new Date("2026-07-22T00:00:00.000Z") }), false);
+assert.equal(applicationOpen({ applyStart: new Date("invalid") }), false);
+assert.equal(applicationOpen({ applyEnd: new Date("invalid") }), false);
+assert.equal(applicationOpen({
+  applyStart: new Date("2026-07-24T00:00:00.000Z"),
+  applyEnd: new Date("2026-07-23T00:00:00.000Z"),
+}), false, "역전된 기간은 current evidence에서 차단");
+assert.equal(applicationOpen({ now: new Date("2026-07-23T15:00:00.000Z") }), false);
+assert.equal(applicationOpen({ status: "closed" }), false);
+assert.equal(applicationOpen({
+  source: "kstartup",
+  rawPayload: { rcrt_prgs_yn: "N" },
+}), false, "K-Startup 모집종료 payload 가드는 유지");
 
 assert.doesNotThrow(() => assertDeepRepairReceiptChain([
   {

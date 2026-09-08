@@ -3,6 +3,7 @@ import { readdir, readFile } from "node:fs/promises";
 import { basename, join, relative, resolve } from "node:path";
 import { and, eq, inArray } from "drizzle-orm";
 import type { LabRun } from "@/lib/server/analysis-lab/lab-contract";
+import type { Grant } from "@cunote/contracts";
 import { getCunoteDb } from "../db/client";
 import * as schema from "../db/schema";
 import { prepareDeepAnalysisInput } from "../deep-analysis/prepareInput";
@@ -36,6 +37,7 @@ import type { PromotionCandidate } from "./promotion-candidates";
 import { analysisLabDir, findMonorepoRoot } from "./run-store";
 import { isPublishableLabRun } from "./run-outcome";
 import { shadowConversionIsPromotionSafe } from "./shadow-convert";
+import { isNoticeApplicationOpen } from "./notice-period";
 import {
   indexManualConfirmationEvaluationSelectors,
   resolveManualConfirmationEvaluationsForPreparation,
@@ -789,9 +791,14 @@ export async function loadCurrentGrantEvidence(run: LabRun, now: Date): Promise<
   if (!assembled.attachmentManifestSha256) {
     throw new Error(`current attachment manifest를 재조립할 수 없습니다: ${run.grantId}`);
   }
-  const applicationOpen = grant.status === "open"
-    && isDateOpen(grant.applyEnd, now)
-    && !isKStartupRecruitmentClosedPayload(grant.source, raw?.payload);
+  const applicationOpen = isCurrentGrantApplicationOpen({
+    status: grant.status,
+    applyStart: grant.applyStart,
+    applyEnd: grant.applyEnd,
+    source: grant.source,
+    rawPayload: raw?.payload,
+    now,
+  });
   return {
     sourceRevisionSha256: operational.sourceRevisionSha256,
     sourceRawSha256: raw.rawHash,
@@ -806,15 +813,17 @@ export async function loadCurrentGrantEvidence(run: LabRun, now: Date): Promise<
   };
 }
 
-function isDateOpen(applyEnd: Date | null, now: Date): boolean {
-  if (!applyEnd) return true;
-  const formatter = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Seoul",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  });
-  return formatter.format(applyEnd) >= formatter.format(now);
+export function isCurrentGrantApplicationOpen(input: {
+  status: string;
+  applyStart: Date | null;
+  applyEnd: Date | null;
+  source: Grant["source"];
+  rawPayload: unknown;
+  now: Date;
+}): boolean {
+  return input.status === "open"
+    && isNoticeApplicationOpen(input.applyStart, input.applyEnd, input.now)
+    && !isKStartupRecruitmentClosedPayload(input.source, input.rawPayload);
 }
 
 function safeSeriesId(value: string): string {

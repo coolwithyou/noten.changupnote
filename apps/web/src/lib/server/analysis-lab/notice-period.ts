@@ -63,6 +63,55 @@ export function classifyNoticePeriod(
   return "eligible";
 }
 
+/**
+ * 현재 지원 가능한 공고인지 보는 promotion용 기간 판정.
+ *
+ * 기간 null은 기존 상시/미지정 공고 정책대로 열어 두되, 존재하는 날짜가 잘못됐거나
+ * 시작일이 마감일보다 늦으면 fail-closed한다. 날짜 경계는 classifyNoticePeriod와 같은
+ * KST 캘린더 일 규약을 사용해 시작일·마감일 당일을 모두 포함한다.
+ * string/Date는 이 모듈 헤더의 저장 계약대로 각각 YYYY-MM-DD 또는 그 달력일의 UTC 자정만
+ * 허용한다. 타임존이 붙은 임의 시각을 암묵적으로 다른 달력일로 바꾸지 않는다.
+ */
+export function isNoticeApplicationOpen(
+  applyStart: string | Date | null,
+  applyEnd: string | Date | null,
+  now: Date = new Date(),
+): boolean {
+  const start = parseOptionalNoticeDate(applyStart);
+  const end = parseOptionalNoticeDate(applyEnd);
+  if (!start.valid || !end.valid) return false;
+  if (start.value && end.value && start.value.getTime() > end.value.getTime()) return false;
+
+  const dayStartMs = kstDayStartUtc(now).getTime();
+  if (!Number.isFinite(dayStartMs)) return false;
+  if (start.value && start.value.getTime() >= dayStartMs + DAY_MS) return false;
+  if (end.value && end.value.getTime() < dayStartMs) return false;
+  return true;
+}
+
+function parseOptionalNoticeDate(
+  value: string | Date | null,
+): { valid: boolean; value: Date | null } {
+  if (value === null) return { valid: true, value: null };
+  if (typeof value === "string") {
+    const storedDate = /^(\d{4}-\d{2}-\d{2})(?:T00:00:00(?:\.000)?Z)?$/u.exec(value);
+    const date = storedDate ? parseDateInputToUtc(storedDate[1]!) : null;
+    return date
+      ? { valid: true, value: date }
+      : { valid: false, value: null };
+  }
+  if (
+    !Number.isFinite(value.getTime())
+    || value.getUTCHours() !== 0
+    || value.getUTCMinutes() !== 0
+    || value.getUTCSeconds() !== 0
+    || value.getUTCMilliseconds() !== 0
+  ) {
+    return { valid: false, value: null };
+  }
+  return { valid: true, value };
+}
+
 const DATE_INPUT_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
 /**
