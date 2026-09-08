@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { toast } from "sonner";
 import type {
   ActionResult,
@@ -40,6 +40,41 @@ import {
   type Status,
 } from "./logic";
 
+export const OWNED_PROFILE_NOTICE =
+  "여기서 직접 입력한 답변은 내 계정의 개인 매칭 정보로 저장되며, 같은 회사의 다른 구성원과 공유되지 않습니다.";
+export const OWNED_PROFILE_SAVED_NOTICE =
+  "직접 입력한 답변이 내 계정의 개인 매칭 정보로 저장됐어요. 같은 회사의 다른 구성원과 공유되지 않습니다.";
+
+export interface ProfileDrawerState {
+  open: boolean;
+  enteredCompanyIds: ReadonlySet<string>;
+}
+
+export type ProfileDrawerAction =
+  | { type: "set_open"; open: boolean }
+  | {
+      type: "company_loaded";
+      companyId: string;
+      basicProfileMissing: boolean;
+      confirmationEntry: boolean;
+    };
+
+export function profileDrawerReducer(
+  state: ProfileDrawerState,
+  action: ProfileDrawerAction,
+): ProfileDrawerState {
+  if (action.type === "set_open") {
+    return state.open === action.open ? state : { ...state, open: action.open };
+  }
+  if (state.enteredCompanyIds.has(action.companyId)) return state;
+  const enteredCompanyIds = new Set(state.enteredCompanyIds);
+  enteredCompanyIds.add(action.companyId);
+  return {
+    open: state.open || (action.basicProfileMissing && !action.confirmationEntry),
+    enteredCompanyIds,
+  };
+}
+
 export function MatchResultsExperience() {
   const [status, setStatus] = useState<Status>("loading");
   const [teaser, setTeaser] = useState<ProductTeaserResult | null>(null);
@@ -52,7 +87,10 @@ export function MatchResultsExperience() {
   const [answers, setAnswers] = useState<MatchingProfileAnswerRequest[]>([]);
   const [profileSubmitting, setProfileSubmitting] = useState(false);
   const [continuing, setContinuing] = useState(false);
-  const [profileOpen, setProfileOpen] = useState(false);
+  const [profileDrawer, dispatchProfileDrawer] = useReducer(profileDrawerReducer, undefined, () => ({
+    open: false,
+    enteredCompanyIds: new Set<string>(),
+  }));
   const [answerImpact, setAnswerImpact] = useState<AnswerImpactSummary | null>(null);
   const [answeredQuestionIdentities, setAnsweredQuestionIdentities] = useState<Set<string>>(
     () => new Set(),
@@ -69,7 +107,7 @@ export function MatchResultsExperience() {
     ownedRequestRef.current = result.companyId;
     setTeaser(result.teaser);
     setAnswers(result.unknownDimensions.map((field) => ({ field, unknown: true })));
-    setDraftNotice("계정에 저장된 정보입니다. 답변을 반영할 때마다 이 회사에 저장됩니다.");
+    setDraftNotice(OWNED_PROFILE_NOTICE);
     setStatus("ready");
   }, []);
 
@@ -84,7 +122,12 @@ export function MatchResultsExperience() {
       const params = new URLSearchParams(window.location.search);
       params.set("companyId", result.companyId);
       window.history.replaceState(null, "", `/matches?${params}${window.location.hash}`);
-      if (!params.has("confirm") && buildProfileCompletion(result.teaser.profileView).remaining.length > 0) setProfileOpen(true);
+      dispatchProfileDrawer({
+        type: "company_loaded",
+        companyId: result.companyId,
+        basicProfileMissing: buildProfileCompletion(result.teaser.profileView).remaining.length > 0,
+        confirmationEntry: params.has("confirm"),
+      });
     } catch (caught) {
       if (seq !== requestSeqRef.current) return;
       setError(caught instanceof TeaserError ? caught : new TeaserError("저장된 정보를 불러오지 못했어요. 다시 시도해주세요.", null));
@@ -150,7 +193,7 @@ export function MatchResultsExperience() {
         if (!nextTeaser) throw new Error("답변을 반영하지 못했어요. 다시 시도해주세요.");
         if (ownedResult) {
           acceptOwnedMatching(ownedResult);
-          setDraftNotice("답변이 이 회사에 저장됐어요. 다시 방문해도 이어갈 수 있습니다.");
+          setDraftNotice(OWNED_PROFILE_SAVED_NOTICE);
         } else {
           setAnswers(nextAnswers);
           const stored = bizNo && writeProfileDraft(profileDraftStorage(), bizNo, nextAnswers);
@@ -228,14 +271,14 @@ export function MatchResultsExperience() {
     setAnsweredQuestionIdentities(new Set());
     void loadTeaser({ bizNo: digits, ...(restoredAnswers.length ? { answers: restoredAnswers } : {}) }).then((result) => {
       if (result && !params.has("confirm") && buildProfileCompletion(result.profileView).remaining.length > 0) {
-        setProfileOpen(true);
+        dispatchProfileDrawer({ type: "set_open", open: true });
       }
     });
     return () => { requestSeqRef.current += 1; };
   }, [loadTeaser, loadCompanyMatching]);
 
   useEffect(() => {
-    const openFromHash = () => setProfileOpen(window.location.hash === "#profile");
+    const openFromHash = () => dispatchProfileDrawer({ type: "set_open", open: window.location.hash === "#profile" });
     openFromHash();
     window.addEventListener("hashchange", openFromHash);
     return () => window.removeEventListener("hashchange", openFromHash);
@@ -363,7 +406,7 @@ export function MatchResultsExperience() {
             {noMatchingGrants ? (
               <NoMatchingGrantsState
                 onSubscribe={() => void saveAndContinue()}
-                onOpenProfile={() => setProfileOpen(true)}
+                onOpenProfile={() => dispatchProfileDrawer({ type: "set_open", open: true })}
                 saving={continuing}
               />
             ) : (
@@ -381,7 +424,7 @@ export function MatchResultsExperience() {
                   companyId={companyId}
                   virtualBizNo={bizNo && isVirtualCompanyBizNo(bizNo) ? bizNo : null}
                   onPrepare={saveAndContinue}
-                  onOpenProfile={() => setProfileOpen(true)}
+                  onOpenProfile={() => dispatchProfileDrawer({ type: "set_open", open: true })}
                   preparing={continuing}
                   newGrantIds={new Set(answerImpact?.newlyOpenGrantIds ?? [])}
                   onConfirmationSaved={applyConfirmationResult}
@@ -400,7 +443,7 @@ export function MatchResultsExperience() {
                   <Button
                     type="button"
                     variant="ghost"
-                    onClick={() => setProfileOpen(true)}
+                    onClick={() => dispatchProfileDrawer({ type: "set_open", open: true })}
                     className="mx-auto mt-7 flex h-auto max-w-full rounded-full border border-border-subtle bg-surface-soft px-[22px] py-2.5 text-center text-sm font-medium whitespace-normal text-text-secondary hover:bg-surface-muted"
                   >
                     {profileCoverageLabel(coverage)} ·
@@ -413,8 +456,8 @@ export function MatchResultsExperience() {
               teaser={teaser}
               onAnswer={applyAnswer}
               submitting={profileSubmitting || continuing}
-              open={profileOpen}
-              onOpenChange={setProfileOpen}
+              open={profileDrawer.open}
+              onOpenChange={(open) => dispatchProfileDrawer({ type: "set_open", open })}
               answerImpact={answerImpact}
               answers={answers}
               draftNotice={draftNotice}
