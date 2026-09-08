@@ -30,4 +30,14 @@ import {
   assert.equal(state.consecutiveFailures, 2, "치명 실패 뒤 성공 응답이 상태를 되돌리면 안 된다");
 }
 
+{
+  const state = initialLeaseRenewalFailureState();
+  assert.deepEqual(
+    recordLeaseRenewalFailure(state, "confirmed owner loss", "confirmed_lease_loss"),
+    { shouldAbort: true, consecutiveFailures: 1 },
+    "DB가 확정한 lease 상실은 일시 오류 유예를 적용하면 안 된다",
+  );
+  assert.equal(state.fatalErrorMessage, "confirmed owner loss");
+}
+
 console.log("analysis-lab lease renewal policy tests: ok");
