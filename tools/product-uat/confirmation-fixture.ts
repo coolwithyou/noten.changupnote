@@ -20,15 +20,27 @@ import { createDrizzlePromotionPort } from "../../apps/web/src/lib/server/analys
 import { restoreBeforeSnapshot } from "../../apps/web/src/lib/server/analysis-lab/promotion-rollback";
 import {
   loadPromotionGrantSnapshot,
+  promotionGrantSnapshotHashes,
   promotionGrantSnapshotStateSha256,
   type PromotionGrantSnapshot,
 } from "../../apps/web/src/lib/server/analysis-serving/promotionSnapshot";
-import { sha256Canonical } from "../../apps/web/src/lib/server/analysis-serving/promotionReleaseContract";
+import {
+  createPromotionReleaseManifest,
+  planSha256,
+  sha256Canonical,
+  VERIFIED_LOCAL_LAB_SOURCE_SCHEMA,
+  type PromotionReleasePlanItem,
+  type PromotionSourceArtifact,
+} from "../../apps/web/src/lib/server/analysis-serving/promotionReleaseContract";
 
 const FIXTURE = {
   grantId: "40000000-0000-4000-8000-000000000001",
   sourceId: "local-product-uat-confirmations",
   title: "격리 확인질문 인수 공고",
+  servingGrantId: "40000000-0000-4000-8000-000000000002",
+  servingSourceId: "local-product-uat-serving-confirmations",
+  servingTitle: "격리 정상 노출 확인질문 공고",
+  servingReleaseId: "local-product-uat-serving-r1",
   rollbackPath: "confirmation-before-r2-snapshot.json",
 } as const;
 
@@ -67,15 +79,36 @@ try {
 }
 
 async function publishInitialFixture() {
-  const existing = await sql`select id from grants where id=${FIXTURE.grantId}`;
+  const existing = await sql`select id from grants where id in (${FIXTURE.grantId},${FIXTURE.servingGrantId})`;
   assert.equal(existing.length, 0, "r1 fixture는 새 격리 DB에 한 번만 발행한다");
   await sql`insert into grants(id,source,source_id,title,status,serving_state,overall_confidence)
-    values (${FIXTURE.grantId},'bizinfo',${FIXTURE.sourceId},${FIXTURE.title},'open','visible',1)`;
+    values
+      (${FIXTURE.grantId},'bizinfo',${FIXTURE.sourceId},${FIXTURE.title},'open','visible',1),
+      (${FIXTURE.servingGrantId},'bizinfo',${FIXTURE.servingSourceId},${FIXTURE.servingTitle},'open','visible',1)`;
   await sql`insert into grant_raw(source,source_id,payload,attachments,raw_hash,status)
-    values ('bizinfo',${FIXTURE.sourceId},'{}','[]',${"c".repeat(64)},'normalized')`;
+    values
+      ('bizinfo',${FIXTURE.sourceId},'{}','[]',${"c".repeat(64)},'normalized'),
+      ('bizinfo',${FIXTURE.servingSourceId},'{}','[]',${"d".repeat(64)},'normalized')`;
   const plans = await buildPlans();
-  const publication = await createDrizzlePromotionPort(db, []).publishGrant(plans.r1);
-  return { fixture: FIXTURE, publication, state: await inspectFixture() };
+  const before = new Map([
+    [FIXTURE.grantId, await loadPromotionGrantSnapshot(db, FIXTURE.grantId, [])],
+    [FIXTURE.servingGrantId, await loadPromotionGrantSnapshot(db, FIXTURE.servingGrantId, [])],
+  ]);
+  const publication = {
+    confirmation: await createDrizzlePromotionPort(db, []).publishGrant(plans.r1),
+    serving: await createDrizzlePromotionPort(db, []).publishGrant(plans.serving),
+  };
+  const after = new Map([
+    [FIXTURE.grantId, await loadPromotionGrantSnapshot(db, FIXTURE.grantId, [])],
+    [FIXTURE.servingGrantId, await loadPromotionGrantSnapshot(db, FIXTURE.servingGrantId, [])],
+  ]);
+  const servingRegistry = await publishServingRegistry({
+    plans: [plans.r1, plans.serving],
+    sourceArtifacts: plans.releaseSources,
+    before,
+    after,
+  });
+  return { fixture: FIXTURE, publication, servingRegistry, state: await inspectFixture() };
 }
 
 async function publishRevision2() {
@@ -111,11 +144,98 @@ async function rollbackRevision2() {
   });
   const restored = await loadPromotionGrantSnapshot(db, FIXTURE.grantId, []);
   assert.equal(promotionGrantSnapshotStateSha256(restored), promotionGrantSnapshotStateSha256(before));
+  const [registered] = await sql<Array<{ after_sha256: string | null }>>`
+    select item.after_sha256
+    from analysis_lab_promotion_items item
+    join analysis_lab_promotion_releases release on release.id=item.release_db_id
+    where item.grant_id=${FIXTURE.grantId}
+      and item.status='applied'
+      and release.release_id=${FIXTURE.servingReleaseId}
+  `;
+  assert.equal(
+    registered?.after_sha256,
+    promotionGrantSnapshotStateSha256(restored),
+    "rollback 뒤 required-other 음성 fixture도 serving registry의 exact r1 snapshot과 일치해야 합니다",
+  );
   return {
     fixture: FIXTURE,
     rollbackPath,
     restoredSnapshotSha256: promotionGrantSnapshotStateSha256(restored),
+    servingRegistrySnapshotMatched: true,
     state: await inspectFixture(),
+  };
+}
+
+async function publishServingRegistry(input: {
+  plans: GrantPromotionPlan[];
+  sourceArtifacts: PromotionSourceArtifact[];
+  before: ReadonlyMap<string, PromotionGrantSnapshot>;
+  after: ReadonlyMap<string, PromotionGrantSnapshot>;
+}) {
+  const planItems: PromotionReleasePlanItem[] = input.plans.map((plan) => {
+    const before = input.before.get(plan.grantId);
+    assert.ok(before);
+    const hashes = promotionGrantSnapshotHashes(before);
+    return {
+      grantId: plan.grantId,
+      planSha256: planSha256(plan),
+      promotionPlan: plan,
+      beforeCriteriaSha256: hashes.criteriaSha256,
+      beforeQuestionsSha256: hashes.questionsSha256,
+      dedupComponentSha256: hashes.dedupComponentSha256,
+      criteriaCountBefore: before.criteria.length,
+      criteriaCountAfter: plan.criteria.length,
+      questionCountAfter: plan.questions.length,
+      pendingCount: 0,
+      downgradedCount: plan.conversion.downgraded,
+      transport: "claude-cli",
+      costUsd: null,
+    };
+  });
+  const manifest = createPromotionReleaseManifest({
+    releaseId: FIXTURE.servingReleaseId,
+    revision: 1,
+    createdAt: "2026-09-08T00:05:00.000Z",
+    gitCommit: "0".repeat(40),
+    buildDigest: "1".repeat(40),
+    cohortLabel: "local-product-uat-serving",
+    canaryGrantIds: [FIXTURE.grantId, FIXTURE.servingGrantId],
+    sourceArtifacts: input.sourceArtifacts,
+    plans: planItems,
+  });
+  assert.equal(manifest.servingProvenance, "verified_local_lab");
+  const releaseDbId = "60000000-0000-4000-8000-000000000001";
+  await sql`insert into analysis_lab_promotion_releases
+    (id,release_id,revision,manifest_sha256,release_plan_sha256,manifest,git_commit,build_digest,status,
+     gate_summary,created_by,approved_by,approved_at,executed_by,started_at,completed_at)
+    values
+    (${releaseDbId},${manifest.releaseId},${manifest.revision},${manifest.manifestSha256},
+     ${manifest.releasePlanSha256},${JSON.stringify(manifest)}::jsonb,${manifest.gitCommit},${manifest.buildDigest},'active',
+     ${JSON.stringify({ fixture: "isolated_local_product_uat", verdict: "PASS" })}::jsonb,'local-uat-fixture',
+     'local-uat-fixture','2026-09-08T00:05:00.000Z','local-uat-fixture',
+     '2026-09-08T00:05:00.000Z','2026-09-08T00:05:01.000Z')`;
+  const itemIds = [
+    "60000000-0000-4000-8000-000000000002",
+    "60000000-0000-4000-8000-000000000003",
+  ];
+  for (const [index, plan] of input.plans.entries()) {
+    const before = input.before.get(plan.grantId);
+    const after = input.after.get(plan.grantId);
+    assert.ok(before && after);
+    await sql`insert into analysis_lab_promotion_items
+      (id,release_db_id,grant_id,run_id,plan_sha256,before_snapshot,before_sha256,
+       after_snapshot,after_sha256,status,applied_at)
+      values
+      (${itemIds[index]!},${releaseDbId},${plan.grantId},${plan.runId},${planSha256(plan)},
+       ${JSON.stringify(before)}::jsonb,${promotionGrantSnapshotStateSha256(before)},
+       ${JSON.stringify(after)}::jsonb,
+       ${promotionGrantSnapshotStateSha256(after)},'applied','2026-09-08T00:05:01.000Z')`;
+  }
+  return {
+    releaseId: manifest.releaseId,
+    manifestSha256: manifest.manifestSha256,
+    servingProvenance: manifest.servingProvenance,
+    appliedGrantIds: input.plans.map((plan) => plan.grantId).sort(),
   };
 }
 
@@ -168,9 +288,18 @@ async function activePrompts() {
   return rows.map((row) => row.prompt);
 }
 
-async function buildPlans(): Promise<{ r1: GrantPromotionPlan; r2: GrantPromotionPlan; withdraw: GrantPromotionPlan }> {
-  const source = await loadDeepAnalysisSourceBinding({ db, grantId: FIXTURE.grantId });
-  assert.ok(source);
+async function buildPlans(): Promise<{
+  r1: GrantPromotionPlan;
+  r2: GrantPromotionPlan;
+  withdraw: GrantPromotionPlan;
+  serving: GrantPromotionPlan;
+  releaseSources: PromotionSourceArtifact[];
+}> {
+  const [source, servingSource] = await Promise.all([
+    loadDeepAnalysisSourceBinding({ db, grantId: FIXTURE.grantId }),
+    loadDeepAnalysisSourceBinding({ db, grantId: FIXTURE.servingGrantId }),
+  ]);
+  assert.ok(source && servingSource);
   const criteria: LabCriterion[] = [
     criterion("required", "필수 확인", "필수 조건을 직접 확인해야 합니다"),
     criterion("exclusion", "제외 확인", "현재 참여 제한 대상은 제외합니다"),
@@ -290,7 +419,115 @@ async function buildPlans(): Promise<{ r1: GrantPromotionPlan; r2: GrantPromotio
     manualConfirmationEvaluationSelection: manual.selection,
     sourceRawSha256: source.sourceRawSha256,
   });
-  return { r1: plan(selected1), r2: plan(selected2), withdraw: plan(selected(withdrawal)) };
+  const servingCriteria: LabCriterion[] = [
+    {
+      dimension: "region",
+      kind: "required",
+      operator: "in",
+      value: { regions: ["11", "26"], labels: ["서울", "부산"] },
+      confidence: 1,
+      sourceSpan: "서울 또는 부산 소재 기업",
+      spanVerified: true,
+      note: null,
+    },
+    criterion("preferred", "우대 조건 확인", "우대 조건은 공고별로 확인합니다"),
+  ];
+  const servingRun: LabRun = {
+    ...run,
+    runId: "run-2026-09-08T000000.000Z-localuat-serving",
+    grantId: FIXTURE.servingGrantId,
+    sourceId: FIXTURE.servingSourceId,
+    title: FIXTURE.servingTitle,
+    inputSha256: createHash("sha256").update("local-product-uat-serving-confirmations").digest("hex"),
+    sourceRevisionSha256: servingSource.sourceRevisionSha256,
+    criteria: servingCriteria,
+  };
+  const servingReview: LabReview = {
+    ...review,
+    grantId: FIXTURE.servingGrantId,
+    runId: servingRun.runId,
+    criterionReviews: servingCriteria.map((_, criterionIndex) => ({
+      criterionIndex,
+      verdict: "correct",
+      note: null,
+    })),
+  };
+  const servingManual = buildManualConfirmationEvaluationsArtifact({
+    run: servingRun,
+    review: servingReview,
+    questionAuthorEmail: "question-author@noten.im",
+    createdAt: "2026-09-08T00:02:00.000Z",
+    items: [{
+      criterionIndex: 1,
+      resolutionScope: "per_notice",
+      prompt: "정상 노출 우대 질문",
+      options,
+    }],
+  });
+  const servingPlan = planGrantPromotion({
+    run: servingRun,
+    review: servingReview,
+    origin: "human",
+    sidecar: null,
+    manualEvaluationSidecar: servingManual,
+    manualConfirmationEvaluationSelection: manualConfirmationEvaluationSelectionForArtifact(servingManual),
+    sourceRawSha256: servingSource.sourceRawSha256,
+  });
+  const confirmationR1 = plan(selected1);
+  const releaseSources: PromotionSourceArtifact[] = [
+    releaseSourceArtifact({
+      run,
+      review,
+      sourceRevisionSha256: source.sourceRevisionSha256,
+      confirmationSidecarSha256: sha256Canonical(legacy),
+      plan: confirmationR1,
+    }),
+    releaseSourceArtifact({
+      run: servingRun,
+      review: servingReview,
+      sourceRevisionSha256: servingSource.sourceRevisionSha256,
+      confirmationSidecarSha256: null,
+      plan: servingPlan,
+    }),
+  ];
+  return {
+    r1: confirmationR1,
+    r2: plan(selected2),
+    withdraw: plan(selected(withdrawal)),
+    serving: servingPlan,
+    releaseSources,
+  };
+}
+
+function releaseSourceArtifact(input: {
+  run: LabRun;
+  review: LabReview;
+  sourceRevisionSha256: string;
+  confirmationSidecarSha256: string | null;
+  plan: GrantPromotionPlan;
+}): PromotionSourceArtifact {
+  const selection = input.plan.manualConfirmationEvaluationSelection;
+  assert.ok(selection);
+  return {
+    grantId: input.plan.grantId,
+    runId: input.plan.runId,
+    runSha256: sha256Canonical(input.run),
+    reviewSha256: sha256Canonical(input.review),
+    overlaySha256: null,
+    confirmationsSha256: input.confirmationSidecarSha256,
+    manualConfirmationEvaluationsSha256: selection.artifactSha256,
+    manualConfirmationEvaluationSelection: selection,
+    sourceRevisionSha256: input.sourceRevisionSha256,
+    inputSha256: input.run.inputSha256,
+    localLabEvidence: {
+      schema: VERIFIED_LOCAL_LAB_SOURCE_SCHEMA,
+      transport: "claude-cli",
+      model: input.run.model,
+      promptVersion: input.run.promptVersion,
+      inputSha256: input.run.inputSha256,
+      reviewMethod: "human",
+    },
+  };
 }
 
 function criterion(kind: LabCriterion["kind"], note: string, sourceSpan: string): LabCriterion {

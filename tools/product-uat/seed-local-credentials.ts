@@ -50,6 +50,7 @@ try {
   const userPasswordHash = await bcrypt.hash(requiredEnv("CUNOTE_LOCAL_UAT_USER_PASSWORD"), 12);
   const adminPasswordHash = await bcrypt.hash(requiredEnv("CUNOTE_LOCAL_UAT_ADMIN_PASSWORD"), 12);
   const acceptedAt = new Date("2026-09-08T00:00:00.000Z");
+  const profileObservedAt = new Date("2026-09-07T00:00:00.000Z");
 
   await sql`
     insert into users
@@ -62,8 +63,20 @@ try {
   await sql`
     insert into companies (id, kind, name, created_by)
     values
-      (${LOCAL_UAT_IDS.companyA}, 'preliminary', '격리 합성 회사 A', ${LOCAL_UAT_IDS.owner}),
-      (${LOCAL_UAT_IDS.companyB}, 'preliminary', '격리 합성 회사 B', ${LOCAL_UAT_IDS.owner})
+      (${LOCAL_UAT_IDS.companyA}, 'active', '격리 합성 회사 A', ${LOCAL_UAT_IDS.owner}),
+      (${LOCAL_UAT_IDS.companyB}, 'active', '격리 합성 회사 B', ${LOCAL_UAT_IDS.owner})
+  `;
+  await sql`
+    insert into company_profiles (company_id, user_id, dimension, value, source, confidence, as_of)
+    values
+      (${LOCAL_UAT_IDS.companyA}, ${LOCAL_UAT_IDS.owner}, 'region', ${sql.json({ code: "11", label: "서울" })}, 'self_declared', 1, ${profileObservedAt}),
+      (${LOCAL_UAT_IDS.companyA}, ${LOCAL_UAT_IDS.owner}, 'biz_age', ${sql.json({ biz_age_months: 24, months: 24 })}, 'self_declared', 1, ${profileObservedAt}),
+      (${LOCAL_UAT_IDS.companyA}, ${LOCAL_UAT_IDS.owner}, 'industry', ${sql.json({ industries: ["소프트웨어 개발업"], tags: ["소프트웨어 개발업"], industry_codes: ["J"], codes: ["J"], list_completeness: "complete" })}, 'self_declared', 1, ${profileObservedAt}),
+      (${LOCAL_UAT_IDS.companyA}, ${LOCAL_UAT_IDS.owner}, 'target_type', ${sql.json({ target_types: ["existing_business"], targets: ["existing_business"], list_completeness: "complete" })}, 'self_declared', 1, ${profileObservedAt}),
+      (${LOCAL_UAT_IDS.companyB}, ${LOCAL_UAT_IDS.owner}, 'region', ${sql.json({ code: "26", label: "부산" })}, 'self_declared', 1, ${profileObservedAt}),
+      (${LOCAL_UAT_IDS.companyB}, ${LOCAL_UAT_IDS.owner}, 'biz_age', ${sql.json({ biz_age_months: 60, months: 60 })}, 'self_declared', 1, ${profileObservedAt}),
+      (${LOCAL_UAT_IDS.companyB}, ${LOCAL_UAT_IDS.owner}, 'industry', ${sql.json({ industries: ["소프트웨어 개발업"], tags: ["소프트웨어 개발업"], industry_codes: ["J"], codes: ["J"], list_completeness: "complete" })}, 'self_declared', 1, ${profileObservedAt}),
+      (${LOCAL_UAT_IDS.companyB}, ${LOCAL_UAT_IDS.owner}, 'target_type', ${sql.json({ target_types: ["existing_business"], targets: ["existing_business"], list_completeness: "complete" })}, 'self_declared', 1, ${profileObservedAt})
   `;
   await sql`
     insert into user_company (user_id, company_id, role)
@@ -78,14 +91,15 @@ try {
     values (${LOCAL_UAT_IDS.admin}, 'manager@noten.im', '격리 운영 관리자', ${adminPasswordHash}, 'admin', 'active')
   `;
 
-  const [counts] = await sql<{ users: number; companies: number; memberships: number; admins: number }[]>`
+  const [counts] = await sql<{ users: number; companies: number; profiles: number; memberships: number; admins: number }[]>`
     select
       (select count(*)::int from users) as users,
       (select count(*)::int from companies) as companies,
+      (select count(*)::int from company_profiles) as profiles,
       (select count(*)::int from user_company) as memberships,
       (select count(*)::int from admin_users) as admins
   `;
-  assert.deepEqual(counts, { users: 3, companies: 2, memberships: 4, admins: 1 });
+  assert.deepEqual(counts, { users: 3, companies: 2, profiles: 8, memberships: 4, admins: 1 });
   console.log(JSON.stringify({
     ok: true,
     suite: "local-product-uat-seed",

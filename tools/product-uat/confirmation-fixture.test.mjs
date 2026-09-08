@@ -26,6 +26,8 @@ rejectBeforeDatabase("tcp_database_url", { DATABASE_URL: "postgres://127.0.0.1/p
 rejectBeforeDatabase("unknown_action", {}, ["--action=unbounded"]);
 writeFileSync(markerPath, JSON.stringify({ schema: "wrong", id: "confirmation-fixture-guard-test" }));
 rejectBeforeDatabase("invalid_owner_marker", {});
+rejectRunnerBeforeRuntime("hold_above_max", ["--hold-seconds=601"]);
+rejectRunnerBeforeRuntime("hold_zero", ["--hold-seconds=0"]);
 
 console.log(JSON.stringify({
   ok: true,
@@ -53,4 +55,18 @@ function rejectBeforeDatabase(name, overrides, args = ["--action=inspect"]) {
   assert.match(output, /AssertionError/, name);
   assert.doesNotMatch(output, /ECONNREFUSED|ENOENT.*PGSQL|connection refused/i, `${name}: DB 착수 전 거부`);
   checks.push({ name, status: "rejected_before_database" });
+}
+
+function rejectRunnerBeforeRuntime(name, args) {
+  const child = spawnSync(process.execPath, [join(repoRoot, "tools/run-local-product-uat.mjs"), ...args], {
+    cwd: repoRoot,
+    env: createProductUatEnv(),
+    encoding: "utf8",
+    timeout: 15_000,
+  });
+  assert.notEqual(child.status, 0, name);
+  const output = `${child.stdout ?? ""}${child.stderr ?? ""}`;
+  assert.match(output, /--hold-seconds는 1~600 사이의 정수/, name);
+  assert.doesNotMatch(output, /initdb|pg_ctl|source snapshot|pnpm install/i, `${name}: runtime 착수 전 거부`);
+  checks.push({ name, status: "rejected_before_runtime" });
 }

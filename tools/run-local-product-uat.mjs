@@ -231,6 +231,7 @@ const result = await withIsolatedProductUatPostgres(async (postgresRuntime) => {
     const confirmationScenarios = await verifyConfirmationScenarios({
       baseUrl: webUrl,
       grantId: initialConfirmationFixture.fixture.grantId,
+      servingGrantId: initialConfirmationFixture.fixture.servingGrantId,
       owner: ownerAuthentication,
       editor: webAuthenticationByUserId.get(LOCAL_UAT_IDS.editor),
       viewer: webAuthenticationByUserId.get(LOCAL_UAT_IDS.viewer),
@@ -264,8 +265,11 @@ const result = await withIsolatedProductUatPostgres(async (postgresRuntime) => {
     writeFileSync(confirmationFixtureReceiptPath, `${JSON.stringify({
       schema: "cunote-local-product-uat-confirmation-fixture-receipt-v1",
       grantId: initialConfirmationFixture.fixture.grantId,
+      servingGrantId: initialConfirmationFixture.fixture.servingGrantId,
+      servingRegistry: initialConfirmationFixture.servingRegistry,
       publicationAuthority: "isolated_publisher_fixture_not_release_approval",
       scenarios: confirmationScenarios.proof,
+      naturalUiReadiness: confirmationScenarios.naturalUiReadiness,
       finalState: confirmationScenarios.finalState,
     }, null, 2)}\n`, { flag: "wx", mode: 0o600 });
     const connectionPath = join(postgresRuntime.runRoot, "connection.json");
@@ -283,6 +287,7 @@ const result = await withIsolatedProductUatPostgres(async (postgresRuntime) => {
       snapshotRoot: source.snapshotRoot,
       confirmationFixtureReceiptPath,
       syntheticGrantId: initialConfirmationFixture.fixture.grantId,
+      syntheticServingGrantId: initialConfirmationFixture.fixture.servingGrantId,
       activeConfirmationQuestions: confirmationScenarios.finalState.activePrompts,
     }, null, 2)}\n`, { flag: "wx", mode: 0o600 });
     if (holdSeconds > 0) {
@@ -326,6 +331,7 @@ const result = await withIsolatedProductUatPostgres(async (postgresRuntime) => {
         fixturePublication: "isolated_publisher_fixture_not_release_approval",
         initialOwnerRoundTrip: initialConfirmationRoundTrip.proof,
         scenarios: confirmationScenarios.proof,
+        naturalUiReadiness: confirmationScenarios.naturalUiReadiness,
         fixtureReceiptPath: confirmationFixtureReceiptPath,
       },
       connectionPath,
@@ -574,6 +580,7 @@ async function verifyInitialConfirmationRoundTrip({ jar, baseUrl, grantId, compa
 async function verifyConfirmationScenarios({
   baseUrl,
   grantId,
+  servingGrantId,
   owner,
   editor,
   viewer,
@@ -743,12 +750,13 @@ async function verifyConfirmationScenarios({
   assert.equal(restoredA.answers.find((answer) => answer.questionId === initial.required.id)?.answerRevision, 2);
   assert.deepEqual(restoredA.answers.find((answer) => answer.questionId === initial.legacy.id)?.values, ["clear"]);
   assert.equal(rollback.state.answers.length, 6);
-
-  const listingResponse = await reloggedOwner.jar.fetch(`${baseUrl}/api/web/matches?limit=40`);
-  assert.equal(listingResponse.status, 200);
-  const listingBody = await listingResponse.json();
-  assert.equal(listingBody?.ok, true);
-  assert.equal(listingBody?.data?.matches?.some((match) => match.grantId === grantId), false);
+  assert.equal(rollback.servingRegistrySnapshotMatched, true);
+  const naturalUiReadiness = await verifyNaturalConfirmationListing({
+    jar: reloggedOwner.jar,
+    baseUrl,
+    requiredOtherGrantId: grantId,
+    servingGrantId,
+  });
 
   return {
     proof: {
@@ -775,11 +783,7 @@ async function verifyConfirmationScenarios({
         restoredAnswerRevision: 2,
         preservedLegacyAnswer: true,
       },
-      naturalListing: {
-        syntheticGrantVisible: false,
-        reason: "serving_release_registry_not_seeded",
-        directConfirmationHttpIsNotNaturalUiAcceptance: true,
-      },
+      naturalListing: naturalUiReadiness,
       matcherObservations: {
         companyBEligibility: companyBSave.body.data.match.eligibility,
         revision2Eligibility: revisedSave.body.data.match.eligibility,
@@ -791,7 +795,60 @@ async function verifyConfirmationScenarios({
         rollbackLedgerSha256: ledgerSha(rollback),
       },
     },
+    naturalUiReadiness,
     finalState: rollback.state,
+  };
+}
+
+async function verifyNaturalConfirmationListing({
+  jar,
+  baseUrl,
+  requiredOtherGrantId,
+  servingGrantId,
+}) {
+  const companyResults = [];
+  for (const companyId of [LOCAL_UAT_IDS.companyA, LOCAL_UAT_IDS.companyB]) {
+    const response = await jar.fetch(
+      `${baseUrl}/api/web/company-matching?companyId=${encodeURIComponent(companyId)}`,
+    );
+    assert.equal(response.status, 200);
+    const payload = await response.json();
+    assert.equal(payload?.ok, true);
+    const basicDimensions = new Set(["region", "industry", "biz_age", "target_type"]);
+    const basicRows = payload.data.teaser.profileView.rows.filter((row) => basicDimensions.has(row.dimension));
+    assert.equal(basicRows.length, 4);
+    assert.ok(basicRows.every((row) => row.status === "known"));
+    assert.equal(payload.data.teaser.matches.some((match) => match.grantId === requiredOtherGrantId), false);
+    const card = payload.data.teaser.matches.find((match) => match.grantId === servingGrantId);
+    assert.ok(card, `${companyId}: 정상 serving 공고가 company-matching에 있어야 합니다`);
+    assert.equal(card.eligibility, "eligible");
+    assert.equal(card.confirmationQuestionCount, 1);
+    const preferredTrace = card.ruleTrace.find((trace) => trace.kind === "preferred");
+    assert.equal(preferredTrace?.confirmationNextAction, "user_confirmation");
+    const questions = await readConfirmations(
+      jar,
+      confirmationEndpoint(baseUrl, servingGrantId, companyId),
+    );
+    assert.deepEqual(questions.questions.map((question) => question.prompt), ["정상 노출 우대 질문"]);
+    assert.equal(questions.answers.length, 0);
+    assert.equal(questions.questions[0]?.binding?.criterionId, preferredTrace?.criterionId);
+    companyResults.push({
+      companyId,
+      basicProfileKnown: 4,
+      eligibility: card.eligibility,
+      confirmationQuestionCount: card.confirmationQuestionCount,
+      answerCount: questions.answers.length,
+    });
+  }
+  return {
+    status: "passed",
+    endpoint: "actual_company_matching",
+    servingGrantId,
+    servingGrantVisibleForCompanies: companyResults,
+    requiredOtherGrantId,
+    requiredOtherCoreReadinessExcludedForCompanyA: true,
+    requiredOtherCompanyBExcludedByExistingHardFail: true,
+    uiInteractionPendingBrowserAcceptance: true,
   };
 }
 
@@ -950,8 +1007,8 @@ function parseRunnerArgs(args) {
       throw new Error(`지원하지 않는 local UAT 인자입니다: ${argument}`);
     }
     const value = Number(argument.slice("--hold-seconds=".length));
-    if (!Number.isSafeInteger(value) || value < 1 || value > 180) {
-      throw new Error("--hold-seconds는 1~180 사이의 정수여야 합니다.");
+    if (!Number.isSafeInteger(value) || value < 1 || value > 600) {
+      throw new Error("--hold-seconds는 1~600 사이의 정수여야 합니다.");
     }
     holdSeconds = value;
   }
