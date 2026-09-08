@@ -6,6 +6,7 @@ import type {
 import { NextResponse } from "next/server";
 import { requireCompanyAccess } from "@/lib/server/auth/companyGuard";
 import { requestCompanyScope } from "@/lib/server/auth/requestCompanyScope";
+import { canWriteCompany } from "@/lib/server/auth/companyAccessPolicy";
 import { webActionError } from "@/lib/server/auth/webActionError";
 import {
   ConfirmationRequestError,
@@ -30,11 +31,17 @@ export async function GET(request: Request, context: RouteContext) {
       context.params,
       requireCompanyAccess(requestCompanyScope(new URL(request.url).searchParams.get("companyId") ?? undefined)),
     ]);
-    const data = await listGrantConfirmations({
+    const ledger = await listGrantConfirmations({
       companyId: access.companyId,
       grantId: decodeGrantIdSegment(grantId),
     });
-    return NextResponse.json<ActionResult<GrantConfirmationsResult>>({ ok: true, data });
+    const data: GrantConfirmationsResult = {
+      ...ledger,
+      canSubmit: canWriteCompany(access.role),
+    };
+    return NextResponse.json<ActionResult<GrantConfirmationsResult>>({ ok: true, data }, {
+      headers: { "Cache-Control": "private, no-store" },
+    });
   } catch (error) {
     return webActionError<GrantConfirmationsResult>(error, {
       code: "grant_confirmations_failed",

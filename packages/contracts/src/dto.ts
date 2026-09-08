@@ -790,6 +790,8 @@ export interface GrantConfirmationsResult {
   grantId: string;
   questions: GrantConfirmationQuestionDto[];
   answers: GrantConfirmationAnswerDto[];
+  /** 현재 요청의 회사 접근 권한으로 답변을 저장할 수 있는지 여부. PUT 권한 검사는 서버가 다시 수행한다. */
+  canSubmit: boolean;
 }
 
 /** PUT /api/web/matches/[grantId]/confirmations 요청 본문. 답한 질문만 보낸다(미답변=미해소 유지). */

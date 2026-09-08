@@ -15,6 +15,27 @@ export function confirmationResponseIsCurrent(input: {
 }
 
 /**
+ * 편집 권한은 성공한 GET이 현재 열린 회사·공고·세대에 정확히 결속됐을 때만 연다.
+ * 이전 scope의 ready/권한 state가 새 render에 한 프레임 남아도 저장 경로는 닫힌다.
+ */
+export function confirmationSubmissionIsAllowed(input: {
+  loaded: ConfirmationRequestScope | null;
+  current: ConfirmationRequestScope;
+  open: boolean;
+  status: "loading" | "ready" | "error";
+  canSubmit: boolean;
+}): boolean {
+  return input.status === "ready"
+    && input.canSubmit === true
+    && input.loaded !== null
+    && confirmationResponseIsCurrent({
+      request: input.loaded,
+      current: input.current,
+      open: input.open,
+    });
+}
+
+/**
  * cleanup은 generation만 무효화한다. key까지 바꾸면 React StrictMode의 cleanup→setup 뒤
  * 동일 props 재렌더가 정상 두 번째 요청을 또 다른 세대로 오인한다.
  */

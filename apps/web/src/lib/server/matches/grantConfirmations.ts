@@ -47,7 +47,7 @@ interface QuestionRow extends ConfirmationQuestionRecord {
 export async function listGrantConfirmations(input: {
   companyId: string;
   grantId: string;
-}, db: CunoteDb = getCunoteDb()): Promise<GrantConfirmationsResult> {
+}, db: CunoteDb = getCunoteDb()): Promise<Omit<GrantConfirmationsResult, "canSubmit">> {
   if (!isUuid(input.grantId)) {
     // DB id 가 없는 공고(샘플 경로)는 질문도 있을 수 없다 — uuid 캐스트 오류 대신 빈 목록.
     return { grantId: input.grantId, questions: [], answers: [] };

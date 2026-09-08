@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import {
   confirmationResponseIsCurrent,
   confirmationResultAction,
+  confirmationSubmissionIsAllowed,
   invalidateConfirmationRequestScope,
 } from "./confirmationRequestScope";
 
@@ -31,6 +32,23 @@ assert.equal(confirmationResponseIsCurrent({
   open: false,
 }), false, "닫기→동일 scope 재열기 전의 응답은 폐기한다");
 assert.equal(confirmationResponseIsCurrent({ request: current, current, open: true }), true);
+
+assert.equal(confirmationSubmissionIsAllowed({
+  loaded: current,
+  current,
+  open: true,
+  status: "ready",
+  canSubmit: true,
+}), true, "현재 scope의 성공한 writable GET만 저장을 연다");
+for (const blocked of [
+  { loaded: null, current, open: true, status: "loading" as const, canSubmit: true },
+  { loaded: current, current, open: true, status: "error" as const, canSubmit: true },
+  { loaded: current, current, open: false, status: "ready" as const, canSubmit: true },
+  { loaded: { endpoint: "/b", generation: 2 }, current, open: true, status: "ready" as const, canSubmit: true },
+  { loaded: current, current, open: true, status: "ready" as const, canSubmit: false },
+]) {
+  assert.equal(confirmationSubmissionIsAllowed(blocked), false, "loading/error/closed/stale/read-only scope는 저장을 닫는다");
+}
 
 const strictFirstRequest = { endpoint: "/strict", generation: 1 };
 const strictCleanup = invalidateConfirmationRequestScope({

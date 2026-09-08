@@ -593,6 +593,7 @@ async function verifyConfirmationScenarios({
   const endpointB = confirmationEndpoint(baseUrl, grantId, LOCAL_UAT_IDS.companyB);
 
   const ownerBInitial = await readConfirmations(owner.jar, endpointB);
+  assert.equal(ownerBInitial.canSubmit, true);
   assert.equal(ownerBInitial.answers.length, 0, "회사 A 답변은 회사 B에 재사용하지 않는다");
   const requiredB = ownerBInitial.questions.find((question) => question.prompt === "최초 필수 질문");
   const legacyB = ownerBInitial.questions.find((question) => question.prompt === "기존 제외 질문");
@@ -613,6 +614,7 @@ async function verifyConfirmationScenarios({
   )?.evaluation, "satisfied");
 
   const editorA = await readConfirmations(editor.jar, endpointA);
+  assert.equal(editorA.canSubmit, true);
   const editorRequired = editorA.questions.find((question) => question.id === initial.required.id);
   assert.ok(editorRequired?.binding);
   assert.equal(editorA.answers.find((answer) => answer.questionId === editorRequired.id)?.answerRevision, 1);
@@ -639,6 +641,9 @@ async function verifyConfirmationScenarios({
   assert.equal(ledgerSha(afterStale), ledgerSha(beforeStale));
 
   const beforeViewer = runFixture("inspect", "before-viewer-forbidden");
+  const viewerA = await readConfirmations(viewer.jar, endpointA);
+  assert.equal(viewerA.canSubmit, false, "viewer는 질문과 기존 답변을 읽되 저장 권한은 받지 않는다");
+  assert.equal(viewerA.answers.find((answer) => answer.questionId === initial.required.id)?.answerRevision, 2);
   const viewerSave = await submitConfirmations(viewer.jar, endpointA, [{
     questionId: initial.required.id,
     values: ["yes"],
@@ -829,6 +834,7 @@ async function verifyNaturalConfirmationListing({
       jar,
       confirmationEndpoint(baseUrl, servingGrantId, companyId),
     );
+    assert.equal(questions.canSubmit, true);
     assert.deepEqual(questions.questions.map((question) => question.prompt), ["정상 노출 우대 질문"]);
     assert.equal(questions.answers.length, 0);
     assert.equal(questions.questions[0]?.binding?.criterionId, preferredTrace?.criterionId);
