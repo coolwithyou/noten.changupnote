@@ -32,6 +32,7 @@ import {
 } from "./launch-batch-artifacts";
 import { buildAnalysisLaunchMatchingProjectionBinding } from "./primary-matching-projection";
 import { withAnalysisLaunchBatchExecution } from "./launch-batch-context";
+import { verifyIndependentReviewApplicationRoundtripReuseBinding } from "./independent-review-repair-launch-production";
 import {
   applyAnalysisLaunchEvent,
   createAnalysisLaunchStatus,
@@ -239,6 +240,7 @@ export async function runApprovedAnalysisLaunchBatch(input: {
     }, async (executionSignal) => withAnalysisLaunchBatchExecution({
       grantSha256: input.grantSha256,
       manifestSha256: grant.manifestSha256,
+      sourceKind: manifest.source.kind,
       model: manifest.execution.model,
       transport: "claude-cli",
       promptVersion: manifest.execution.promptVersion,
@@ -282,6 +284,13 @@ export async function runApprovedAnalysisLaunchBatch(input: {
         runAnalysisImpl: async (grantId, overrides) => {
           const target = manifest.targets.find((item) => item.grantId === grantId)!;
           try {
+            if (target.applicationRoundtripReuse) {
+              await verifyIndependentReviewApplicationRoundtripReuseBinding({
+                manifest,
+                target,
+                repositoryRoot,
+              });
+            }
             const run = await runLabAnalysis(grantId, {
               ...overrides,
               signal: executionSignal,
@@ -294,6 +303,9 @@ export async function runApprovedAnalysisLaunchBatch(input: {
                   adjudicationModel: null,
                   blockingCount: target.reviewRepair.blockingCount,
                 },
+              } : {}),
+              ...(target.applicationRoundtripReuse ? {
+                exactApplicationRoundtripReuse: target.applicationRoundtripReuse,
               } : {}),
             });
             const absolutePath = labRunFilePath(run.source, run.sourceId, run.runId);

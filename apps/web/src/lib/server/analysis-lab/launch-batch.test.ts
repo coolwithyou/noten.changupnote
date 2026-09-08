@@ -20,6 +20,7 @@ import {
   normalizeAnalysisLaunchReceipt,
   type AnalysisLaunchReceipt,
   type AnalysisLaunchReceiptTarget,
+  type AnalysisLaunchApplicationRoundtripReuseBinding,
 } from "./launch-batch-artifacts";
 import { partitionCohortEntries } from "./batch-plan";
 import {
@@ -42,6 +43,10 @@ import {
   selectIndependentReviewRepairSequences,
 } from "./independent-review-repair-launch";
 import { hasLaunchBatchExecutionViolation } from "./analyze";
+import {
+  independentReviewFindingsArePrimaryOnly,
+  independentReviewFindingsMatchSourceRun,
+} from "./independent-review-repair-launch-production";
 
 const SHA_A = "a".repeat(64);
 const SHA_B = "b".repeat(64);
@@ -346,6 +351,7 @@ test("작성 가이드 adoption 재분석은 source-sealed rerun만 exact 기존
 });
 
 test("독립 검수 합의 결함 재분석은 exact 원본 대상과 RHWP 필드 분석을 함께 봉인한다", () => {
+  const applicationRoundtripReuse = reuseBinding(3, "run-source-3");
   const repair = createIndependentReviewRepairAnalysisLaunchManifest({
     aggregateSha256: SHA_D,
     targets: [
@@ -361,6 +367,7 @@ test("독립 검수 합의 결함 재분석은 exact 원본 대상과 RHWP 필�
           blockingCount: 2,
           taskInstruction: "검증된 결함 두 건을 원문에 맞게 수정",
         },
+        applicationRoundtripReuse,
       },
       {
         originalSequence: 27,
@@ -393,10 +400,31 @@ test("독립 검수 합의 결함 재분석은 exact 원본 대상과 RHWP 필�
   assert.match(repair.targets[0]!.stratum, /original-3$/);
   assert.equal(repair.targets[0]!.reviewRepair?.blockingCount, 2);
   assert.match(repair.targets[0]!.reviewRepair?.taskInstruction ?? "", /결함 두 건/);
+  assert.deepEqual(repair.targets[0]!.applicationRoundtripReuse, applicationRoundtripReuse);
   assert.match(repair.targets[1]!.stratum, /original-27$/);
   assert.deepEqual(
     normalizeAnalysisLaunchManifest(JSON.parse(encodeCanonical(repair).toString("utf8"))),
     repair,
+  );
+  const formalWithReuse = JSON.parse(encodeCanonical(manifest).toString("utf8"));
+  formalWithReuse.targets[0].applicationRoundtripReuse = applicationRoundtripReuse;
+  assert.throws(
+    () => normalizeAnalysisLaunchManifest(formalWithReuse),
+    /primary repair 외 launch/,
+  );
+  const mismatchedSourceRun = JSON.parse(encodeCanonical(repair).toString("utf8"));
+  mismatchedSourceRun.targets[0].applicationRoundtripReuse.sourceLabRunId = "other-run";
+  assert.throws(
+    () => normalizeAnalysisLaunchManifest(mismatchedSourceRun),
+    /primary repair 외 launch/,
+  );
+  const duplicateMarkdown = JSON.parse(encodeCanonical(repair).toString("utf8"));
+  duplicateMarkdown.targets[0].applicationRoundtripReuse.parsedMarkdown.push(
+    duplicateMarkdown.targets[0].applicationRoundtripReuse.parsedMarkdown[0],
+  );
+  assert.throws(
+    () => normalizeAnalysisLaunchManifest(duplicateMarkdown),
+    /parsedMarkdown/,
   );
 
   assert.throws(() => createIndependentReviewRepairAnalysisLaunchManifest({
@@ -417,6 +445,31 @@ test("독립 검수 합의 결함 재분석은 exact 원본 대상과 RHWP 필�
     concurrency: 1,
     now: new Date("2026-08-29T00:00:00.000Z"),
   }), /원본 launch와 달라졌습니다/);
+  assert.throws(() => createIndependentReviewRepairAnalysisLaunchManifest({
+    aggregateSha256: SHA_D,
+    targets: [{
+      originalSequence: 3,
+      grantId: GRANT_0,
+      source: "kstartup",
+      inputSha256: SHA_A,
+      attachmentManifestSha256: SHA_B,
+      reviewRepair: {
+        sourceRunId: "run-source-3",
+        reviewModel: "gpt-5.6-sol",
+        blockingCount: 1,
+        taskInstruction: "검증된 결함",
+      },
+      applicationRoundtripReuse: reuseBinding(4, "run-source-3"),
+    }],
+    preparedTargets: [{ grantId: GRANT_0, inputSha256: SHA_A, attachmentManifestSha256: SHA_B }],
+    provenance: {
+      gitSha: GIT_A,
+      packageRuntimeSha256: SHA_C,
+      validatorVersion: DEEP_ANALYSIS_VALIDATOR_VERSION,
+    },
+    concurrency: 1,
+    now: new Date("2026-08-29T00:00:00.000Z"),
+  }), /source sequence/);
 });
 
 test("독립 검수 repair 준비는 현재 입력이 달라진 target만 격리한다", () => {
@@ -477,6 +530,57 @@ test("독립 검수 repair aggregate는 합의된 결함 sequence와 HOLD만 허
   });
   assert.deepEqual(withUnresolved.consensus.affectedTargets, [3, 27]);
   assert.deepEqual(withUnresolved.consensus.unresolvedTargets, [14]);
+  const primaryOnly = normalizeIndependentReviewRepairAggregate({
+    ...aggregate,
+    consensus: {
+      ...aggregate.consensus,
+      defectCount: 2,
+      affectedTargets: [3],
+      defects: [
+        { sequence: 3, kind: "criterion", key: 0, verdict: "needs_edit", classification: "defect" },
+        { sequence: 3, kind: "axis", key: "region", verdict: "missed_condition", classification: "defect" },
+      ],
+    },
+  });
+  assert.equal(
+    independentReviewFindingsArePrimaryOnly(primaryOnly, 3),
+    true,
+    "criterion/axis primary 결함과 유효 key만 exact Kordoc 재사용 가능",
+  );
+  assert.equal(independentReviewFindingsMatchSourceRun(primaryOnly, 3, {
+    criteria: [{}] as never,
+    axisAssessments: [{ dimension: "region" }] as never,
+  }), true);
+  assert.equal(independentReviewFindingsMatchSourceRun(primaryOnly, 3, {
+    criteria: [] as never,
+    axisAssessments: [{ dimension: "region" }] as never,
+  }), false, "존재하지 않는 criterion index를 exact 재사용 finding으로 인정하지 않음");
+  assert.equal(independentReviewFindingsMatchSourceRun(primaryOnly, 3, {
+    criteria: [{}] as never,
+    axisAssessments: [] as never,
+  }), false, "원 LabRun에 없는 axis key를 exact 재사용 finding으로 인정하지 않음");
+  for (const invalidFinding of [
+    { sequence: 3, kind: "application", key: "field", verdict: "needs_edit", classification: "defect" },
+    { sequence: 3, kind: "criterion", key: -1, verdict: "needs_edit", classification: "defect" },
+    { sequence: 3, kind: "axis", key: "not-a-dimension", verdict: "missed_condition", classification: "defect" },
+    { sequence: 3, kind: "criterion", key: 0, verdict: "unsure", classification: "defect" },
+  ]) {
+    const invalid = normalizeIndependentReviewRepairAggregate({
+      ...aggregate,
+      admission: {
+        reviewedTargetsStatus: "HOLD",
+        reasons: ["consensus_defects:1"],
+      },
+      consensus: {
+        ...aggregate.consensus,
+        defectCount: 1,
+        affectedTargets: [3],
+        defects: [invalidFinding],
+      },
+    });
+    assert.equal(independentReviewFindingsArePrimaryOnly(invalid, 3), false);
+  }
+  assert.equal(independentReviewFindingsArePrimaryOnly(withUnresolved, 14), false);
 });
 
 test("독립 검수 repair 지시는 이전 확정 결함을 누적해 회귀를 막는다", () => {
@@ -565,6 +669,7 @@ test("launch capability는 cohort target만 열고 target source drift는 그 ta
   await withAnalysisLaunchBatchExecution({
     grantSha256: SHA_D,
     manifestSha256: SHA_C,
+    sourceKind: "formal_plan",
     model: manifest.execution.model,
     transport: "claude-cli",
     promptVersion: ANALYSIS_LAB_PROMPT_VERSION,
@@ -600,9 +705,32 @@ test("launch capability는 manifest에 exact 결속된 독립 검수 복구 지�
     blockingCount: 2,
     taskInstruction: "검증된 결함 두 건만 원문에 맞게 수정",
   } as const;
+  const applicationRoundtripReuse = reuseBinding(3, reviewRepair.sourceRunId);
+  assert.throws(
+    () => withAnalysisLaunchBatchExecution({
+      grantSha256: SHA_D,
+      manifestSha256: SHA_C,
+      sourceKind: "formal_plan",
+      model: "claude-opus-5",
+      transport: "claude-cli",
+      promptVersion: ANALYSIS_LAB_PROMPT_VERSION,
+      withApplicationRoundtrip: true,
+      roundtripModel: "claude-opus-5",
+      targets: new Map([[GRANT_0, {
+        grantId: GRANT_0,
+        inputSha256: SHA_A,
+        attachmentManifestSha256: SHA_B,
+        reviewRepair,
+        applicationRoundtripReuse,
+      }]]),
+    }, async () => undefined),
+    /applicationRoundtripReuse 결속/,
+    "formal launch가 context seam만으로 independent-review reuse 권한을 만들 수 없음",
+  );
   await withAnalysisLaunchBatchExecution({
     grantSha256: SHA_D,
     manifestSha256: SHA_C,
+    sourceKind: "independent_review_repair",
     model: "claude-opus-5",
     transport: "claude-cli",
     promptVersion: ANALYSIS_LAB_PROMPT_VERSION,
@@ -614,6 +742,7 @@ test("launch capability는 manifest에 exact 결속된 독립 검수 복구 지�
         inputSha256: SHA_A,
         attachmentManifestSha256: SHA_B,
         reviewRepair,
+        applicationRoundtripReuse,
       }],
       [GRANT_1, {
         grantId: GRANT_1,
@@ -637,6 +766,7 @@ test("launch capability는 manifest에 exact 결속된 독립 검수 복구 지�
         adjudicationModel: null,
         blockingCount: reviewRepair.blockingCount,
       },
+      exactApplicationRoundtripReuse: applicationRoundtripReuse,
     };
     assert.equal(hasLaunchBatchExecutionViolation(GRANT_0, exact, binding), false);
     assert.equal(hasLaunchBatchExecutionViolation(GRANT_0, {
@@ -647,6 +777,19 @@ test("launch capability는 manifest에 exact 결속된 독립 검수 복구 지�
       ...exact,
       reviewRepair: { ...exact.reviewRepair, auditModel: "grok" },
     }, binding), true);
+    assert.equal(hasLaunchBatchExecutionViolation(GRANT_0, {
+      ...exact,
+      exactApplicationRoundtripReuse: {
+        ...applicationRoundtripReuse,
+        analysisArtifactSha256: SHA_D,
+      },
+    }, binding), true, "manifest와 다른 Kordoc bytes 결속은 live option으로 주입할 수 없음");
+    const { exactApplicationRoundtripReuse: _omittedReuse, ...withoutExactReuse } = exact;
+    assert.equal(
+      hasLaunchBatchExecutionViolation(GRANT_0, withoutExactReuse, binding),
+      true,
+      "manifest exact reuse를 legacy full rerun으로 조용히 바꿀 수 없음",
+    );
     assert.equal(hasLaunchBatchExecutionViolation(GRANT_1, exact, binding), true);
     assert.equal(hasLaunchBatchExecutionViolation("missing", exact, binding), true);
   });
@@ -785,5 +928,27 @@ function launchReceipt(
       skipped: targets.filter((target) => target.status === "skipped").length,
     },
     targets,
+  };
+}
+
+function reuseBinding(
+  sourceSequence: number,
+  sourceLabRunId: string,
+): AnalysisLaunchApplicationRoundtripReuseBinding {
+  return {
+    schema: "analysis-launch-application-roundtrip-reuse-v1",
+    sourceSequence,
+    sourceLabRunId,
+    sourceLabRunArtifactPath: "spike-out/analysis-lab/source-run.json",
+    sourceLabRunArtifactSha256: SHA_A,
+    sourceRoundtripRunId: "roundtrip-2026-08-29T000000.000Z-a1b2c3",
+    analysisArtifactSha256: SHA_B,
+    manifestArtifactSha256: SHA_C,
+    parsedMarkdown: [{ attachmentId: "attachment-1", sha256: SHA_D }],
+    independentReviewAggregatePath: "spike-out/analysis-lab/independent-review/review.aggregate.json",
+    independentReviewAggregateSha256: SHA_D,
+    independentReviewManifestPath: "spike-out/analysis-lab/independent-review/review.manifest.json",
+    independentReviewManifestSha256: SHA_C,
+    sourceLaunchReceiptSha256: SHA_B,
   };
 }

@@ -7,6 +7,7 @@ import { createDrizzleRepositories } from "../repositories/drizzle";
 import * as schema from "../db/schema";
 import { refreshMatchStates } from "./matchStateRefresh";
 import { submitGrantConfirmations } from "./grantConfirmations";
+import { runGrantRevisionScopedRefresh } from "./grantRevisionScopedRefreshCore";
 
 /** 전용 Unix-socket PostgreSQL에서만 실행하는 shared match_state stale-write 통합검사. */
 export async function verifyMatchStateInputRevisionPostgres(input: {
@@ -159,6 +160,178 @@ export async function verifyMatchStateInputRevisionPostgres(input: {
     calculationAsOf: new Date("2026-09-07T00:00:08.000Z"),
   })).status, "stale_as_of");
 
+  const protectedBeforeLegacy = await matchStateFingerprint(input.admin, input.companyId, grantId);
+  await assert.rejects(
+    () => exactLegacyMatchStateUpsert(input.admin, input.companyId, grantId),
+    /match_state write requires match-state-input-v1 writer contract/,
+  );
+  await assert.rejects(
+    () => input.admin.begin(async (tx) => {
+      await tx`select set_config('app.match_state_writer_contract','match-state-input-v1',true)`;
+      await tx`update match_state
+        set input_binding=input_binding || '{"unsealed":true}'::jsonb
+        where company_id=${input.companyId} and grant_id=${grantId}`;
+    }),
+    /match_state write requires a valid v1 input binding and calculation_as_of/,
+  );
+  await assert.rejects(
+    () => input.admin.begin(async (tx) => {
+      await tx`select set_config('app.match_state_writer_contract','match-state-input-v1',true)`;
+      await tx`update match_state
+        set input_binding=jsonb_set(
+          input_binding,
+          '{companyRevision}',
+          to_jsonb((input_binding ->> 'companyRevision')::bigint)
+        )
+        where company_id=${input.companyId} and grant_id=${grantId}`;
+    }),
+    /match_state write requires a valid v1 input binding and calculation_as_of/,
+  );
+  await assert.rejects(
+    () => input.admin.begin(async (tx) => {
+      await tx`select set_config('app.match_state_writer_contract','match-state-input-v1',true)`;
+      await tx`update match_state
+        set input_binding=jsonb_set(
+          input_binding,
+          '{grantComponentRevisions,0,revision}',
+          to_jsonb((input_binding #>> '{grantComponentRevisions,0,revision}')::bigint)
+        )
+        where company_id=${input.companyId} and grant_id=${grantId}`;
+    }),
+    /match_state write requires a valid v1 input binding and calculation_as_of/,
+  );
+  assert.deepEqual(
+    await matchStateFingerprint(input.admin, input.companyId, grantId),
+    protectedBeforeLegacy,
+    "writer marker does not admit an unsealed binding",
+  );
+  assert.deepEqual(
+    await matchStateFingerprint(input.admin, input.companyId, grantId),
+    protectedBeforeLegacy,
+    "44fda4d exact old upsert cannot preserve new metadata while replacing result fields",
+  );
+  await assert.rejects(
+    () => input.admin`update match_state set eligibility='eligible' where company_id=${input.companyId} and grant_id=${grantId}`,
+    /match_state write requires match-state-input-v1 writer contract/,
+  );
+  assert.deepEqual(await matchStateFingerprint(input.admin, input.companyId, grantId), protectedBeforeLegacy);
+
+  // admin(max:1)의 같은 physical session에서 new writer transaction이 끝난 뒤에도 local marker가 새지 않는다.
+  await input.admin.begin(async (tx) => {
+    await tx`select set_config('app.match_state_writer_contract','match-state-input-v1',true)`;
+  });
+  await assert.rejects(
+    () => exactLegacyMatchStateUpsert(input.admin, input.companyId, grantId),
+    /match_state write requires match-state-input-v1 writer contract/,
+  );
+
+  const dueAt = new Date("2026-09-07T00:00:20.000Z");
+  assert.equal((await repositories.matches.saveMatchState({
+    companyId: input.companyId,
+    grantId,
+    match: ineligibleMatch,
+    inputBinding: currentBinding,
+    calculationAsOf: new Date("2026-09-07T00:00:11.000Z"),
+    eligibleFrom: new Date("2026-09-07T00:00:12.000Z"),
+  })).status, "saved");
+  await input.admin.unsafe("alter table match_state disable trigger enforce_match_state_writer_contract");
+  try {
+    await input.admin`update match_state
+      set input_binding=jsonb_set(
+        input_binding,
+        '{companyRevision}',
+        to_jsonb((input_binding ->> 'companyRevision')::bigint)
+      )
+      where company_id=${input.companyId} and grant_id=${grantId}`;
+  } finally {
+    await input.admin.unsafe("alter table match_state enable trigger enforce_match_state_writer_contract");
+  }
+  assert.equal(
+    (await repositories.matches.listDueMatchTransitions({ asOf: dueAt, limit: 500 }))
+      .some((candidate) => candidate.companyId === input.companyId && candidate.grantId === grantId),
+    false,
+    "JSON-number company revision cannot masquerade as the current string revision",
+  );
+  assert.equal((await repositories.matches.saveMatchState({
+    companyId: input.companyId,
+    grantId,
+    match: ineligibleMatch,
+    inputBinding: currentBinding,
+    calculationAsOf: new Date("2026-09-07T00:00:12.000Z"),
+    eligibleFrom: new Date("2026-09-07T00:00:12.000Z"),
+  })).status, "saved");
+  await input.admin.unsafe("alter table match_state disable trigger enforce_match_state_writer_contract");
+  try {
+    await input.admin`insert into grants(id,source,source_id,title,status,overall_confidence)
+      select gen_random_uuid(),'bizinfo',${`legacy-cache-${grantId}-`} || sequence::text,
+        'legacy cache fixture','open',1
+      from generate_series(1,500) sequence`;
+    await input.admin`insert into match_state
+      (company_id,grant_id,eligibility,match_score,fit_score,rule_trace,match_confidence,
+        eligible_from,ruleset_ver,scoring_ver,updated_at)
+      select ${input.companyId},id,'ineligible',1,1,'[]',0.1,'2026-09-07T00:00:01.000Z',
+        'ruleset-kstartup-spine-v8','scoring-verification-v3','2026-09-07T00:00:01.000Z'
+      from grants where source_id like ${`legacy-cache-${grantId}-%`}`;
+  } finally {
+    await input.admin.unsafe("alter table match_state enable trigger enforce_match_state_writer_contract");
+  }
+  assert.equal(
+    (await repositories.matches.listDueMatchTransitions({ asOf: dueAt, limit: 500 }))
+      .some((candidate) => candidate.companyId === input.companyId && candidate.grantId === grantId),
+    true,
+    "500 earlier legacy rows cannot starve the current bound transition candidate",
+  );
+  await input.admin`delete from grants where source_id like ${`legacy-cache-${grantId}-%`}`;
+  await input.admin`update companies set name=name where id=${input.companyId}`;
+  assert.equal(
+    (await repositories.matches.listDueMatchTransitions({ asOf: dueAt, limit: 500 }))
+      .some((candidate) => candidate.companyId === input.companyId && candidate.grantId === grantId),
+    false,
+    "stale company revision cache is ignored",
+  );
+  const memberGrantId = crypto.randomUUID();
+  await input.admin`insert into grants(id,source,source_id,title,status,overall_confidence)
+    values (${memberGrantId},'bizinfo',${`match-member-${memberGrantId}`},'match component fixture','open',1)`;
+  await input.admin`insert into dedup_links(canonical_grant_id,member_grant_id,score,confirmed)
+    values (${grantId},${memberGrantId},1,true)`;
+  const [componentBinding] = await repositories.matches.captureMatchStateInputBindings({
+    companyIds: [input.companyId],
+    grantIds: [grantId],
+  });
+  assert.equal(componentBinding?.grantComponentRevisions.length, 2);
+  assert.equal((await repositories.matches.saveMatchState({
+    companyId: input.companyId,
+    grantId,
+    match: ineligibleMatch,
+    inputBinding: componentBinding!,
+    calculationAsOf: new Date("2026-09-07T00:00:21.000Z"),
+    eligibleFrom: new Date("2026-09-07T00:00:12.000Z"),
+  })).status, "saved");
+  assert.equal(
+    (await repositories.matches.listDueMatchTransitions({ asOf: dueAt, limit: 500 }))
+      .some((candidate) => candidate.companyId === input.companyId && candidate.grantId === grantId),
+    true,
+    "current confirmed component topology is accepted",
+  );
+  await input.admin`delete from dedup_links where canonical_grant_id=${grantId} and member_grant_id=${memberGrantId}`;
+  assert.equal(
+    (await repositories.matches.listDueMatchTransitions({ asOf: dueAt, limit: 500 }))
+      .some((candidate) => candidate.companyId === input.companyId && candidate.grantId === grantId),
+    false,
+    "confirmed component topology drift is ignored",
+  );
+  await input.admin`delete from grants where id=${memberGrantId}`;
+  const missingBaselineRefresh = await runGrantRevisionScopedRefresh({
+    db,
+    grantIds: [grantId],
+    companyIds: [input.companyId],
+    companyLimit: 1,
+    asOf: dueAt,
+    write: false,
+  });
+  assert.equal(missingBaselineRefresh.plannedStateCount, 1);
+  assert.equal(missingBaselineRefresh.changedCount, 1, "invalid cache is a missing baseline and remains recomputable");
+
   // 일반 제품 role은 revision 원장을 직접 고치거나 SECURITY DEFINER mutator를 호출할 수 없다.
   await input.client.begin(async (tx) => {
     await tx`select set_config('app.current_user_id',${input.userId},true)`;
@@ -171,7 +344,40 @@ export async function verifyMatchStateInputRevisionPostgres(input: {
   );
 
   await assertTriggerCoverage(input.admin);
-  console.log("PASS: match_state input revisions reject stale answer writes, preserve latest asOf, keep user overlays read-only, and protect trigger/RLS boundaries");
+  console.log("PASS: match_state current writer CAS, 0083 old-writer fence, marker isolation, cache validity, transition fairness, and RLS boundaries");
+}
+
+async function exactLegacyMatchStateUpsert(
+  admin: postgres.Sql,
+  companyId: string,
+  grantId: string,
+) {
+  return admin`insert into match_state
+    (company_id,grant_id,eligibility,match_score,fit_score,competitiveness,value_score,rule_trace,
+      match_confidence,eligible_from,eligible_until,ruleset_ver,scoring_ver,updated_at)
+    values (${companyId},${grantId},'eligible',10,10,null,null,'[]',0.1,null,null,
+      'ruleset-kstartup-spine-v8','scoring-verification-v3','2026-09-07T00:00:30.000Z')
+    on conflict (company_id,grant_id) do update set
+      eligibility=excluded.eligibility,
+      match_score=excluded.match_score,
+      fit_score=excluded.fit_score,
+      competitiveness=excluded.competitiveness,
+      value_score=excluded.value_score,
+      rule_trace=excluded.rule_trace,
+      match_confidence=excluded.match_confidence,
+      eligible_from=excluded.eligible_from,
+      eligible_until=excluded.eligible_until,
+      ruleset_ver=excluded.ruleset_ver,
+      scoring_ver=excluded.scoring_ver,
+      updated_at=excluded.updated_at`;
+}
+
+async function matchStateFingerprint(admin: postgres.Sql, companyId: string, grantId: string) {
+  const [row] = await admin`select eligibility,match_score,fit_score,rule_trace,ruleset_ver,scoring_ver,
+    input_binding,calculation_as_of,updated_at from match_state
+    where company_id=${companyId} and grant_id=${grantId}`;
+  assert.ok(row);
+  return JSON.parse(JSON.stringify(row));
 }
 
 async function assertTriggerCoverage(admin: postgres.Sql) {

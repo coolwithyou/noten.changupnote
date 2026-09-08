@@ -66,6 +66,11 @@ await assert.rejects(
   "기존 Kordoc run 재사용도 명시적 opt-in 없이 실행할 수 없다",
 );
 await assert.rejects(
+  runLabAnalysis("unused-grant", { exactApplicationRoundtripReuse: {} } as never),
+  /exactApplicationRoundtripReuse는 withApplicationRoundtrip=true와 함께 지정해야 합니다/,
+  "launch exact Kordoc 결속도 명시적 application opt-in 밖에서 사용할 수 없다",
+);
+await assert.rejects(
   runLabAnalysis("unused-grant"),
   AnalysisLabExecutionPausedError,
   "단건·smoke·수동 repair도 Gate R 전에는 DB/모델 실행 전에 차단한다",

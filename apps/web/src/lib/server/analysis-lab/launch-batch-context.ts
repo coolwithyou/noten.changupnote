@@ -1,4 +1,8 @@
 import { AsyncLocalStorage } from "node:async_hooks";
+import {
+  normalizeAnalysisLaunchApplicationRoundtripReuseBinding,
+  type AnalysisLaunchApplicationRoundtripReuseBinding,
+} from "./launch-batch-artifacts";
 
 export interface AnalysisLaunchTargetBinding {
   readonly grantId: string;
@@ -10,11 +14,13 @@ export interface AnalysisLaunchTargetBinding {
     readonly blockingCount: number;
     readonly taskInstruction: string;
   };
+  readonly applicationRoundtripReuse?: AnalysisLaunchApplicationRoundtripReuseBinding;
 }
 
 export interface AnalysisLaunchBatchExecutionBinding {
   readonly grantSha256: string;
   readonly manifestSha256: string;
+  readonly sourceKind: "formal_plan" | "authoring_guide_adoption" | "independent_review_repair";
   readonly model: string;
   readonly transport: "claude-cli";
   readonly promptVersion: string;
@@ -51,6 +57,13 @@ function normalizeBinding(
     throw new Error("launch batch execution은 claude-cli transport만 허용합니다.");
   }
   if (
+    binding.sourceKind !== "formal_plan"
+    && binding.sourceKind !== "authoring_guide_adoption"
+    && binding.sourceKind !== "independent_review_repair"
+  ) {
+    throw new Error("launch batch source kind가 잘못됐습니다.");
+  }
+  if (
     binding.withApplicationRoundtrip
       ? !binding.roundtripModel?.trim()
       : binding.roundtripModel !== null
@@ -83,11 +96,28 @@ function normalizeBinding(
     ) {
       throw new Error(`launch batch ${grantId}.reviewRepair binding이 잘못됐습니다.`);
     }
+    const applicationRoundtripReuse = target.applicationRoundtripReuse === undefined
+      ? undefined
+      : normalizeAnalysisLaunchApplicationRoundtripReuseBinding(
+          target.applicationRoundtripReuse,
+          `${grantId}.applicationRoundtripReuse`,
+        );
+    if (
+      applicationRoundtripReuse
+      && (
+        binding.sourceKind !== "independent_review_repair"
+        || !reviewRepair
+        || applicationRoundtripReuse.sourceLabRunId !== reviewRepair.sourceRunId
+      )
+    ) {
+      throw new Error(`launch batch ${grantId}.applicationRoundtripReuse 결속이 잘못됐습니다.`);
+    }
     targets.set(grantId, Object.freeze({
       grantId,
       inputSha256: target.inputSha256,
       attachmentManifestSha256: target.attachmentManifestSha256,
       ...(reviewRepair ? { reviewRepair: Object.freeze({ ...reviewRepair }) } : {}),
+      ...(applicationRoundtripReuse ? { applicationRoundtripReuse } : {}),
     }));
   }
   return Object.freeze({ ...binding, targets });

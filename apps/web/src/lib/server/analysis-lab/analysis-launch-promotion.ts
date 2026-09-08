@@ -6,6 +6,7 @@ import {
   APPLICATION_ROUNDTRIP_ADOPTED_MODEL,
   APPLICATION_ROUNDTRIP_VERSION,
 } from "./application-roundtrip/contract";
+import type { PromotionApplicationPrecomputeEvidence } from "../analysis-serving/applicationPrecomputeEvidence";
 import {
   analysisLaunchTargetIsMatchingReviewable,
   analysisFeatureReadinessEqual,
@@ -101,6 +102,55 @@ export interface AnalysisLaunchPromotionCandidate extends PromotionCandidate {
 export interface AnalysisLaunchPromotionCohort {
   launchReceiptSha256s: string[];
   candidates: AnalysisLaunchPromotionCandidate[];
+}
+
+type TerminalNotApplicableRoundtripRun = {
+  runId: string;
+  sourceCount?: number;
+  documents: ReadonlyArray<{ role: string }>;
+  error: string | null;
+  failureCode?: string | null;
+};
+
+/**
+ * split readiness 이전에 봉인된 application bundle의 명시적 not_applicable 종결만 읽기
+ * 재검증에서 보존한다. 이는 작성 기능을 ready로 승격하지 않으며, 모든 count와 실제 문서
+ * 역할이 함께 닫힌 경우에만 역사 bundle을 허용한다.
+ */
+export function isStrictTerminalNotApplicableApplicationPrecompute(input: {
+  readiness: AnalysisLaunchPromotionReadiness;
+  evidence: PromotionApplicationPrecomputeEvidence;
+  run: TerminalNotApplicableRoundtripRun;
+}): boolean {
+  const { readiness, evidence, run } = input;
+  const authoring = readiness.runFeatureReadiness.authoring;
+  const applicationDocumentCount = run.documents.filter((document) =>
+    document.role === "application_form"
+    || document.role === "business_plan"
+    || document.role === "mixed_form").length;
+  return authoring.status === "held"
+    && authoring.sourceDisposition === "not_applicable"
+    && authoring.reasons.length === 1
+    && authoring.reasons[0] === "application_field_analysis_not_applicable"
+    && readiness.runFeatureReadinessVerification === "derived_legacy"
+    && readiness.authoringEvidenceStatus === "verified"
+    && readiness.authoringEvidenceReasons.length === 0
+    && readiness.applicationRoundtripStatus === "not_applicable"
+    && readiness.applicationRoundtripRunId !== null
+    && readiness.applicationRoundtripRunId === evidence.roundtripRunId
+    && readiness.applicationRoundtripRunId === run.runId
+    && readiness.applicationDocumentCount === 0
+    && readiness.fieldReadyDocumentCount === 0
+    && readiness.recognizedFieldCount === 0
+    && evidence.schema === "promotion-application-precompute-v3"
+    && evidence.status === "not_applicable"
+    && evidence.materializableDocumentCount === 0
+    && evidence.reviewRequiredDocumentCount === 0
+    && evidence.documentCount === run.documents.length
+    && evidence.sourceCount === (run.sourceCount ?? run.documents.length)
+    && applicationDocumentCount === 0
+    && run.error === null
+    && (run.failureCode ?? null) === null;
 }
 
 export interface AnalysisLaunchPromotionDependencies {
@@ -377,16 +427,21 @@ export async function verifyAnalysisLaunchPromotionSourceArtifactDetailed(
         changed.push("application_precompute_missing");
       }
     } else {
-      if (
-        candidate.readiness.runFeatureReadiness.authoring.status !== "ready"
-        || candidate.readiness.authoringEvidenceStatus !== "verified"
-      ) {
-        changed.push("application_precompute_unavailable");
-      }
       const { readBundledPromotionApplicationPrecompute } = await import(
         "./application-precompute-release"
       );
       const bundled = await readBundledPromotionApplicationPrecompute(artifact.applicationPrecompute);
+      const authoringReady =
+        candidate.readiness.runFeatureReadiness.authoring.status === "ready"
+        && candidate.readiness.authoringEvidenceStatus === "verified";
+      const terminalNotApplicable = isStrictTerminalNotApplicableApplicationPrecompute({
+        readiness: candidate.readiness,
+        evidence: artifact.applicationPrecompute,
+        run: bundled.run,
+      });
+      if (!authoringReady && !terminalNotApplicable) {
+        changed.push("application_precompute_unavailable");
+      }
       if (
         bundled.run.parentLabRunId !== artifact.runId
         || bundled.run.runId !== artifact.applicationPrecompute.roundtripRunId

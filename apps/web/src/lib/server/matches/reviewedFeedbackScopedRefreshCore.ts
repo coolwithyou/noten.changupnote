@@ -6,6 +6,7 @@ import * as schema from "../db/schema";
 import { createDrizzleRepositories } from "../repositories/drizzle";
 import { resolveSystemProductCompanyProfile } from "../productProfile/resolveProductCompanyProfile";
 import { loadCriterionConfirmations } from "./matchStateRefresh";
+import { filterCurrentMatchStateCacheRows } from "./matchStateCacheValidity";
 
 export interface RunReviewedFeedbackScopedRefreshInput {
   db: CunoteDb;
@@ -71,7 +72,12 @@ export async function runReviewedFeedbackScopedRefresh(
       grants: loaded.grants,
     }) ?? new Map(),
   ] as const)));
-  const existingStates = await loadExistingStates(input.db, loaded.companies.map((item) => item.companyId), loaded.grants);
+  const existingStates = await loadExistingStates(
+    input.db,
+    repositories,
+    loaded.companies.map((item) => item.companyId),
+    loaded.grants,
+  );
   const plan = planScopedMatchStateRefresh({
     scope: context.scope,
     companies: loaded.companies,
@@ -214,6 +220,7 @@ async function requiredCompanyProfile(
 
 async function loadExistingStates(
   db: CunoteDb,
+  repositories: ReturnType<typeof createDrizzleRepositories<unknown>>,
   companyIds: string[],
   grants: Array<NormalizedGrant<unknown>>,
 ): Promise<ExistingMatchStateSnapshot[]> {
@@ -229,11 +236,14 @@ async function loadExistingStates(
     ruleTrace: schema.matchState.ruleTrace,
     eligibleFrom: schema.matchState.eligibleFrom,
     eligibleUntil: schema.matchState.eligibleUntil,
+    inputBinding: schema.matchState.inputBinding,
+    calculationAsOf: schema.matchState.calculationAsOf,
   }).from(schema.matchState).where(and(
     inArray(schema.matchState.companyId, companyIds),
     inArray(schema.matchState.grantId, grantIds),
   ));
-  return rows.map((row) => ({
+  const currentBindings = await repositories.matches.captureMatchStateInputBindings({ companyIds, grantIds });
+  return filterCurrentMatchStateCacheRows(rows, currentBindings).map((row) => ({
     companyId: row.companyId,
     grantId: row.grantId,
     eligibility: row.eligibility,

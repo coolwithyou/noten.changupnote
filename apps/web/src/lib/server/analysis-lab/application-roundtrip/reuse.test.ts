@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { cp, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { VERSION } from "kordoc";
@@ -8,7 +9,11 @@ import {
   type ApplicationRoundtripRun,
 } from "@/lib/server/analysis-lab/application-roundtrip/contract";
 import { buildApplicationRoundtripReference } from "../application-precompute";
-import { assertReusableApplicationRoundtrip, prepareApplicationRoundtripReuse } from "./reuse";
+import {
+  assertReusableApplicationRoundtrip,
+  assertStrictApplicationRoundtripReuseArtifact,
+  prepareApplicationRoundtripReuse,
+} from "./reuse";
 import {
   readRoundtripRunArtifacts,
   saveRoundtripRun,
@@ -20,6 +25,7 @@ const originalCwd = process.cwd();
 const originalEffortEnv = process.env.APPLICATION_ROUNDTRIP_EFFORT;
 delete process.env.APPLICATION_ROUNDTRIP_EFFORT;
 const temporaryRoot = await mkdtemp(join(tmpdir(), "cunote-roundtrip-reuse-"));
+const externalApplicationRoot = await mkdtemp(join(tmpdir(), "cunote-roundtrip-external-"));
 const sourceRunId = "roundtrip-2026-08-11T000000.000Z-a1b2c3";
 const sourceSha256 = "a".repeat(64);
 const filename = "[별첨] 신청서.hwp";
@@ -29,6 +35,193 @@ const attachmentId = "attachment-1";
 try {
   await writeFile(join(temporaryRoot, "pnpm-workspace.yaml"), "packages: []\n", "utf8");
   process.chdir(temporaryRoot);
+  await saveRoundtripRun({
+    run: sourceRun(),
+    manifest: sourceManifest(),
+    markdownByAttachmentId: new Map([[attachmentId, "# 신청서\n회사명: ____"]]),
+  });
+
+  const exactSource = await readRoundtripRunArtifacts("grant-1", sourceRunId);
+  assert.ok(exactSource);
+  const exactArtifactBinding = {
+    analysisSha256: sha256(await readFile(join(exactSource.dir, "analysis.json"))),
+    manifestSha256: sha256(await readFile(join(exactSource.dir, "manifest.json"))),
+    parsedMarkdown: [{
+      attachmentId,
+      sha256: sha256(await readFile(join(exactSource.dir, `${attachmentId}.parsed.md`))),
+    }],
+  };
+  const exactPrepared = await prepareApplicationRoundtripReuse({
+    grantId: "grant-1",
+    sourceRunId,
+    transport: "claude-cli",
+    model: "claude-opus-5",
+    currentSources: [{ filename, storageKey, sha256: sourceSha256 }],
+    exactArtifactBinding,
+    repositoryRoot: temporaryRoot,
+  });
+  assert.equal(exactPrepared.sourceRunId, sourceRunId, "실제 analysis/manifest bytes SHA가 같을 때만 exact 준비");
+  await assert.rejects(
+    prepareApplicationRoundtripReuse({
+      grantId: "grant-1",
+      sourceRunId,
+      transport: "claude-cli",
+      model: "claude-opus-5",
+      currentSources: [{ filename, storageKey, sha256: sourceSha256 }],
+      exactArtifactBinding: { ...exactArtifactBinding, analysisSha256: "f".repeat(64) },
+      repositoryRoot: temporaryRoot,
+    }),
+    (error: unknown) => hasReuseCode(error, "artifact_hash_mismatch"),
+    "봉인한 analysis bytes SHA와 다르면 exact 재사용을 거부",
+  );
+  await assert.rejects(
+    prepareApplicationRoundtripReuse({
+      grantId: "grant-1",
+      sourceRunId,
+      transport: "claude-cli",
+      model: "claude-opus-5",
+      currentSources: [{ filename, storageKey, sha256: sourceSha256 }],
+      exactArtifactBinding: {
+        ...exactArtifactBinding,
+        parsedMarkdown: [{ attachmentId, sha256: "e".repeat(64) }],
+      },
+      repositoryRoot: temporaryRoot,
+    }),
+    (error: unknown) => hasReuseCode(error, "artifact_hash_mismatch"),
+    "복제할 parsed markdown bytes SHA도 exact 결속",
+  );
+  await assert.rejects(
+    prepareApplicationRoundtripReuse({
+      grantId: "grant-1",
+      sourceRunId,
+      transport: "claude-cli",
+      model: "claude-opus-5",
+      currentSources: [
+        { filename, storageKey, sha256: sourceSha256 },
+        { filename: "broken.hwpx", storageKey: null, sha256: null },
+      ],
+      exactArtifactBinding,
+      repositoryRoot: temporaryRoot,
+    }),
+    (error: unknown) => hasReuseCode(error, "source_changed"),
+    "strict launch 재사용은 현재 HWP/HWPX source의 malformed 항목을 조용히 버리지 않음",
+  );
+  assert.throws(
+    () => assertStrictApplicationRoundtripReuseArtifact({
+      run: sourceRun(),
+      manifest: { ...sourceManifest(), version: 2 as 1 },
+      currentSources: [{ filename, storageKey, sha256: sourceSha256 }],
+    }),
+    (error: unknown) => hasReuseCode(error, "contract_mismatch"),
+    "strict launch 재사용은 manifest version drift를 거부",
+  );
+  const partialRun = sourceRun();
+  partialRun.documents[0]!.fieldCoverage.status = "partial";
+  assert.throws(
+    () => assertStrictApplicationRoundtripReuseArtifact({
+      run: partialRun,
+      manifest: sourceManifest(),
+      currentSources: [{ filename, storageKey, sha256: sourceSha256 }],
+    }),
+    (error: unknown) => hasReuseCode(error, "artifact_incomplete"),
+    "strict launch 재사용은 partial application 분석을 성공처럼 재사용하지 않음",
+  );
+
+  const duplicateGroup = join(
+    temporaryRoot,
+    "spike-out",
+    "analysis-lab",
+    "application-roundtrip",
+    "duplicate__fixture",
+    sourceRunId,
+  );
+  await cp(exactSource.dir, duplicateGroup, { recursive: true });
+  await assert.rejects(
+    prepareApplicationRoundtripReuse({
+      grantId: "grant-1",
+      sourceRunId,
+      transport: "claude-cli",
+      model: "claude-opus-5",
+      currentSources: [{ filename, storageKey, sha256: sourceSha256 }],
+      exactArtifactBinding,
+      repositoryRoot: temporaryRoot,
+    }),
+    /여러 source에 중복/,
+    "동일 runId의 complete artifact가 둘이면 하나를 임의 채택하지 않음",
+  );
+  await rm(duplicateGroup, { recursive: true, force: true });
+
+  const partialGroup = join(
+    temporaryRoot,
+    "spike-out",
+    "analysis-lab",
+    "application-roundtrip",
+    "partial__fixture",
+    sourceRunId,
+  );
+  await mkdir(partialGroup, { recursive: true });
+  await writeFile(join(partialGroup, "analysis.json"), "{}", "utf8");
+  await assert.rejects(
+    prepareApplicationRoundtripReuse({
+      grantId: "grant-1",
+      sourceRunId,
+      transport: "claude-cli",
+      model: "claude-opus-5",
+      currentSources: [{ filename, storageKey, sha256: sourceSha256 }],
+      exactArtifactBinding,
+      repositoryRoot: temporaryRoot,
+    }),
+    /일부가 없습니다/,
+    "동일 runId partial directory를 건너뛰고 다른 artifact를 임의 채택하지 않음",
+  );
+  await rm(partialGroup, { recursive: true, force: true });
+
+  const outsideRun = join(temporaryRoot, "outside-kordoc-run");
+  const linkedGroup = join(
+    temporaryRoot,
+    "spike-out",
+    "analysis-lab",
+    "application-roundtrip",
+    "linked__fixture",
+  );
+  await mkdir(outsideRun, { recursive: true });
+  await mkdir(linkedGroup, { recursive: true });
+  await symlink(outsideRun, join(linkedGroup, sourceRunId), "dir");
+  await assert.rejects(
+    prepareApplicationRoundtripReuse({
+      grantId: "grant-1",
+      sourceRunId,
+      transport: "claude-cli",
+      model: "claude-opus-5",
+      currentSources: [{ filename, storageKey, sha256: sourceSha256 }],
+      exactArtifactBinding,
+      repositoryRoot: temporaryRoot,
+    }),
+    /저장소 밖/,
+    "exact reader는 application-roundtrip root 밖 symlink를 거부",
+  );
+  const applicationRoot = join(
+    temporaryRoot,
+    "spike-out",
+    "analysis-lab",
+    "application-roundtrip",
+  );
+  await rm(applicationRoot, { recursive: true, force: true });
+  await symlink(externalApplicationRoot, applicationRoot, "dir");
+  await assert.rejects(
+    prepareApplicationRoundtripReuse({
+      grantId: "grant-1",
+      sourceRunId,
+      transport: "claude-cli",
+      model: "claude-opus-5",
+      currentSources: [{ filename, storageKey, sha256: sourceSha256 }],
+      exactArtifactBinding,
+      repositoryRoot: temporaryRoot,
+    }),
+    /application-roundtrip root가 application-roundtrip 저장소 밖/,
+    "application-roundtrip root 자체가 repo 밖 symlink이면 거부",
+  );
+  await rm(applicationRoot, { force: true });
   await saveRoundtripRun({
     run: sourceRun(),
     manifest: sourceManifest(),
@@ -169,12 +362,17 @@ try {
   if (originalEffortEnv === undefined) delete process.env.APPLICATION_ROUNDTRIP_EFFORT;
   else process.env.APPLICATION_ROUNDTRIP_EFFORT = originalEffortEnv;
   await rm(temporaryRoot, { recursive: true, force: true });
+  await rm(externalApplicationRoot, { recursive: true, force: true });
 }
 
 console.log("application roundtrip reuse tests: ok");
 
 function hasReuseCode(error: unknown, code: string): boolean {
   return error instanceof Error && "code" in error && (error as { code?: unknown }).code === code;
+}
+
+function sha256(bytes: Uint8Array): string {
+  return createHash("sha256").update(bytes).digest("hex");
 }
 
 function sourceRun(): ApplicationRoundtripRun {

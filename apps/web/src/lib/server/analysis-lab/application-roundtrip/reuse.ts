@@ -8,14 +8,18 @@ import { declaredRoundtripFormat } from "./core";
 import { resolveRoundtripEffort } from "./field-planner";
 import {
   buildRoundtripRunId,
+  readExactRoundtripRunArtifacts,
   readRoundtripMarkdownByAttachmentId,
   readRoundtripRunArtifacts,
   saveRoundtripRun,
+  type ExactRoundtripRunArtifacts,
+  type RoundtripRunArtifacts,
   type RoundtripRunManifest,
 } from "./store";
 
 export type ApplicationRoundtripReuseFailureCode =
   | "artifact_not_found"
+  | "artifact_hash_mismatch"
   | "contract_mismatch"
   | "source_changed"
   | "artifact_incomplete";
@@ -41,6 +45,15 @@ export interface PreparedApplicationRoundtripReuse {
   materialize(parentLabRunId: string): Promise<ApplicationRoundtripRun>;
 }
 
+export interface ExactApplicationRoundtripArtifactBinding {
+  readonly analysisSha256: string;
+  readonly manifestSha256: string;
+  readonly parsedMarkdown: readonly {
+    readonly attachmentId: string;
+    readonly sha256: string;
+  }[];
+}
+
 /**
  * 딥분석 재시도 전에 Kordoc 재사용 계약을 먼저 검증한다.
  * 원본 SHA 세트·Kordoc 버전·엔진·모델·transport가 하나라도 다르거나
@@ -52,10 +65,48 @@ export async function prepareApplicationRoundtripReuse(input: {
   transport: RoundtripLlmTransport;
   model: string;
   currentSources: CurrentRoundtripSource[];
+  /** launch처럼 새 실행 권한에 재사용을 결속할 때만 요구하는 실제 artifact bytes SHA다. */
+  exactArtifactBinding?: ExactApplicationRoundtripArtifactBinding;
+  repositoryRoot?: string;
 }): Promise<PreparedApplicationRoundtripReuse> {
-  const artifacts = await readRoundtripRunArtifacts(input.grantId, input.sourceRunId);
+  let exactArtifacts: ExactRoundtripRunArtifacts | null = null;
+  let artifacts: RoundtripRunArtifacts | null;
+  if (input.exactArtifactBinding) {
+    exactArtifacts = await readExactRoundtripRunArtifacts({
+        grantId: input.grantId,
+        runId: input.sourceRunId,
+        ...(input.repositoryRoot ? { repositoryRoot: input.repositoryRoot } : {}),
+      });
+    artifacts = exactArtifacts;
+  } else {
+    artifacts = await readRoundtripRunArtifacts(input.grantId, input.sourceRunId);
+  }
   if (!artifacts) {
     throw new ApplicationRoundtripReuseError("artifact_not_found", `Kordoc 산출물을 찾지 못했습니다: ${input.sourceRunId}`);
+  }
+  if (input.exactArtifactBinding) {
+    const expectedAnalysisSha256 = exactSha(
+      input.exactArtifactBinding.analysisSha256,
+      "analysisSha256",
+    );
+    const expectedManifestSha256 = exactSha(
+      input.exactArtifactBinding.manifestSha256,
+      "manifestSha256",
+    );
+    if (
+      !exactArtifacts
+      || exactArtifacts.analysisSha256 !== expectedAnalysisSha256
+      || exactArtifacts.manifestSha256 !== expectedManifestSha256
+      || !sameParsedMarkdownBinding(
+        exactArtifacts.parsedMarkdown,
+        input.exactArtifactBinding.parsedMarkdown,
+      )
+    ) {
+      throw new ApplicationRoundtripReuseError(
+        "artifact_hash_mismatch",
+        `Kordoc exact artifact SHA가 봉인값과 다릅니다: ${input.sourceRunId}`,
+      );
+    }
   }
   assertReusableApplicationRoundtrip({
     grantId: input.grantId,
@@ -65,7 +116,16 @@ export async function prepareApplicationRoundtripReuse(input: {
     model: input.model,
     currentSources: input.currentSources,
   });
-  const markdownByAttachmentId = await readRoundtripMarkdownByAttachmentId(artifacts);
+  if (input.exactArtifactBinding) {
+    assertStrictApplicationRoundtripReuseArtifact({
+      run: artifacts.run,
+      manifest: artifacts.manifest,
+      currentSources: input.currentSources,
+    });
+  }
+  const markdownByAttachmentId = exactArtifacts
+    ? new Map(exactArtifacts.markdownByAttachmentId)
+    : await readRoundtripMarkdownByAttachmentId(artifacts);
 
   return {
     sourceRunId: artifacts.run.runId,
@@ -95,6 +155,64 @@ export async function prepareApplicationRoundtripReuse(input: {
       return run;
     },
   };
+}
+
+export function assertStrictApplicationRoundtripReuseArtifact(input: {
+  readonly run: ApplicationRoundtripRun;
+  readonly manifest: RoundtripRunManifest;
+  readonly currentSources: readonly CurrentRoundtripSource[];
+}): void {
+  if (input.manifest.version !== 1) {
+    throw new ApplicationRoundtripReuseError("contract_mismatch", "Kordoc manifest version이 다릅니다.");
+  }
+  if (
+    input.run.documents.length === 0
+    || input.manifest.attachments.length === 0
+    || input.run.documents.some((document) => (
+      document.fieldPlanning.status !== "llm"
+      || document.fieldCoverage.status !== "complete"
+    ))
+  ) {
+    throw new ApplicationRoundtripReuseError(
+      "artifact_incomplete",
+      "Kordoc exact 재사용은 완결된 application 문서 분석만 허용합니다.",
+    );
+  }
+  const currentSources = strictEligibleCurrentSources(input.currentSources);
+  const attachmentIds = new Set<string>();
+  const storageKeys = new Set<string>();
+  for (const [index, attachment] of input.manifest.attachments.entries()) {
+    if (
+      typeof attachment.attachmentId !== "string"
+      || attachment.attachmentId.trim() === ""
+      || typeof attachment.filename !== "string"
+      || attachment.filename.trim() === ""
+      || typeof attachment.storageKey !== "string"
+      || attachment.storageKey.trim() === ""
+      || !/^[a-f0-9]{64}$/.test(attachment.sourceSha256)
+      || !declaredRoundtripFormat(attachment.filename)
+      || attachmentIds.has(attachment.attachmentId)
+      || storageKeys.has(attachment.storageKey)
+    ) {
+      throw new ApplicationRoundtripReuseError(
+        "source_changed",
+        `Kordoc manifest attachment 결속이 잘못됐습니다: ${index}`,
+      );
+    }
+    attachmentIds.add(attachment.attachmentId);
+    storageKeys.add(attachment.storageKey);
+  }
+  const documentIds = input.run.documents.map((document) => document.attachmentId);
+  if (
+    new Set(documentIds).size !== documentIds.length
+    || documentIds.some((attachmentId) => !attachmentIds.has(attachmentId))
+    || currentSources.length !== input.manifest.attachments.length
+  ) {
+    throw new ApplicationRoundtripReuseError(
+      "source_changed",
+      "Kordoc document/manifest/current source identity가 정확히 일치하지 않습니다.",
+    );
+  }
 }
 
 export function assertReusableApplicationRoundtrip(input: {
@@ -196,4 +314,68 @@ function eligibleCurrentSources(sources: CurrentRoundtripSource[]): Array<{
     seen.add(source.storageKey);
     return [{ filename: source.filename, storageKey: source.storageKey, sha256 }];
   });
+}
+
+function strictEligibleCurrentSources(sources: readonly CurrentRoundtripSource[]): Array<{
+  filename: string;
+  storageKey: string;
+  sha256: string;
+}> {
+  const eligible = [];
+  const seen = new Set<string>();
+  for (const [index, source] of sources.entries()) {
+    if (!declaredRoundtripFormat(source.filename)) continue;
+    const storageKey = source.storageKey?.trim();
+    const sha256 = source.sha256?.toLowerCase();
+    if (
+      !storageKey
+      || !sha256
+      || !/^[a-f0-9]{64}$/.test(sha256)
+      || seen.has(storageKey)
+    ) {
+      throw new ApplicationRoundtripReuseError(
+        "source_changed",
+        `현재 HWP/HWPX source 결속이 잘못됐습니다: ${index}`,
+      );
+    }
+    seen.add(storageKey);
+    eligible.push({ filename: source.filename, storageKey, sha256 });
+  }
+  return eligible;
+}
+
+function exactSha(value: string, label: string): string {
+  if (!/^[a-f0-9]{64}$/.test(value)) {
+    throw new ApplicationRoundtripReuseError("contract_mismatch", `${label} 형식이 잘못됐습니다.`);
+  }
+  return value;
+}
+
+function sameParsedMarkdownBinding(
+  actual: readonly { readonly attachmentId: string; readonly sha256: string }[],
+  expected: readonly { readonly attachmentId: string; readonly sha256: string }[],
+): boolean {
+  if (actual.length !== expected.length) return false;
+  const normalizedExpected = expected.map((entry, index) => {
+    if (typeof entry.attachmentId !== "string" || entry.attachmentId.trim() === "") {
+      throw new ApplicationRoundtripReuseError(
+        "contract_mismatch",
+        `parsedMarkdown[${index}].attachmentId가 잘못됐습니다.`,
+      );
+    }
+    return {
+      attachmentId: entry.attachmentId,
+      sha256: exactSha(entry.sha256, `parsedMarkdown[${index}].sha256`),
+    };
+  }).sort((left, right) => left.attachmentId.localeCompare(right.attachmentId));
+  if (new Set(normalizedExpected.map((entry) => entry.attachmentId)).size !== normalizedExpected.length) {
+    throw new ApplicationRoundtripReuseError(
+      "contract_mismatch",
+      "parsedMarkdown attachmentId가 중복됐습니다.",
+    );
+  }
+  return actual.every((entry, index) => (
+    entry.attachmentId === normalizedExpected[index]?.attachmentId
+    && entry.sha256 === normalizedExpected[index]?.sha256
+  ));
 }

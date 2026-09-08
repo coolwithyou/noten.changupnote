@@ -11,6 +11,7 @@ import { createDrizzleRepositories } from "../repositories/drizzle";
 import { resolveSystemProductCompanyProfile } from "../productProfile/resolveProductCompanyProfile";
 import { expandConfirmedGrantComponentIds } from "../ingestion/grantRevisionInvalidation";
 import { loadCriterionConfirmations } from "./matchStateRefresh";
+import { filterCurrentMatchStateCacheRows } from "./matchStateCacheValidity";
 
 export interface RunGrantRevisionScopedRefreshInput {
   db: CunoteDb;
@@ -90,6 +91,7 @@ export async function runGrantRevisionScopedRefresh(
 
   const existingStates = await loadExistingStates(
     input.db,
+    repositories,
     companies.map((company) => company.companyId),
     grants.map((grant) => grant.grant.id!),
   );
@@ -220,6 +222,7 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{
 
 async function loadExistingStates(
   db: CunoteDb,
+  repositories: ReturnType<typeof createDrizzleRepositories<unknown>>,
   companyIds: string[],
   grantIds: string[],
 ): Promise<ExistingMatchStateSnapshot[]> {
@@ -234,11 +237,14 @@ async function loadExistingStates(
     ruleTrace: schema.matchState.ruleTrace,
     eligibleFrom: schema.matchState.eligibleFrom,
     eligibleUntil: schema.matchState.eligibleUntil,
+    inputBinding: schema.matchState.inputBinding,
+    calculationAsOf: schema.matchState.calculationAsOf,
   }).from(schema.matchState).where(and(
     inArray(schema.matchState.companyId, companyIds),
     inArray(schema.matchState.grantId, grantIds),
   ));
-  return rows.map((row) => ({
+  const currentBindings = await repositories.matches.captureMatchStateInputBindings({ companyIds, grantIds });
+  return filterCurrentMatchStateCacheRows(rows, currentBindings).map((row) => ({
     ...row,
     ruleTrace: row.ruleTrace as unknown as ExistingMatchStateSnapshot["ruleTrace"],
     eligibleFrom: row.eligibleFrom?.toISOString() ?? null,

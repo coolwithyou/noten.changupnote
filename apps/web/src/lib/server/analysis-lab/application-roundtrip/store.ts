@@ -1,12 +1,12 @@
-import { randomBytes } from "node:crypto";
-import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
-import { basename, dirname, join } from "node:path";
+import { createHash, randomBytes } from "node:crypto";
+import { lstat, mkdir, readdir, readFile, realpath, writeFile } from "node:fs/promises";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import type {
   ApplicationRoundtripRun,
   RoundtripDocumentFormat,
   RoundtripFillResult,
 } from "@/lib/server/analysis-lab/application-roundtrip/contract";
-import { analysisLabDir } from "../run-store";
+import { analysisLabDir, findMonorepoRoot } from "../run-store";
 
 export interface RoundtripRunManifest {
   version: 1;
@@ -29,6 +29,16 @@ export interface RoundtripRunArtifacts {
   dir: string;
 }
 
+export interface ExactRoundtripRunArtifacts extends RoundtripRunArtifacts {
+  readonly analysisSha256: string;
+  readonly manifestSha256: string;
+  readonly parsedMarkdown: readonly {
+    readonly attachmentId: string;
+    readonly sha256: string;
+  }[];
+  readonly markdownByAttachmentId: ReadonlyMap<string, string>;
+}
+
 const RUN_ID = /^roundtrip-[0-9TZ.\-]{10,40}-[a-f0-9]{6}$/;
 const FILL_ID = /^fill-[0-9TZ.\-]{10,40}-[a-f0-9]{6}$/;
 
@@ -44,13 +54,119 @@ function sanitizeSegment(value: string): string {
   return value.replace(/[^A-Za-z0-9._\-]/g, "_");
 }
 
-export function applicationRoundtripDir(): string {
-  return join(analysisLabDir(), "application-roundtrip");
+export function applicationRoundtripDir(repositoryRoot?: string): string {
+  return join(repositoryRoot ? join(repositoryRoot, "spike-out", "analysis-lab") : analysisLabDir(), "application-roundtrip");
 }
 
 function runDir(source: string, sourceId: string, runId: string): string {
   if (!RUN_ID.test(runId)) throw new Error(`허용되지 않는 roundtrip runId: ${runId}`);
   return join(applicationRoundtripDir(), `${sanitizeSegment(source)}__${sanitizeSegment(sourceId)}`, runId);
+}
+
+/**
+ * launch manifest에 SHA를 봉인할 때 쓰는 strict reader다. runId를 암묵적으로 최신 선택하지 않고,
+ * 같은 runId가 여러 source group에 있으면 어느 artifact도 임의 채택하지 않는다.
+ */
+export async function readExactRoundtripRunArtifacts(input: {
+  readonly grantId: string;
+  readonly runId: string;
+  readonly repositoryRoot?: string;
+}): Promise<ExactRoundtripRunArtifacts | null> {
+  if (!RUN_ID.test(input.runId)) return null;
+  let root: string;
+  try {
+    const repositoryRoot = await realpath(input.repositoryRoot ?? findMonorepoRoot());
+    root = await realpathInside(
+      repositoryRoot,
+      applicationRoundtripDir(repositoryRoot),
+      "Kordoc application-roundtrip root",
+    );
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw error;
+  }
+  let groups: string[];
+  try {
+    groups = await readdir(root);
+  } catch {
+    return null;
+  }
+  const matches: ExactRoundtripRunArtifacts[] = [];
+  for (const group of groups.sort()) {
+    if (!group.includes("__")) continue;
+    const dir = join(root, group, input.runId);
+    try {
+      await lstat(dir);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
+      throw error;
+    }
+    const exactDir = await realpathInside(root, dir, "Kordoc run directory");
+    let analysisBytes: Buffer;
+    let manifestBytes: Buffer;
+    try {
+      [analysisBytes, manifestBytes] = await Promise.all([
+        readFile(await realpathInside(root, join(exactDir, "analysis.json"), "Kordoc analysis")),
+        readFile(await realpathInside(root, join(exactDir, "manifest.json"), "Kordoc manifest")),
+      ]);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        throw new Error(`Kordoc exact artifact 일부가 없습니다: ${input.runId}`);
+      }
+      throw error;
+    }
+    let run: ApplicationRoundtripRun;
+    let manifest: RoundtripRunManifest;
+    try {
+      run = JSON.parse(analysisBytes.toString("utf8")) as ApplicationRoundtripRun;
+      manifest = JSON.parse(manifestBytes.toString("utf8")) as RoundtripRunManifest;
+    } catch {
+      throw new Error(`Kordoc exact artifact JSON이 손상됐습니다: ${input.runId}`);
+    }
+    if (
+      run.runId !== input.runId
+      || manifest.runId !== input.runId
+      || run.grantId !== input.grantId
+      || manifest.grantId !== input.grantId
+    ) {
+      throw new Error(`Kordoc exact artifact identity가 요청과 다릅니다: ${input.runId}`);
+    }
+    if (!Array.isArray(manifest.attachments)) {
+      throw new Error(`Kordoc exact manifest attachments가 배열이 아닙니다: ${input.runId}`);
+    }
+    const markdownEntries = await Promise.all(manifest.attachments.map(async (attachment, index) => {
+      if (typeof attachment.attachmentId !== "string" || attachment.attachmentId.trim() === "") {
+        throw new Error(`Kordoc exact manifest attachmentId가 잘못됐습니다: ${index}`);
+      }
+      const markdownPath = await realpathInside(
+        root,
+        join(exactDir, `${sanitizeSegment(attachment.attachmentId)}.parsed.md`),
+        `Kordoc parsed markdown ${index}`,
+      );
+      const bytes = await readFile(markdownPath);
+      return Object.freeze({
+        attachmentId: attachment.attachmentId,
+        sha256: sha256(bytes),
+        markdown: bytes.toString("utf8"),
+      });
+    }));
+    markdownEntries.sort((left, right) => left.attachmentId.localeCompare(right.attachmentId));
+    matches.push({
+      run,
+      manifest,
+      dir: exactDir,
+      analysisSha256: sha256(analysisBytes),
+      manifestSha256: sha256(manifestBytes),
+      parsedMarkdown: Object.freeze(markdownEntries.map(({ attachmentId, sha256: digest }) =>
+        Object.freeze({ attachmentId, sha256: digest }))),
+      markdownByAttachmentId: new Map(markdownEntries.map(({ attachmentId, markdown }) =>
+        [attachmentId, markdown])),
+    });
+  }
+  if (matches.length > 1) {
+    throw new Error(`Kordoc exact artifact runId가 여러 source에 중복됐습니다: ${input.runId}`);
+  }
+  return matches[0] ?? null;
 }
 
 export async function saveRoundtripRun(input: {
@@ -198,4 +314,17 @@ async function writeJsonImmutable(path: string, value: unknown): Promise<void> {
 
 async function readJson<T>(path: string): Promise<T> {
   return JSON.parse(await readFile(path, "utf8")) as T;
+}
+
+function sha256(bytes: Uint8Array): string {
+  return createHash("sha256").update(bytes).digest("hex");
+}
+
+async function realpathInside(root: string, path: string, label: string): Promise<string> {
+  const actual = await realpath(path);
+  const relation = relative(root, actual);
+  if (relation === ".." || relation.startsWith(`..${sep}`) || isAbsolute(relation)) {
+    throw new Error(`${label}가 application-roundtrip 저장소 밖을 가리킵니다.`);
+  }
+  return resolve(actual);
 }

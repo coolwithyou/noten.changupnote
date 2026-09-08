@@ -19,6 +19,7 @@ import { findMonorepoRoot } from "./run-store";
 const SHA256 = /^[a-f0-9]{64}$/;
 const SERIES = /^[a-z0-9](?:[a-z0-9-]{0,78}[a-z0-9])?$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const ROUNDTRIP_RUN_ID = /^roundtrip-[0-9TZ.\-]{10,40}-[a-f0-9]{6}$/;
 const MAX_LAUNCH_TARGETS = 100;
 
 export interface AnalysisLaunchManifestTarget {
@@ -36,6 +37,27 @@ export interface AnalysisLaunchManifestTarget {
     readonly blockingCount: number;
     readonly taskInstruction: string;
   };
+  readonly applicationRoundtripReuse?: AnalysisLaunchApplicationRoundtripReuseBinding;
+}
+
+export interface AnalysisLaunchApplicationRoundtripReuseBinding {
+  readonly schema: "analysis-launch-application-roundtrip-reuse-v1";
+  readonly sourceSequence: number;
+  readonly sourceLabRunId: string;
+  readonly sourceLabRunArtifactPath: string;
+  readonly sourceLabRunArtifactSha256: string;
+  readonly sourceRoundtripRunId: string;
+  readonly analysisArtifactSha256: string;
+  readonly manifestArtifactSha256: string;
+  readonly parsedMarkdown: readonly {
+    readonly attachmentId: string;
+    readonly sha256: string;
+  }[];
+  readonly independentReviewAggregatePath: string;
+  readonly independentReviewAggregateSha256: string;
+  readonly independentReviewManifestPath: string;
+  readonly independentReviewManifestSha256: string;
+  readonly sourceLaunchReceiptSha256: string;
 }
 
 export interface AnalysisLaunchManifest {
@@ -258,6 +280,7 @@ export function createIndependentReviewRepairAnalysisLaunchManifest(input: {
       readonly blockingCount: number;
       readonly taskInstruction: string;
     } | null;
+    readonly applicationRoundtripReuse?: AnalysisLaunchApplicationRoundtripReuseBinding | null;
   }[];
   readonly preparedTargets: readonly AnalysisLaunchPreparedTarget[];
   readonly provenance: AnalysisLaunchManifestPreparationInput["provenance"];
@@ -273,6 +296,12 @@ export function createIndependentReviewRepairAnalysisLaunchManifest(input: {
     || originalSequences.some((sequence, index) => index > 0 && sequence <= originalSequences[index - 1]!)
   ) {
     throw new Error("독립 검수 합의 결함 원본 sequence는 중복 없이 오름차순이어야 합니다.");
+  }
+  if (input.targets.some((target) => (
+    target.applicationRoundtripReuse
+    && target.applicationRoundtripReuse.sourceSequence !== target.originalSequence
+  ))) {
+    throw new Error("Kordoc exact 재사용 source sequence가 독립 검수 원본 sequence와 다릅니다.");
   }
   const manifest = createAnalysisLaunchManifestFromInventory({
     inventory: {
@@ -310,6 +339,9 @@ export function createIndependentReviewRepairAnalysisLaunchManifest(input: {
       ...target,
       ...(input.targets[index]?.reviewRepair
         ? { reviewRepair: input.targets[index]!.reviewRepair }
+        : {}),
+      ...(input.targets[index]?.applicationRoundtripReuse
+        ? { applicationRoundtripReuse: input.targets[index]!.applicationRoundtripReuse }
         : {}),
     })),
   });
@@ -465,6 +497,12 @@ export function normalizeAnalysisLaunchManifest(value: unknown): AnalysisLaunchM
     const reviewRepair = target.reviewRepair === undefined
       ? undefined
       : normalizeLaunchReviewRepair(target.reviewRepair, `targets[${index}].reviewRepair`);
+    const applicationRoundtripReuse = target.applicationRoundtripReuse === undefined
+      ? undefined
+      : normalizeAnalysisLaunchApplicationRoundtripReuseBinding(
+          target.applicationRoundtripReuse,
+          `targets[${index}].applicationRoundtripReuse`,
+        );
     return Object.freeze({
       sequence,
       grantId: exactUuid(target.grantId, "grantId"),
@@ -475,6 +513,7 @@ export function normalizeAnalysisLaunchManifest(value: unknown): AnalysisLaunchM
       inventoryAttachmentManifestSha256,
       changedSinceInventory,
       ...(reviewRepair ? { reviewRepair } : {}),
+      ...(applicationRoundtripReuse ? { applicationRoundtripReuse } : {}),
     });
   });
   if (new Set(targets.map((target) => target.grantId)).size !== targets.length) {
@@ -513,6 +552,26 @@ export function normalizeAnalysisLaunchManifest(value: unknown): AnalysisLaunchM
     || source.adoptionManifestSha256 === null
     ? null
     : exactSha(String(source.adoptionManifestSha256), "adoptionManifestSha256");
+  if (
+    sourceKind !== "independent_review_repair"
+      ? targets.some((target) => target.applicationRoundtripReuse)
+      : targets.some((target) => (
+          target.applicationRoundtripReuse
+          && (
+            !target.reviewRepair
+            || target.applicationRoundtripReuse.sourceLabRunId !== target.reviewRepair.sourceRunId
+            || target.applicationRoundtripReuse.independentReviewAggregateSha256 !== planSha256
+          )
+        ))
+  ) {
+    throw new Error("독립 검수 primary repair 외 launch에는 Kordoc exact 재사용을 결속할 수 없습니다.");
+  }
+  const reusedRoundtripRunIds = targets.flatMap(
+    (target) => target.applicationRoundtripReuse?.sourceRoundtripRunId ?? [],
+  );
+  if (new Set(reusedRoundtripRunIds).size !== reusedRoundtripRunIds.length) {
+    throw new Error("launch Kordoc exact 재사용 runId가 중복됐습니다.");
+  }
   if (
     (sourceKind === "formal_plan"
       && (
@@ -1034,6 +1093,100 @@ function normalizeLaunchReviewRepair(
     blockingCount,
     taskInstruction: requireNonEmpty(record.taskInstruction, `${field}.taskInstruction`),
   });
+}
+
+export function normalizeAnalysisLaunchApplicationRoundtripReuseBinding(
+  value: unknown,
+  field: string,
+): AnalysisLaunchApplicationRoundtripReuseBinding {
+  const record = object(value, field);
+  if (record.schema !== "analysis-launch-application-roundtrip-reuse-v1") {
+    throw new Error(`${field}.schema가 잘못됐습니다.`);
+  }
+  if (!Array.isArray(record.parsedMarkdown)) {
+    throw new Error(`${field}.parsedMarkdown가 배열이 아닙니다.`);
+  }
+  const parsedMarkdown = record.parsedMarkdown.map((value, index) => {
+    const entry = object(value, `${field}.parsedMarkdown[${index}]`);
+    return Object.freeze({
+      attachmentId: requireNonEmpty(entry.attachmentId, `${field}.parsedMarkdown[${index}].attachmentId`),
+      sha256: exactSha(String(entry.sha256), `${field}.parsedMarkdown[${index}].sha256`),
+    });
+  });
+  if (
+    new Set(parsedMarkdown.map((entry) => entry.attachmentId)).size !== parsedMarkdown.length
+    || parsedMarkdown.some((entry, index) => (
+      index > 0 && entry.attachmentId <= parsedMarkdown[index - 1]!.attachmentId
+    ))
+  ) {
+    throw new Error(`${field}.parsedMarkdown는 중복 없이 attachmentId 오름차순이어야 합니다.`);
+  }
+  const sourceSequence = integer(record.sourceSequence, `${field}.sourceSequence`);
+  if (sourceSequence < 0) throw new Error(`${field}.sourceSequence는 0 이상이어야 합니다.`);
+  return Object.freeze({
+    schema: "analysis-launch-application-roundtrip-reuse-v1",
+    sourceSequence,
+    sourceLabRunId: requireNonEmpty(record.sourceLabRunId, `${field}.sourceLabRunId`),
+    sourceLabRunArtifactPath: repositoryRelativePath(
+      record.sourceLabRunArtifactPath,
+      `${field}.sourceLabRunArtifactPath`,
+    ),
+    sourceLabRunArtifactSha256: exactSha(
+      String(record.sourceLabRunArtifactSha256),
+      `${field}.sourceLabRunArtifactSha256`,
+    ),
+    sourceRoundtripRunId: exactRoundtripRunId(
+      record.sourceRoundtripRunId,
+      `${field}.sourceRoundtripRunId`,
+    ),
+    analysisArtifactSha256: exactSha(
+      String(record.analysisArtifactSha256),
+      `${field}.analysisArtifactSha256`,
+    ),
+    manifestArtifactSha256: exactSha(
+      String(record.manifestArtifactSha256),
+      `${field}.manifestArtifactSha256`,
+    ),
+    parsedMarkdown: Object.freeze(parsedMarkdown),
+    independentReviewAggregatePath: repositoryRelativePath(
+      record.independentReviewAggregatePath,
+      `${field}.independentReviewAggregatePath`,
+    ),
+    independentReviewAggregateSha256: exactSha(
+      String(record.independentReviewAggregateSha256),
+      `${field}.independentReviewAggregateSha256`,
+    ),
+    independentReviewManifestPath: repositoryRelativePath(
+      record.independentReviewManifestPath,
+      `${field}.independentReviewManifestPath`,
+    ),
+    independentReviewManifestSha256: exactSha(
+      String(record.independentReviewManifestSha256),
+      `${field}.independentReviewManifestSha256`,
+    ),
+    sourceLaunchReceiptSha256: exactSha(
+      String(record.sourceLaunchReceiptSha256),
+      `${field}.sourceLaunchReceiptSha256`,
+    ),
+  });
+}
+
+function repositoryRelativePath(value: unknown, field: string): string {
+  const path = requireNonEmpty(value, field);
+  if (
+    path.startsWith("/")
+    || /^[A-Za-z]:[\\/]/.test(path)
+    || path.split(/[\\/]/).includes("..")
+  ) {
+    throw new Error(`${field}는 저장소 상대경로여야 합니다.`);
+  }
+  return path;
+}
+
+function exactRoundtripRunId(value: unknown, field: string): string {
+  const runId = requireNonEmpty(value, field);
+  if (!ROUNDTRIP_RUN_ID.test(runId)) throw new Error(`${field} 형식이 잘못됐습니다.`);
+  return runId;
 }
 
 function exactString(value: string, field: string): string {

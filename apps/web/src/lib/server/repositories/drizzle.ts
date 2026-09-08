@@ -44,6 +44,8 @@ import {
   matchNormalizedGrant,
   normalizeCompanyIndustryProfile,
   resolveEvidencePrecedence,
+  RULESET_VERSION,
+  SCORING_VERSION,
   stableCanonicalStringify,
   type CompanyProfileFieldUpdate,
 } from "@cunote/core";
@@ -911,24 +913,39 @@ class DrizzleMatchRepository<TPayload> implements MatchRepository<TPayload> {
   }): Promise<MatchStateInputBinding[]> {
     const companyIds = uniqueStrings(input.companyIds).sort();
     const requestedGrantIds = uniqueStrings(input.grantIds).sort();
-    if (companyIds.length === 0 || requestedGrantIds.length === 0) return [];
-    if (companyIds.some((id) => !UUID_PATTERN.test(id)) || requestedGrantIds.some((id) => !UUID_PATTERN.test(id))) {
+    return this.captureMatchStateInputBindingsForPairs(
+      this.db.client,
+      companyIds.flatMap((companyId) => requestedGrantIds.map((grantId) => ({ companyId, grantId }))),
+    );
+  }
+
+  private async captureMatchStateInputBindingsForPairs(
+    db: CunoteDbSession,
+    inputPairs: Array<{ companyId: string; grantId: string }>,
+  ): Promise<MatchStateInputBinding[]> {
+    const pairs = [...new Map(inputPairs.map((pair) => [`${pair.companyId}:${pair.grantId}`, pair])).values()]
+      .sort((left, right) => left.companyId.localeCompare(right.companyId) || left.grantId.localeCompare(right.grantId));
+    if (pairs.length === 0) return [];
+    if (pairs.some((pair) => !UUID_PATTERN.test(pair.companyId) || !UUID_PATTERN.test(pair.grantId))) {
       throw new Error("match_state input binding requires persisted UUIDs");
     }
     // 한 SQL statement snapshot에서 revision과 confirmed component를 함께 읽는다.
-    const rows = await this.db.client.execute<{
+    const rows = await db.execute<{
       company_id: string;
       company_revision: string;
       root_grant_id: string;
       component_grant_id: string;
       grant_revision: string;
     }>(sql`
-      with recursive requested_grants(root_grant_id) as (
-        select unnest(${uuidSqlArray(requestedGrantIds)})
-      ), components(root_grant_id, component_grant_id) as (
-        select root_grant_id, root_grant_id from requested_grants
+      with recursive requested_pairs(company_id, root_grant_id) as (
+        select * from unnest(
+          ${uuidSqlArray(pairs.map((pair) => pair.companyId))},
+          ${uuidSqlArray(pairs.map((pair) => pair.grantId))}
+        )
+      ), components(company_id, root_grant_id, component_grant_id) as (
+        select company_id, root_grant_id, root_grant_id from requested_pairs
         union
-        select components.root_grant_id, links.member_grant_id
+        select components.company_id, components.root_grant_id, links.member_grant_id
         from components
         join ${schema.dedupLinks} links
           on links.canonical_grant_id = components.component_grant_id and links.confirmed = true
@@ -942,7 +959,7 @@ class DrizzleMatchRepository<TPayload> implements MatchRepository<TPayload> {
       cross join components
       join ${schema.matchGrantInputRevisions} grant_revision
         on grant_revision.grant_id = components.component_grant_id
-      where company_revision.company_id = any(${uuidSqlArray(companyIds)})
+      where company_revision.company_id = components.company_id
       order by company_revision.company_id, components.root_grant_id, grant_revision.grant_id
     `);
     const resultByPair = new Map<string, MatchStateInputBinding>();
@@ -1066,6 +1083,7 @@ class DrizzleMatchRepository<TPayload> implements MatchRepository<TPayload> {
     if (Number.isNaN(input.calculationAsOf.getTime())) throw new Error("calculationAsOf must be a valid date");
 
     return this.transactionWithOptionalUser(input.userId, async (db) => {
+      await db.execute(sql`select set_config('app.match_state_writer_contract', 'match-state-input-v1', true)`);
       const [companyRevision] = await db.select({
         revision: schema.matchCompanyInputRevisions.revision,
       }).from(schema.matchCompanyInputRevisions)
@@ -1158,12 +1176,21 @@ class DrizzleMatchRepository<TPayload> implements MatchRepository<TPayload> {
         eligibility: schema.matchState.eligibility,
         eligibleFrom: schema.matchState.eligibleFrom,
         eligibleUntil: schema.matchState.eligibleUntil,
+        inputBinding: schema.matchState.inputBinding,
+        calculationAsOf: schema.matchState.calculationAsOf,
+        rulesetVer: schema.matchState.rulesetVer,
+        scoringVer: schema.matchState.scoringVer,
         updatedAt: schema.matchState.updatedAt,
       })
       .from(schema.matchState)
       .innerJoin(schema.grants, eq(schema.grants.id, schema.matchState.grantId))
+      .innerJoin(
+        schema.matchCompanyInputRevisions,
+        eq(schema.matchCompanyInputRevisions.companyId, schema.matchState.companyId),
+      )
       .where(and(
         grantServingVisiblePredicate(),
+        currentMatchStateCachePredicate(),
         or(
           and(
             eq(schema.matchState.eligibility, "ineligible"),
@@ -1180,7 +1207,6 @@ class DrizzleMatchRepository<TPayload> implements MatchRepository<TPayload> {
       ))
       .orderBy(asc(schema.matchState.eligibleFrom), asc(schema.matchState.eligibleUntil))
       .limit(input.limit ?? 500));
-
     return rows.map((row) => ({
       companyId: row.companyId,
       grantId: row.grantId,
@@ -1303,6 +1329,87 @@ function reachableGrantComponentIds(
     }
   }
   return [...reachable].sort();
+}
+
+/** DB가 LIMIT을 적용하기 전에 현재 revision/topology/engine과 exact한 cache만 남긴다. */
+function currentMatchStateCachePredicate() {
+  return sql<boolean>`
+    ${schema.matchState.inputBinding} is not null
+    and ${schema.matchState.calculationAsOf} is not null
+    and ${schema.matchState.rulesetVer} = ${RULESET_VERSION}
+    and ${schema.matchState.scoringVer} = ${SCORING_VERSION}
+    and jsonb_typeof(${schema.matchState.inputBinding}) = 'object'
+    and case when jsonb_typeof(${schema.matchState.inputBinding}) = 'object' then
+      (${schema.matchState.inputBinding} - array[
+        'version','companyId','companyRevision','grantId','grantComponentRevisions'
+      ]::text[]) = '{}'::jsonb
+      else false
+    end
+    and jsonb_typeof(${schema.matchState.inputBinding} -> 'version') = 'string'
+    and jsonb_typeof(${schema.matchState.inputBinding} -> 'companyId') = 'string'
+    and jsonb_typeof(${schema.matchState.inputBinding} -> 'companyRevision') = 'string'
+    and jsonb_typeof(${schema.matchState.inputBinding} -> 'grantId') = 'string'
+    and ${schema.matchState.inputBinding} ->> 'version' = 'match-state-input-v1'
+    and ${schema.matchState.inputBinding} ->> 'companyId' = ${schema.matchState.companyId}::text
+    and ${schema.matchState.inputBinding} ->> 'grantId' = ${schema.matchState.grantId}::text
+    and ${schema.matchState.inputBinding} ->> 'companyRevision' = ${schema.matchCompanyInputRevisions.revision}::text
+    and jsonb_typeof(${schema.matchState.inputBinding} -> 'grantComponentRevisions') = 'array'
+    and not exists (
+      select 1
+      from jsonb_array_elements(case
+        when jsonb_typeof(${schema.matchState.inputBinding} -> 'grantComponentRevisions') = 'array'
+          then ${schema.matchState.inputBinding} -> 'grantComponentRevisions'
+        else '[]'::jsonb
+      end) component
+      where jsonb_typeof(component) <> 'object'
+         or case when jsonb_typeof(component) = 'object' then
+           (component - array['grantId','revision']::text[]) <> '{}'::jsonb
+           else true
+         end
+         or jsonb_typeof(component -> 'grantId') is distinct from 'string'
+         or jsonb_typeof(component -> 'revision') is distinct from 'string'
+         or coalesce(component ->> 'grantId', '') !~
+           '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+         or coalesce(component ->> 'revision', '') !~ '^[1-9][0-9]*$'
+    )
+    and (
+      select count(*) = count(distinct component ->> 'grantId')
+      from jsonb_array_elements(case
+        when jsonb_typeof(${schema.matchState.inputBinding} -> 'grantComponentRevisions') = 'array'
+          then ${schema.matchState.inputBinding} -> 'grantComponentRevisions'
+        else '[]'::jsonb
+      end) component
+    )
+    and (
+      select coalesce(jsonb_agg(component order by component ->> 'grantId'), '[]'::jsonb)
+      from jsonb_array_elements(case
+        when jsonb_typeof(${schema.matchState.inputBinding} -> 'grantComponentRevisions') = 'array'
+          then ${schema.matchState.inputBinding} -> 'grantComponentRevisions'
+        else '[]'::jsonb
+      end) component
+    ) = (
+      with recursive component_ids(grant_id) as (
+        select ${schema.matchState.grantId}
+        union
+        select link.member_grant_id
+        from component_ids component
+        join ${schema.dedupLinks} link
+          on link.canonical_grant_id = component.grant_id
+         and link.confirmed = true
+      )
+      select coalesce(
+        jsonb_agg(
+          jsonb_build_object(
+            'grantId', revision.grant_id::text,
+            'revision', revision.revision::text
+          ) order by revision.grant_id
+        ),
+        '[]'::jsonb
+      )
+      from component_ids component
+      join ${schema.matchGrantInputRevisions} revision on revision.grant_id = component.grant_id
+    )
+  `;
 }
 
 class DrizzleFeedbackRepository implements FeedbackRepository {

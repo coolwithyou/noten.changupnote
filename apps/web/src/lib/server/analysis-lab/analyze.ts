@@ -30,6 +30,7 @@ import {
   assertAnalysisLabLiveExecutionAdmitted,
 } from "./analysis-execution-admission";
 import { currentAnalysisLaunchBatchExecutionBinding } from "./launch-batch-context";
+import type { AnalysisLaunchApplicationRoundtripReuseBinding } from "./launch-batch-artifacts";
 import { prepareApplicationRoundtripReuse } from "./application-roundtrip/reuse";
 import { computeLabDimensionDiffs } from "./diff";
 import { resolveLabModel, type DeepAnalysisResult } from "./extractor";
@@ -67,6 +68,8 @@ export interface LabAnalysisOverrides {
   withApplicationRoundtrip?: boolean;
   /** 딥분석만 재시도할 때 현재 원본·계약을 검증한 뒤 재결속할 기존 Kordoc runId. */
   reuseApplicationRoundtripRunId?: string;
+  /** 독립 검수 primary repair launch가 manifest에 봉인한 Kordoc exact 재사용 결속. */
+  exactApplicationRoundtripReuse?: AnalysisLaunchApplicationRoundtripReuseBinding;
   /** 미지정 시 ANALYSIS_LAB_ROUNDTRIP_MODEL 또는 딥 분석 모델을 상속한다. */
   roundtripModel?: string;
   /** 완료된 독립 검수의 검증된 blocker만 재분석 지시로 전달한다. */
@@ -352,10 +355,12 @@ async function executePreparedLabAnalysisInternal(
     ?? (process.env.ANALYSIS_LAB_ROUNDTRIP_MODEL?.trim() || requestedModel);
   // 딥분석 모델을 시작하기 전에 원본 SHA·Kordoc 버전·모델·transport를 검증한다.
   // fail-closed 하면 잘못된 재사용 때문에 비싼 primary를 돌린 뒤 발견하는 일이 없다.
-  const preparedRoundtripReuse = opts?.reuseApplicationRoundtripRunId
+  const roundtripReuseRunId = opts?.exactApplicationRoundtripReuse?.sourceRoundtripRunId
+    ?? opts?.reuseApplicationRoundtripRunId;
+  const preparedRoundtripReuse = roundtripReuseRunId
     ? await prepareApplicationRoundtripReuse({
         grantId,
-        sourceRunId: opts.reuseApplicationRoundtripRunId,
+        sourceRunId: roundtripReuseRunId,
         transport,
         model: roundtripModel,
         currentSources: archiveRows.map((archive) => ({
@@ -363,6 +368,13 @@ async function executePreparedLabAnalysisInternal(
           storageKey: archive.storageKey ?? null,
           sha256: archive.sha256 ?? null,
         })),
+        ...(opts?.exactApplicationRoundtripReuse ? {
+          exactArtifactBinding: {
+            analysisSha256: opts.exactApplicationRoundtripReuse.analysisArtifactSha256,
+            manifestSha256: opts.exactApplicationRoundtripReuse.manifestArtifactSha256,
+            parsedMarkdown: opts.exactApplicationRoundtripReuse.parsedMarkdown,
+          },
+        } : {}),
       })
     : null;
   // 같은 binding Promise를 두 형제 작업이 공유한다. API 키 부재/CLI 준비 실패도 primary는
@@ -563,6 +575,7 @@ function assertDeepOnlyExecutionOptions(execution: PreparedLabAnalysisExecution)
 function hasReceiptBoundDeepOnlyViolation(opts: LabAnalysisOverrides | undefined): boolean {
   return opts?.withApplicationRoundtrip === true
     || opts?.reuseApplicationRoundtripRunId !== undefined
+    || opts?.exactApplicationRoundtripReuse !== undefined
     || opts?.roundtripModel !== undefined
     || opts?.taskInstruction !== undefined
     || opts?.reviewRepair !== undefined;
@@ -575,6 +588,10 @@ export function hasLaunchBatchExecutionViolation(
 ): boolean {
   if (
     opts?.reuseApplicationRoundtripRunId !== undefined
+    || !sameExactApplicationRoundtripReuse(
+      opts?.exactApplicationRoundtripReuse,
+      binding.targets.get(grantId)?.applicationRoundtripReuse,
+    )
     || (opts?.withApplicationRoundtrip === true) !== binding.withApplicationRoundtrip
     || (opts?.roundtripModel ?? null) !== binding.roundtripModel
   ) {
@@ -593,6 +610,31 @@ export function hasLaunchBatchExecutionViolation(
     || repair.blockingCount !== target.reviewRepair.blockingCount
     || repair.auditModel !== null
     || repair.adjudicationModel !== null;
+}
+
+function sameExactApplicationRoundtripReuse(
+  left: AnalysisLaunchApplicationRoundtripReuseBinding | undefined,
+  right: AnalysisLaunchApplicationRoundtripReuseBinding | undefined,
+): boolean {
+  if (left === undefined || right === undefined) return left === right;
+  return left.schema === right.schema
+    && left.sourceSequence === right.sourceSequence
+    && left.sourceLabRunId === right.sourceLabRunId
+    && left.sourceLabRunArtifactPath === right.sourceLabRunArtifactPath
+    && left.sourceLabRunArtifactSha256 === right.sourceLabRunArtifactSha256
+    && left.sourceRoundtripRunId === right.sourceRoundtripRunId
+    && left.analysisArtifactSha256 === right.analysisArtifactSha256
+    && left.manifestArtifactSha256 === right.manifestArtifactSha256
+    && left.independentReviewAggregatePath === right.independentReviewAggregatePath
+    && left.independentReviewAggregateSha256 === right.independentReviewAggregateSha256
+    && left.independentReviewManifestPath === right.independentReviewManifestPath
+    && left.independentReviewManifestSha256 === right.independentReviewManifestSha256
+    && left.sourceLaunchReceiptSha256 === right.sourceLaunchReceiptSha256
+    && left.parsedMarkdown.length === right.parsedMarkdown.length
+    && left.parsedMarkdown.every((entry, index) => (
+      entry.attachmentId === right.parsedMarkdown[index]?.attachmentId
+      && entry.sha256 === right.parsedMarkdown[index]?.sha256
+    ));
 }
 
 function numericMetadataValue(

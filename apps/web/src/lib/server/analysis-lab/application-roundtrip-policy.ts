@@ -1,7 +1,10 @@
+import type { AnalysisLaunchApplicationRoundtripReuseBinding } from "./launch-batch-artifacts";
+
 export interface ApplicationRoundtripOptIn {
   withApplicationRoundtrip?: boolean;
   roundtripModel?: string;
   reuseApplicationRoundtripRunId?: string;
+  exactApplicationRoundtripReuse?: AnalysisLaunchApplicationRoundtripReuseBinding;
 }
 
 /** Kordoc 실행을 요구하는 세부 옵션은 명시적 true opt-in 없이 독립적으로 쓸 수 없다. */
@@ -15,6 +18,14 @@ export function assertApplicationRoundtripOptIn(options: ApplicationRoundtripOpt
   ) {
     throw new Error(
       "reuseApplicationRoundtripRunId는 withApplicationRoundtrip=true와 함께 지정해야 합니다.",
+    );
+  }
+  if (
+    options.exactApplicationRoundtripReuse !== undefined
+    && options.withApplicationRoundtrip !== true
+  ) {
+    throw new Error(
+      "exactApplicationRoundtripReuse는 withApplicationRoundtrip=true와 함께 지정해야 합니다.",
     );
   }
 }

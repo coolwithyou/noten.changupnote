@@ -582,6 +582,13 @@
       "when": 1788732600000,
       "tag": "0082_match_state_input_revisions",
       "breakpoints": true
+    },
+    {
+      "idx": 83,
+      "version": "7",
+      "when": 1788909000000,
+      "tag": "0083_match_state_writer_contract",
+      "breakpoints": true
     }
   ]
 }
