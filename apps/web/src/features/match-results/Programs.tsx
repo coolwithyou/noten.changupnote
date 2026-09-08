@@ -32,6 +32,7 @@ import {
   matchDetailHref,
   matchVerdictStatus,
   writeSupportCta,
+  writeSupportNote,
 } from "./logic";
 import { buildSupportSummary, type SupportSummary } from "./support-summary";
 
@@ -582,6 +583,11 @@ function ExpandedProgramCard({
           >
             확인 내용 수정
           </Button>
+        ) : null}
+        {match.writeSupport === "manual_form" ? (
+          <span className="text-sm leading-6 text-text-muted">
+            {writeSupportNote(match.writeSupport)}
+          </span>
         ) : null}
         <Button
           type="button"

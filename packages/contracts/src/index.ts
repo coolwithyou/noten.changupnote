@@ -81,10 +81,11 @@ export const APPLY_METHOD_CHANNELS = ["online", "email", "fax", "visit", "postal
 export const AUTHORING_MODES = ["file_form", "web_form", "unknown"] as const;
 // 지원서 작성 도움 수준. 핵심 BM(지원서·사업계획서 작성 지원)을 매칭 카드에서 선언하는 단일 신호.
 //   - template_fill: 원본 서식(HWPX) 보관본이 있어 채움 다운로드까지 가능
-//   - ai_draft:      작성형 서류가 추출되어 AI 초안 작성 가능
+//   - manual_form:   원본 HWPX는 있으나 자동 입력 위치가 검증되지 않아 RHWP 수동 편집만 가능
+//   - ai_draft:      작성형 서류가 추출되고 작성 readiness가 검증되어 AI 초안 작성 가능
 //   - web_form_guide: 포털 웹폼 직접 입력 사업 — 항목별 답변 초안·복붙 프로필로 지원
 //   - unknown:       판별 신호 부족(원문 확인 필요)
-export const WRITE_SUPPORT_LEVELS = ["template_fill", "ai_draft", "web_form_guide", "unknown"] as const;
+export const WRITE_SUPPORT_LEVELS = ["template_fill", "manual_form", "ai_draft", "web_form_guide", "unknown"] as const;
 
 export type CriterionDimension = (typeof CRITERION_DIMENSIONS)[number];
 export type CriterionOperator = (typeof CRITERION_OPERATORS)[number];
@@ -146,6 +147,12 @@ export type ApplyMethodChannel = (typeof APPLY_METHOD_CHANNELS)[number];
 export type AuthoringMode = (typeof AUTHORING_MODES)[number];
 export type WriteSupportLevel = (typeof WRITE_SUPPORT_LEVELS)[number];
 
+/** 검증된 serving release가 내린 작성 기능 준비도. 매칭 자격과 독립이며 부재는 unverified다. */
+export interface AuthoringFeatureReadiness {
+  status: "ready" | "held" | "unverified";
+  sourceDisposition: "ready" | "not_applicable" | "held" | "unverified";
+}
+
 export const GRANT_AUDIENCE_LABELS: Record<GrantAudience, string> = {
   company: "기업 대상",
   individual: "개인 대상",
@@ -170,6 +177,7 @@ export const AUTHORING_MODE_LABELS: Record<AuthoringMode, string> = {
 
 export const WRITE_SUPPORT_LABELS: Record<WriteSupportLevel, string> = {
   template_fill: "서식 채움 지원",
+  manual_form: "원본 서식 직접 작성",
   ai_draft: "초안 작성 지원",
   web_form_guide: "웹폼 작성 안내",
   unknown: "작성 방식 확인 필요",
@@ -423,6 +431,8 @@ export interface NormalizedGrant<TPayload = unknown> {
   criteria: GrantCriterion[];
   /** 공고 입력·첨부·조건 추출의 완전성. 미제공 시 소비 시점에 raw/criteria에서 재계산한다. */
   extraction_manifest?: GrantExtractionManifest;
+  /** 검증된 serving release의 작성 기능 projection. 구 release/운영 런 부재는 unverified로 소비한다. */
+  authoring_readiness?: AuthoringFeatureReadiness;
 }
 
 export interface GrantExtractionManifest {

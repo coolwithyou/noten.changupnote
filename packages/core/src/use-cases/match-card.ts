@@ -64,6 +64,10 @@ export function toMatchCard<TPayload>(
     scoreDisplay: reviewGate?.scoreDisplay ?? "numeric",
     reviewReasons: reviewGate?.reasons ?? [],
     authoringMode: grant.f_authoring_mode ?? "unknown",
+    authoringReadiness: entry.item.authoring_readiness ?? {
+      status: "unverified",
+      sourceDisposition: "unverified",
+    },
     writeSupport: deriveWriteSupport(grant),
     detailUrl,
   };
@@ -275,6 +279,7 @@ export function grantKey(grant: Pick<Grant, "id" | "source" | "source_id">): str
 // 조건 확인도보다 앞선 3차 키 — 배지가 정렬 근거를 화면에서 설명한다.
 const WRITE_SUPPORT_SORT_RANK: Record<WriteSupportLevel, number> = {
   template_fill: 0,
+  manual_form: 1,
   ai_draft: 0,
   web_form_guide: 1,
   unknown: 2,

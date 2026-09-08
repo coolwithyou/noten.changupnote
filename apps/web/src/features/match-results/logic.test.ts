@@ -14,6 +14,7 @@ import {
   matchCriterionPresentation,
   matchingProfileCoverage,
   matchDetailHref,
+  isWriteSupported,
   isMultiAnswerMatch,
   matchVerdictStatus,
   profileCoverageLabel,
@@ -23,7 +24,16 @@ import {
   profileSheetValueState,
   resultsCoverageCaption,
   summarizeAnswerImpact,
+  writeSupportCta,
+  writeSupportNote,
 } from "./logic";
+
+assert.equal(isWriteSupported("manual_form"), true);
+assert.match(writeSupportNote("manual_form"), /직접 편집/);
+assert.doesNotMatch(writeSupportNote("manual_form"), /RHWP/);
+assert.doesNotMatch(writeSupportNote("manual_form"), /회사 정보로 채운/);
+assert.equal(writeSupportCta("manual_form"), "원본 서식 직접 작성하기");
+assert.equal(writeSupportCta("unknown"), "신청 준비 정보 확인하기");
 
 const directTargetTypeQuestion: NextQuestionDto = {
   dimension: "target_type",

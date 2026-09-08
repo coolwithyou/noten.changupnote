@@ -33,7 +33,13 @@ export function buildProductReadinessReport(input: {
   }
   const unserved = [...inventory].filter(([id]) => !serving.has(id)).map(([, value]) => value);
   const ages = unserved.map((entry) => Date.parse(entry.raw.collected_at ?? "")).filter((time) => Number.isFinite(time) && time <= input.asOf.getTime());
-  const authoringSignals: Record<WriteSupportLevel, number> = { unknown: 0, ai_draft: 0, web_form_guide: 0, template_fill: 0 };
+  const authoringSignals: Record<WriteSupportLevel, number> = {
+    unknown: 0,
+    ai_draft: 0,
+    web_form_guide: 0,
+    manual_form: 0,
+    template_fill: 0,
+  };
   for (const entry of serving.values()) authoringSignals[deriveWriteSupport(entry.grant)] += 1;
   return {
     version: "product-readiness-v1" as const,

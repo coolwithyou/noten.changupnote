@@ -121,6 +121,15 @@ const confirmedFail = traceEntry({ result: "fail", resolution: "confirmed_by_use
 // 확인 해소가 없으면 필드 자체를 싣지 않는다(confirmationQuestionCount 관례).
 assert.ok(!("userConfirmedCount" in toMatchCard(matchedGrant([plainPass]))));
 assert.ok(!("userConfirmedCount" in toMatchCard(matchedGrant([]))));
+assert.deepEqual(toMatchCard(matchedGrant([])).authoringReadiness, {
+  status: "unverified",
+  sourceDisposition: "unverified",
+}, "역사 normalized grant는 작성 ready로 추정하지 않는다");
+{
+  const projected = matchedGrant([]);
+  projected.item.authoring_readiness = { status: "held", sourceDisposition: "held" };
+  assert.deepEqual(toMatchCard(projected).authoringReadiness, projected.item.authoring_readiness);
+}
 // pass 승격·fail 확정 모두 동일하게 계상한다(정직 표시 — open 승격이든 결격 확정이든).
 assert.equal(toMatchCard(matchedGrant([confirmedPass, plainPass])).userConfirmedCount, 1);
 assert.equal(toMatchCard(matchedGrant([confirmedPass, confirmedFail, plainPass])).userConfirmedCount, 2);

@@ -125,7 +125,11 @@ assert.deepEqual(heldSubscriptionState, {
 
 const productionState = resolveDeepAnalysisState({
   localRun: null,
-  servingEvidence: { kind: "production_deep_run", deepAnalysisRunId: "deep-1" },
+  servingEvidence: {
+    kind: "production_deep_run",
+    deepAnalysisRunId: "deep-1",
+    authoringReadiness: { status: "unverified", sourceDisposition: "unverified" },
+  },
   latestDbRun: null,
   deepRunById: new Map([["deep-1", { id: "deep-1", status: "passed", model: "claude-sonnet" }]]),
 });

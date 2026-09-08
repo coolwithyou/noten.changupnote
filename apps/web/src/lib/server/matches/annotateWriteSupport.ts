@@ -9,10 +9,11 @@ import { HWPX_SIBLING_ARTIFACT_KIND } from "../documents/draftHwpxExport";
  * 매칭 카드의 writeSupport 를 ai_draft → template_fill 로 승격한다.
  * core 는 순수 조립부라 보관본을 모르므로(마스터 설계의 hwpxTemplateAvailable 원칙과 동일),
  * 서버 레이어가 HWPX 보관본·hwp2hwpx sibling 변환본을 소스별 배치 2쿼리로 조회해 덮어쓴다.
- * DB 미가용(샘플 데이터 모드 등)이나 조회 실패 시 승격 없이 원본 카드를 그대로 반환한다 — 과약속 방지.
+ * DB 미가용(샘플 데이터 모드 등)이나 조회 실패 시 서식이 없다는 안전한 projection으로 내린다 — 과약속 방지.
  */
 export async function annotateMatchCardWriteSupport(matches: MatchCard[]): Promise<MatchCard[]> {
-  const candidates = matches.filter((match) => match.writeSupport === "ai_draft");
+  const candidates = matches.filter((match) =>
+    match.writeSupport !== "unknown" || match.authoringMode === "file_form");
   if (candidates.length === 0) return matches;
 
   let fillableKeys: Set<string>;
@@ -20,17 +21,34 @@ export async function annotateMatchCardWriteSupport(matches: MatchCard[]): Promi
     fillableKeys = await loadHwpxFillableGrantKeys(candidates);
   } catch (error) {
     console.warn(
-      `writeSupport 승격 조회 실패(승격 없이 폴백): ${error instanceof Error ? error.message : String(error)}`,
+      `writeSupport 서식 조회 실패(자동 작성 없이 폴백): ${error instanceof Error ? error.message : String(error)}`,
     );
-    return matches;
+    return applyAuthoringReadinessToWriteSupport(matches, new Set());
   }
-  if (fillableKeys.size === 0) return matches;
+  return applyAuthoringReadinessToWriteSupport(matches, fillableKeys);
+}
 
-  return matches.map((match) =>
-    match.writeSupport === "ai_draft" && fillableKeys.has(grantSourceKey(match))
-      ? { ...match, writeSupport: "template_fill" as const }
-      : match,
-  );
+/**
+ * 자동 작성은 verified ready에만 열고, held/unverified에서 확인된 HWPX는 수동 편집으로만 내린다.
+ * readiness가 없거나 서식 조회가 실패해도 자동 채움·초안을 암묵적으로 약속하지 않는다.
+ */
+export function applyAuthoringReadinessToWriteSupport(
+  matches: MatchCard[],
+  fillableKeys: ReadonlySet<string>,
+): MatchCard[] {
+  return matches.map((match) => {
+    const authoringReady = match.authoringReadiness?.status === "ready";
+    const hasManualForm = fillableKeys.has(grantSourceKey(match));
+    if (authoringReady) {
+      return match.writeSupport === "ai_draft" && hasManualForm
+        ? { ...match, writeSupport: "template_fill" as const }
+        : match;
+    }
+    if (hasManualForm) return { ...match, writeSupport: "manual_form" as const };
+    return match.writeSupport === "unknown"
+      ? match
+      : { ...match, writeSupport: "unknown" as const };
+  });
 }
 
 async function loadHwpxFillableGrantKeys(candidates: MatchCard[]): Promise<Set<string>> {

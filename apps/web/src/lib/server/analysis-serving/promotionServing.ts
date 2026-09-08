@@ -1,9 +1,11 @@
 import {
   isVerifiedLocalLabSourceArtifact,
   validatePromotionReleaseManifest,
+  type PromotionReleasePlanItem,
   type PromotionReleaseManifest,
   type VerifiedLocalLabSourceEvidence,
 } from "./promotionReleaseContract";
+import type { AuthoringFeatureReadiness } from "@cunote/contracts";
 
 export interface PromotionServingLedgerItem {
   grantId: string;
@@ -15,11 +17,21 @@ export interface PromotionServingLedgerItem {
 }
 
 export type PromotionServingEvidence =
-  | { kind: "production_deep_run"; deepAnalysisRunId: string }
+  | {
+      kind: "production_deep_run";
+      deepAnalysisRunId: string;
+      authoringReadiness: AuthoringFeatureReadiness;
+    }
   | {
       kind: "verified_local_lab";
       evidence: VerifiedLocalLabSourceEvidence;
+      authoringReadiness: AuthoringFeatureReadiness;
     };
+
+const UNVERIFIED_AUTHORING_READINESS: AuthoringFeatureReadiness = Object.freeze({
+  status: "unverified",
+  sourceDisposition: "unverified",
+});
 
 /**
  * 제품이 신뢰할 수 있는 승격 provenance를 한 곳에서 판정한다.
@@ -33,7 +45,11 @@ export function resolvePromotionServingEvidence(
   item: PromotionServingLedgerItem,
 ): PromotionServingEvidence | null {
   if (item.deepAnalysisRunId) {
-    return { kind: "production_deep_run", deepAnalysisRunId: item.deepAnalysisRunId };
+    return {
+      kind: "production_deep_run",
+      deepAnalysisRunId: item.deepAnalysisRunId,
+      authoringReadiness: UNVERIFIED_AUTHORING_READINESS,
+    };
   }
 
   const manifest = readManifest(item.manifest);
@@ -57,7 +73,29 @@ export function resolvePromotionServingEvidence(
   ) {
     return null;
   }
-  return { kind: "verified_local_lab", evidence: artifact.localLabEvidence };
+  return {
+    kind: "verified_local_lab",
+    evidence: artifact.localLabEvidence,
+    authoringReadiness: authoringReadinessForPromotionPlan(plan),
+  };
+}
+
+/** 검증 완료 manifest plan의 작성 projection만 제품 DTO용 최소 계약으로 내린다. */
+export function authoringReadinessForPromotionPlan(
+  plan: {
+    readonly analysisLaunchReadiness?: NonNullable<PromotionReleasePlanItem["analysisLaunchReadiness"]>;
+  },
+): AuthoringFeatureReadiness {
+  const readiness = plan.analysisLaunchReadiness;
+  const authoring = readiness?.runFeatureReadiness?.authoring;
+  if (!authoring) return UNVERIFIED_AUTHORING_READINESS;
+  const currentEvidenceVerified = readiness.authoringEvidenceStatus === "verified"
+    && Array.isArray(readiness.authoringEvidenceReasons)
+    && readiness.authoringEvidenceReasons.length === 0;
+  return {
+    status: authoring.status === "ready" && currentEvidenceVerified ? "ready" : "held",
+    sourceDisposition: authoring.sourceDisposition,
+  };
 }
 
 export function isPromotionItemServingEligible(item: PromotionServingLedgerItem): boolean {

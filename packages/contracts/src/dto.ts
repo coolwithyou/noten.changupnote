@@ -1,4 +1,5 @@
 import type {
+  AuthoringFeatureReadiness,
   AuthoringMode,
   CompanyProfile,
   CompanyProfileEvidenceSourceKind,
@@ -289,6 +290,8 @@ export interface MatchCard {
   reviewReasons?: MatchReviewReason[];
   /** 지원서 작성 방식(수집 시 규칙 분류). */
   authoringMode: AuthoringMode;
+  /** 매칭과 독립된 작성 기능 준비도. 부재는 ready가 아니라 unverified다. */
+  authoringReadiness?: AuthoringFeatureReadiness;
   /**
    * 지원서 작성 도움 수준(핵심 BM 신호). core 는 공고 텍스트 신호(작성형 서류·authoring mode)로만
    * 산출하며, template_fill 승격은 apps/web 서버가 HWPX 보관본을 배치 조회해 덮어쓴다(core 는 보관본을 모름).

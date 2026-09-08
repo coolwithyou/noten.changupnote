@@ -87,6 +87,19 @@ assert.equal(reviewed.extraction_manifest?.reviewedAt, reviewedAt);
 assert.equal(reviewed.extraction_manifest?.extractorVersion, "reviewer:matching-v3");
 assert.equal(reviewed.extraction_manifest?.readiness, "reviewed");
 
+const authoringReadiness = { status: "held", sourceDisposition: "held" } as const;
+const [authoringHeld] = mergeReviewedExtractionManifestState(
+  [hydrated],
+  [],
+  new Map([[hydrated.grant.id!, authoringReadiness]]),
+);
+assert.deepEqual(authoringHeld?.authoring_readiness, authoringReadiness);
+assert.equal(
+  mergeReviewedExtractionManifestState([hydrated], [])[0]?.authoring_readiness,
+  undefined,
+  "역사 행은 신규 evidence 없이 작성 ready로 투영하지 않는다",
+);
+
 const [fallback] = mergeReviewedExtractionManifestState([hydrated], [{
   grantId: hydrated.grant.id ?? null,
   output: null,
@@ -134,6 +147,8 @@ console.log(JSON.stringify({
     "surface_state_hydration",
     "converted_manifest_ready",
     "reviewed_log_manifest_hydration",
+    "authoring_readiness_projection",
+    "legacy_authoring_readiness_absence",
     "reviewed_log_metadata_fallback",
     "active_deep_promotion_manifest_hydration",
     "sealed_deep_input_resolves_legacy_attachment_warning",

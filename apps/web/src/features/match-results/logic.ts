@@ -917,7 +917,7 @@ function recommendationTierForMatch(match: MatchCard): NonNullable<MatchCard["re
 }
 
 export function isWriteSupported(level: WriteSupportLevel): boolean {
-  return level === "template_fill" || level === "ai_draft";
+  return level === "template_fill" || level === "manual_form" || level === "ai_draft";
 }
 
 export function writeSupportLabel(level: WriteSupportLevel): string | null {
@@ -928,6 +928,9 @@ export function writeSupportLabel(level: WriteSupportLevel): string | null {
 export function writeSupportNote(level: WriteSupportLevel): string {
   if (level === "template_fill") {
     return "원본 서식 파일을 확보했어요. 결과 저장 후 회사 정보로 채운 초안과 서식 파일까지 받아볼 수 있어요.";
+  }
+  if (level === "manual_form") {
+    return "원본 서식은 직접 편집할 수 있어요. 자동 채움은 입력 위치 검증 전까지 제공하지 않아요.";
   }
   if (level === "ai_draft") {
     return "필요 서류와 사업계획서 초안은 결과 저장 후 신청 준비 단계에서 회사 정보로 채워 안내해 드려요.";
@@ -940,9 +943,10 @@ export function writeSupportNote(level: WriteSupportLevel): string {
 
 export function writeSupportCta(level: WriteSupportLevel): string {
   if (level === "template_fill") return "서식 채워서 준비하기";
+  if (level === "manual_form") return "원본 서식 직접 작성하기";
   if (level === "ai_draft") return "지원서 초안 준비하기";
   if (level === "web_form_guide") return "신청 항목 안내 받기";
-  return "이 사업 신청 준비하기";
+  return "신청 준비 정보 확인하기";
 }
 
 export function criterionResultText(result: RuleTraceChipResult): string {

@@ -23,6 +23,7 @@ import {
 } from "@cunote/contracts";
 import type {
   ApplyMethodChannel,
+  AuthoringFeatureReadiness,
   AuthoringMode,
   CriterionConfirmation,
   Grant,
@@ -401,6 +402,14 @@ class DrizzleGrantRepository<TPayload> implements GrantRepository<TPayload> {
       return evidence?.kind === "verified_local_lab"
         || (evidence?.kind === "production_deep_run" && row.deepRunStatus === "passed");
     });
+    const authoringReadinessByGrantId = new Map<string, AuthoringFeatureReadiness>();
+    for (const row of [...servingPromotedRows].sort(
+      (left, right) => (right.appliedAt?.getTime() ?? 0) - (left.appliedAt?.getTime() ?? 0),
+    )) {
+      if (authoringReadinessByGrantId.has(row.grantId)) continue;
+      const evidence = resolvePromotionServingEvidence(row);
+      if (evidence) authoringReadinessByGrantId.set(row.grantId, evidence.authoringReadiness);
+    }
     const promotedRunIds = uniqueStrings(servingPromotedRows.flatMap((row) =>
       row.deepAnalysisRunId ? [row.deepAnalysisRunId] : []));
     const inputStageRows = promotedRunIds.length > 0
@@ -458,6 +467,7 @@ class DrizzleGrantRepository<TPayload> implements GrantRepository<TPayload> {
     return mergeReviewedExtractionManifestState(
       grants,
       [...labeledRows, ...promotionReviewRows],
+      authoringReadinessByGrantId,
     );
   }
 
@@ -494,6 +504,7 @@ export interface ReviewedExtractionMetadataRow {
 export function mergeReviewedExtractionManifestState<TPayload>(
   grants: Array<NormalizedGrant<TPayload>>,
   rows: ReviewedExtractionMetadataRow[],
+  authoringReadinessByGrantId: ReadonlyMap<string, AuthoringFeatureReadiness> = new Map(),
 ): Array<NormalizedGrant<TPayload>> {
   const latestByGrant = new Map<string, ReviewedExtractionMetadataRow>();
   for (const row of [...rows].sort((left, right) => right.ts.getTime() - left.ts.getTime())) {
@@ -501,16 +512,20 @@ export function mergeReviewedExtractionManifestState<TPayload>(
   }
   return grants.map((entry) => {
     if (!entry.grant.id) return entry;
+    const authoringReadiness = authoringReadinessByGrantId.get(entry.grant.id);
+    const projectedEntry = authoringReadiness
+      ? { ...entry, authoring_readiness: authoringReadiness }
+      : entry;
     const review = latestByGrant.get(entry.grant.id);
-    if (!review) return entry;
+    if (!review) return projectedEntry;
     const output = isPlainRecord(review.output) ? review.output : {};
     const reviewedAt = typeof output.reviewedAt === "string" ? output.reviewedAt : review.ts.toISOString();
     const resolvedWarnings = Array.isArray(output.resolvedWarnings)
       ? output.resolvedWarnings.filter(isVerifiedInputWarningCode)
       : [];
     return {
-      ...entry,
-      extraction_manifest: buildGrantExtractionManifest(entry, {
+      ...projectedEntry,
+      extraction_manifest: buildGrantExtractionManifest(projectedEntry, {
         reviewedAt,
         extractorVersion: typeof output.parserVersion === "string" ? output.parserVersion : review.modelVer,
         resolvedWarnings,

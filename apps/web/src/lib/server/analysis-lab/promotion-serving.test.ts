@@ -8,6 +8,7 @@ import {
   type PromotionReleasePlanItem,
 } from "./promotion-release";
 import {
+  authoringReadinessForPromotionPlan,
   resolvePromotionServingEvidence,
   type PromotionServingLedgerItem,
 } from "./promotion-serving";
@@ -53,6 +54,57 @@ const planItem: PromotionReleasePlanItem = {
   downgradedCount: 0,
   costUsd: 0,
 };
+
+assert.deepEqual(
+  authoringReadinessForPromotionPlan({}),
+  { status: "unverified", sourceDisposition: "unverified" },
+  "split readiness가 없는 역사 release는 자동 작성 ready로 추정하지 않는다",
+);
+assert.deepEqual(
+  authoringReadinessForPromotionPlan({
+    analysisLaunchReadiness: {
+      disposition: "ready",
+      reasons: [],
+    } as unknown as NonNullable<PromotionReleasePlanItem["analysisLaunchReadiness"]>,
+  }),
+  { status: "unverified", sourceDisposition: "unverified" },
+  "split 필드 추가 전 analysis-launch release도 예외 없이 unverified로 소비한다",
+);
+
+for (const [status, sourceDisposition] of [
+  ["ready", "ready"],
+  ["held", "held"],
+  ["held", "not_applicable"],
+  ["held", "unverified"],
+] as const) {
+  assert.deepEqual(authoringReadinessForPromotionPlan({
+    analysisLaunchReadiness: {
+      runFeatureReadiness: {
+        authoring: { status, sourceDisposition, reasons: status === "ready" ? [] : ["held"] },
+      },
+      authoringEvidenceStatus: status === "ready" ? "verified" : "held",
+      authoringEvidenceReasons: status === "ready" ? [] : ["held"],
+    } as unknown as NonNullable<PromotionReleasePlanItem["analysisLaunchReadiness"]>,
+  }), { status, sourceDisposition });
+}
+assert.deepEqual(authoringReadinessForPromotionPlan({
+  analysisLaunchReadiness: {
+    runFeatureReadiness: {
+      authoring: { status: "ready", sourceDisposition: "ready", reasons: [] },
+    },
+    authoringEvidenceStatus: "held",
+    authoringEvidenceReasons: ["application_field_analysis_binding"],
+  } as unknown as NonNullable<PromotionReleasePlanItem["analysisLaunchReadiness"]>,
+}), { status: "held", sourceDisposition: "ready" }, "current 작성 evidence가 held이면 run ready만으로 자동 작성을 열지 않는다");
+assert.deepEqual(authoringReadinessForPromotionPlan({
+  analysisLaunchReadiness: {
+    runFeatureReadiness: {
+      authoring: { status: "ready", sourceDisposition: "ready", reasons: [] },
+    },
+    authoringEvidenceStatus: "verified",
+    authoringEvidenceReasons: undefined,
+  } as unknown as NonNullable<PromotionReleasePlanItem["analysisLaunchReadiness"]>,
+}), { status: "held", sourceDisposition: "ready" }, "evidence reason 계약이 누락된 객체도 자동 작성을 열지 않는다");
 
 function localManifest() {
   return createPromotionReleaseManifest({
@@ -110,6 +162,10 @@ function ledger(overrides: Partial<PromotionServingLedgerItem> = {}): PromotionS
     resolved?.kind === "verified_local_lab" ? resolved.evidence.promptVersion : null,
     "lab-deep-v7",
   );
+  assert.deepEqual(resolved?.authoringReadiness, {
+    status: "unverified",
+    sourceDisposition: "unverified",
+  }, "feature projection 전 release는 작성 ready로 추정하지 않는다");
 }
 
 assert.doesNotThrow(
@@ -126,6 +182,13 @@ assert.equal(
   resolvePromotionServingEvidence(ledger({ deepAnalysisRunId: "00000000-0000-4000-8000-000000000099" }))?.kind,
   "production_deep_run",
   "운영 deep run FK는 기존 서빙 경로를 유지해야 한다",
+);
+assert.deepEqual(
+  resolvePromotionServingEvidence(ledger({
+    deepAnalysisRunId: "00000000-0000-4000-8000-000000000099",
+  }))?.authoringReadiness,
+  { status: "unverified", sourceDisposition: "unverified" },
+  "기존 production deep run도 작성 필드 근거 없이 ready로 추정하지 않는다",
 );
 
 assert.equal(
