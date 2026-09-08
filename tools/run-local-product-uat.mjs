@@ -285,6 +285,8 @@ const result = await withIsolatedProductUatPostgres(async (postgresRuntime) => {
       admin: "manager@noten.im",
       postgresSocketPath: postgresRuntime.socketPath,
       snapshotRoot: source.snapshotRoot,
+      sourceManifestSha256: source.sourceManifestSha256,
+      sourceManifestPath,
       confirmationFixtureReceiptPath,
       syntheticGrantId: initialConfirmationFixture.fixture.grantId,
       syntheticServingGrantId: initialConfirmationFixture.fixture.servingGrantId,
@@ -812,6 +814,7 @@ async function verifyNaturalConfirmationListing({
   servingGrantId,
 }) {
   const companyResults = [];
+  let requiredOtherCompanyA = null;
   for (const companyId of [LOCAL_UAT_IDS.companyA, LOCAL_UAT_IDS.companyB]) {
     const response = await jar.fetch(
       `${baseUrl}/api/web/company-matching?companyId=${encodeURIComponent(companyId)}`,
@@ -823,7 +826,54 @@ async function verifyNaturalConfirmationListing({
     const basicRows = payload.data.teaser.profileView.rows.filter((row) => basicDimensions.has(row.dimension));
     assert.equal(basicRows.length, 4);
     assert.ok(basicRows.every((row) => row.status === "known"));
-    assert.equal(payload.data.teaser.matches.some((match) => match.grantId === requiredOtherGrantId), false);
+    const requiredOtherCard = payload.data.teaser.matches.find((match) => match.grantId === requiredOtherGrantId);
+    const requiredOtherQuestions = await readConfirmations(
+      jar,
+      confirmationEndpoint(baseUrl, requiredOtherGrantId, companyId),
+    );
+    const requiredOtherQuestion = requiredOtherQuestions.questions.find(
+      (question) => question.prompt === "최초 필수 질문",
+    );
+    assert.ok(requiredOtherQuestion?.binding);
+    if (companyId === LOCAL_UAT_IDS.companyA) {
+      assert.ok(requiredOtherCard, "현재 v2 required other/text_only 질문 공고가 company A 자연 목록에 있어야 합니다");
+      assert.equal(requiredOtherCard.eligibility, "conditional");
+      assert.equal(requiredOtherCard.recommendationTier, "needs_profile_input");
+      assert.deepEqual(requiredOtherQuestions.questions.map((question) => question.prompt).sort(), [
+        "기존 제외 질문",
+        "최초 필수 질문",
+      ]);
+      assert.equal(requiredOtherCard.confirmationQuestionCount, requiredOtherQuestions.questions.length);
+      const requiredTrace = requiredOtherCard.ruleTrace.find(
+        (trace) => trace.criterionId === requiredOtherQuestion.binding.criterionId,
+      );
+      assert.equal(requiredTrace?.dimension, "other");
+      assert.equal(requiredTrace?.kind, "required");
+      assert.equal(requiredTrace?.result, "text_only");
+      assert.equal(requiredTrace?.unresolvedReason, "criterion_text_only");
+      assert.equal(requiredTrace?.confirmationNextAction, "user_confirmation");
+      assert.equal(requiredOtherQuestions.canSubmit, true);
+      assert.equal(requiredOtherQuestions.answers.find(
+        (answer) => answer.questionId === requiredOtherQuestion.id,
+      )?.evaluation, "unknown");
+      requiredOtherCompanyA = {
+        eligibility: requiredOtherCard.eligibility,
+        recommendationTier: requiredOtherCard.recommendationTier,
+        confirmationQuestionCount: requiredOtherCard.confirmationQuestionCount,
+        criterion: "required_other_text_only",
+        confirmationNextAction: requiredTrace.confirmationNextAction,
+        naturalCtaContractReady: true,
+      };
+    } else {
+      assert.equal(
+        requiredOtherCard,
+        undefined,
+        "company B의 기존 required 미충족은 질문 존재만으로 자연 목록에 복귀하면 안 됩니다",
+      );
+      assert.equal(requiredOtherQuestions.answers.find(
+        (answer) => answer.questionId === requiredOtherQuestion.id,
+      )?.evaluation, "unsatisfied");
+    }
     const card = payload.data.teaser.matches.find((match) => match.grantId === servingGrantId);
     assert.ok(card, `${companyId}: 정상 serving 공고가 company-matching에 있어야 합니다`);
     assert.equal(card.eligibility, "eligible");
@@ -846,13 +896,14 @@ async function verifyNaturalConfirmationListing({
       answerCount: questions.answers.length,
     });
   }
+  assert.ok(requiredOtherCompanyA);
   return {
     status: "passed",
     endpoint: "actual_company_matching",
     servingGrantId,
     servingGrantVisibleForCompanies: companyResults,
     requiredOtherGrantId,
-    requiredOtherCoreReadinessExcludedForCompanyA: true,
+    requiredOtherCompanyA,
     requiredOtherCompanyBExcludedByExistingHardFail: true,
     uiInteractionPendingBrowserAcceptance: true,
   };
