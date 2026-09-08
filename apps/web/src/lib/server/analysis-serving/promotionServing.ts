@@ -16,6 +16,21 @@ export interface PromotionServingLedgerItem {
   manifest: unknown;
 }
 
+export interface PromotionServingItemBinding {
+  releaseDbId: string;
+  grantId: string;
+  runId: string;
+  planSha256: string;
+  deepAnalysisRunId: string | null;
+  releaseManifestSha256: string;
+}
+
+export interface PromotionServingReleaseDocument {
+  releaseDbId: string;
+  releaseManifestSha256: string;
+  manifest: unknown;
+}
+
 export type PromotionServingEvidence =
   | {
       kind: "production_deep_run";
@@ -32,6 +47,24 @@ const UNVERIFIED_AUTHORING_READINESS: AuthoringFeatureReadiness = Object.freeze(
   status: "unverified",
   sourceDisposition: "unverified",
 });
+
+export interface PromotionServingSnapshotMetrics {
+  itemBindingRows: number;
+  releaseDocumentRows: number;
+  releaseManifestBytes: number;
+  releaseManifestValidations: number;
+}
+
+export interface PromotionServingRequestSnapshot<TItem extends PromotionServingItemBinding> {
+  items: Array<{ item: TItem; evidence: PromotionServingEvidence }>;
+  metrics: PromotionServingSnapshotMetrics;
+}
+
+interface VerifiedPromotionServingRelease {
+  manifest: PromotionReleaseManifest;
+  planByGrantId: ReadonlyMap<string, PromotionReleasePlanItem>;
+  artifactByGrantId: ReadonlyMap<string, PromotionReleaseManifest["sourceArtifacts"][number]>;
+}
 
 /**
  * 제품이 신뢰할 수 있는 승격 provenance를 한 곳에서 판정한다.
@@ -60,8 +93,78 @@ export function resolvePromotionServingEvidence(
   ) {
     return null;
   }
-  const plan = manifest.plans.find((entry) => entry.grantId === item.grantId);
-  const artifact = manifest.sourceArtifacts.find((entry) => entry.grantId === item.grantId);
+  return resolveVerifiedLocalLabItem(item, indexVerifiedRelease(manifest));
+}
+
+/**
+ * 한 DB snapshot에서 분리 조회한 작은 item 결속과 release별 문서를 조립한다.
+ * manifest는 release당 한 번만 검증하고 item의 plan/run/source 결속은 생략하지 않는다.
+ */
+export function buildPromotionServingRequestSnapshot<TItem extends PromotionServingItemBinding>(input: {
+  items: TItem[];
+  releases: PromotionServingReleaseDocument[];
+}): PromotionServingRequestSnapshot<TItem> {
+  const localReleaseIds = new Set(input.items
+    .filter((item) => item.deepAnalysisRunId === null)
+    .map((item) => item.releaseDbId));
+  const releasesById = new Map<string, VerifiedPromotionServingRelease | null>();
+  let releaseManifestBytes = 0;
+  let releaseManifestValidations = 0;
+  for (const document of input.releases) {
+    if (!localReleaseIds.has(document.releaseDbId)) continue;
+    releaseManifestBytes += Buffer.byteLength(JSON.stringify(document.manifest));
+    if (releasesById.has(document.releaseDbId)) {
+      releasesById.set(document.releaseDbId, null);
+      continue;
+    }
+    releaseManifestValidations += 1;
+    const manifest = readManifest(document.manifest);
+    releasesById.set(
+      document.releaseDbId,
+      manifest
+        && manifest.manifestSha256 === document.releaseManifestSha256
+        && manifest.servingProvenance === "verified_local_lab"
+        ? indexVerifiedRelease(manifest)
+        : null,
+    );
+  }
+
+  const items: PromotionServingRequestSnapshot<TItem>["items"] = [];
+  for (const item of input.items) {
+    if (item.deepAnalysisRunId) {
+      items.push({
+        item,
+        evidence: {
+          kind: "production_deep_run",
+          deepAnalysisRunId: item.deepAnalysisRunId,
+          authoringReadiness: UNVERIFIED_AUTHORING_READINESS,
+        },
+      });
+      continue;
+    }
+    const release = releasesById.get(item.releaseDbId);
+    if (!release || release.manifest.manifestSha256 !== item.releaseManifestSha256) continue;
+    const evidence = resolveVerifiedLocalLabItem(item, release);
+    if (evidence) items.push({ item, evidence });
+  }
+
+  return {
+    items,
+    metrics: {
+      itemBindingRows: input.items.length,
+      releaseDocumentRows: input.releases.length,
+      releaseManifestBytes,
+      releaseManifestValidations,
+    },
+  };
+}
+
+function resolveVerifiedLocalLabItem(
+  item: Pick<PromotionServingLedgerItem, "grantId" | "runId" | "planSha256">,
+  release: VerifiedPromotionServingRelease,
+): PromotionServingEvidence | null {
+  const plan = release.planByGrantId.get(item.grantId);
+  const artifact = release.artifactByGrantId.get(item.grantId);
   if (
     !plan
     || !artifact
@@ -77,6 +180,14 @@ export function resolvePromotionServingEvidence(
     kind: "verified_local_lab",
     evidence: artifact.localLabEvidence,
     authoringReadiness: authoringReadinessForPromotionPlan(plan),
+  };
+}
+
+function indexVerifiedRelease(manifest: PromotionReleaseManifest): VerifiedPromotionServingRelease {
+  return {
+    manifest,
+    planByGrantId: new Map(manifest.plans.map((plan) => [plan.grantId, plan])),
+    artifactByGrantId: new Map(manifest.sourceArtifacts.map((artifact) => [artifact.grantId, artifact])),
   };
 }
 

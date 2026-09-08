@@ -83,8 +83,9 @@ import { withCunoteDbUser } from "@/lib/server/db/client";
 import * as schema from "@/lib/server/db/schema";
 import { grantServingVisiblePredicate } from "@/lib/server/grantServingVisibility";
 import {
-  isPromotionItemServingEligible,
-  resolvePromotionServingEvidence,
+  buildPromotionServingRequestSnapshot,
+  type PromotionServingItemBinding,
+  type PromotionServingRequestSnapshot,
 } from "@/lib/server/analysis-serving/promotionServing";
 import {
   activeGrantApplyEndCutoff,
@@ -98,6 +99,105 @@ import { DrizzleSubscriptionRepository } from "./subscriptionRepository";
 export interface DrizzleDatabaseClient {
   readonly dialect: "drizzle";
   readonly client: CunoteDb;
+}
+
+/**
+ * serving 조립은 top-level connection에서 연 repeatable-read snapshot만 허용한다.
+ * Drizzle nested transaction은 savepoint라 isolation/accessMode를 새로 적용하지 않으므로 거부한다.
+ */
+export async function withPromotionServingReadSnapshot<T>(
+  client: CunoteDb,
+  run: (session: CunoteDbSession) => Promise<T>,
+): Promise<T> {
+  if (typeof (client as CunoteDb & { rollback?: unknown }).rollback === "function") {
+    throw new Error("promotion serving snapshot에는 top-level database client가 필요합니다.");
+  }
+  return client.transaction(
+    async (tx) => run(tx as unknown as CunoteDbSession),
+    { isolationLevel: "repeatable read", accessMode: "read only" },
+  );
+}
+
+/**
+ * 호출자가 연 repeatable-read transaction 안에서 promotion ledger를 두 개의 작은 모양으로 읽는다.
+ * 큰 manifest JSON은 local release별 한 번만 전송되고 pure builder에서도 한 번만 검증된다.
+ */
+export async function loadPromotionServingRequestSnapshot(
+  session: CunoteDbSession,
+  grantIds?: string[],
+): Promise<PromotionServingRequestSnapshot<PromotionServingHydrationItem>> {
+  if (grantIds && grantIds.length === 0) {
+    return buildPromotionServingRequestSnapshot({ items: [], releases: [] });
+  }
+  const itemRows = await session
+    .select({
+      releaseDbId: schema.analysisLabPromotionItems.releaseDbId,
+      grantId: schema.analysisLabPromotionItems.grantId,
+      runId: schema.analysisLabPromotionItems.runId,
+      planSha256: schema.analysisLabPromotionItems.planSha256,
+      deepAnalysisRunId: schema.analysisLabPromotionItems.deepAnalysisRunId,
+      appliedAt: schema.analysisLabPromotionItems.appliedAt,
+      releaseManifestSha256: schema.analysisLabPromotionReleases.manifestSha256,
+      promptVersion: schema.grantDeepAnalysisRuns.promptVersion,
+      modelPolicyVersion: schema.grantDeepAnalysisRuns.modelPolicyVersion,
+      deepRunStatus: schema.grantDeepAnalysisRuns.status,
+    })
+    .from(schema.analysisLabPromotionItems)
+    .innerJoin(
+      schema.analysisLabPromotionReleases,
+      eq(
+        schema.analysisLabPromotionReleases.id,
+        schema.analysisLabPromotionItems.releaseDbId,
+      ),
+    )
+    .leftJoin(
+      schema.grantDeepAnalysisRuns,
+      eq(
+        schema.grantDeepAnalysisRuns.id,
+        schema.analysisLabPromotionItems.deepAnalysisRunId,
+      ),
+    )
+    .where(and(
+      grantIds && grantIds.length > 0
+        ? inArray(schema.analysisLabPromotionItems.grantId, grantIds)
+        : undefined,
+      eq(schema.analysisLabPromotionItems.status, "applied"),
+      inArray(schema.analysisLabPromotionReleases.status, ["active", "canary_passed"]),
+    ));
+  const localReleaseIds = uniqueStrings(itemRows.flatMap((row) =>
+    row.deepAnalysisRunId === null ? [row.releaseDbId] : []));
+  const releaseRows = localReleaseIds.length === 0
+    ? []
+    : await session
+      .select({
+        releaseDbId: schema.analysisLabPromotionReleases.id,
+        releaseManifestSha256: schema.analysisLabPromotionReleases.manifestSha256,
+        manifest: schema.analysisLabPromotionReleases.manifest,
+      })
+      .from(schema.analysisLabPromotionReleases)
+      .where(and(
+        inArray(schema.analysisLabPromotionReleases.id, localReleaseIds),
+        inArray(schema.analysisLabPromotionReleases.status, ["active", "canary_passed"]),
+      ));
+  return buildPromotionServingRequestSnapshot({ items: itemRows, releases: releaseRows });
+}
+
+export interface PromotionServingHydrationItem extends PromotionServingItemBinding {
+  appliedAt: Date | null;
+  promptVersion: string | null;
+  modelPolicyVersion: string | null;
+  deepRunStatus: string | null;
+}
+
+/**
+ * 목록 필터에 promotion 원장이 필요하면 전체 active 집합을, 단순 hydration이면 현재 공고만 읽는다.
+ * undefined는 의도적인 전체 조회이며 빈 배열은 조회 대상 없음이다.
+ */
+export function promotionServingSnapshotScope(
+  requireDeepAnalysisPromotion: boolean | undefined,
+  hydrationIds: string[],
+): string[] | undefined {
+  return requireDeepAnalysisPromotion ? undefined : uniqueStrings(hydrationIds);
 }
 
 export function createDrizzleRepositories<TPayload = unknown>(
@@ -121,6 +221,16 @@ class DrizzleGrantRepository<TPayload> implements GrantRepository<TPayload> {
   constructor(private readonly db: DrizzleDatabaseClient) {}
 
   async listActiveGrants(options: GrantListOptions = {}): Promise<Array<NormalizedGrant<TPayload>>> {
+    return withPromotionServingReadSnapshot(
+      this.db.client,
+      (session) => this.listActiveGrantsInSnapshot(session, options),
+    );
+  }
+
+  private async listActiveGrantsInSnapshot(
+    session: CunoteDbSession,
+    options: GrantListOptions,
+  ): Promise<Array<NormalizedGrant<TPayload>>> {
     // limit 은 조인 전 "공고 수" 기준이어야 한다. criteria LEFT JOIN 결과 행에 limit 을 걸면
     // 공고당 조건 수만큼 실제 공고 수가 줄어드는 버그가 있었다(limit 40 요청 시 ~13건).
     // 그래서 1단계에서 raw 포함 공고 후보를 limit 으로 뽑고, 2단계에서 criteria 만 조인한다.
@@ -130,8 +240,11 @@ class DrizzleGrantRepository<TPayload> implements GrantRepository<TPayload> {
       and(eq(schema.grants.status, "unknown"), activeGrantApplyEndWhere(options.asOf)),
     );
     const requestedLimit = options.limit ?? 100;
-    const servingPromotionGrantIds = options.requireDeepAnalysisPromotion
-      ? await this.listServingPromotionGrantIds()
+    const promotionSnapshotForFilter = options.requireDeepAnalysisPromotion
+      ? await loadPromotionServingRequestSnapshot(session)
+      : null;
+    const servingPromotionGrantIds = promotionSnapshotForFilter
+      ? this.listServingPromotionGrantIds(promotionSnapshotForFilter)
       : null;
     const deepAnalysisPromotionFilter = servingPromotionGrantIds === null
       ? undefined
@@ -140,14 +253,14 @@ class DrizzleGrantRepository<TPayload> implements GrantRepository<TPayload> {
         : sql<boolean>`false`;
     const confirmedMemberFilter = options.includeConfirmedDuplicates
       ? undefined
-      : notExists(this.db.client
+      : notExists(session
         .select({ memberGrantId: schema.dedupLinks.memberGrantId })
         .from(schema.dedupLinks)
         .where(and(
           eq(schema.dedupLinks.memberGrantId, schema.grants.id),
           eq(schema.dedupLinks.confirmed, true),
         )));
-    const candidateRows = await this.db.client
+    const candidateRows = await session
       .select({
         id: schema.grants.id,
         source: schema.grants.source,
@@ -193,7 +306,7 @@ class DrizzleGrantRepository<TPayload> implements GrantRepository<TPayload> {
     if (idRows.length === 0) return [];
     const confirmedLinks = options.includeConfirmedDuplicates
       ? []
-      : await this.db.client
+      : await session
         .select({
           canonicalGrantKey: schema.dedupLinks.canonicalGrantId,
           memberGrantKey: schema.dedupLinks.memberGrantId,
@@ -201,8 +314,13 @@ class DrizzleGrantRepository<TPayload> implements GrantRepository<TPayload> {
         .from(schema.dedupLinks)
         .where(eq(schema.dedupLinks.confirmed, true));
     const hydrationIds = reachableDedupIds(idRows.map((row) => row.id), confirmedLinks);
+    const promotionSnapshot = promotionSnapshotForFilter
+      ?? await loadPromotionServingRequestSnapshot(
+        session,
+        promotionServingSnapshotScope(options.requireDeepAnalysisPromotion, hydrationIds),
+      );
 
-    const rows = await this.db.client
+    const rows = await session
       .select({
         grant: schema.grants,
         criterion: schema.grantCriteria,
@@ -225,7 +343,7 @@ class DrizzleGrantRepository<TPayload> implements GrantRepository<TPayload> {
       }
     }
     if (missingRawPairs.size > 0) {
-      const missingRawRows = await this.db.client
+      const missingRawRows = await session
         .select()
         .from(schema.grantRaw)
         .where(or(...[...missingRawPairs.values()].map((pair) =>
@@ -241,47 +359,38 @@ class DrizzleGrantRepository<TPayload> implements GrantRepository<TPayload> {
       raw: rawBySourceKey.get(`${row.grant.source}:${row.grant.sourceId}`) ?? null,
     })));
     const [archives, surfaces] = await Promise.all([
-      this.loadAttachmentArchives(grants),
-      this.loadApplicationSurfaces(grants),
+      this.loadAttachmentArchives(grants, session),
+      this.loadApplicationSurfaces(grants, session),
     ]);
     const hydrated = await this.hydrateReviewedExtractionManifests(
       mergeCurrentAttachmentArchiveState(grants, archives, surfaces),
+      session,
+      promotionSnapshot,
     );
     return options.includeConfirmedDuplicates
       ? hydrated
       : collapseConfirmedGrantOccurrences(hydrated, confirmedLinks);
   }
 
-  private async listServingPromotionGrantIds(): Promise<string[]> {
-    const rows = await this.db.client
-      .select({
-        grantId: schema.analysisLabPromotionItems.grantId,
-        runId: schema.analysisLabPromotionItems.runId,
-        planSha256: schema.analysisLabPromotionItems.planSha256,
-        deepAnalysisRunId: schema.analysisLabPromotionItems.deepAnalysisRunId,
-        releaseManifestSha256: schema.analysisLabPromotionReleases.manifestSha256,
-        manifest: schema.analysisLabPromotionReleases.manifest,
-      })
-      .from(schema.analysisLabPromotionItems)
-      .innerJoin(
-        schema.analysisLabPromotionReleases,
-        eq(
-          schema.analysisLabPromotionReleases.id,
-          schema.analysisLabPromotionItems.releaseDbId,
-        ),
-      )
-      .where(and(
-        eq(schema.analysisLabPromotionItems.status, "applied"),
-        inArray(schema.analysisLabPromotionReleases.status, ["active", "canary_passed"]),
-      ));
-    return uniqueStrings(rows
-      .filter(isPromotionItemServingEligible)
-      .map((row) => row.grantId));
+  private listServingPromotionGrantIds(
+    snapshot: PromotionServingRequestSnapshot<PromotionServingHydrationItem>,
+  ): string[] {
+    return uniqueStrings(snapshot.items.map(({ item }) => item.grantId));
   }
 
   async findGrantById(grantId: string, _options: GrantListOptions = {}): Promise<NormalizedGrant<TPayload> | null> {
+    return withPromotionServingReadSnapshot(
+      this.db.client,
+      (session) => this.findGrantByIdInSnapshot(session, grantId),
+    );
+  }
+
+  private async findGrantByIdInSnapshot(
+    session: CunoteDbSession,
+    grantId: string,
+  ): Promise<NormalizedGrant<TPayload> | null> {
     const parsed = parseGrantId(grantId);
-    const rows = await this.db.client
+    const rows = await session
       .select({
         grant: schema.grants,
         criterion: schema.grantCriteria,
@@ -308,12 +417,18 @@ class DrizzleGrantRepository<TPayload> implements GrantRepository<TPayload> {
       .limit(100);
 
     const grants = hydrateGrants<TPayload>(rows);
+    const promotionSnapshot = await loadPromotionServingRequestSnapshot(
+      session,
+      grants.flatMap((entry) => entry.grant.id ? [entry.grant.id] : []),
+    );
     const [archives, surfaces] = await Promise.all([
-      this.loadAttachmentArchives(grants),
-      this.loadApplicationSurfaces(grants),
+      this.loadAttachmentArchives(grants, session),
+      this.loadApplicationSurfaces(grants, session),
     ]);
     const hydrated = await this.hydrateReviewedExtractionManifests(
       mergeCurrentAttachmentArchiveState(grants, archives, surfaces),
+      session,
+      promotionSnapshot,
     );
     return hydrated[0] ?? null;
   }
@@ -346,11 +461,12 @@ class DrizzleGrantRepository<TPayload> implements GrantRepository<TPayload> {
 
   private async hydrateReviewedExtractionManifests(
     grants: Array<NormalizedGrant<TPayload>>,
+    session: CunoteDbSession,
+    promotionSnapshot: PromotionServingRequestSnapshot<PromotionServingHydrationItem>,
   ): Promise<Array<NormalizedGrant<TPayload>>> {
     const grantIds = grants.flatMap((entry) => entry.grant.id ? [entry.grant.id] : []);
     if (grantIds.length === 0) return grants;
-    const [labeledRows, promotedRows] = await Promise.all([
-      this.db.client
+    const labeledRows = await session
         .select({
           grantId: schema.extractionLog.grantId,
           output: schema.extractionLog.output,
@@ -361,59 +477,24 @@ class DrizzleGrantRepository<TPayload> implements GrantRepository<TPayload> {
         .where(and(
           eq(schema.extractionLog.status, "labeled"),
           inArray(schema.extractionLog.grantId, grantIds),
-        )),
-      this.db.client
-        .select({
-          grantId: schema.analysisLabPromotionItems.grantId,
-          runId: schema.analysisLabPromotionItems.runId,
-          planSha256: schema.analysisLabPromotionItems.planSha256,
-          deepAnalysisRunId: schema.analysisLabPromotionItems.deepAnalysisRunId,
-          appliedAt: schema.analysisLabPromotionItems.appliedAt,
-          releaseManifestSha256: schema.analysisLabPromotionReleases.manifestSha256,
-          manifest: schema.analysisLabPromotionReleases.manifest,
-          promptVersion: schema.grantDeepAnalysisRuns.promptVersion,
-          modelPolicyVersion: schema.grantDeepAnalysisRuns.modelPolicyVersion,
-          deepRunStatus: schema.grantDeepAnalysisRuns.status,
-        })
-        .from(schema.analysisLabPromotionItems)
-        .innerJoin(
-          schema.analysisLabPromotionReleases,
-          eq(
-            schema.analysisLabPromotionReleases.id,
-            schema.analysisLabPromotionItems.releaseDbId,
-          ),
-        )
-        .leftJoin(
-          schema.grantDeepAnalysisRuns,
-          eq(
-            schema.grantDeepAnalysisRuns.id,
-            schema.analysisLabPromotionItems.deepAnalysisRunId,
-          ),
-        )
-        .where(and(
-          inArray(schema.analysisLabPromotionItems.grantId, grantIds),
-          eq(schema.analysisLabPromotionItems.status, "applied"),
-          isNotNull(schema.analysisLabPromotionItems.appliedAt),
-          inArray(schema.analysisLabPromotionReleases.status, ["active", "canary_passed"]),
-        )),
-    ]);
-    const servingPromotedRows = promotedRows.filter((row) => {
-      const evidence = resolvePromotionServingEvidence(row);
-      return evidence?.kind === "verified_local_lab"
-        || (evidence?.kind === "production_deep_run" && row.deepRunStatus === "passed");
-    });
+        ));
+    const grantIdSet = new Set(grantIds);
+    const servingPromotedRows = promotionSnapshot.items.filter(({ item, evidence }) =>
+      grantIdSet.has(item.grantId)
+      && item.appliedAt !== null
+      && (evidence.kind === "verified_local_lab"
+        || (evidence.kind === "production_deep_run" && item.deepRunStatus === "passed")));
     const authoringReadinessByGrantId = new Map<string, AuthoringFeatureReadiness>();
     for (const row of [...servingPromotedRows].sort(
-      (left, right) => (right.appliedAt?.getTime() ?? 0) - (left.appliedAt?.getTime() ?? 0),
+      (left, right) => (right.item.appliedAt?.getTime() ?? 0) - (left.item.appliedAt?.getTime() ?? 0),
     )) {
-      if (authoringReadinessByGrantId.has(row.grantId)) continue;
-      const evidence = resolvePromotionServingEvidence(row);
-      if (evidence) authoringReadinessByGrantId.set(row.grantId, evidence.authoringReadiness);
+      if (authoringReadinessByGrantId.has(row.item.grantId)) continue;
+      authoringReadinessByGrantId.set(row.item.grantId, row.evidence.authoringReadiness);
     }
-    const promotedRunIds = uniqueStrings(servingPromotedRows.flatMap((row) =>
-      row.deepAnalysisRunId ? [row.deepAnalysisRunId] : []));
+    const promotedRunIds = uniqueStrings(servingPromotedRows.flatMap(({ item }) =>
+      item.deepAnalysisRunId ? [item.deepAnalysisRunId] : []));
     const inputStageRows = promotedRunIds.length > 0
-      ? await this.db.client
+        ? await session
         .select({
           runId: schema.grantDeepAnalysisStageReceipts.runId,
           stage: schema.grantDeepAnalysisStageReceipts.stage,
@@ -435,24 +516,22 @@ class DrizzleGrantRepository<TPayload> implements GrantRepository<TPayload> {
     const verifiedInputStages = new Set(
       inputStageRows.map((row) => `${row.runId}:${row.stage}`),
     );
-    const promotionReviewRows: ReviewedExtractionMetadataRow[] = servingPromotedRows.flatMap((row) => {
-      if (!row.appliedAt) return [];
-      const reviewedAt = row.appliedAt.toISOString();
-      const servingEvidence = resolvePromotionServingEvidence(row);
-      if (!servingEvidence) return [];
-      const inputVerified = servingEvidence.kind === "production_deep_run"
+    const promotionReviewRows: ReviewedExtractionMetadataRow[] = servingPromotedRows.flatMap(({ item, evidence }) => {
+      if (!item.appliedAt) return [];
+      const reviewedAt = item.appliedAt.toISOString();
+      const inputVerified = evidence.kind === "production_deep_run"
         ? DEEP_ANALYSIS_INPUT_VERIFICATION_STAGES.every((stage) =>
-            verifiedInputStages.has(`${servingEvidence.deepAnalysisRunId}:${stage}`))
+            verifiedInputStages.has(`${evidence.deepAnalysisRunId}:${stage}`))
         : false;
-      const promptVersion = servingEvidence.kind === "verified_local_lab"
-        ? servingEvidence.evidence.promptVersion
-        : row.promptVersion;
-      const modelPolicyVersion = servingEvidence.kind === "verified_local_lab"
+      const promptVersion = evidence.kind === "verified_local_lab"
+        ? evidence.evidence.promptVersion
+        : item.promptVersion;
+      const modelPolicyVersion = evidence.kind === "verified_local_lab"
         ? "local-subscription"
-        : row.modelPolicyVersion;
+        : item.modelPolicyVersion;
       if (!promptVersion || !modelPolicyVersion) return [];
       return [{
-        grantId: row.grantId,
+        grantId: item.grantId,
         output: {
           reviewedAt,
           parserVersion: `${promptVersion}/${modelPolicyVersion}`,
@@ -460,7 +539,7 @@ class DrizzleGrantRepository<TPayload> implements GrantRepository<TPayload> {
             resolvedWarnings: DEEP_ANALYSIS_VERIFIED_INPUT_WARNING_CODES,
           } : {}),
         },
-        ts: row.appliedAt,
+        ts: item.appliedAt,
         modelVer: promptVersion,
       }];
     });
@@ -473,10 +552,11 @@ class DrizzleGrantRepository<TPayload> implements GrantRepository<TPayload> {
 
   private async loadAttachmentArchives(
     grants: Array<NormalizedGrant<TPayload>>,
+    session: CunoteDbSession,
   ): Promise<Array<typeof schema.grantAttachmentArchives.$inferSelect>> {
     const sourceIds = uniqueStrings(grants.map((entry) => entry.grant.source_id));
     if (sourceIds.length === 0) return [];
-    return this.db.client
+    return session
       .select()
       .from(schema.grantAttachmentArchives)
       .where(inArray(schema.grantAttachmentArchives.sourceId, sourceIds));
@@ -484,10 +564,11 @@ class DrizzleGrantRepository<TPayload> implements GrantRepository<TPayload> {
 
   private async loadApplicationSurfaces(
     grants: Array<NormalizedGrant<TPayload>>,
+    session: CunoteDbSession,
   ): Promise<Array<typeof schema.grantApplicationSurfaces.$inferSelect>> {
     const sourceIds = uniqueStrings(grants.map((entry) => entry.grant.source_id));
     if (sourceIds.length === 0) return [];
-    return this.db.client
+    return session
       .select()
       .from(schema.grantApplicationSurfaces)
       .where(inArray(schema.grantApplicationSurfaces.sourceId, sourceIds));

@@ -9,6 +9,7 @@ import {
 } from "./promotion-release";
 import {
   authoringReadinessForPromotionPlan,
+  buildPromotionServingRequestSnapshot,
   resolvePromotionServingEvidence,
   type PromotionServingLedgerItem,
 } from "./promotion-serving";
@@ -153,6 +154,63 @@ function ledger(overrides: Partial<PromotionServingLedgerItem> = {}): PromotionS
     manifest,
     ...overrides,
   };
+}
+
+{
+  const manifest = localManifest();
+  const releaseDbId = "00000000-0000-4000-8000-000000000010";
+  const item = {
+    releaseDbId,
+    grantId,
+    runId,
+    planSha256: planItem.planSha256,
+    deepAnalysisRunId: null,
+    releaseManifestSha256: manifest.manifestSha256,
+  };
+  const snapshot = buildPromotionServingRequestSnapshot({
+    items: [
+      item,
+      { ...item, planSha256: "a".repeat(64) },
+      {
+        ...item,
+        releaseDbId: "00000000-0000-4000-8000-000000000011",
+        deepAnalysisRunId: "00000000-0000-4000-8000-000000000012",
+      },
+    ],
+    releases: [{
+      releaseDbId,
+      releaseManifestSha256: manifest.manifestSha256,
+      manifest,
+    }],
+  });
+  assert.equal(snapshot.items.length, 2, "local item binding 불일치는 release 검증 재사용과 무관하게 계속 거부한다");
+  assert.deepEqual(snapshot.items.map(({ evidence }) => evidence.kind), [
+    "verified_local_lab",
+    "production_deep_run",
+  ]);
+  assert.deepEqual(snapshot.metrics, {
+    itemBindingRows: 3,
+    releaseDocumentRows: 1,
+    releaseManifestBytes: Buffer.byteLength(JSON.stringify(manifest)),
+    releaseManifestValidations: 1,
+  }, "manifest 전송·검증 계측은 item 수가 아니라 고유 local release 문서 수를 따른다");
+
+  assert.equal(buildPromotionServingRequestSnapshot({
+    items: [item],
+    releases: [{
+      releaseDbId,
+      releaseManifestSha256: "f".repeat(64),
+      manifest,
+    }],
+  }).items.length, 0, "DB release hash와 manifest가 다르면 전체 local item을 거부한다");
+
+  assert.equal(buildPromotionServingRequestSnapshot({
+    items: [item],
+    releases: [
+      { releaseDbId, releaseManifestSha256: manifest.manifestSha256, manifest },
+      { releaseDbId, releaseManifestSha256: manifest.manifestSha256, manifest },
+    ],
+  }).items.length, 0, "동일 release 문서가 중복되면 임의 선택하지 않는다");
 }
 
 {

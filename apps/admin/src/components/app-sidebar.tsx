@@ -12,6 +12,7 @@ import {
   ClipboardListIcon,
   CoinsIcon,
   DatabaseZapIcon,
+  FileQuestionIcon,
   FileSearchIcon,
   FileClockIcon,
   LandmarkIcon,
@@ -52,6 +53,7 @@ const NAV_GROUPS = [
     roles: ["reviewer", "admin", "owner"],
     items: [
       { title: "주간 검수", href: "/review", icon: BookOpenCheckIcon },
+      { title: "확인질문 초안", href: "/review/confirmation-drafts", icon: FileQuestionIcon },
       { title: "딥분석 시스템", href: "/pipeline", icon: FileSearchIcon },
     ],
   },
@@ -130,7 +132,9 @@ export function AppSidebar({ user, ...props }: AppSidebarProps) {
             <SidebarGroupContent>
               <SidebarMenu>
                 {group.items.map((item) => {
-                  const active = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href)
+                  const active = item.href === "/" || item.href === "/review"
+                    ? pathname === item.href
+                    : pathname.startsWith(item.href)
                   return (
                     <SidebarMenuItem key={item.href}>
                       <SidebarMenuButton

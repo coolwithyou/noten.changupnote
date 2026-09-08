@@ -9,6 +9,10 @@
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
+    "./confirmation-question-draft": {
+      "types": "./dist/confirmation-question-draft.d.ts",
+      "default": "./dist/confirmation-question-draft.js"
+    },
     "./schemas/grant-criteria.schema.json": "./schemas/grant-criteria.schema.json"
   },
   "scripts": {
