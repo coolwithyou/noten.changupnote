@@ -1,5 +1,8 @@
 import type { CompanyEvidence, CompanyProfile, CriterionConfirmation, MatchCard, NormalizedGrant, TeaserResult } from "@cunote/contracts";
-import { matchNormalizedGrant } from "../matching/match.js";
+import {
+  matchNormalizedGrant,
+  type MatchingConfirmationCriterionBinding,
+} from "../matching/match.js";
 import { planProfileQuestions } from "../matching/question-planner.js";
 import { withMatchRanking } from "../matching/ranking.js";
 import { activeUnknownQuestionDimensions } from "../company/question-answer-state.js";
@@ -30,6 +33,7 @@ export interface BuildTeaserOptions<TPayload = unknown> {
   reviewNeededLimit?: number;
   companyEvidence?: CompanyEvidence | null;
   confirmationsByGrantId?: ReadonlyMap<string, CriterionConfirmation[]>;
+  confirmationQuestionBindingsByGrantId?: ReadonlyMap<string, MatchingConfirmationCriterionBinding[]>;
 }
 
 export function buildTeaser<TPayload>({
@@ -41,6 +45,7 @@ export function buildTeaser<TPayload>({
   reviewNeededLimit,
   companyEvidence,
   confirmationsByGrantId,
+  confirmationQuestionBindingsByGrantId,
 }: BuildTeaserOptions<TPayload>): TeaserResult {
   const matched = grants.map<MatchedGrant<TPayload>>((item) => ({
     item,
@@ -48,6 +53,12 @@ export function buildTeaser<TPayload>({
       asOf,
       ...(confirmationsByGrantId
         ? { confirmations: confirmationsByGrantId.get(grantKey(item.grant)) ?? [] }
+        : {}),
+      ...(confirmationQuestionBindingsByGrantId
+        ? {
+            confirmationQuestionBindings:
+              confirmationQuestionBindingsByGrantId.get(grantKey(item.grant)) ?? [],
+          }
         : {}),
     }), { asOf }),
   }));

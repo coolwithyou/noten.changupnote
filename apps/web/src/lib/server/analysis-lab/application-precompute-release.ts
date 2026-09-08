@@ -291,7 +291,7 @@ export async function prepareAnalysisLaunchPromotionApplicationPrecomputeBundle(
       independentReviewManifestSha256: input.sourceEvidence.independentReviewManifestSha256,
       independentReviewAggregateSha256: input.sourceEvidence.independentReviewAggregateSha256,
       runArtifactSha256: input.runArtifactSha256,
-      applicationFieldAnalysisVersion: input.sourceEvidence.applicationFieldAnalysisVersion,
+      applicationFieldAnalysisVersion: input.sourceEvidence.applicationFieldAnalysisVersion!,
     },
   };
   return { evidence, analysisBody, manifestBody };

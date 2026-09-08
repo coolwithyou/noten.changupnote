@@ -27,8 +27,8 @@ const company: CompanyProfile = {
   confidence: { region: 0.8, biz_age: 0.8, industry: 0.6, size: 0.6 },
 };
 
-check("매처 행동 원인 계약 변경은 ruleset v12로 귀속된다", () => {
-  assert.equal(RULESET_VERSION, "ruleset-kstartup-spine-v12");
+check("검수 질문 readiness 변경은 ruleset v13으로 귀속된다", () => {
+  assert.equal(RULESET_VERSION, "ruleset-kstartup-spine-v13");
 });
 
 check("조건 0건이면 conditional로 강등되고 조건 확인도는 0이다", () => {
@@ -1094,6 +1094,83 @@ check("검수된 required text_only는 사용자 확인 전까지 계속 차단�
   assert.equal(result.eligibility, "conditional");
   assert.equal(result.review_gate?.tier, "needs_core_review");
   assert.equal(result.quality.extractionReadiness, "partial");
+});
+
+check("current 3상태 사람검수 질문이 결속된 required text_only만 사용자 확인 경로로 노출한다", () => {
+  const criteria: GrantCriterion[] = [{
+    id: "criterion-manual-required",
+    dimension: "other",
+    operator: "text_only",
+    kind: "required",
+    confidence: 0.9,
+    source_span: "지원 시점에 협약 이행 가능 여부 확인",
+    value: { note: "협약 이행 가능 여부" },
+  }];
+  const result = matchGrantCriteria(criteria, company, {
+    confirmationQuestionBindings: [{
+      criterionId: "criterion-manual-required",
+      contractVersion: "confirmation-evaluation-v2",
+      evaluationKind: "three_state_single",
+      resolutionScope: "per_notice",
+      reviewState: "analysis_launch_independent_review",
+      runId: "run-current",
+      currentSourceBindingVerified: true,
+    }],
+    extractionManifest: {
+      grantId: "bizinfo:manual-required",
+      revision: "r1",
+      sourceFieldsSeen: ["criteria"],
+      attachmentsExpected: 0,
+      attachmentsFetched: 0,
+      attachmentsConverted: 0,
+      sectionsDetected: ["required"],
+      extractorVersion: "deep-analysis-v31",
+      completedAt: "2026-09-09T00:00:00.000Z",
+      reviewedAt: "2026-09-09T00:01:00.000Z",
+      warnings: ["text_only_criterion_present"],
+      readiness: "partial",
+    },
+  });
+  assert.equal(result.eligibility, "conditional");
+  assert.equal(result.review_gate?.tier, "needs_profile_input");
+  assert.equal(result.quality.extractionReadiness, "reviewed");
+  assert.equal(result.rule_trace[0]?.unresolved_reason, "criterion_text_only");
+});
+
+check("질문 결속이 있어도 원천분쟁·미검수·고위험 text_only는 core review를 우회하지 않는다", () => {
+  const binding = [{
+    criterionId: "criterion-protected",
+    contractVersion: "confirmation-evaluation-v2" as const,
+    evaluationKind: "three_state_single" as const,
+    resolutionScope: "per_notice" as const,
+    reviewState: "human_reviewed" as const,
+    runId: "run-current",
+    currentSourceBindingVerified: true as const,
+  }];
+  const base: GrantCriterion = {
+    id: "criterion-protected",
+    dimension: "other",
+    operator: "text_only",
+    kind: "required",
+    confidence: 0.9,
+    source_span: "지원 시점에 원문 조건 확인",
+    value: { note: "원문 조건" },
+  };
+  const disputed = matchGrantCriteria([base], { ...company, source_disputes: ["other"] }, {
+    confirmationQuestionBindings: binding,
+  });
+  const unreviewed = matchGrantCriteria([{ ...base, needs_review: true }], company, {
+    confirmationQuestionBindings: binding,
+  });
+  const highRisk = matchGrantCriteria([{
+    ...base,
+    source_span: "원전 분야 기술개발 참여실적 보유",
+  }], company, { confirmationQuestionBindings: binding });
+  assert.equal(disputed.review_gate?.tier, "needs_core_review");
+  assert.equal(disputed.rule_trace[0]?.unresolved_reason, "source_dispute");
+  assert.equal(unreviewed.review_gate?.tier, "needs_core_review");
+  assert.equal(unreviewed.rule_trace[0]?.unresolved_reason, "criterion_needs_review");
+  assert.equal(highRisk.review_gate?.tier, "needs_core_review");
 });
 
 check("첨부 누락 경고는 사용자 확인으로 소거되지 않는다", () => {

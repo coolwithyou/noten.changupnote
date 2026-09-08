@@ -40,12 +40,17 @@ export function assertReceiptBackedPromotionMutationAdmitted(
       const launch = evidence?.analysisLaunch;
       const application = source?.applicationPrecompute;
       const launchApplication = application?.launchAdmission;
-      const applicationNotApplicableWithoutArtifact =
-        readiness?.applicationRoundtripStatus === "not_applicable"
+      const legacyApplicationNotApplicable =
+        readiness?.runFeatureReadiness === undefined
+        && readiness?.applicationRoundtripStatus === "not_applicable"
         && readiness.applicationRoundtripRunId === null
         && readiness.applicationDocumentCount === 0
         && readiness.fieldReadyDocumentCount === 0
         && readiness.recognizedFieldCount === 0;
+      const authoringReady = readiness?.runFeatureReadiness
+        ? readiness.runFeatureReadiness.authoring.status === "ready"
+          && readiness.authoringEvidenceStatus === "verified"
+        : !legacyApplicationNotApplicable;
       if (
         item.promotionPlan.auditState !== "analysis_launch_independent_review"
         || !readiness
@@ -64,7 +69,7 @@ export function assertReceiptBackedPromotionMutationAdmitted(
         || launch.launchReceiptSha256 !== readiness.launchReceiptSha256
         || launch.independentReviewAggregateSha256 !== readiness.independentReviewAggregateSha256
         || launch.sourceRevisionSha256 !== readiness.sourceRevisionSha256
-        || (!applicationNotApplicableWithoutArtifact && (
+        || (authoringReady && (
           !application
           || !launchApplication
           || launchApplication.launchReceiptSha256 !== launch.launchReceiptSha256
@@ -72,7 +77,7 @@ export function assertReceiptBackedPromotionMutationAdmitted(
             !== launch.independentReviewAggregateSha256
           || launchApplication.runArtifactSha256 !== source.runSha256
         ))
-        || (applicationNotApplicableWithoutArtifact && application !== undefined)
+        || (!authoringReady && application !== undefined)
       ) {
         throw new PromotionMutationAdmissionError(
           `${item.grantId}의 launch/run/review/revision 결속이 불완전합니다`,

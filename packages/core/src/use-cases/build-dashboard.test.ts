@@ -197,4 +197,48 @@ assert.equal(
   "확정 탈락 공고의 미확인 조건을 사용자 행동으로 만들면 안 된다",
 );
 
+const reviewedQuestionGrant = structuredClone(grants[0]!);
+reviewedQuestionGrant.grant.id = "00000000-0000-4000-8000-000000000096";
+reviewedQuestionGrant.grant.source_id = "PBLN_REVIEWED_REQUIRED_QUESTION";
+reviewedQuestionGrant.criteria = [{
+  id: "00000000-0000-4000-8000-000000000095",
+  grant_id: reviewedQuestionGrant.grant.id,
+  dimension: "other",
+  kind: "required",
+  operator: "text_only",
+  value: { note: "공고별 협약 이행 가능 여부" },
+  confidence: 0.95,
+  source_span: "신청 시 협약 이행 가능 여부를 확인한다.",
+}];
+reviewedQuestionGrant.extraction_manifest = {
+  ...reviewedQuestionGrant.extraction_manifest!,
+  grantId: reviewedQuestionGrant.grant.id,
+  warnings: ["text_only_criterion_present"],
+  readiness: "partial",
+};
+assert.equal(
+  buildTeaser({ company, grants: [reviewedQuestionGrant] }).matches.length,
+  0,
+  "질문 결속 없는 required text_only는 기존 OPS gate에서 숨긴다",
+);
+const reviewedQuestionTeaser = buildTeaser({
+  company,
+  grants: [reviewedQuestionGrant],
+  confirmationQuestionBindingsByGrantId: new Map([[
+    reviewedQuestionGrant.grant.id!,
+    [{
+      criterionId: reviewedQuestionGrant.criteria[0]!.id!,
+      contractVersion: "confirmation-evaluation-v2",
+      evaluationKind: "three_state_single",
+      resolutionScope: "per_notice",
+      reviewState: "analysis_launch_independent_review",
+      runId: "run-reviewed-question",
+      currentSourceBindingVerified: true,
+    }],
+  ]]),
+});
+assert.equal(reviewedQuestionTeaser.matches.length, 1);
+assert.equal(reviewedQuestionTeaser.matches[0]?.recommendationTier, "needs_profile_input");
+assert.equal(reviewedQuestionTeaser.counts.needsCoreReview, 0);
+
 console.log("build-dashboard confirmations: ok");

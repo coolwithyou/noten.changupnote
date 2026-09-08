@@ -28,7 +28,10 @@ import {
 } from "@/lib/server/serviceData";
 import { buildMatchingProfileView } from "./resolveProductCompanyProfile";
 import { buildOwnedCompanyMatchingSnapshot } from "./productMatchSnapshot";
-import { annotateMatchCardConfirmationQuestions } from "@/lib/server/matches/annotateConfirmationQuestions";
+import {
+  annotateMatchCardConfirmationQuestions,
+  loadMatchingConfirmationQuestionContextOrEmpty,
+} from "@/lib/server/matches/annotateConfirmationQuestions";
 import { matchingProfileRevision, CompanyProfileConflictError } from "../repositories/companyProfileConcurrency";
 import { annotateProductExposure } from "../productReadiness/exposure";
 
@@ -93,10 +96,16 @@ export async function applyCompanyProfileAnswer(
 
   // 답변 전후 판정·응답 카드·저장 상태는 동일한 공고별 확인 답변과 기준일을 사용한다.
   // 확인 답변을 읽지 못했을 때는 프로필 저장 전에 실패해 부분 반영을 피한다.
-  const confirmationsByGrantId = await loadCriterionConfirmations({
-    repositories, companyId: input.companyId, grants,
-  });
-  const matchContext = { asOf, ...(confirmationsByGrantId ? { confirmationsByGrantId } : {}) };
+  const [confirmationsByGrantId, questionContext] = await Promise.all([
+    loadCriterionConfirmations({ repositories, companyId: input.companyId, grants }),
+    loadMatchingConfirmationQuestionContextOrEmpty(grants.flatMap((entry) =>
+      typeof entry.grant.id === "string" ? [entry.grant.id] : [])),
+  ]);
+  const matchContext = {
+    asOf,
+    ...(confirmationsByGrantId ? { confirmationsByGrantId } : {}),
+    confirmationQuestionBindingsByGrantId: questionContext.bindingsByGrantId,
+  };
 
   const updatedStoredProfile = applyAnswer(current, answer, asOf);
   const effectiveProfile = applyAnswer(before.profile, answer, asOf);
@@ -148,7 +157,10 @@ export async function applyCompanyProfileAnswer(
   ]);
   initialMatch.matches = annotatedMatches;
   matching.teaser.matches = await bestEffortMatchCardAnnotation(matching.teaser.matches, async (matches) =>
-    annotateMatchCardConfirmationQuestions(await annotateMatchCardWriteSupport(matches)));
+    annotateMatchCardConfirmationQuestions(
+      await annotateMatchCardWriteSupport(matches),
+      questionContext,
+    ));
   matching.teaser.matches = await annotateProductExposure(matching.teaser.matches, { ...input, grants });
   const byId = new Map(matching.teaser.matches.map((match) => [match.grantId, match]));
   matching.teaser.recommendableMatches = matching.teaser.recommendableMatches?.map((match) => byId.get(match.grantId) ?? match) ?? [];

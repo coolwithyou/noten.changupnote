@@ -25,7 +25,12 @@ import {
   type AnalysisLaunchManifest,
   type AnalysisLaunchReceipt,
 } from "./launch-batch-artifacts";
-import { isVerifiedLocalLabSourceArtifact } from "./promotion-release";
+import {
+  createPromotionReleaseManifest,
+  isVerifiedLocalLabSourceArtifact,
+  planSha256,
+  validatePromotionReleaseManifest,
+} from "./promotion-release";
 import {
   buildManualConfirmationEvaluationsArtifact,
   manualConfirmationEvaluationSelectionForArtifact,
@@ -211,6 +216,11 @@ try {
   assert.equal(candidate.readiness.disposition, "conditional");
   assert.equal(candidate.readiness.reasons.length, 0);
   assert.equal(candidate.readiness.primaryMatchingProjectionStatus, "unverified");
+  assert.equal(candidate.readiness.runFeatureReadinessVerification, "derived_legacy");
+  assert.equal(candidate.readiness.runFeatureReadiness.matching.status, "ready");
+  assert.equal(candidate.readiness.runFeatureReadiness.authoring.status, "ready");
+  assert.equal(candidate.readiness.authoringEvidenceStatus, "verified");
+  assert.deepEqual(candidate.readiness.authoringEvidenceReasons, []);
   assert.deepEqual(candidate.readiness.unresolvedAxes, [{ dimension: "size", status: "ambiguous" }]);
   assert.equal(
     candidate.sourceArtifact.localLabEvidence?.analysisLaunch?.launchReceiptSha256,
@@ -222,6 +232,313 @@ try {
     "같은 packet coverage면 최신 검수 정책을 선택한다",
   );
   assert.equal(isVerifiedLocalLabSourceArtifact(candidate.sourceArtifact), true);
+
+  const authoringHeldRun: LabRun = {
+    ...run,
+    applicationRoundtrip: {
+      ...run.applicationRoundtrip!,
+      status: "partial",
+      fieldReadyDocumentCount: 0,
+      recognizedFieldCount: 0,
+    },
+  };
+  const authoringHeldRunPath = join(root, "spike-out", "analysis-lab", "test", "run-authoring-held.json");
+  const authoringHeldRunBody = Buffer.from(JSON.stringify(authoringHeldRun));
+  await writeFile(authoringHeldRunPath, authoringHeldRunBody);
+  const authoringHeldFeatureReadiness = {
+    schema: "analysis-feature-readiness-v1" as const,
+    matching: { status: "ready" as const, sourceDisposition: "conditional" as const, reasons: [] },
+    authoring: {
+      status: "held" as const,
+      sourceDisposition: "held" as const,
+      reasons: ["application_field_analysis_held"],
+    },
+  };
+  const authoringHeldReceipt: AnalysisLaunchReceipt = {
+    ...receipt,
+    summary: { publishable: 0, held: 1, failed: 0, skipped: 0 },
+    targets: [{
+      ...receipt.targets[0]!,
+      status: "held",
+      runArtifactPath: relative(root, authoringHeldRunPath).split(sep).join("/"),
+      runArtifactSha256: sha256(authoringHeldRunBody),
+      applicationRoundtripStatus: "partial",
+      fieldReadyDocumentCount: 0,
+      recognizedFieldCount: 0,
+      featureReadiness: authoringHeldFeatureReadiness,
+    }],
+  };
+  const storedAuthoringHeldReceipt = await writeAnalysisLaunchArtifact(
+    "receipts",
+    authoringHeldReceipt,
+    root,
+  );
+  await writeReviewEvidence({
+    root,
+    receiptSha256: storedAuthoringHeldReceipt.sha256,
+    manifestSha256: storedManifest.sha256,
+    grantSha256: storedGrant.sha256,
+    runPath: authoringHeldRunPath,
+    runArtifactSha256: sha256(authoringHeldRunBody),
+    policyVersion: "codex-only-v5",
+    blocked: false,
+  });
+  const matchingOnlyCohort = await loadAnalysisLaunchPromotionCohort({
+    launchReceiptSha256s: [storedAuthoringHeldReceipt.sha256],
+    grantIds: [grantId],
+    manualConfirmationSelections: [{
+      grantId,
+      runId,
+      revision: selectedManual.selection.revision,
+      artifactSha256: selectedManual.selection.artifactSha256,
+    }],
+    dependencies: {
+      repositoryRoot: root,
+      resolveManualConfirmationEvaluations: async () => selectedManual,
+      loadCurrentGrantEvidence: async () => ({
+        sourceRevisionSha256,
+        sourceRawSha256: "9".repeat(64),
+        inputSha256,
+        attachmentManifestSha256,
+        status: "open",
+        servingState: "visible",
+        applicationOpen: true,
+        hasDeepAnalysisRun: false,
+        hasPromotionItem: false,
+        confirmedDuplicate: false,
+      }),
+    },
+  });
+  assert.equal(matchingOnlyCohort.candidates.length, 1);
+  assert.equal(matchingOnlyCohort.candidates[0]!.readiness.disposition, "conditional");
+  assert.equal(matchingOnlyCohort.candidates[0]!.readiness.reasons.length, 0);
+  assert.equal(matchingOnlyCohort.candidates[0]!.readiness.runFeatureReadiness.authoring.status, "held");
+  assert.equal(matchingOnlyCohort.candidates[0]!.readiness.authoringEvidenceStatus, "verified");
+  const matchingOnlyCandidate = matchingOnlyCohort.candidates[0]!;
+
+  await assert.rejects(() => loadAnalysisLaunchPromotionCohort({
+    launchReceiptSha256s: [storedAuthoringHeldReceipt.sha256],
+    grantIds: [grantId],
+    manualConfirmationSelections: [{
+      grantId,
+      runId,
+      revision: selectedManual.selection.revision,
+      artifactSha256: selectedManual.selection.artifactSha256,
+    }],
+    dependencies: {
+      repositoryRoot: root,
+      resolveManualConfirmationEvaluations: async () => selectedManual,
+      loadCurrentGrantEvidence: async () => ({
+        sourceRevisionSha256,
+        sourceRawSha256: "9".repeat(64),
+        inputSha256: "f".repeat(64),
+        attachmentManifestSha256,
+        status: "open",
+        servingState: "visible",
+        applicationOpen: true,
+        hasDeepAnalysisRun: false,
+        hasPromotionItem: false,
+        confirmedDuplicate: false,
+      }),
+    },
+  }), /input_drift/, "run의 matching-ready projection은 current source admission drift를 우회하지 않는다");
+
+  const matchingOnlyRelease = createPromotionReleaseManifest({
+    releaseId: "analysis-launch-matching-only-r1",
+    revision: 1,
+    createdAt: "2026-08-31T00:05:00.000Z",
+    gitCommit: "7".repeat(40),
+    buildDigest: "8".repeat(40),
+    cohortLabel: "analysis-launch-matching-only",
+    canaryGrantIds: [grantId],
+    sourceArtifacts: [matchingOnlyCandidate.sourceArtifact],
+    plans: [{
+      grantId,
+      planSha256: planSha256(matchingOnlyCandidate.plan),
+      promotionPlan: matchingOnlyCandidate.plan,
+      analysisLaunchReadiness: matchingOnlyCandidate.readiness,
+      beforeCriteriaSha256: "a".repeat(64),
+      beforeQuestionsSha256: "b".repeat(64),
+      dedupComponentSha256: "c".repeat(64),
+      criteriaCountBefore: 0,
+      criteriaCountAfter: matchingOnlyCandidate.plan.criteria.length,
+      questionCountAfter: matchingOnlyCandidate.plan.questions.length,
+      pendingCount: 0,
+      downgradedCount: matchingOnlyCandidate.plan.conversion.downgraded,
+      transport: "claude-cli",
+      costUsd: null,
+    }],
+  });
+  assert.doesNotThrow(
+    () => validatePromotionReleaseManifest(matchingOnlyRelease),
+    "작성 held인 matching-only release는 Kordoc 자산을 요구하거나 끼워 넣지 않는다",
+  );
+  assert.equal(matchingOnlyRelease.sourceArtifacts[0]!.applicationPrecompute, undefined);
+
+  const noApplicationManifest: AnalysisLaunchManifest = {
+    ...manifest,
+    source: {
+      ...manifest.source,
+      kind: "authoring_guide_adoption",
+      planSha256: "d".repeat(64),
+      planArtifactSha256: "d".repeat(64),
+      adoptionManifestSha256: "d".repeat(64),
+    },
+    execution: {
+      ...manifest.execution,
+      withApplicationRoundtrip: false,
+      roundtripModel: null,
+      applicationFieldAnalysisVersion: null,
+      existingRunPolicy: "rerun_exact_targets",
+    },
+  };
+  const storedNoApplicationManifest = await writeAnalysisLaunchArtifact(
+    "manifests",
+    noApplicationManifest,
+    root,
+  );
+  const storedNoApplicationGrant = await writeAnalysisLaunchArtifact("grants", {
+    ...grant,
+    manifestSha256: storedNoApplicationManifest.sha256,
+  }, root);
+  const { applicationRoundtrip: _applicationRoundtrip, ...noApplicationRunFields } = run;
+  const noApplicationRun: LabRun = noApplicationRunFields;
+  const noApplicationRunPath = join(root, "spike-out", "analysis-lab", "test", "run-no-application.json");
+  const noApplicationRunBody = Buffer.from(JSON.stringify(noApplicationRun));
+  await writeFile(noApplicationRunPath, noApplicationRunBody);
+  const noApplicationReceipt: AnalysisLaunchReceipt = {
+    ...receipt,
+    manifestSha256: storedNoApplicationManifest.sha256,
+    grantSha256: storedNoApplicationGrant.sha256,
+    targets: [{
+      ...receipt.targets[0]!,
+      runArtifactPath: relative(root, noApplicationRunPath).split(sep).join("/"),
+      runArtifactSha256: sha256(noApplicationRunBody),
+      applicationRoundtripStatus: null,
+      applicationDocumentCount: null,
+      fieldReadyDocumentCount: null,
+      recognizedFieldCount: null,
+      featureReadiness: {
+        schema: "analysis-feature-readiness-v1",
+        matching: { status: "ready", sourceDisposition: "conditional", reasons: [] },
+        authoring: {
+          status: "held",
+          sourceDisposition: "unverified",
+          reasons: ["application_field_analysis_unverified"],
+        },
+      },
+    }],
+  };
+  const storedNoApplicationReceipt = await writeAnalysisLaunchArtifact("receipts", noApplicationReceipt, root);
+  await writeReviewEvidence({
+    root,
+    receiptSha256: storedNoApplicationReceipt.sha256,
+    manifestSha256: storedNoApplicationManifest.sha256,
+    grantSha256: storedNoApplicationGrant.sha256,
+    runPath: noApplicationRunPath,
+    runArtifactSha256: sha256(noApplicationRunBody),
+    policyVersion: "codex-only-v5",
+    blocked: false,
+  });
+  const noApplicationCohort = await loadAnalysisLaunchPromotionCohort({
+    launchReceiptSha256s: [storedNoApplicationReceipt.sha256],
+    grantIds: [grantId],
+    manualConfirmationSelections: [{
+      grantId,
+      runId,
+      revision: selectedManual.selection.revision,
+      artifactSha256: selectedManual.selection.artifactSha256,
+    }],
+    dependencies: {
+      repositoryRoot: root,
+      resolveManualConfirmationEvaluations: async () => selectedManual,
+      loadCurrentGrantEvidence: async () => ({
+        sourceRevisionSha256,
+        sourceRawSha256: "9".repeat(64),
+        inputSha256,
+        attachmentManifestSha256,
+        status: "open",
+        servingState: "visible",
+        applicationOpen: true,
+        hasDeepAnalysisRun: false,
+        hasPromotionItem: false,
+        confirmedDuplicate: false,
+      }),
+    },
+  });
+  assert.equal(noApplicationCohort.candidates.length, 1);
+  const noApplicationCandidate = noApplicationCohort.candidates[0]!;
+  assert.equal(
+    noApplicationCandidate.sourceArtifact.localLabEvidence?.analysisLaunch?.applicationFieldAnalysisVersion,
+    null,
+  );
+  assert.equal(noApplicationCandidate.readiness.runFeatureReadiness.matching.status, "ready");
+  assert.equal(noApplicationCandidate.readiness.runFeatureReadiness.authoring.status, "held");
+  assert.equal(noApplicationCandidate.readiness.authoringEvidenceStatus, "held");
+  assert.deepEqual(
+    noApplicationCandidate.readiness.authoringEvidenceReasons,
+    ["application_field_analysis_unverified"],
+  );
+  assert.doesNotThrow(() => validatePromotionReleaseManifest(createPromotionReleaseManifest({
+    releaseId: "analysis-launch-no-application-r1",
+    revision: 1,
+    createdAt: "2026-08-31T00:05:30.000Z",
+    gitCommit: "7".repeat(40),
+    buildDigest: "8".repeat(40),
+    cohortLabel: "analysis-launch-no-application",
+    canaryGrantIds: [grantId],
+    sourceArtifacts: [noApplicationCandidate.sourceArtifact],
+    plans: [{
+      ...matchingOnlyRelease.plans[0]!,
+      planSha256: planSha256(noApplicationCandidate.plan),
+      promotionPlan: noApplicationCandidate.plan,
+      analysisLaunchReadiness: noApplicationCandidate.readiness,
+      criteriaCountAfter: noApplicationCandidate.plan.criteria.length,
+      questionCountAfter: noApplicationCandidate.plan.questions.length,
+    }],
+  })), "신청서 분석을 실행하지 않은 matching-only source도 null version으로 정확히 봉인한다");
+
+  assert.throws(() => validatePromotionReleaseManifest(createPromotionReleaseManifest({
+    releaseId: "analysis-launch-authoring-ready-without-evidence-r1",
+    revision: 1,
+    createdAt: "2026-08-31T00:06:00.000Z",
+    gitCommit: "7".repeat(40),
+    buildDigest: "8".repeat(40),
+    cohortLabel: "analysis-launch-authoring-ready",
+    canaryGrantIds: [grantId],
+    sourceArtifacts: [candidate.sourceArtifact],
+    plans: [{
+      ...matchingOnlyRelease.plans[0]!,
+      planSha256: planSha256(candidate.plan),
+      promotionPlan: candidate.plan,
+      analysisLaunchReadiness: candidate.readiness,
+      criteriaCountAfter: candidate.plan.criteria.length,
+      questionCountAfter: candidate.plan.questions.length,
+    }],
+  })), /analysis-launch readiness/, "작성 ready source는 검증된 application precompute 누락을 거부한다");
+
+  const { featureReadiness: _featureReadiness, ...legacyHeldTarget } = authoringHeldReceipt.targets[0]!;
+  const legacyHeldReceipt: AnalysisLaunchReceipt = {
+    ...authoringHeldReceipt,
+    targets: [legacyHeldTarget],
+  };
+  const storedLegacyHeldReceipt = await writeAnalysisLaunchArtifact("receipts", legacyHeldReceipt, root);
+  await writeReviewEvidence({
+    root,
+    receiptSha256: storedLegacyHeldReceipt.sha256,
+    manifestSha256: storedManifest.sha256,
+    grantSha256: storedGrant.sha256,
+    runPath: authoringHeldRunPath,
+    runArtifactSha256: sha256(authoringHeldRunBody),
+    policyVersion: "codex-only-v5",
+    blocked: false,
+  });
+  await assert.rejects(() => loadAnalysisLaunchPromotionCohort({
+    launchReceiptSha256s: [storedLegacyHeldReceipt.sha256],
+    grantIds: [grantId],
+    dependencies: { repositoryRoot: root },
+  }), /independent review manifest/, "feature 부재 legacy held는 매칭 ready 후보로 추정하지 않는다");
+
   const { items: _items, ...v3MissingItems } = candidate.plan.conversion;
   assert.deepEqual(
     guardAnalysisLaunchPromotionPlan(candidate.readiness, {

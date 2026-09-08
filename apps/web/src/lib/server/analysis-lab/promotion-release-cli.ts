@@ -379,7 +379,15 @@ async function prepare(): Promise<number> {
     || releaseIdFor(cohort, revision, now, build.gitCommit);
   const preparedApplicationBundles = analysisLaunchCohort
     ? await Promise.all(analysisLaunchCohort.candidates.flatMap((candidate) => {
-        if (!candidate.source.run.applicationRoundtrip?.runId) return [];
+        if (
+          candidate.readiness.runFeatureReadiness.authoring.status !== "ready"
+          || candidate.readiness.authoringEvidenceStatus !== "verified"
+        ) return [];
+        if (!candidate.source.run.applicationRoundtrip?.runId) {
+          throw new Error(
+            `작성 ready 판정에 application roundtrip runId가 없습니다: ${candidate.plan.grantId}`,
+          );
+        }
         return [async () => {
         const sourceEvidence = candidate.sourceArtifact.localLabEvidence?.analysisLaunch;
         if (!sourceEvidence) {

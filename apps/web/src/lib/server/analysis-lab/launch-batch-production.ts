@@ -3,6 +3,7 @@ import { readdir, readFile } from "node:fs/promises";
 import { dirname, relative, sep } from "node:path";
 import { getCunoteDb } from "@/lib/server/db/client";
 import { readDeepAnalysisRuntimeAdmissionSnapshot } from "@/lib/server/deep-analysis/runtimeControl";
+import { classifyAnalysisFeatureReadiness } from "@/lib/server/analysis-serving/analysisFeatureReadiness";
 import { runLabAnalysis, prepareLabAnalysis } from "./analyze";
 import { runLabBatch, type LabBatchEvent, type LabBatchSummary } from "./batch-runner";
 import { verifyClaudeMaxSubscriptionAuthForLaunch } from "./claude-cli-transport";
@@ -302,6 +303,11 @@ export async function runApprovedAnalysisLaunchBatch(input: {
               ? classifyApplicationFieldAnalysis(run.applicationRoundtrip)
               : "not_required";
             const outcome = classifyAnalysisLaunchTargetStatus({ primaryOutcome, fieldAnalysis });
+            const featureReadiness = classifyAnalysisFeatureReadiness({
+              primaryOutcome,
+              matchingReadiness: run.matchingReadiness,
+              applicationFieldAnalysis: fieldAnalysis,
+            });
             const fieldAnalysisError = primaryOutcome === "publishable" && fieldAnalysis === "held"
               ? "field_analysis_held: 지원 양식에서 안전하게 인식된 입력 필드를 확보하지 못했습니다."
               : null;
@@ -315,6 +321,7 @@ export async function runApprovedAnalysisLaunchBatch(input: {
               applicationDocumentCount: run.applicationRoundtrip?.applicationDocumentCount ?? null,
               fieldReadyDocumentCount: run.applicationRoundtrip?.fieldReadyDocumentCount ?? null,
               recognizedFieldCount: run.applicationRoundtrip?.recognizedFieldCount ?? null,
+              featureReadiness,
               ...(run.primaryMatchingProjection ? {
                 primaryMatchingProjection: buildAnalysisLaunchMatchingProjectionBinding(
                   run.primaryMatchingProjection,

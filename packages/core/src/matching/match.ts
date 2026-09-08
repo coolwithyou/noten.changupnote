@@ -40,7 +40,7 @@ import {
 } from "../disqualification/canonical.js";
 import { activeNumericQuestionRange, type NumericQuestionRange } from "../company/question-answer-state.js";
 
-export const RULESET_VERSION = "ruleset-kstartup-spine-v12";
+export const RULESET_VERSION = "ruleset-kstartup-spine-v13";
 export const SCORING_VERSION = "scoring-verification-v3";
 
 const CORE_GATE_DIMENSIONS = new Set<CriterionDimension>([
@@ -60,6 +60,20 @@ const DISQUALIFICATION_AXES = new Set<CriterionDimension>([
 const HIGH_RISK_DOMAIN_PATTERN =
   /원전|원자력|SMR|핵심부품|로봇|서비스로봇|실증로봇|반도체|팹리스|바이오|의료기기|헬스케어|방산|우주|항공|해양|수소|이차전지|배터리|소부장|KEPIC|ASME|(?:최근\s*\d+\s*년.{0,24}(?:매출|실적|납품|기술개발|수행).{0,24}(?:원전|원자력|로봇|반도체|바이오|의료기기|분야))|(?:(?:매출|실적|납품|기술개발|수행).{0,24}(?:원전|원자력|로봇|반도체|바이오|의료기기|분야))/i;
 
+/**
+ * 제품 저장소가 current source와 질문 provenance를 검증한 뒤 core에 넘기는 최소 결속.
+ * criterion id만 넘기지 않아 legacy/오염 질문을 text_only 노출 허가로 오인하지 않는다.
+ */
+export interface MatchingConfirmationCriterionBinding {
+  criterionId: string;
+  contractVersion: "confirmation-evaluation-v2";
+  evaluationKind: "three_state_single";
+  resolutionScope: "per_notice";
+  reviewState: "human_reviewed" | "analysis_launch_independent_review";
+  runId: string;
+  currentSourceBindingVerified: true;
+}
+
 export function matchGrantCriteria(
   criteria: GrantCriterion[],
   company: CompanyProfile,
@@ -68,6 +82,8 @@ export function matchGrantCriteria(
     asOf?: Date;
     /** (company, grant) 자가신고 확인 답변(확인 루프 Phase B). 미제공/빈 배열이면 기존 동작과 완전 동일하다. */
     confirmations?: CriterionConfirmation[];
+    /** 검수된 current v2 질문. 답변 전 text_only를 사용자 확인 경로로 분류할 때만 사용한다. */
+    confirmationQuestionBindings?: readonly MatchingConfirmationCriterionBinding[];
   } = {},
 ): MatchResult {
   // 공고에서 구조화된 조건을 아직 추출하지 못한 경우(criteria 0건)는 적격으로 오인하지 않도록
@@ -79,6 +95,10 @@ export function matchGrantCriteria(
   const canonicalCriteria = canonicalizeGrantCriteria(criteria);
   const asOf = options.asOf ?? new Date();
   const confirmationById = buildConfirmationIndex(options.confirmations, canonicalCriteria);
+  const answerableQuestionCriterionIds = answerableQuestionCriterionIndex(
+    options.confirmationQuestionBindings,
+    canonicalCriteria,
+  );
   const ruleTrace = canonicalCriteria.map((criterion) => {
     if (disputedCriterionDimension(criterion, company.source_disputes)) {
       return trace(
@@ -115,6 +135,7 @@ export function matchGrantCriteria(
     canonicalCriteria,
     ruleTrace,
     options.extractionManifest,
+    answerableQuestionCriterionIds,
   );
   const reviewGate = buildReviewGate({
     eligibility,
@@ -122,6 +143,7 @@ export function matchGrantCriteria(
     criteria: canonicalCriteria,
     criteriaExtracted: true,
     ...(extractionManifest ? { extractionManifest } : {}),
+    answerableQuestionCriterionIds,
   });
   const quality = buildMatchQuality(canonicalCriteria, ruleTrace, reviewGate, extractionManifest);
 
@@ -171,6 +193,7 @@ function confirmationAwareExtractionManifest(
   criteria: GrantCriterion[],
   traceEntries: RuleTraceEntry[],
   manifest: GrantExtractionManifest | undefined,
+  answerableQuestionCriterionIds: ReadonlySet<string>,
 ): GrantExtractionManifest | undefined {
   if (!manifest?.warnings.includes("text_only_criterion_present")) return manifest;
   const textOnlyIndexes = criteria.flatMap((criterion, index) =>
@@ -182,7 +205,12 @@ function confirmationAwareExtractionManifest(
   if (
     textOnlyIndexes.length === 0
     || blockingTextOnlyIndexes.some(
-      (index) => traceEntries[index]?.resolution !== "confirmed_by_user",
+      (index) => traceEntries[index]?.resolution !== "confirmed_by_user"
+        && !criterionHasAnswerableQuestion(
+          criteria[index],
+          traceEntries[index],
+          answerableQuestionCriterionIds,
+        ),
     )
   ) return manifest;
   const warnings = manifest.warnings.filter((warning) => warning !== "text_only_criterion_present");
@@ -201,12 +229,19 @@ function confirmationAwareExtractionManifest(
 export function matchNormalizedGrant<TPayload>(
   entry: NormalizedGrant<TPayload>,
   company: CompanyProfile,
-  options: { asOf?: Date; confirmations?: CriterionConfirmation[] } = {},
+  options: {
+    asOf?: Date;
+    confirmations?: CriterionConfirmation[];
+    confirmationQuestionBindings?: readonly MatchingConfirmationCriterionBinding[];
+  } = {},
 ): MatchResult {
   return matchGrantCriteria(entry.criteria, company, {
     extractionManifest: resolveGrantExtractionManifest(entry),
     ...(options.asOf ? { asOf: options.asOf } : {}),
     ...(options.confirmations ? { confirmations: options.confirmations } : {}),
+    ...(options.confirmationQuestionBindings
+      ? { confirmationQuestionBindings: options.confirmationQuestionBindings }
+      : {}),
   });
 }
 
@@ -1602,6 +1637,7 @@ function buildReviewGate(input: {
   criteria: GrantCriterion[];
   criteriaExtracted: boolean;
   extractionManifest?: GrantExtractionManifest;
+  answerableQuestionCriterionIds?: ReadonlySet<string>;
 }): MatchReviewGate {
   if (!input.criteriaExtracted) {
     return {
@@ -1668,7 +1704,13 @@ function buildReviewGate(input: {
 
   const coreUnknowns = input.traceEntries
     .map((entry, index) => ({ entry, criterion: input.criteria[index] }))
-    .filter(({ entry, criterion }) => isHardUnknownTrace(entry) && isCoreReviewTrace(entry, criterion));
+    .filter(({ entry, criterion }) => isHardUnknownTrace(entry)
+      && isCoreReviewTrace(entry, criterion)
+      && !criterionHasAnswerableQuestion(
+        criterion,
+        entry,
+        input.answerableQuestionCriterionIds ?? EMPTY_CRITERION_IDS,
+      ));
   if (coreUnknowns.length > 0) {
     return {
       tier: "needs_core_review",
@@ -1785,6 +1827,51 @@ function isCoreReviewTrace(entry: RuleTraceEntry, criterion: GrantCriterion | un
   return criterion?.needs_review === true ||
     CORE_GATE_DIMENSIONS.has(entry.dimension) ||
     hasHighRiskSignal(criterion, entry);
+}
+
+const EMPTY_CRITERION_IDS: ReadonlySet<string> = new Set<string>();
+
+function answerableQuestionCriterionIndex(
+  bindings: readonly MatchingConfirmationCriterionBinding[] | undefined,
+  criteria: readonly GrantCriterion[],
+): ReadonlySet<string> {
+  if (!bindings || bindings.length === 0) return EMPTY_CRITERION_IDS;
+  const criterionIds = new Set(criteria.flatMap((criterion) =>
+    typeof criterion.id === "string" && criterion.id.length > 0 ? [criterion.id] : []));
+  const answerable = new Set<string>();
+  for (const binding of bindings) {
+    if (
+      criterionIds.has(binding.criterionId)
+      && binding.contractVersion === "confirmation-evaluation-v2"
+      && binding.evaluationKind === "three_state_single"
+      && binding.resolutionScope === "per_notice"
+      && (binding.reviewState === "human_reviewed"
+        || binding.reviewState === "analysis_launch_independent_review")
+      && typeof binding.runId === "string"
+      && binding.runId.trim().length > 0
+      && binding.currentSourceBindingVerified === true
+    ) {
+      answerable.add(binding.criterionId);
+    }
+  }
+  return answerable;
+}
+
+function criterionHasAnswerableQuestion(
+  criterion: GrantCriterion | undefined,
+  entry: RuleTraceEntry | undefined,
+  answerableQuestionCriterionIds: ReadonlySet<string>,
+): boolean {
+  return Boolean(
+    criterion?.id
+    && answerableQuestionCriterionIds.has(criterion.id)
+    && criterion.operator === "text_only"
+    && criterion.needs_review !== true
+    && hasCriterionEvidence(criterion)
+    && !hasHighRiskSignal(criterion, entry)
+    && entry?.unresolved_reason === "criterion_text_only"
+    && entry.result === "unknown",
+  );
 }
 
 function isUnverifiedCoreCriterion(

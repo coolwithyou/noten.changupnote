@@ -4,7 +4,10 @@ import type {
   DashboardResult,
   NormalizedGrant,
 } from "@cunote/contracts";
-import { matchNormalizedGrant } from "../matching/match.js";
+import {
+  matchNormalizedGrant,
+  type MatchingConfirmationCriterionBinding,
+} from "../matching/match.js";
 import { planProfileQuestions } from "../matching/question-planner.js";
 import { activeUnknownQuestionDimensions } from "../company/question-answer-state.js";
 import { withMatchRanking } from "../matching/ranking.js";
@@ -31,6 +34,7 @@ export interface BuildDashboardOptions<TPayload = unknown> {
   asOf?: Date;
   limit?: number;
   confirmationsByGrantId?: ReadonlyMap<string, CriterionConfirmation[]>;
+  confirmationQuestionBindingsByGrantId?: ReadonlyMap<string, MatchingConfirmationCriterionBinding[]>;
 }
 
 export function buildDashboard<TPayload>({
@@ -39,6 +43,7 @@ export function buildDashboard<TPayload>({
   asOf = new Date(),
   limit = 24,
   confirmationsByGrantId,
+  confirmationQuestionBindingsByGrantId,
 }: BuildDashboardOptions<TPayload>): DashboardResult {
   const matched = grants.map<MatchedGrant<TPayload>>((item) => ({
     item,
@@ -52,6 +57,12 @@ export function buildDashboard<TPayload>({
           asOf,
           ...(confirmationsByGrantId
             ? { confirmations: confirmationsByGrantId.get(grantKey(item.grant)) ?? [] }
+            : {}),
+          ...(confirmationQuestionBindingsByGrantId
+            ? {
+                confirmationQuestionBindings:
+                  confirmationQuestionBindingsByGrantId.get(grantKey(item.grant)) ?? [],
+              }
             : {}),
         },
       ),

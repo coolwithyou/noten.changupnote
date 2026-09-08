@@ -754,6 +754,8 @@ export type LabBatchEvent =
       deepAnalysisCostUsd?: number | null;
       applicationRoundtripCostUsd?: number | null;
       cumulativeCostUsd: number;
+      /** 신규 launch status의 기능별 판정 입력. 구 batch-job 잔상에는 없다. */
+      matchingReadiness?: "ready" | "conditional" | "deferred";
       /** 같은 공고에서 함께 실행된 Kordoc 빠른 작성 선분석의 독립 종결 상태. */
       applicationRoundtrip?: LabApplicationRoundtripReference;
     }
@@ -771,6 +773,8 @@ export type LabBatchEvent =
       deepAnalysisCostUsd?: number | null;
       applicationRoundtripCostUsd?: number | null;
       cumulativeCostUsd: number;
+      /** 신규 launch status의 기능별 판정 입력. 구 batch-job 잔상에는 없다. */
+      matchingReadiness?: "ready" | "conditional" | "deferred";
       applicationRoundtrip?: LabApplicationRoundtripReference;
     }
   | {

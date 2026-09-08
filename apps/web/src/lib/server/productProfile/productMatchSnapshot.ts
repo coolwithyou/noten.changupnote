@@ -7,6 +7,7 @@ import type {
   OwnedCompanyMatchingResult,
 } from "@cunote/contracts";
 import { activeUnknownQuestionDimensions, buildDashboard, buildTeaser } from "@cunote/core";
+import type { MatchingConfirmationCriterionBinding } from "@cunote/core";
 import type { ResolvedProductCompanyProfile } from "./resolveProductCompanyProfile";
 import { matchingProfileRevision } from "../repositories/companyProfileConcurrency";
 
@@ -20,12 +21,16 @@ export function buildProductTeaserSnapshot<TPayload>(input: {
   asOf: Date;
   limit?: number;
   confirmationsByGrantId?: ReadonlyMap<string, CriterionConfirmation[]>;
+  confirmationQuestionBindingsByGrantId?: ReadonlyMap<string, MatchingConfirmationCriterionBinding[]>;
 }): ProductTeaserResult {
   const teaser = buildTeaser({
     company: input.resolution.profile,
     grants: input.grants,
     asOf: input.asOf,
     ...(input.confirmationsByGrantId ? { confirmationsByGrantId: input.confirmationsByGrantId } : {}),
+    ...(input.confirmationQuestionBindingsByGrantId
+      ? { confirmationQuestionBindingsByGrantId: input.confirmationQuestionBindingsByGrantId }
+      : {}),
     ...(input.limit === undefined ? {} : { limit: input.limit }),
   });
   return { ...teaser, profileView: input.resolution.view };
@@ -37,6 +42,7 @@ export function buildOwnedCompanyMatchingSnapshot<TPayload>(input: {
   grants: Array<NormalizedGrant<TPayload>>;
   asOf: Date;
   confirmationsByGrantId?: ReadonlyMap<string, CriterionConfirmation[]>;
+  confirmationQuestionBindingsByGrantId?: ReadonlyMap<string, MatchingConfirmationCriterionBinding[]>;
 }): OwnedCompanyMatchingResult {
   return {
     companyId: input.companyId,
@@ -56,6 +62,7 @@ export function buildProductDashboardSnapshot<TPayload>(input: {
   asOf: Date;
   limit?: number;
   confirmationsByGrantId?: ReadonlyMap<string, CriterionConfirmation[]>;
+  confirmationQuestionBindingsByGrantId?: ReadonlyMap<string, MatchingConfirmationCriterionBinding[]>;
 }): ProductDashboardResult {
   const dashboard = buildDashboard({
     company: input.resolution.profile,
@@ -63,6 +70,9 @@ export function buildProductDashboardSnapshot<TPayload>(input: {
     asOf: input.asOf,
     ...(input.confirmationsByGrantId
       ? { confirmationsByGrantId: input.confirmationsByGrantId }
+      : {}),
+    ...(input.confirmationQuestionBindingsByGrantId
+      ? { confirmationQuestionBindingsByGrantId: input.confirmationQuestionBindingsByGrantId }
       : {}),
     ...(input.limit === undefined ? {} : { limit: input.limit }),
   });

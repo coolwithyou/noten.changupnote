@@ -10,6 +10,7 @@ import {
   type PromotionApplicationPrecomputeEvidence,
 } from "./applicationPrecomputeEvidence";
 import { LAB_DETERMINISTIC_AUDIT_POLICY_VERSION } from "./auditPolicy";
+import { normalizeAnalysisFeatureReadiness } from "./analysisFeatureReadiness";
 
 export const PROMOTION_RELEASE_SCHEMA = "analysis-lab-promotion-release-v1" as const;
 export const PROMOTION_AGGREGATE_SCHEMA = "analysis-lab-promotion-aggregate-v2" as const;
@@ -96,7 +97,8 @@ export interface VerifiedAnalysisLaunchSourceEvidence {
   executionGitSha: string;
   packageRuntimeSha256: string;
   validatorVersion: string;
-  applicationFieldAnalysisVersion: string;
+  /** matching-only launch는 null. 작성 evidence를 결속한 source에는 정확한 계약 버전이 필수다. */
+  applicationFieldAnalysisVersion: string | null;
   /** 신규 launch만 기록한다. 역사 부재는 verified로 추정하지 않는다. */
   primaryMatchingProjectionSnapshotSha256?: string;
   primaryMatchingProjectionContractVersion?: string;
@@ -801,6 +803,23 @@ export function validatePromotionReleaseManifest(value: unknown): PromotionRelea
     if (item.promotionPlan.origin === "analysis_launch") {
       const readiness = item.analysisLaunchReadiness;
       const evidence = source?.localLabEvidence?.analysisLaunch;
+      const splitReadiness = readiness?.runFeatureReadiness === undefined
+        ? null
+        : normalizeAnalysisFeatureReadiness(readiness.runFeatureReadiness);
+      const authoringEvidenceReady = splitReadiness?.authoring.status === "ready"
+        && readiness?.authoringEvidenceStatus === "verified"
+        && Array.isArray(readiness.authoringEvidenceReasons)
+        && readiness.authoringEvidenceReasons.length === 0;
+      const splitMetadataValid = !splitReadiness || (
+        (readiness?.runFeatureReadinessVerification === "verified"
+          || readiness?.runFeatureReadinessVerification === "derived_legacy")
+        && (readiness?.authoringEvidenceStatus === "verified"
+          || readiness?.authoringEvidenceStatus === "held")
+        && Array.isArray(readiness?.authoringEvidenceReasons)
+        && (readiness.authoringEvidenceStatus === "verified"
+          ? readiness.authoringEvidenceReasons.length === 0
+          : readiness.authoringEvidenceReasons.length > 0)
+      );
       if (
         !readiness
         || (readiness.disposition !== "ready" && readiness.disposition !== "conditional")
@@ -812,8 +831,12 @@ export function validatePromotionReleaseManifest(value: unknown): PromotionRelea
         || evidence.sourceRevisionSha256 !== readiness.sourceRevisionSha256
         || source.localLabEvidence.inputSha256 !== readiness.inputSha256
         || evidence.attachmentManifestSha256 !== readiness.attachmentManifestSha256
-        || Boolean(source.applicationPrecompute)
-          !== Boolean(readiness.applicationRoundtripRunId)
+        || !splitMetadataValid
+        || (splitReadiness
+          ? splitReadiness.matching.status !== "ready"
+            || Boolean(source.applicationPrecompute) !== authoringEvidenceReady
+          : Boolean(source.applicationPrecompute)
+            !== Boolean(readiness.applicationRoundtripRunId))
         || !matchingConversionIsPromotionSafe({
           report: item.promotionPlan.conversion,
           criteria: item.promotionPlan.criteria,
@@ -968,7 +991,8 @@ export function isVerifiedLocalLabSourceArtifact(
       && /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/i.test(launch.executionGitSha)
       && isSha256(launch.packageRuntimeSha256)
       && Boolean(launch.validatorVersion.trim())
-      && Boolean(launch.applicationFieldAnalysisVersion.trim())
+      && (launch.applicationFieldAnalysisVersion === null
+        || Boolean(launch.applicationFieldAnalysisVersion.trim()))
       && artifact.sourceRevisionSha256 === launch.sourceRevisionSha256
       && artifact.aiReviewSha256 === undefined
       && artifact.auditSha256 === undefined

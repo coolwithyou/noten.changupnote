@@ -7,6 +7,10 @@ import {
   APPLICATION_ROUNDTRIP_VERSION,
 } from "@/lib/server/analysis-lab/application-roundtrip/contract";
 import { DEEP_ANALYSIS_VALIDATOR_VERSION } from "@/lib/server/deep-analysis/validator";
+import {
+  normalizeAnalysisFeatureReadiness,
+  type AnalysisFeatureReadiness,
+} from "../analysis-serving/analysisFeatureReadiness";
 import type { AuthoringGuideAdoptionManifest } from "./authoring-guide-adoption";
 import { DEEP_REPAIR_PREPARATION_POLICY } from "./deep-repair-preparation";
 import { writeImmutableBytesAtomic } from "./immutable-artifact-fs";
@@ -83,6 +87,8 @@ export interface AnalysisLaunchReceiptTarget {
   readonly applicationDocumentCount: number | null;
   readonly fieldReadyDocumentCount: number | null;
   readonly recognizedFieldCount: number | null;
+  /** 신규 receipt의 기능별 파생 판정. 구 receipt 부재는 unverified이며 ready로 추정하지 않는다. */
+  readonly featureReadiness?: AnalysisFeatureReadiness;
   /** 구 receipt에는 없다. 부재는 verified가 아니라 unverified다. */
   readonly primaryMatchingProjection?: AnalysisLaunchMatchingProjectionBinding;
   readonly error: string | null;
@@ -654,8 +660,18 @@ export function normalizeAnalysisLaunchReceipt(value: unknown): AnalysisLaunchRe
           target.primaryMatchingProjection,
           `receipt.targets[${index}].primaryMatchingProjection`,
         );
+    const featureReadiness = target.featureReadiness === undefined
+      ? undefined
+      : normalizeAnalysisFeatureReadiness(target.featureReadiness);
     if (primaryMatchingProjection && runArtifactPath === null) {
       throw new Error(`receipt.targets[${index}] matching projection에 run artifact가 없습니다.`);
+    }
+    if (
+      featureReadiness?.matching.status === "ready"
+      && status !== "publishable"
+      && status !== "held"
+    ) {
+      throw new Error(`receipt.targets[${index}] 실패 결과가 matching ready를 주장합니다.`);
     }
     if (
       status === "skipped"
@@ -665,6 +681,7 @@ export function normalizeAnalysisLaunchReceipt(value: unknown): AnalysisLaunchRe
         || applicationDocumentCount !== null
         || fieldReadyDocumentCount !== null
         || recognizedFieldCount !== null
+        || featureReadiness !== undefined
         || error !== null
       )
     ) {
@@ -680,6 +697,7 @@ export function normalizeAnalysisLaunchReceipt(value: unknown): AnalysisLaunchRe
       applicationDocumentCount,
       fieldReadyDocumentCount,
       recognizedFieldCount,
+      ...(featureReadiness ? { featureReadiness } : {}),
       ...(primaryMatchingProjection ? { primaryMatchingProjection } : {}),
       error,
     });

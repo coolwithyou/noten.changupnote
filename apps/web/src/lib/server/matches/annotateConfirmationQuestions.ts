@@ -1,9 +1,14 @@
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { CriterionDimension, CriterionKind, MatchCard } from "@cunote/contracts";
-import { isNonMatchingApplicationCriterion } from "@cunote/core";
+import {
+  isNonMatchingApplicationCriterion,
+  type MatchingConfirmationCriterionBinding,
+} from "@cunote/core";
 import { getCunoteDb } from "../db/client";
+import type { CunoteDbSession } from "../db/client";
 import * as schema from "../db/schema";
 import { loadDeepAnalysisSourceBindings } from "../deep-analysis/prepareInput";
+import { normalizeConfirmationOptions } from "./grantConfirmationAnswers";
 
 /**
  * 매칭 카드에 공고별 자가신고 확인 질문 수를 주석한다(확인 루프 Phase B).
@@ -13,6 +18,7 @@ import { loadDeepAnalysisSourceBindings } from "../deep-analysis/prepareInput";
  */
 export async function annotateMatchCardConfirmationQuestions(
   matches: MatchCard[],
+  preloaded?: MatchingConfirmationQuestionContext,
 ): Promise<MatchCard[]> {
   const baseMatches = clearConfirmationQuestionAnnotations(matches);
   // grantKey 가 DB id 가 아닌 카드(`source:sourceId` 샘플 경로)는 질문도 있을 수 없어 제외한다.
@@ -21,7 +27,7 @@ export async function annotateMatchCardConfirmationQuestions(
 
   let anchors: ConfirmationQuestionAnchor[];
   try {
-    anchors = await loadConfirmationQuestionAnchors(grantIds);
+    anchors = (preloaded ?? await loadMatchingConfirmationQuestionContext(grantIds)).anchors;
   } catch (error) {
     console.warn(
       `확인 질문 수 주석 조회 실패(주석 없이 폴백): ${error instanceof Error ? error.message : String(error)}`,
@@ -122,8 +128,36 @@ export interface ConfirmationQuestionAnchor {
   sourceSpan: string | null;
 }
 
-async function loadConfirmationQuestionAnchors(grantIds: string[]): Promise<ConfirmationQuestionAnchor[]> {
-  const db = getCunoteDb();
+export interface MatchingConfirmationQuestionContext {
+  anchors: ConfirmationQuestionAnchor[];
+  bindingsByGrantId: ReadonlyMap<string, MatchingConfirmationCriterionBinding[]>;
+}
+
+export async function loadMatchingConfirmationQuestionContextOrEmpty(
+  grantIds: string[],
+): Promise<MatchingConfirmationQuestionContext> {
+  try {
+    return await loadMatchingConfirmationQuestionContext(grantIds);
+  } catch (error) {
+    console.warn(
+      `확인 질문 readiness 조회 실패(질문 노출 없이 폴백): ${error instanceof Error ? error.message : String(error)}`,
+    );
+    return { anchors: [], bindingsByGrantId: new Map() };
+  }
+}
+
+/**
+ * active serving run + current source + v2 3상태/사람검수 계약을 모두 만족한 질문만
+ * matcher readiness 해제 결속으로 내린다. legacy 질문은 기존 카드 annotation에만 남는다.
+ */
+export async function loadMatchingConfirmationQuestionContext(
+  grantIds: string[],
+  db: CunoteDbSession = getCunoteDb(),
+): Promise<MatchingConfirmationQuestionContext> {
+  const uniqueGrantIds = [...new Set(grantIds.filter(isUuid))];
+  if (uniqueGrantIds.length === 0) {
+    return { anchors: [], bindingsByGrantId: new Map() };
+  }
   const rows = await db
     .select({
       questionId: schema.grantConfirmationQuestions.id,
@@ -131,11 +165,16 @@ async function loadConfirmationQuestionAnchors(grantIds: string[]): Promise<Conf
       evaluationContractVersion: schema.grantConfirmationQuestions.evaluationContractVersion,
       sourceRevisionSha256: schema.grantConfirmationQuestions.sourceRevisionSha256,
       sourceRawSha256: schema.grantConfirmationQuestions.sourceRawSha256,
+      answerType: schema.grantConfirmationQuestions.answerType,
+      options: schema.grantConfirmationQuestions.options,
+      reusable: schema.grantConfirmationQuestions.reusable,
+      provenance: schema.grantConfirmationQuestions.provenance,
       criterionId: schema.grantCriteria.id,
       dimension: schema.grantCriteria.dimension,
       kind: schema.grantCriteria.kind,
       operator: schema.grantCriteria.operator,
       sourceSpan: schema.grantCriteria.sourceSpan,
+      needsReview: schema.grantCriteria.needsReview,
     })
     .from(schema.grantConfirmationQuestions)
     .innerJoin(
@@ -146,20 +185,39 @@ async function loadConfirmationQuestionAnchors(grantIds: string[]): Promise<Conf
       ),
     )
     .where(and(
-      inArray(schema.grantConfirmationQuestions.grantId, grantIds),
+      inArray(schema.grantConfirmationQuestions.grantId, uniqueGrantIds),
       isNull(schema.grantConfirmationQuestions.invalidatedAt),
     ));
   const v2GrantIds = [...new Set(rows
     .filter((row) => row.evaluationContractVersion === "confirmation-evaluation-v2")
     .map((row) => row.grantId))];
   const currentSourceByGrant = await loadDeepAnalysisSourceBindings({ db, grantIds: v2GrantIds });
-  return rows.filter((row) => (
+  const servingRuns = v2GrantIds.length === 0
+    ? []
+    : await db
+      .select({
+        grantId: schema.analysisLabPromotionItems.grantId,
+        runId: schema.analysisLabPromotionItems.runId,
+      })
+      .from(schema.analysisLabPromotionItems)
+      .innerJoin(
+        schema.analysisLabPromotionReleases,
+        eq(schema.analysisLabPromotionReleases.id, schema.analysisLabPromotionItems.releaseDbId),
+      )
+      .where(and(
+        inArray(schema.analysisLabPromotionItems.grantId, v2GrantIds),
+        eq(schema.analysisLabPromotionItems.status, "applied"),
+        inArray(schema.analysisLabPromotionReleases.status, ["active", "canary_passed"]),
+      ));
+  const servingRunIdsByGrant = new Map<string, Set<string>>();
+  for (const row of servingRuns) {
+    const runIds = servingRunIdsByGrant.get(row.grantId) ?? new Set<string>();
+    runIds.add(row.runId);
+    servingRunIdsByGrant.set(row.grantId, runIds);
+  }
+  const eligibleRows = rows.filter((row) => (
     (row.evaluationContractVersion === null
       || row.evaluationContractVersion === "confirmation-evaluation-v2")
-    && (row.evaluationContractVersion === null || (
-      row.sourceRawSha256 === currentSourceByGrant.get(row.grantId)?.sourceRawSha256
-      && row.sourceRevisionSha256 === currentSourceByGrant.get(row.grantId)?.sourceRevisionSha256
-    ))
     && !isNonMatchingApplicationCriterion({
       dimension: row.dimension,
       kind: row.kind,
@@ -167,6 +225,108 @@ async function loadConfirmationQuestionAnchors(grantIds: string[]): Promise<Conf
       source_span: row.sourceSpan,
     })
   ));
+  const anchors: ConfirmationQuestionAnchor[] = [];
+  const bindingsByGrantId = new Map<string, MatchingConfirmationCriterionBinding[]>();
+  for (const row of eligibleRows) {
+    const binding = row.evaluationContractVersion === null
+      ? null
+      : matchingQuestionBinding(row, servingRunIdsByGrant, currentSourceByGrant);
+    if (row.evaluationContractVersion !== null && !binding) continue;
+    anchors.push({
+      questionId: row.questionId,
+      grantId: row.grantId,
+      criterionId: row.criterionId,
+      dimension: row.dimension,
+      kind: row.kind,
+      operator: row.operator,
+      sourceSpan: row.sourceSpan,
+    });
+    if (binding) {
+      bindingsByGrantId.set(row.grantId, [
+        ...(bindingsByGrantId.get(row.grantId) ?? []),
+        binding,
+      ]);
+    }
+  }
+  return { anchors, bindingsByGrantId };
+}
+
+export function matchingQuestionBinding(
+  row: {
+    grantId: string;
+    criterionId: string;
+    evaluationContractVersion: string | null;
+    sourceRevisionSha256: string | null;
+    sourceRawSha256: string | null;
+    answerType: string;
+    options: unknown;
+    reusable: string;
+    provenance: Record<string, unknown>;
+    needsReview: boolean;
+    sourceSpan: string | null;
+  },
+  servingRunIdsByGrant: ReadonlyMap<string, ReadonlySet<string>>,
+  currentSourceByGrant: ReadonlyMap<string, {
+    sourceRevisionSha256: string;
+    sourceRawSha256: string;
+  }>,
+): MatchingConfirmationCriterionBinding | null {
+  if (
+    row.evaluationContractVersion !== "confirmation-evaluation-v2"
+    || row.answerType !== "single"
+    || row.reusable !== "per_notice"
+    || row.needsReview
+    || !row.sourceSpan?.trim()
+  ) return null;
+  const options = strictMatchingConfirmationOptions(row.options, row.evaluationContractVersion);
+  if (!options) return null;
+  const evaluations = new Set(options.map((option) => option.evaluation));
+  if (
+    evaluations.size !== 3
+    || !evaluations.has("satisfied")
+    || !evaluations.has("unsatisfied")
+    || !evaluations.has("unknown")
+  ) return null;
+  const provenance = row.provenance;
+  const runId = typeof provenance.runId === "string" ? provenance.runId.trim() : "";
+  const reviewState = provenance.auditState;
+  if (
+    !runId
+    || (reviewState !== "human_reviewed" && reviewState !== "analysis_launch_independent_review")
+    || !Number.isSafeInteger(provenance.criterionIndex)
+    || Number(provenance.criterionIndex) < 0
+    || !servingRunIdsByGrant.get(row.grantId)?.has(runId)
+    || row.sourceRevisionSha256 !== currentSourceByGrant.get(row.grantId)?.sourceRevisionSha256
+    || row.sourceRawSha256 !== currentSourceByGrant.get(row.grantId)?.sourceRawSha256
+  ) return null;
+  return {
+    criterionId: row.criterionId,
+    contractVersion: "confirmation-evaluation-v2",
+    evaluationKind: "three_state_single",
+    resolutionScope: "per_notice",
+    reviewState,
+    runId,
+    currentSourceBindingVerified: true,
+  };
+}
+
+function strictMatchingConfirmationOptions(
+  raw: unknown,
+  contractVersion: string | null,
+): ReturnType<typeof normalizeConfirmationOptions> | null {
+  if (!Array.isArray(raw) || raw.length !== 3) return null;
+  if (raw.some((entry) => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) return true;
+    const option = entry as Record<string, unknown>;
+    return typeof option.value !== "string"
+      || option.value.trim().length === 0
+      || typeof option.label !== "string"
+      || option.label.trim().length === 0;
+  })) return null;
+  const options = normalizeConfirmationOptions(raw, contractVersion);
+  if (options.length !== raw.length) return null;
+  if (new Set(options.map((option) => option.value)).size !== options.length) return null;
+  return options;
 }
 
 function anchorMatchesTrace(

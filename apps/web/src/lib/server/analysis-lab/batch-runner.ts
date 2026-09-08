@@ -127,6 +127,7 @@ export interface LabBatchRunResult {
   title: string;
   costUsd: number | null;
   primaryValidationOutcome?: "publishable" | "held";
+  matchingReadiness?: "ready" | "conditional" | "deferred";
   error: string | null;
   applicationRoundtrip?: LabApplicationRoundtripReference;
 }
@@ -535,6 +536,7 @@ export async function runLabBatch(
             deepAnalysisCostUsd: run.costUsd,
             applicationRoundtripCostUsd: run.applicationRoundtrip?.costUsd ?? null,
             cumulativeCostUsd: state.totalCostUsd,
+            ...(run.matchingReadiness ? { matchingReadiness: run.matchingReadiness } : {}),
             ...(run.applicationRoundtrip !== undefined
               ? { applicationRoundtrip: run.applicationRoundtrip }
               : {}),
@@ -553,6 +555,7 @@ export async function runLabBatch(
             deepAnalysisCostUsd: run.costUsd,
             applicationRoundtripCostUsd: run.applicationRoundtrip?.costUsd ?? null,
             cumulativeCostUsd: state.totalCostUsd,
+            ...(run.matchingReadiness ? { matchingReadiness: run.matchingReadiness } : {}),
             ...(run.applicationRoundtrip !== undefined
               ? { applicationRoundtrip: run.applicationRoundtrip }
               : {}),

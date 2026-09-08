@@ -58,7 +58,10 @@ import type {
 import { createServiceRepositories, getRepositoryAdapterName } from "./repositories/factory";
 import { annotateHwpxTemplateAvailability } from "./documents/draftHwpxExport";
 import { buildBizInfoSampleEntries } from "./ingestion/bizinfoSample";
-import { annotateMatchCardConfirmationQuestions } from "./matches/annotateConfirmationQuestions";
+import {
+  annotateMatchCardConfirmationQuestions,
+  loadMatchingConfirmationQuestionContextOrEmpty,
+} from "./matches/annotateConfirmationQuestions";
 import { annotateMatchCardWriteSupport } from "./matches/annotateWriteSupport";
 import { recordLandingMatchObservation } from "./teaser/landingMatchObservation";
 import {
@@ -386,24 +389,28 @@ export async function loadServiceDashboard(options: {
   ]);
   const company = resolution.profile;
   const stateCompanyId = options.companyId ?? company.id;
-  const confirmationsByGrantId = stateCompanyId
-    ? await loadCriterionConfirmations({
-      repositories: resolveServiceRepositories(),
-      companyId: stateCompanyId,
-      grants,
-    })
-    : undefined;
+  const [confirmationsByGrantId, questionContext] = await Promise.all([
+    stateCompanyId
+      ? loadCriterionConfirmations({
+        repositories: resolveServiceRepositories(),
+        companyId: stateCompanyId,
+        grants,
+      })
+      : undefined,
+    loadMatchingConfirmationQuestionContextOrEmpty(persistedGrantIds(grants)),
+  ]);
   const dashboard = buildProductDashboardSnapshot({
     resolution,
     grants,
     asOf,
     limit: resultLimit,
     ...(confirmationsByGrantId ? { confirmationsByGrantId } : {}),
+    confirmationQuestionBindingsByGrantId: questionContext.bindingsByGrantId,
   });
   // HWPX 보관본이 확보된 공고는 "서식 채움 지원"으로 승격 — /dashboard 와 /api/web/matches 가 함께 탄다.
   dashboard.matches = await annotateMatchCardWriteSupport(dashboard.matches);
   // 자가신고 확인 질문이 발행된 공고에 질문 수를 주석 — "확인하기" CTA 게이트(확인 루프 Phase B).
-  dashboard.matches = await annotateMatchCardConfirmationQuestions(dashboard.matches);
+  dashboard.matches = await annotateMatchCardConfirmationQuestions(dashboard.matches, questionContext);
 
   if (options.writeMatchStates === true) {
     if (resolution.stateScope !== "company") {
@@ -1443,15 +1450,19 @@ export async function loadOwnedCompanyMatching(input: {
     }),
     loadServiceGrantUniverse({ asOf }),
   ]);
-  const confirmationsByGrantId = await loadCriterionConfirmations({
-    repositories: getServiceRepositories(), companyId: input.companyId, grants,
-  });
+  const [confirmationsByGrantId, questionContext] = await Promise.all([
+    loadCriterionConfirmations({
+      repositories: getServiceRepositories(), companyId: input.companyId, grants,
+    }),
+    loadMatchingConfirmationQuestionContextOrEmpty(persistedGrantIds(grants)),
+  ]);
   const result = buildOwnedCompanyMatchingSnapshot({
     ...input, resolution, grants, asOf,
     ...(confirmationsByGrantId ? { confirmationsByGrantId } : {}),
+    confirmationQuestionBindingsByGrantId: questionContext.bindingsByGrantId,
   });
   result.teaser.matches = await annotateMatchCardWriteSupport(result.teaser.matches);
-  result.teaser.matches = await annotateMatchCardConfirmationQuestions(result.teaser.matches);
+  result.teaser.matches = await annotateMatchCardConfirmationQuestions(result.teaser.matches, questionContext);
   // 관측 장애가 기본 매칭을 막지 않는다. 활성화·마이그레이션은 별도 운영 단계다.
   const { annotateProductExposure } = await import("./productReadiness/exposure");
   result.teaser.matches = await annotateProductExposure(result.teaser.matches, { ...input, grants });
@@ -1470,10 +1481,16 @@ export async function loadProductTeaser(
     resolveAnonymousProductCompanyProfile(body, { asOf }),
     loadServiceGrantUniverse({ asOf }),
   ]);
-  const result = buildProductTeaserSnapshot({ resolution, grants, asOf });
+  const questionContext = await loadMatchingConfirmationQuestionContextOrEmpty(persistedGrantIds(grants));
+  const result = buildProductTeaserSnapshot({
+    resolution,
+    grants,
+    asOf,
+    confirmationQuestionBindingsByGrantId: questionContext.bindingsByGrantId,
+  });
   result.matches = await annotateMatchCardWriteSupport(result.matches);
   // 자가신고 확인 질문이 발행된 공고에 질문 수를 주석 — "확인하기" CTA 게이트(확인 루프 Phase B).
-  result.matches = await annotateMatchCardConfirmationQuestions(result.matches);
+  result.matches = await annotateMatchCardConfirmationQuestions(result.matches, questionContext);
   result.recommendableMatches = result.matches.filter((match) =>
     recommendationTierForMatch(match) === "recommendable" && match.status === "open");
   result.reviewNeededMatches = result.matches.filter((match) =>
@@ -1494,6 +1511,10 @@ export async function loadProductTeaser(
     }
   }
   return result;
+}
+
+function persistedGrantIds<TPayload>(grants: Array<NormalizedGrant<TPayload>>): string[] {
+  return grants.flatMap((entry) => typeof entry.grant.id === "string" ? [entry.grant.id] : []);
 }
 
 export async function resolveAnonymousProductCompanyProfile(

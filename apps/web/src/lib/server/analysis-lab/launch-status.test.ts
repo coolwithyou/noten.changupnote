@@ -68,7 +68,7 @@ status = applyAnalysisLaunchEvent(status, {
 assert.equal(status.targets[0]!.status, "running");
 
 status = applyAnalysisLaunchEvent(status, {
-  type: "target-held",
+  type: "target-ok",
   index: 0,
   total: 2,
   grantId: manifest.targets[0]!.grantId,
@@ -77,6 +77,7 @@ status = applyAnalysisLaunchEvent(status, {
   durationMs: 60_000,
   costUsd: null,
   cumulativeCostUsd: 0,
+  matchingReadiness: "conditional",
   applicationRoundtrip: {
     status: "partial",
     runId: "roundtrip",
@@ -85,8 +86,8 @@ status = applyAnalysisLaunchEvent(status, {
     documentCount: 1,
     sourceCount: 1,
     applicationDocumentCount: 1,
-    fieldReadyDocumentCount: 1,
-    recognizedFieldCount: 4,
+    fieldReadyDocumentCount: 0,
+    recognizedFieldCount: 0,
     errorCode: null,
     error: null,
     costUsd: null,
@@ -94,7 +95,9 @@ status = applyAnalysisLaunchEvent(status, {
 }, new Date("2026-08-18T01:02:00.000Z"));
 assert.equal(status.targets[0]!.status, "held");
 assert.equal(status.targets[0]!.applicationRoundtripStatus, "partial");
-assert.equal(status.targets[0]!.recognizedFieldCount, 4);
+assert.equal(status.targets[0]!.recognizedFieldCount, 0);
+assert.equal(status.targets[0]!.featureReadiness?.matching.status, "ready");
+assert.equal(status.targets[0]!.featureReadiness?.authoring.status, "held");
 
 const receipt: AnalysisLaunchReceipt = {
   schema: "analysis-launch-receipt-v1",
@@ -115,8 +118,9 @@ const receipt: AnalysisLaunchReceipt = {
       runArtifactSha256: "a".repeat(64),
       applicationRoundtripStatus: "partial",
       applicationDocumentCount: 1,
-      fieldReadyDocumentCount: 1,
-      recognizedFieldCount: 4,
+      fieldReadyDocumentCount: 0,
+      recognizedFieldCount: 0,
+      featureReadiness: status.targets[0]!.featureReadiness!,
       error: null,
     },
     {
@@ -141,5 +145,7 @@ status = finishAnalysisLaunchStatus({
 assert.equal(status.lifecycle, "finished");
 assert.equal(status.summary.held, 1);
 assert.equal(status.summary.skipped, 1);
+assert.equal(status.targets[0]!.featureReadiness?.matching.status, "ready");
+assert.equal(status.targets[0]!.featureReadiness?.authoring.status, "held");
 
 console.log("launch-status.test.ts: all assertions passed");

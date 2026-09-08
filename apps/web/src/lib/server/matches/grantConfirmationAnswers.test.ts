@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import type { MatchCard } from "@cunote/contracts";
 import {
   applyActionableConfirmationQuestions,
+  matchingQuestionBinding,
   type ConfirmationQuestionAnchor,
 } from "./annotateConfirmationQuestions";
 import {
@@ -28,6 +29,115 @@ assert.deepEqual(options.map((option) => option.disqualifies), [false, true, fal
 assert.equal(normalizeConfirmationAnswerType("multi"), "multi");
 assert.equal(normalizeConfirmationAnswerType("single"), "single");
 assert.equal(normalizeConfirmationAnswerType("something-else"), "single");
+
+const matchingBindingRow = {
+  grantId: "00000000-0000-4000-8000-000000000001",
+  criterionId: "00000000-0000-4000-8000-000000000002",
+  evaluationContractVersion: "confirmation-evaluation-v2",
+  sourceRevisionSha256: "a".repeat(64),
+  sourceRawSha256: "b".repeat(64),
+  answerType: "single",
+  options: [
+    { value: "yes", label: "예", evaluation: "satisfied" },
+    { value: "no", label: "아니오", evaluation: "unsatisfied" },
+    { value: "unknown", label: "모름", evaluation: "unknown" },
+  ],
+  reusable: "per_notice",
+  provenance: {
+    runId: "run-current",
+    auditState: "analysis_launch_independent_review",
+    criterionIndex: 0,
+  },
+  needsReview: false,
+  sourceSpan: "지원 시점 조건 확인",
+};
+const servingRuns = new Map([[matchingBindingRow.grantId, new Set(["run-current"])]]);
+const currentSources = new Map([[matchingBindingRow.grantId, {
+  sourceRevisionSha256: matchingBindingRow.sourceRevisionSha256,
+  sourceRawSha256: matchingBindingRow.sourceRawSha256,
+}]]);
+assert.equal(
+  matchingQuestionBinding(matchingBindingRow, servingRuns, currentSources)?.evaluationKind,
+  "three_state_single",
+);
+assert.equal(
+  matchingQuestionBinding({ ...matchingBindingRow, answerType: "multi" }, servingRuns, currentSources),
+  null,
+);
+assert.equal(
+  matchingQuestionBinding({ ...matchingBindingRow, needsReview: true }, servingRuns, currentSources),
+  null,
+);
+assert.equal(
+  matchingQuestionBinding({
+    ...matchingBindingRow,
+    provenance: { ...matchingBindingRow.provenance, auditState: "ai_audit_concur" },
+  }, servingRuns, currentSources),
+  null,
+);
+assert.equal(
+  matchingQuestionBinding(
+    matchingBindingRow,
+    new Map([[matchingBindingRow.grantId, new Set(["run-old"])]]),
+    currentSources,
+  ),
+  null,
+);
+assert.equal(
+  matchingQuestionBinding({
+    ...matchingBindingRow,
+    options: matchingBindingRow.options.slice(0, 2),
+  }, servingRuns, currentSources),
+  null,
+);
+assert.equal(
+  matchingQuestionBinding({
+    ...matchingBindingRow,
+    options: [
+      ...matchingBindingRow.options,
+      { value: "invalid", label: 3, evaluation: "satisfied" },
+    ],
+  }, servingRuns, currentSources),
+  null,
+  "오염 옵션을 버린 뒤 남은 3개로 readiness를 열지 않는다",
+);
+assert.equal(
+  matchingQuestionBinding({
+    ...matchingBindingRow,
+    options: [
+      ...matchingBindingRow.options.slice(0, 2),
+      { value: "yes", label: "중복 값", evaluation: "unknown" },
+    ],
+  }, servingRuns, currentSources),
+  null,
+  "서로 다른 의미가 같은 option value를 공유하면 거부한다",
+);
+assert.equal(
+  matchingQuestionBinding({
+    ...matchingBindingRow,
+    options: [
+      ...matchingBindingRow.options.slice(0, 2),
+      { value: "   ", label: "모름", evaluation: "unknown" },
+    ],
+  }, servingRuns, currentSources),
+  null,
+  "공백 option value는 거부한다",
+);
+assert.equal(
+  matchingQuestionBinding({
+    ...matchingBindingRow,
+    provenance: { ...matchingBindingRow.provenance, criterionIndex: -1 },
+  }, servingRuns, currentSources),
+  null,
+  "음수 criterion index는 원본 criterion 결속으로 쓰지 않는다",
+);
+assert.equal(
+  matchingQuestionBinding(matchingBindingRow, servingRuns, new Map([[matchingBindingRow.grantId, {
+    sourceRevisionSha256: "c".repeat(64),
+    sourceRawSha256: matchingBindingRow.sourceRawSha256,
+  }]])),
+  null,
+);
 
 /* ── 답변 검증: 소속·부분집합·single 1개·중복 규칙 ── */
 

@@ -18,6 +18,7 @@ import {
 } from "../deep-analysis/extractor";
 import { DIMENSION_LABELS } from "./diff";
 import { findMonorepoRoot } from "./run-store";
+import { analysisLaunchTargetIsMatchingReviewable } from "../analysis-serving/analysisFeatureReadiness";
 
 export const INDEPENDENT_REVIEW_PACKET_SCHEMA = "independent-ai-review-packet-v2";
 export const INDEPENDENT_REVIEW_MANIFEST_SCHEMA = "independent-ai-review-manifest-v2";
@@ -204,7 +205,7 @@ export async function prepareIndependentReviewPackets(
     if (actualRunSha256 !== target.runArtifactSha256) {
       throw new Error(`sequence ${target.sequence} run artifact SHA 불일치`);
     }
-    if (target.status !== "publishable") {
+    if (!analysisLaunchTargetIsMatchingReviewable(target)) {
       heldTargets.push({
         sequence: target.sequence,
         grantId: target.grantId,

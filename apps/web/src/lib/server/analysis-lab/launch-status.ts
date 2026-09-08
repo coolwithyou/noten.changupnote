@@ -1,6 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, rename, unlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import {
+  classifyAnalysisFeatureReadiness,
+  type AnalysisFeatureReadiness,
+} from "../analysis-serving/analysisFeatureReadiness";
 import type { LabBatchEvent } from "./batch-runner";
 import type {
   AnalysisLaunchManifest,
@@ -29,6 +33,7 @@ export interface AnalysisLaunchLiveTarget {
   readonly applicationDocumentCount: number | null;
   readonly fieldReadyDocumentCount: number | null;
   readonly recognizedFieldCount: number | null;
+  readonly featureReadiness: AnalysisFeatureReadiness | null;
   readonly error: string | null;
 }
 
@@ -83,6 +88,7 @@ export function createAnalysisLaunchStatus(input: {
       applicationDocumentCount: null,
       fieldReadyDocumentCount: null,
       recognizedFieldCount: null,
+      featureReadiness: null,
       error: null,
     })),
   });
@@ -116,6 +122,7 @@ export function applyAnalysisLaunchEvent(
         ? classifyApplicationFieldAnalysis(event.applicationRoundtrip)
         : "not_required";
       const heldByFieldAnalysis = event.type === "target-ok" && fieldAnalysis === "held";
+      const primaryOutcome = event.type === "target-ok" ? "publishable" as const : "held" as const;
       return {
         ...target,
         status: event.type === "target-ok" && !heldByFieldAnalysis ? "publishable" : "held",
@@ -125,6 +132,11 @@ export function applyAnalysisLaunchEvent(
         applicationDocumentCount: event.applicationRoundtrip?.applicationDocumentCount ?? null,
         fieldReadyDocumentCount: event.applicationRoundtrip?.fieldReadyDocumentCount ?? null,
         recognizedFieldCount: event.applicationRoundtrip?.recognizedFieldCount ?? null,
+        featureReadiness: classifyAnalysisFeatureReadiness({
+          primaryOutcome,
+          matchingReadiness: event.matchingReadiness,
+          applicationFieldAnalysis: fieldAnalysis,
+        }),
         error: heldByFieldAnalysis
           ? "field_analysis_held: 지원 양식에서 안전하게 인식된 입력 필드를 확보하지 못했습니다."
           : null,
@@ -166,6 +178,7 @@ export function finishAnalysisLaunchStatus(input: {
         applicationDocumentCount: terminal.applicationDocumentCount,
         fieldReadyDocumentCount: terminal.fieldReadyDocumentCount,
         recognizedFieldCount: terminal.recognizedFieldCount,
+        featureReadiness: terminal.featureReadiness ?? null,
         error: terminal.error,
       };
     }),

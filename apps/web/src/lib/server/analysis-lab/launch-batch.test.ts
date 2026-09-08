@@ -314,6 +314,35 @@ test("작성 가이드 adoption 재분석은 source-sealed rerun만 exact 기존
       primaryMatchingProjection: projectionBinding,
     }],
   }), /run artifact/);
+  const featureReadiness = {
+    schema: "analysis-feature-readiness-v1" as const,
+    matching: { status: "ready" as const, sourceDisposition: "conditional" as const, reasons: [] },
+    authoring: {
+      status: "held" as const,
+      sourceDisposition: "held" as const,
+      reasons: ["application_field_analysis_held"],
+    },
+  };
+  const matchingOnlyReceipt = launchReceipt([{
+    ...launchReceiptTarget(0, GRANT_0, "held"),
+    featureReadiness,
+  }], "2026-08-26T00:55:00.000Z");
+  assert.deepEqual(
+    normalizeAnalysisLaunchReceipt(JSON.parse(encodeCanonical(matchingOnlyReceipt).toString("utf8"))),
+    matchingOnlyReceipt,
+    "legacy top-level held여도 명시 matching ready/authoring held를 보존한다",
+  );
+  assert.throws(() => normalizeAnalysisLaunchReceipt(launchReceipt([{
+    ...launchReceiptTarget(0, GRANT_0, "failed"),
+    featureReadiness,
+  }], "2026-08-26T00:56:00.000Z")), /실패 결과가 matching ready/);
+  assert.throws(() => normalizeAnalysisLaunchReceipt(launchReceipt([{
+    ...launchReceiptTarget(0, GRANT_0, "held"),
+    featureReadiness: {
+      ...featureReadiness,
+      matching: { status: "ready", sourceDisposition: "deferred", reasons: [] },
+    },
+  }], "2026-08-26T00:57:00.000Z")), /feature readiness/);
 });
 
 test("독립 검수 합의 결함 재분석은 exact 원본 대상과 RHWP 필드 분석을 함께 봉인한다", () => {

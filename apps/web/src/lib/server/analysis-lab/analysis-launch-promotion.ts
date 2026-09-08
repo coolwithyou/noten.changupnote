@@ -7,6 +7,13 @@ import {
   APPLICATION_ROUNDTRIP_VERSION,
 } from "./application-roundtrip/contract";
 import {
+  analysisLaunchTargetIsMatchingReviewable,
+  analysisFeatureReadinessEqual,
+  classifyAnalysisFeatureReadiness,
+  type AnalysisFeatureReadiness,
+} from "../analysis-serving/analysisFeatureReadiness";
+import { classifyApplicationFieldAnalysis } from "./application-precompute";
+import {
   INDEPENDENT_REVIEW_AGGREGATE_SCHEMA,
   INDEPENDENT_REVIEW_MANIFEST_SCHEMA,
   INDEPENDENT_REVIEW_PACKET_SCHEMA,
@@ -75,6 +82,13 @@ export interface AnalysisLaunchPromotionReadiness {
   applicationDocumentCount: number;
   fieldReadyDocumentCount: number;
   recognizedFieldCount: number;
+  /** 매칭/작성 기능의 독립 판정. 신규 release에는 항상 존재한다. */
+  runFeatureReadiness: AnalysisFeatureReadiness;
+  /** receipt에 직접 봉인됐는지, publishable legacy receipt의 원본 필드에서 파생했는지. */
+  runFeatureReadinessVerification: "verified" | "derived_legacy";
+  /** 작성 결과의 run/manifest/receipt count·version 결속 상태. 매칭 admission과 별도다. */
+  authoringEvidenceStatus: "verified" | "held";
+  authoringEvidenceReasons: string[];
   /** 역사 run/receipt의 부재는 ready로 추정하지 않고 별도 unverified로 노출한다. */
   primaryMatchingProjectionStatus?: "verified" | "unverified";
   primaryMatchingProjectionSnapshotSha256?: string | null;
@@ -158,7 +172,10 @@ export async function loadAnalysisLaunchPromotionCohort(input: {
   for (const launch of launches) {
     for (const target of launch.receipt.targets) {
       if (!requestedGrantIds.includes(target.grantId)) continue;
-      if (target.status !== "publishable" || launch.review.blockedSequences.has(target.sequence)) {
+      if (
+        !analysisLaunchTargetIsMatchingReviewable(target)
+        || launch.review.blockedSequences.has(target.sequence)
+      ) {
         continue;
       }
       const loaded = await loadAndVerifyTarget(root, launch, target);
@@ -266,7 +283,7 @@ export async function loadAnalysisLaunchPromotionCohort(input: {
           executionGitSha: execution.gitShaAtPreparation,
           packageRuntimeSha256: execution.packageRuntimeSha256,
           validatorVersion: execution.validatorVersion,
-          applicationFieldAnalysisVersion: execution.applicationFieldAnalysisVersion!,
+          applicationFieldAnalysisVersion: execution.applicationFieldAnalysisVersion,
           ...(loaded.primaryMatchingProjectionStatus === "verified" ? {
             primaryMatchingProjectionSnapshotSha256:
               loaded.primaryMatchingProjectionSnapshotSha256!,
@@ -354,15 +371,18 @@ export async function verifyAnalysisLaunchPromotionSourceArtifactDetailed(
     const changed = checks.filter(([, left, right]) => left !== right).map(([name]) => name);
     if (!artifact.applicationPrecompute) {
       if (
-        candidate.readiness.applicationRoundtripStatus !== "not_applicable"
-        || candidate.readiness.applicationRoundtripRunId !== null
-        || candidate.readiness.applicationDocumentCount !== 0
-        || candidate.readiness.fieldReadyDocumentCount !== 0
-        || candidate.readiness.recognizedFieldCount !== 0
+        candidate.readiness.runFeatureReadiness.authoring.status === "ready"
+        && candidate.readiness.authoringEvidenceStatus === "verified"
       ) {
         changed.push("application_precompute_missing");
       }
     } else {
+      if (
+        candidate.readiness.runFeatureReadiness.authoring.status !== "ready"
+        || candidate.readiness.authoringEvidenceStatus !== "verified"
+      ) {
+        changed.push("application_precompute_unavailable");
+      }
       const { readBundledPromotionApplicationPrecompute } = await import(
         "./application-precompute-release"
       );
@@ -386,13 +406,30 @@ export async function verifyAnalysisLaunchPromotionSourceArtifactDetailed(
   }
 }
 
-function classifyAnalysisLaunchPromotionReadiness(input: {
+export function classifyAnalysisLaunchPromotionReadiness(input: {
   loaded: LoadedTarget;
   current: CurrentGrantEvidence;
 }): AnalysisLaunchPromotionReadiness {
   const { run, target, launch } = input.loaded;
   const current = input.current;
   const reasons: string[] = [];
+  const primaryOutcome = isPublishableLabRun(run) ? "publishable" as const : "held" as const;
+  const applicationFieldAnalysis = launch.manifest.execution.withApplicationRoundtrip
+    ? classifyApplicationFieldAnalysis(run.applicationRoundtrip)
+    : "not_required" as const;
+  const derivedFeatureReadiness = classifyAnalysisFeatureReadiness({
+    primaryOutcome,
+    matchingReadiness: run.matchingReadiness,
+    applicationFieldAnalysis,
+  });
+  const runFeatureReadiness = target.featureReadiness ?? derivedFeatureReadiness;
+  const runFeatureReadinessVerification = target.featureReadiness ? "verified" : "derived_legacy";
+  if (
+    target.featureReadiness
+    && !analysisFeatureReadinessEqual(target.featureReadiness, derivedFeatureReadiness)
+  ) {
+    reasons.push("feature_readiness_binding");
+  }
   let disposition: AnalysisLaunchPromotionDisposition;
   if (!isPublishableLabRun(run) || run.matchingReadiness === "deferred") {
     disposition = "held";
@@ -421,31 +458,16 @@ function classifyAnalysisLaunchPromotionReadiness(input: {
   if (current.confirmedDuplicate) reasons.push("confirmed_dedup_member");
   const roundtrip = run.applicationRoundtrip;
   const execution = launch.manifest.execution;
-  if (
-    !execution.withApplicationRoundtrip
-    || execution.applicationFieldAnalysisVersion !== APPLICATION_ROUNDTRIP_VERSION
-    || execution.roundtripModel !== APPLICATION_ROUNDTRIP_ADOPTED_MODEL
-    || !roundtrip
-    || roundtrip.transport !== "claude-cli"
-    || roundtrip.model !== APPLICATION_ROUNDTRIP_ADOPTED_MODEL
-    || roundtrip.status !== target.applicationRoundtripStatus
-    || (roundtrip.applicationDocumentCount ?? 0) !== (target.applicationDocumentCount ?? 0)
-    || (roundtrip.fieldReadyDocumentCount ?? 0) !== (target.fieldReadyDocumentCount ?? 0)
-    || (roundtrip.recognizedFieldCount ?? 0) !== (target.recognizedFieldCount ?? 0)
-  ) {
-    reasons.push("application_field_analysis_binding");
-  } else if ((roundtrip.applicationDocumentCount ?? 0) > 0) {
-    if (
-      (roundtrip.status !== "complete" && roundtrip.status !== "partial")
-      || !roundtrip.runId
-      || (roundtrip.fieldReadyDocumentCount ?? 0) === 0
-      || (roundtrip.recognizedFieldCount ?? 0) === 0
-    ) {
-      reasons.push("application_field_analysis_not_ready");
-    }
-  } else if (roundtrip.status !== "not_applicable") {
-    reasons.push("application_field_analysis_not_applicable_mismatch");
-  }
+  const applicationBindingMatches = execution.withApplicationRoundtrip
+    && execution.applicationFieldAnalysisVersion === APPLICATION_ROUNDTRIP_VERSION
+    && execution.roundtripModel === APPLICATION_ROUNDTRIP_ADOPTED_MODEL
+    && Boolean(roundtrip)
+    && roundtrip?.transport === "claude-cli"
+    && roundtrip.model === APPLICATION_ROUNDTRIP_ADOPTED_MODEL
+    && roundtrip.status === target.applicationRoundtripStatus
+    && (roundtrip.applicationDocumentCount ?? 0) === (target.applicationDocumentCount ?? 0)
+    && (roundtrip.fieldReadyDocumentCount ?? 0) === (target.fieldReadyDocumentCount ?? 0)
+    && (roundtrip.recognizedFieldCount ?? 0) === (target.recognizedFieldCount ?? 0);
   if (reasons.length > 0) disposition = "held";
   return {
     schema: ANALYSIS_LAUNCH_PROMOTION_READINESS_SCHEMA,
@@ -466,6 +488,14 @@ function classifyAnalysisLaunchPromotionReadiness(input: {
     applicationDocumentCount: roundtrip?.applicationDocumentCount ?? 0,
     fieldReadyDocumentCount: roundtrip?.fieldReadyDocumentCount ?? 0,
     recognizedFieldCount: roundtrip?.recognizedFieldCount ?? 0,
+    runFeatureReadiness,
+    runFeatureReadinessVerification,
+    authoringEvidenceStatus: applicationBindingMatches ? "verified" : "held",
+    authoringEvidenceReasons: applicationBindingMatches
+      ? []
+      : [execution.withApplicationRoundtrip
+        ? "application_field_analysis_binding"
+        : "application_field_analysis_unverified"],
     primaryMatchingProjectionStatus: input.loaded.primaryMatchingProjectionStatus,
     primaryMatchingProjectionSnapshotSha256:
       input.loaded.primaryMatchingProjectionSnapshotSha256,
@@ -671,7 +701,10 @@ async function loadReviewEvidence(
     loadReviewEvidenceManifest(root, receiptSha256, receipt, reviewRoot, manifestFile)
   )));
   const requestedSequences = new Set(receipt.targets
-    .filter((target) => target.status === "publishable" && requestedGrantIds.includes(target.grantId))
+    .filter((target) => (
+      analysisLaunchTargetIsMatchingReviewable(target)
+      && requestedGrantIds.includes(target.grantId)
+    ))
     .map((target) => target.sequence));
   const ranked = candidates.map((candidate) => ({
     candidate,
