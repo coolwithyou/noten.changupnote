@@ -138,6 +138,15 @@ const result = await withIsolatedProductUatPostgres(async (postgresRuntime) => {
     }),
     logPath: join(logsPath, "confirmation-r1.log"),
   });
+  const sourceCorrectionFixture = runSourceCorrectionFixture({
+    action: "seed",
+    sourceRoot: source.snapshotRoot,
+    env: createProductUatEnv({
+      ...buildEnv,
+      CUNOTE_PRODUCT_UAT_RUNTIME_ROOT: postgresRuntime.runRoot,
+    }),
+    logPath: join(logsPath, "source-correction-seed.log"),
+  });
   runLogged({
     command: "pnpm",
     args: ["--filter", "@cunote/web", "build"],
@@ -266,6 +275,7 @@ const result = await withIsolatedProductUatPostgres(async (postgresRuntime) => {
       schema: "cunote-local-product-uat-confirmation-fixture-receipt-v1",
       grantId: initialConfirmationFixture.fixture.grantId,
       servingGrantId: initialConfirmationFixture.fixture.servingGrantId,
+      correctionGrantId: initialConfirmationFixture.fixture.correctionGrantId,
       servingRegistry: initialConfirmationFixture.servingRegistry,
       publicationAuthority: "isolated_publisher_fixture_not_release_approval",
       scenarios: confirmationScenarios.proof,
@@ -288,8 +298,10 @@ const result = await withIsolatedProductUatPostgres(async (postgresRuntime) => {
       sourceManifestSha256: source.sourceManifestSha256,
       sourceManifestPath,
       confirmationFixtureReceiptPath,
+      sourceCorrectionFixtureReceiptPath: sourceCorrectionFixture.receiptPath,
       syntheticGrantId: initialConfirmationFixture.fixture.grantId,
       syntheticServingGrantId: initialConfirmationFixture.fixture.servingGrantId,
+      correctionGrantId: initialConfirmationFixture.fixture.correctionGrantId,
       activeConfirmationQuestions: confirmationScenarios.finalState.activePrompts,
     }, null, 2)}\n`, { flag: "wx", mode: 0o600 });
     if (holdSeconds > 0) {
@@ -335,6 +347,13 @@ const result = await withIsolatedProductUatPostgres(async (postgresRuntime) => {
         scenarios: confirmationScenarios.proof,
         naturalUiReadiness: confirmationScenarios.naturalUiReadiness,
         fixtureReceiptPath: confirmationFixtureReceiptPath,
+      },
+      sourceCorrectionFixture: {
+        authority: sourceCorrectionFixture.receipt.authority,
+        fixtureReceiptPath: sourceCorrectionFixture.receiptPath,
+        profileRowId: sourceCorrectionFixture.fixture.profileRowId,
+        correctionGrantId: sourceCorrectionFixture.fixture.grantId,
+        servingBinding: sourceCorrectionFixture.receipt.servingBinding,
       },
       connectionPath,
       exclusions: {
@@ -399,6 +418,29 @@ function runConfirmationFixture({ action, sourceRoot, env, logPath }) {
       "--tsconfig",
       "apps/web/tsconfig.json",
       "tools/product-uat/confirmation-fixture.ts",
+      `--action=${action}`,
+    ],
+    cwd: sourceRoot,
+    env,
+    logPath,
+    timeout: 120_000,
+  });
+  const lastLine = output.trim().split("\n").at(-1);
+  const parsed = lastLine ? JSON.parse(lastLine) : null;
+  assert.equal(parsed?.ok, true);
+  assert.equal(parsed?.action, action);
+  return parsed;
+}
+
+function runSourceCorrectionFixture({ action, sourceRoot, env, logPath }) {
+  const output = runLogged({
+    command: "pnpm",
+    args: [
+      "exec",
+      "tsx",
+      "--tsconfig",
+      "apps/web/tsconfig.json",
+      "tools/product-uat/source-correction-fixture.ts",
       `--action=${action}`,
     ],
     cwd: sourceRoot,

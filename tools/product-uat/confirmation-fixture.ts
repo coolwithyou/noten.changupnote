@@ -40,6 +40,9 @@ const FIXTURE = {
   servingGrantId: "40000000-0000-4000-8000-000000000002",
   servingSourceId: "local-product-uat-serving-confirmations",
   servingTitle: "격리 정상 노출 확인질문 공고",
+  correctionGrantId: "40000000-0000-4000-8000-000000000003",
+  correctionSourceId: "local-product-uat-source-correction",
+  correctionTitle: "격리 공식 원천 정정 인수 공고",
   servingReleaseId: "local-product-uat-serving-r1",
   rollbackPath: "confirmation-before-r2-snapshot.json",
 } as const;
@@ -79,31 +82,36 @@ try {
 }
 
 async function publishInitialFixture() {
-  const existing = await sql`select id from grants where id in (${FIXTURE.grantId},${FIXTURE.servingGrantId})`;
+  const existing = await sql`select id from grants where id in (${FIXTURE.grantId},${FIXTURE.servingGrantId},${FIXTURE.correctionGrantId})`;
   assert.equal(existing.length, 0, "r1 fixture는 새 격리 DB에 한 번만 발행한다");
   await sql`insert into grants(id,source,source_id,title,status,serving_state,overall_confidence)
     values
       (${FIXTURE.grantId},'bizinfo',${FIXTURE.sourceId},${FIXTURE.title},'open','visible',1),
-      (${FIXTURE.servingGrantId},'bizinfo',${FIXTURE.servingSourceId},${FIXTURE.servingTitle},'open','visible',1)`;
+      (${FIXTURE.servingGrantId},'bizinfo',${FIXTURE.servingSourceId},${FIXTURE.servingTitle},'open','visible',1),
+      (${FIXTURE.correctionGrantId},'bizinfo',${FIXTURE.correctionSourceId},${FIXTURE.correctionTitle},'open','visible',1)`;
   await sql`insert into grant_raw(source,source_id,payload,attachments,raw_hash,status)
     values
       ('bizinfo',${FIXTURE.sourceId},'{}','[]',${"c".repeat(64)},'normalized'),
-      ('bizinfo',${FIXTURE.servingSourceId},'{}','[]',${"d".repeat(64)},'normalized')`;
+      ('bizinfo',${FIXTURE.servingSourceId},'{}','[]',${"d".repeat(64)},'normalized'),
+      ('bizinfo',${FIXTURE.correctionSourceId},'{}','[]',${"e".repeat(64)},'normalized')`;
   const plans = await buildPlans();
   const before = new Map([
     [FIXTURE.grantId, await loadPromotionGrantSnapshot(db, FIXTURE.grantId, [])],
     [FIXTURE.servingGrantId, await loadPromotionGrantSnapshot(db, FIXTURE.servingGrantId, [])],
+    [FIXTURE.correctionGrantId, await loadPromotionGrantSnapshot(db, FIXTURE.correctionGrantId, [])],
   ]);
   const publication = {
     confirmation: await createDrizzlePromotionPort(db, []).publishGrant(plans.r1),
     serving: await createDrizzlePromotionPort(db, []).publishGrant(plans.serving),
+    correction: await createDrizzlePromotionPort(db, []).publishGrant(plans.correction),
   };
   const after = new Map([
     [FIXTURE.grantId, await loadPromotionGrantSnapshot(db, FIXTURE.grantId, [])],
     [FIXTURE.servingGrantId, await loadPromotionGrantSnapshot(db, FIXTURE.servingGrantId, [])],
+    [FIXTURE.correctionGrantId, await loadPromotionGrantSnapshot(db, FIXTURE.correctionGrantId, [])],
   ]);
   const servingRegistry = await publishServingRegistry({
-    plans: [plans.r1, plans.serving],
+    plans: [plans.r1, plans.serving, plans.correction],
     sourceArtifacts: plans.releaseSources,
     before,
     after,
@@ -199,7 +207,7 @@ async function publishServingRegistry(input: {
     gitCommit: "0".repeat(40),
     buildDigest: "1".repeat(40),
     cohortLabel: "local-product-uat-serving",
-    canaryGrantIds: [FIXTURE.grantId, FIXTURE.servingGrantId],
+    canaryGrantIds: [FIXTURE.grantId, FIXTURE.servingGrantId, FIXTURE.correctionGrantId],
     sourceArtifacts: input.sourceArtifacts,
     plans: planItems,
   });
@@ -217,6 +225,7 @@ async function publishServingRegistry(input: {
   const itemIds = [
     "60000000-0000-4000-8000-000000000002",
     "60000000-0000-4000-8000-000000000003",
+    "60000000-0000-4000-8000-000000000004",
   ];
   for (const [index, plan] of input.plans.entries()) {
     const before = input.before.get(plan.grantId);
@@ -293,13 +302,15 @@ async function buildPlans(): Promise<{
   r2: GrantPromotionPlan;
   withdraw: GrantPromotionPlan;
   serving: GrantPromotionPlan;
+  correction: GrantPromotionPlan;
   releaseSources: PromotionSourceArtifact[];
 }> {
-  const [source, servingSource] = await Promise.all([
+  const [source, servingSource, correctionSource] = await Promise.all([
     loadDeepAnalysisSourceBinding({ db, grantId: FIXTURE.grantId }),
     loadDeepAnalysisSourceBinding({ db, grantId: FIXTURE.servingGrantId }),
+    loadDeepAnalysisSourceBinding({ db, grantId: FIXTURE.correctionGrantId }),
   ]);
-  assert.ok(source && servingSource);
+  assert.ok(source && servingSource && correctionSource);
   const criteria: LabCriterion[] = [
     criterion("required", "필수 확인", "필수 조건을 직접 확인해야 합니다"),
     criterion("exclusion", "제외 확인", "현재 참여 제한 대상은 제외합니다"),
@@ -473,6 +484,41 @@ async function buildPlans(): Promise<{
     manualConfirmationEvaluationSelection: manualConfirmationEvaluationSelectionForArtifact(servingManual),
     sourceRawSha256: servingSource.sourceRawSha256,
   });
+  const correctionCriteria: LabCriterion[] = [{
+    dimension: "employees",
+    kind: "required",
+    operator: "lte",
+    value: { max: 10 },
+    confidence: 1,
+    sourceSpan: "상시근로자 10명 이하 기업",
+    spanVerified: true,
+    note: null,
+  }];
+  const correctionRun: LabRun = {
+    ...run,
+    runId: "run-2026-09-08T000000.000Z-localuat-source-correction",
+    grantId: FIXTURE.correctionGrantId,
+    sourceId: FIXTURE.correctionSourceId,
+    title: FIXTURE.correctionTitle,
+    inputSha256: createHash("sha256").update("local-product-uat-source-correction").digest("hex"),
+    sourceRevisionSha256: correctionSource.sourceRevisionSha256,
+    criteria: correctionCriteria,
+    matchingReadiness: "ready",
+  };
+  const correctionReview: LabReview = {
+    ...review,
+    grantId: FIXTURE.correctionGrantId,
+    runId: correctionRun.runId,
+    criterionReviews: [{ criterionIndex: 0, verdict: "correct", note: null }],
+  };
+  const correctionPlan = planGrantPromotion({
+    run: correctionRun,
+    review: correctionReview,
+    origin: "human",
+    sidecar: null,
+    manualEvaluationSidecar: null,
+    sourceRawSha256: correctionSource.sourceRawSha256,
+  });
   const confirmationR1 = plan(selected1);
   const releaseSources: PromotionSourceArtifact[] = [
     releaseSourceArtifact({
@@ -489,12 +535,20 @@ async function buildPlans(): Promise<{
       confirmationSidecarSha256: null,
       plan: servingPlan,
     }),
+    releaseSourceArtifact({
+      run: correctionRun,
+      review: correctionReview,
+      sourceRevisionSha256: correctionSource.sourceRevisionSha256,
+      confirmationSidecarSha256: null,
+      plan: correctionPlan,
+    }),
   ];
   return {
     r1: confirmationR1,
     r2: plan(selected2),
     withdraw: plan(selected(withdrawal)),
     serving: servingPlan,
+    correction: correctionPlan,
     releaseSources,
   };
 }
@@ -507,7 +561,6 @@ function releaseSourceArtifact(input: {
   plan: GrantPromotionPlan;
 }): PromotionSourceArtifact {
   const selection = input.plan.manualConfirmationEvaluationSelection;
-  assert.ok(selection);
   return {
     grantId: input.plan.grantId,
     runId: input.plan.runId,
@@ -515,8 +568,8 @@ function releaseSourceArtifact(input: {
     reviewSha256: sha256Canonical(input.review),
     overlaySha256: null,
     confirmationsSha256: input.confirmationSidecarSha256,
-    manualConfirmationEvaluationsSha256: selection.artifactSha256,
-    manualConfirmationEvaluationSelection: selection,
+    manualConfirmationEvaluationsSha256: selection?.artifactSha256 ?? null,
+    ...(selection ? { manualConfirmationEvaluationSelection: selection } : {}),
     sourceRevisionSha256: input.sourceRevisionSha256,
     inputSha256: input.run.inputSha256,
     localLabEvidence: {

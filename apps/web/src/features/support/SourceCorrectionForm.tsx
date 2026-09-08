@@ -19,6 +19,12 @@ export function SourceCorrectionForm({ companyId, rows, initialRecords, canWrite
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
   const selected = official.find((row) => row.dimension === dimension);
+  const selectPresentation = sourceCorrectionSelectPresentation({
+    official,
+    dimension,
+    canWrite,
+    busy,
+  });
   async function act(body: Record<string, unknown>) {
     if (busy) return;
     setBusy(true); setNotice("");
@@ -38,8 +44,8 @@ export function SourceCorrectionForm({ companyId, rows, initialRecords, canWrite
     <form onSubmit={(event) => { event.preventDefault(); void act({ action: "submit", dimension, statement }); }}>
       <FieldGroup>
         <Field><FieldLabel htmlFor="correction-field">정정할 정보</FieldLabel>
-          <Select value={dimension} onValueChange={(value) => { if (value) setDimension(value); }} disabled={!canWrite || busy || !official.length}>
-            <SelectTrigger id="correction-field"><SelectValue /></SelectTrigger>
+          <Select value={dimension} onValueChange={(value) => { if (value) setDimension(value); }} disabled={selectPresentation.disabled}>
+            <SelectTrigger id="correction-field"><SelectValue>{selectPresentation.label}</SelectValue></SelectTrigger>
             <SelectContent><SelectGroup>{official.map((row) => <SelectItem key={row.dimension} value={row.dimension}>{PROFILE_DIMENSION_LABELS[row.dimension]}</SelectItem>)}</SelectGroup></SelectContent>
           </Select>
           <FieldDescription>{selected ? `${selected.displayValue ?? "값 없음"} · ${selected.sourceLabel} · 기준일 ${selected.asOf ?? "확인 필요"}` : "정정을 요청할 공식 확인값이 없습니다."}</FieldDescription>
@@ -66,4 +72,17 @@ export function SourceCorrectionForm({ companyId, rows, initialRecords, canWrite
       <p>재확인은 현재 보유한 공식 자료를 읽습니다. 외부 기관 정보 갱신이나 관리자 검수 완료를 뜻하지 않습니다.</p>
     </section>)}
   </div>;
+}
+
+export function sourceCorrectionSelectPresentation(input: {
+  official: Pick<MatchingProfileViewRow, "dimension">[];
+  dimension: string;
+  canWrite: boolean;
+  busy: boolean;
+}): { label: string; disabled: boolean } {
+  const selected = input.official.find((row) => row.dimension === input.dimension);
+  return {
+    label: selected ? PROFILE_DIMENSION_LABELS[selected.dimension] : "선택할 공식 정보가 없습니다",
+    disabled: !input.canWrite || input.busy || input.official.length === 0,
+  };
 }

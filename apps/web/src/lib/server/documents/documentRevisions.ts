@@ -509,7 +509,9 @@ export async function saveStudioSnapshot(
 /** 최신 server head가 있으면 해당 R2 artifact를 읽는다. 없으면 null을 반환해 원본 경로로 폴백한다. */
 export async function loadDraftHeadRevisionFile(input: {
   draftId: string;
-}): Promise<(Omit<DraftSourceFile, "grant"> & {
+}, dependencies: {
+  storage?: R2ObjectStorage | null;
+} = {}): Promise<(Omit<DraftSourceFile, "grant"> & {
   revisionId: string;
   savedAt: string;
   materializedAnswers: Record<string, string>;
@@ -520,6 +522,8 @@ export async function loadDraftHeadRevisionFile(input: {
       revisionId: schema.grantDocumentRevisions.id,
       format: schema.grantDocumentRevisions.format,
       storageKey: schema.grantDocumentRevisions.artifactStorageKey,
+      sha256: schema.grantDocumentRevisions.sha256,
+      byteSize: schema.grantDocumentRevisions.byteSize,
       savedAt: schema.grantDocumentRevisions.createdAt,
       materializedAnswers: schema.grantDocumentRevisions.materializedAnswers,
     })
@@ -535,7 +539,7 @@ export async function loadDraftHeadRevisionFile(input: {
     throw new DocumentRevisionError("snapshot_format_invalid", "저장된 문서 형식이 올바르지 않습니다.", 500);
   }
 
-  const storage = createR2ObjectStorageFromEnv();
+  const storage = dependencies.storage ?? createR2ObjectStorageFromEnv();
   if (!storage) {
     throw new DocumentRevisionError(
       "snapshot_storage_not_configured",
@@ -553,9 +557,13 @@ export async function loadDraftHeadRevisionFile(input: {
       502,
     );
   }
-  const detected = detectSnapshotFormat(body);
-  if (detected !== row.format) {
-    throw new DocumentRevisionError("snapshot_corrupted", "저장된 문서 작업본의 형식을 확인하지 못했습니다.", 500);
+  const sha256 = createHash("sha256").update(body).digest("hex");
+  if (
+    sha256 !== row.sha256
+    || body.byteLength !== row.byteSize
+    || detectSnapshotFormat(body) !== row.format
+  ) {
+    throw new DocumentRevisionError("snapshot_corrupted", "저장된 문서 작업본의 무결성이 맞지 않습니다.", 500);
   }
   return {
     revisionId: row.revisionId,
