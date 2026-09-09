@@ -8,8 +8,9 @@ steps:
       - '-t'
       - '${_TAG}'
       - '.'
-  - name: 'gcr.io/cloud-builders/docker'
-    args: ['push', '${_TAG}']
+
+images:
+  - '${_TAG}'
 
 timeout: '1800s'
 
