@@ -1,0 +1,1816 @@
+{
+  "schema": "cunote-source-drift-triage-v1",
+  "sourceCommit": "6b67a70159e78a766a3e8b71f04d6da48a857c3f",
+  "observedAt": "2026-09-09T18:52:01.863Z",
+  "asOf": "2026-09-09T18:50:49.479Z",
+  "snapshotGuard": {
+    "read_only": "on",
+    "isolation": "repeatable read",
+    "observed_at": "2026-09-09 18:50:52.312915+00"
+  },
+  "baselineReceiptSha256": "d71230aeacf08bb439e04eb011a9586d572ea22a6cc8892832130417a3165322",
+  "privateEvidenceDirectory": "/tmp/cunote-source-drift-20260910-vgXD5s",
+  "privateArtifacts": [
+    {
+      "file": "receipt.json",
+      "sha256": "9bf9d8abbc8ea32ca100fda47f86219a06f89e9e47658214399d90aff90e2f8e"
+    },
+    {
+      "file": "snapshot.json",
+      "sha256": "646511b7388178dfa5f72cc90df74d22dce7a5fa5a49bb5d185c27680828386e"
+    },
+    {
+      "file": "comparison.json",
+      "sha256": "e4a659fb8758b536d7f52141cabe01fe43cf2d55ed649dd393b5d4584eaaf8c8"
+    },
+    {
+      "file": "additional-comparison.json",
+      "sha256": "5bdf265f370137d5180397bdf55b90894b8bd158707fa5f263060a9e806a5a61"
+    },
+    {
+      "file": "kind-comparison.json",
+      "sha256": "6ee77f4f11353ed54e9c445aa080089595b22482d16e846ce0b2186b79bc969b"
+    },
+    {
+      "file": "inventory-before.json",
+      "sha256": "e6194321925e26cf47e0aa413a0c82f8fcb6fbda5b1c6c75dfee7219ec802cc0"
+    },
+    {
+      "file": "inventory-after.json",
+      "sha256": "e6194321925e26cf47e0aa413a0c82f8fcb6fbda5b1c6c75dfee7219ec802cc0"
+    }
+  ],
+  "auditScripts": [
+    {
+      "path": "/tmp/cunote-source-drift-20260910.mts",
+      "sha256": "8ec73cae623aa422ca2093ca101f999303438c097b5936e6288e50b2e86971dd"
+    },
+    {
+      "path": "/tmp/cunote-source-drift-compare-20260910.mts",
+      "sha256": "1f9e944fd08013262bc8a6a69d5dc50053c04a518ccd9bac4f3bc7481e45a283"
+    },
+    {
+      "path": "/tmp/cunote-source-drift-additional-20260910.mts",
+      "sha256": "bff9bb399c2fc5ff6dd2713ad78079471bfe99531b0bcf187aae1aab17fce6d1"
+    }
+  ],
+  "currentSupply": {
+    "grants": 82,
+    "criteria": 481,
+    "inventorySha256": "3c1f3103a36fa70e0e0ee53c6791d3c30146bf5eeb954b7d3d7208982d1592e6",
+    "dtoSha256": "fa2ad5f9b2e51c3482b7facc1e2a26903a871a479ffe5473dd36156216ffef3e",
+    "inventoryStableAcrossSnapshot": true,
+    "expiredSinceBaseline": [
+      "0808e3c7-74e6-42dc-8d55-adaed98f3935",
+      "f991b4e7-54b6-4f3e-bf63-3916b5d1f6ac",
+      "31764871-f3d8-4d33-b907-bf4a6a87e152"
+    ]
+  },
+  "summary": {
+    "baselineTargets": 22,
+    "baselineStillActive": 21,
+    "originalInputReproduced": 22,
+    "sameFullInputAndAttachment": 14,
+    "sameTextDifferentAttachment": 1,
+    "newlyLoadedAttachmentInput": 7,
+    "kindOverlapGrants": 6,
+    "kindOverlapCriteria": 7,
+    "additionalKindSourceDriftTargets": 1,
+    "currentKindMismatchGrants": 28,
+    "currentKindMismatchCriteria": 32,
+    "kindMismatchActiveSourceUnchanged": 21,
+    "kindMismatchActiveSourceDrift": 7
+  },
+  "targets": [
+    {
+      "grantId": "0808e3c7-74e6-42dc-8d55-adaed98f3935",
+      "source": "kstartup",
+      "sourceId": "179028",
+      "title": "2026 서울 오픈이노베이션 인사이트 데이",
+      "runId": "run-2026-09-01T025232.954Z-51b4b9",
+      "runSha256": "490d394df26de4bf6269a077c40f012e5dea9f5e87d72562cdb9c7e67b5e2b3d",
+      "releaseId": "deep-deep-v29-2026-09-01-r1-20260901T071336Z-0a7ade7e",
+      "promotionItemId": "b108f992-093f-4223-ab28-e5f197e2fd08",
+      "active": false,
+      "kindChanges": [],
+      "runInputSha256": "a9726d96c9a7e49717913dae17880a79a3ac5c4c5cee42433ee28d09e53c6268",
+      "currentInputSha256": "a9726d96c9a7e49717913dae17880a79a3ac5c4c5cee42433ee28d09e53c6268",
+      "preservedInputSha256": "a9726d96c9a7e49717913dae17880a79a3ac5c4c5cee42433ee28d09e53c6268",
+      "inputUnchanged": true,
+      "preservedInputUnchanged": true,
+      "runAttachmentManifestSha256": "7c651c5edc7aaffe4859b7368d4fa68deb218a0164aa106e5615a60d987b108f",
+      "currentAttachmentManifestSha256": "7c651c5edc7aaffe4859b7368d4fa68deb218a0164aa106e5615a60d987b108f",
+      "preservedAttachmentManifestSha256": "7c651c5edc7aaffe4859b7368d4fa68deb218a0164aa106e5615a60d987b108f",
+      "attachmentUnchanged": true,
+      "preservedAttachmentUnchanged": true,
+      "servingSourceRevisionSha256": "f71dbbcd8d0622d1e7ea2c716f20b32547d34b63351ec1991002e944cd7794f9",
+      "priorCurrentSourceRevisionSha256": "705a182860c26dc4a6e1a80ff68efca5477b166c0af67586c634b4e84e70b1c0",
+      "currentSourceRevisionSha256": "705a182860c26dc4a6e1a80ff68efca5477b166c0af67586c634b4e84e70b1c0",
+      "dbOnlySourceRevisionSha256": "705a182860c26dc4a6e1a80ff68efca5477b166c0af67586c634b4e84e70b1c0",
+      "sourceStableSinceSnapshot": true,
+      "operationalSealed": false,
+      "observedAt": "2026-09-09T18:51:47.033Z",
+      "sourceStableSincePriorMonitor": true,
+      "baselineCohort": true,
+      "disposition": "same_lab_input_provenance_unresolved",
+      "assessment": "현재 전체 lab 입력과 첨부 manifest는 원본 run과 같지만 operational source revision 불일치의 구성요소는 미확정이다. 안전한 재봉인 또는 재분석 불필요 판정이 아니다.",
+      "newlyLoadedBlocks": [],
+      "sourceExcerpts": [],
+      "operationalBlockerCodes": [
+        "blocked_fetch"
+      ],
+      "privateEvidenceSha256": "492898b5ab0372c19c28a85cd40f74b9b2e0bc3a404318f5b981374e7b9e59d9"
+    },
+    {
+      "grantId": "11138b68-5705-495e-b630-2cbeb5a93929",
+      "source": "kstartup",
+      "sourceId": "179001",
+      "title": "2026년 위치정보 보호조치 교육 (5차)",
+      "runId": "run-2026-09-01T030118.809Z-5203a6",
+      "runSha256": "b5bcd464f2c2cb3365c1d77476d4859086c3a4ea3df7a803d0f5c94599624a80",
+      "releaseId": "deep-deep-v29-2026-09-01-r1-20260901T071336Z-0a7ade7e",
+      "promotionItemId": "7618824d-3569-406f-aeb8-38299f1b43a0",
+      "active": true,
+      "kindChanges": [],
+      "runInputSha256": "7d2b6797dde35fedc6ae7ac8de19139299d6b8484951328360596a594ec9244d",
+      "currentInputSha256": "7d2b6797dde35fedc6ae7ac8de19139299d6b8484951328360596a594ec9244d",
+      "preservedInputSha256": "7d2b6797dde35fedc6ae7ac8de19139299d6b8484951328360596a594ec9244d",
+      "inputUnchanged": true,
+      "preservedInputUnchanged": true,
+      "runAttachmentManifestSha256": "76d9d46c392cdc37c82aba8ec074fcff795aee70ea6b4a9c2f12e7567cc85d7f",
+      "currentAttachmentManifestSha256": "76d9d46c392cdc37c82aba8ec074fcff795aee70ea6b4a9c2f12e7567cc85d7f",
+      "preservedAttachmentManifestSha256": "76d9d46c392cdc37c82aba8ec074fcff795aee70ea6b4a9c2f12e7567cc85d7f",
+      "attachmentUnchanged": true,
+      "preservedAttachmentUnchanged": true,
+      "servingSourceRevisionSha256": "8e4d2139d4a8e661e4c551730c85e1fdab19ee34f01cfd7c8cd7973532f07568",
+      "priorCurrentSourceRevisionSha256": "51d1903cdeef9f3df4dc0f492223c36227e6c72eaa340b27918765e54d4df7cc",
+      "currentSourceRevisionSha256": "51d1903cdeef9f3df4dc0f492223c36227e6c72eaa340b27918765e54d4df7cc",
+      "dbOnlySourceRevisionSha256": "51d1903cdeef9f3df4dc0f492223c36227e6c72eaa340b27918765e54d4df7cc",
+      "sourceStableSinceSnapshot": true,
+      "operationalSealed": false,
+      "observedAt": "2026-09-09T18:51:47.302Z",
+      "sourceStableSincePriorMonitor": true,
+      "baselineCohort": true,
+      "disposition": "same_lab_input_provenance_unresolved",
+      "assessment": "현재 전체 lab 입력과 첨부 manifest는 원본 run과 같지만 operational source revision 불일치의 구성요소는 미확정이다. 안전한 재봉인 또는 재분석 불필요 판정이 아니다.",
+      "newlyLoadedBlocks": [],
+      "sourceExcerpts": [],
+      "operationalBlockerCodes": [
+        "blocked_fetch"
+      ],
+      "privateEvidenceSha256": "9ccfe88f3de0501cc4beeed6c22138b6c93003fa3da54cb4d3002159a75a9e5d"
+    },
+    {
+      "grantId": "1d4b5ab8-7671-4911-9d36-545dfa7c6e14",
+      "source": "kstartup",
+      "sourceId": "178984",
+      "title": "2026 인도네시아 자카르타 할랄 식품전시회 지역 수출컨소시엄",
+      "runId": "run-2026-08-31T221918.083Z-02bd27",
+      "runSha256": "d496a48c6964f8104c4d09c57899b95ed50ac71b5690d03ec85e9134df3f6ab1",
+      "releaseId": "deep-deep-v28-2026-09-01-release-21-r1-20260901T003102Z-058e0e46",
+      "promotionItemId": "f7e7e406-bb7d-4ea0-9b14-c02819ba8a8e",
+      "active": true,
+      "kindChanges": [
+        {
+          "grantId": "1d4b5ab8-7671-4911-9d36-545dfa7c6e14",
+          "runId": "run-2026-08-31T221918.083Z-02bd27",
+          "criterionIndex": 4,
+          "originalKind": "preferred",
+          "servingKind": "exclusion",
+          "dimension": "other"
+        }
+      ],
+      "runInputSha256": "5a88602bcd76aa59abf84a5c300fa1e5edb244cb28ca562eaef47b24f9791217",
+      "currentInputSha256": "5a88602bcd76aa59abf84a5c300fa1e5edb244cb28ca562eaef47b24f9791217",
+      "preservedInputSha256": "5a88602bcd76aa59abf84a5c300fa1e5edb244cb28ca562eaef47b24f9791217",
+      "inputUnchanged": true,
+      "preservedInputUnchanged": true,
+      "runAttachmentManifestSha256": "e05a5a0bc81d92089845ff10541430e5d2ce3f8835a29881da6f5196d6396e10",
+      "currentAttachmentManifestSha256": "e05a5a0bc81d92089845ff10541430e5d2ce3f8835a29881da6f5196d6396e10",
+      "preservedAttachmentManifestSha256": "e05a5a0bc81d92089845ff10541430e5d2ce3f8835a29881da6f5196d6396e10",
+      "attachmentUnchanged": true,
+      "preservedAttachmentUnchanged": true,
+      "servingSourceRevisionSha256": "47ede4fdfe776c8c1f19a75abf3619fe6b1e3dacb0b722ff19f32bbdbcee4823",
+      "priorCurrentSourceRevisionSha256": "fae0e5ab48db4394dd63d9dac43f760da10e20cc59185909545bd8811cb48fb9",
+      "currentSourceRevisionSha256": "fae0e5ab48db4394dd63d9dac43f760da10e20cc59185909545bd8811cb48fb9",
+      "dbOnlySourceRevisionSha256": "fae0e5ab48db4394dd63d9dac43f760da10e20cc59185909545bd8811cb48fb9",
+      "sourceStableSinceSnapshot": true,
+      "operationalSealed": false,
+      "observedAt": "2026-09-09T18:51:48.109Z",
+      "sourceStableSincePriorMonitor": true,
+      "baselineCohort": true,
+      "disposition": "same_lab_input_provenance_unresolved",
+      "assessment": "현재 전체 lab 입력과 첨부 manifest는 원본 run과 같지만 operational source revision 불일치의 구성요소는 미확정이다. 안전한 재봉인 또는 재분석 불필요 판정이 아니다.",
+      "newlyLoadedBlocks": [],
+      "sourceExcerpts": [],
+      "operationalBlockerCodes": [
+        "blocked_conversion"
+      ],
+      "privateEvidenceSha256": "d48696c491386dee397f6fbdb511065f27fabc3705789cad1dc4b2252daa4aec"
+    },
+    {
+      "grantId": "261fdfd0-492d-418c-885b-4d39efee1736",
+      "source": "kstartup",
+      "sourceId": "178915",
+      "title": "2026년 서울창업허브M+ 글로벌 오픈 이노베이션",
+      "runId": "run-2026-08-31T210320.900Z-1152d7",
+      "runSha256": "8c1c00bb15a3d37f8174162ca6998a0ad921103458eb8b0dbf31fb43a3de165b",
+      "releaseId": "deep-deep-v28-2026-09-01-release-21-r1-20260901T003102Z-058e0e46",
+      "promotionItemId": "1461000a-9bad-4418-b102-06d47a651144",
+      "active": true,
+      "kindChanges": [],
+      "runInputSha256": "4bd02f3805d5fdb2d4ad95c658c55de91868dfa0aaa282e659d55271864ad9b8",
+      "currentInputSha256": "2d177cfab8114224af4adeb06cceeaab9a338734348ccc02154a031a8911ee66",
+      "preservedInputSha256": "4bd02f3805d5fdb2d4ad95c658c55de91868dfa0aaa282e659d55271864ad9b8",
+      "inputUnchanged": false,
+      "preservedInputUnchanged": true,
+      "runAttachmentManifestSha256": "5b83fc231ee3db5470a409a6f5d1ad9e379d225664993f0b52d1f5a7034fb662",
+      "currentAttachmentManifestSha256": "6316064d77e1dcf997bceb302006ed2e9341442848f5848deaddeefaea0244cc",
+      "preservedAttachmentManifestSha256": "99c7912900813626ef1ff227f1c39b63a2fdc393631b974b55a12cb283187ae4",
+      "attachmentUnchanged": false,
+      "preservedAttachmentUnchanged": false,
+      "servingSourceRevisionSha256": "ef8595e0505ed1582498cbd3c7aa07f2085647c26fd286b21670fa78243499d8",
+      "priorCurrentSourceRevisionSha256": "d07c784e205913639336f0c7c900a8c1c586e4029b485d9e8dd6f73ddcea6591",
+      "currentSourceRevisionSha256": "d07c784e205913639336f0c7c900a8c1c586e4029b485d9e8dd6f73ddcea6591",
+      "dbOnlySourceRevisionSha256": "d07c784e205913639336f0c7c900a8c1c586e4029b485d9e8dd6f73ddcea6591",
+      "sourceStableSinceSnapshot": true,
+      "operationalSealed": false,
+      "observedAt": "2026-09-09T18:51:48.883Z",
+      "sourceStableSincePriorMonitor": true,
+      "baselineCohort": true,
+      "disposition": "qualification_conflict",
+      "assessment": "포털의 7년 이내·신산업 10년 미만 예외와 새로 읽힌 포스터의 설립 7년 미만이 다르다. 기술 보유 조건도 추가되며 원 공고 PDF는 여전히 미투입이다. 우선순위를 추정해 덮어쓰지 않는다.",
+      "newlyLoadedBlocks": [
+        {
+          "label": "첨부 공고문: [포스터] 2026년 서울창업허브M+ 글로벌 오픈 이노베이션 참가기업 모집.txt",
+          "chars": 623,
+          "truncated": false
+        }
+      ],
+      "sourceExcerpts": [
+        {
+          "text": "모집대상 : 모집 분야 해당 기술을 보유한 서울 소재 스타트업(설립 7년 미만)",
+          "unicodeCodePointOffset": 1855,
+          "inputSha256": "2d177cfab8114224af4adeb06cceeaab9a338734348ccc02154a031a8911ee66"
+        }
+      ],
+      "operationalBlockerCodes": [
+        "blocked_conversion"
+      ],
+      "privateEvidenceSha256": "86e14044ea2ce95f63471adc4ecd7dc730b2afcb530491ae6e7b294176946289"
+    },
+    {
+      "grantId": "26ebb680-8d19-4472-b2bc-8e0114c09cc1",
+      "source": "kstartup",
+      "sourceId": "179011",
+      "title": "2026년 하반기 경기도여성창업보육센터 입주기업 모집공고",
+      "runId": "run-2026-08-30T091812.862Z-414c5d",
+      "runSha256": "116c79e03ebf0610c57138469e27563c693858adeb62beb17454edef40eaae27",
+      "releaseId": "deep-rhwp-launch-2026-08-30-reviewed-10-r1-20260830T213436Z-0002fd68",
+      "promotionItemId": "33c108a7-0bf4-4988-ae98-275c051eec46",
+      "active": true,
+      "kindChanges": [
+        {
+          "grantId": "26ebb680-8d19-4472-b2bc-8e0114c09cc1",
+          "runId": "run-2026-08-30T091812.862Z-414c5d",
+          "criterionIndex": 6,
+          "originalKind": "required",
+          "servingKind": "exclusion",
+          "dimension": "other"
+        }
+      ],
+      "runInputSha256": "cf417418f836ded888dcd69a76a503d4f7e5114853ff78e7c9aa91af8de5d0f6",
+      "currentInputSha256": "cf417418f836ded888dcd69a76a503d4f7e5114853ff78e7c9aa91af8de5d0f6",
+      "preservedInputSha256": "cf417418f836ded888dcd69a76a503d4f7e5114853ff78e7c9aa91af8de5d0f6",
+      "inputUnchanged": true,
+      "preservedInputUnchanged": true,
+      "runAttachmentManifestSha256": "b55ca907a004b898c6ad60db30f752a0baa147071ccc497773684c2819fce513",
+      "currentAttachmentManifestSha256": "b55ca907a004b898c6ad60db30f752a0baa147071ccc497773684c2819fce513",
+      "preservedAttachmentManifestSha256": "b55ca907a004b898c6ad60db30f752a0baa147071ccc497773684c2819fce513",
+      "attachmentUnchanged": true,
+      "preservedAttachmentUnchanged": true,
+      "servingSourceRevisionSha256": "f97267af05087e4a636761caade4143284ec6e47bf19510de91135779630c1f6",
+      "priorCurrentSourceRevisionSha256": "4838305f7c7d326483238fce4d3ae2576accfdfced20f78ebb457ee55ccd2034",
+      "currentSourceRevisionSha256": "4838305f7c7d326483238fce4d3ae2576accfdfced20f78ebb457ee55ccd2034",
+      "dbOnlySourceRevisionSha256": "4838305f7c7d326483238fce4d3ae2576accfdfced20f78ebb457ee55ccd2034",
+      "sourceStableSinceSnapshot": true,
+      "operationalSealed": true,
+      "observedAt": "2026-09-09T18:51:50.129Z",
+      "sourceStableSincePriorMonitor": true,
+      "baselineCohort": true,
+      "disposition": "same_lab_input_provenance_unresolved",
+      "assessment": "현재 전체 lab 입력과 첨부 manifest는 원본 run과 같지만 operational source revision 불일치의 구성요소는 미확정이다. 안전한 재봉인 또는 재분석 불필요 판정이 아니다.",
+      "newlyLoadedBlocks": [],
+      "sourceExcerpts": [],
+      "operationalBlockerCodes": [],
+      "privateEvidenceSha256": "a152d2b494b366b6ceeb391e2945cf9060b7ea44a8663f5458c8c0582e186bdf"
+    },
+    {
+      "grantId": "28fd2924-8e78-4eef-bb84-14fe21d8f44f",
+      "source": "kstartup",
+      "sourceId": "179054",
+      "title": "[숭실대학교 캠퍼스타운] 2026 석·박사급 실험실 창업스쿨(유형2) 참여자 모집",
+      "runId": "run-2026-09-01T081154.189Z-f89618",
+      "runSha256": "76945c824bb5dd4e274605410cb6ef6f0b88c522840bfda0d92728b38759ddf3",
+      "releaseId": "deep-deep-v30-2026-09-02-r1-20260901T150815Z-f2a72ffc",
+      "promotionItemId": "32eb8167-3921-4d95-ac04-2c4aece05999",
+      "active": true,
+      "kindChanges": [],
+      "runInputSha256": "fc1131efc19bd9637eef1841321686220e96fdcadc5ca8dd0df80a4a74feea95",
+      "currentInputSha256": "fc1131efc19bd9637eef1841321686220e96fdcadc5ca8dd0df80a4a74feea95",
+      "preservedInputSha256": "fc1131efc19bd9637eef1841321686220e96fdcadc5ca8dd0df80a4a74feea95",
+      "inputUnchanged": true,
+      "preservedInputUnchanged": true,
+      "runAttachmentManifestSha256": "c91744de4de0c9b141194b67ae014a253900c726a202df06a471352528861a26",
+      "currentAttachmentManifestSha256": "c91744de4de0c9b141194b67ae014a253900c726a202df06a471352528861a26",
+      "preservedAttachmentManifestSha256": "c91744de4de0c9b141194b67ae014a253900c726a202df06a471352528861a26",
+      "attachmentUnchanged": true,
+      "preservedAttachmentUnchanged": true,
+      "servingSourceRevisionSha256": "4e6ccc8faff811ecabebc6745fdb8f67e0a984f49167ece104a513d57d7b2081",
+      "priorCurrentSourceRevisionSha256": "3f35e4e9291bffea7200974d65299db4b2e8ae5a388172a5641b221673ab480a",
+      "currentSourceRevisionSha256": "3f35e4e9291bffea7200974d65299db4b2e8ae5a388172a5641b221673ab480a",
+      "dbOnlySourceRevisionSha256": "3f35e4e9291bffea7200974d65299db4b2e8ae5a388172a5641b221673ab480a",
+      "sourceStableSinceSnapshot": true,
+      "operationalSealed": false,
+      "observedAt": "2026-09-09T18:51:50.421Z",
+      "sourceStableSincePriorMonitor": true,
+      "baselineCohort": true,
+      "disposition": "same_lab_input_provenance_unresolved",
+      "assessment": "현재 전체 lab 입력과 첨부 manifest는 원본 run과 같지만 operational source revision 불일치의 구성요소는 미확정이다. 안전한 재봉인 또는 재분석 불필요 판정이 아니다.",
+      "newlyLoadedBlocks": [],
+      "sourceExcerpts": [],
+      "operationalBlockerCodes": [
+        "blocked_fetch"
+      ],
+      "privateEvidenceSha256": "0f1d31688a889eed6880fe407d28908ef84fea2c191001094daa0ac4b20b133d"
+    },
+    {
+      "grantId": "38dfbefd-e078-4438-b714-01cd80e0655b",
+      "source": "kstartup",
+      "sourceId": "179061",
+      "title": "26년 AI·스마트전자제품 금형지원 기업모집",
+      "runId": "run-2026-08-31T225238.964Z-5be70f",
+      "runSha256": "8e2c39ddcbc7dd542439afbdb8d2c74c35d9b54fc7ebe95fc327bd5bacdd3ba8",
+      "releaseId": "deep-deep-v28-2026-09-01-release-21-r1-20260901T003102Z-058e0e46",
+      "promotionItemId": "61a1b947-b7b0-4f1a-8c21-4fc5a453601e",
+      "active": true,
+      "kindChanges": [],
+      "runInputSha256": "df6236511d18ca9e1a8648a73cfa24c716b0e903bcfb88b5cd4fba0d3bdc1c91",
+      "currentInputSha256": "df6236511d18ca9e1a8648a73cfa24c716b0e903bcfb88b5cd4fba0d3bdc1c91",
+      "preservedInputSha256": "df6236511d18ca9e1a8648a73cfa24c716b0e903bcfb88b5cd4fba0d3bdc1c91",
+      "inputUnchanged": true,
+      "preservedInputUnchanged": true,
+      "runAttachmentManifestSha256": "2c50557154f63b42169189f12160204cd7347575e1dc4f290236dc5bdb8b1a42",
+      "currentAttachmentManifestSha256": "2c50557154f63b42169189f12160204cd7347575e1dc4f290236dc5bdb8b1a42",
+      "preservedAttachmentManifestSha256": "2c50557154f63b42169189f12160204cd7347575e1dc4f290236dc5bdb8b1a42",
+      "attachmentUnchanged": true,
+      "preservedAttachmentUnchanged": true,
+      "servingSourceRevisionSha256": "ed59adf1142db4f18ed316e686c913f866eec8007863af7260843f5128a133d3",
+      "priorCurrentSourceRevisionSha256": "9457040c10d82c8ae3ad92dd5f81db7e1fbeb1dd800ecdde5bad020f275a0d9d",
+      "currentSourceRevisionSha256": "9457040c10d82c8ae3ad92dd5f81db7e1fbeb1dd800ecdde5bad020f275a0d9d",
+      "dbOnlySourceRevisionSha256": "9457040c10d82c8ae3ad92dd5f81db7e1fbeb1dd800ecdde5bad020f275a0d9d",
+      "sourceStableSinceSnapshot": true,
+      "operationalSealed": false,
+      "observedAt": "2026-09-09T18:51:51.186Z",
+      "sourceStableSincePriorMonitor": true,
+      "baselineCohort": true,
+      "disposition": "same_lab_input_provenance_unresolved",
+      "assessment": "현재 전체 lab 입력과 첨부 manifest는 원본 run과 같지만 operational source revision 불일치의 구성요소는 미확정이다. 안전한 재봉인 또는 재분석 불필요 판정이 아니다.",
+      "newlyLoadedBlocks": [],
+      "sourceExcerpts": [],
+      "operationalBlockerCodes": [
+        "blocked_conversion"
+      ],
+      "privateEvidenceSha256": "a5a8f16fecb99b56fea15507c996dba3a53badafa7bfd1da2e7840c65b204410"
+    },
+    {
+      "grantId": "3ff8d603-217e-4d74-8a57-78d91311e42a",
+      "source": "kstartup",
+      "sourceId": "179064",
+      "title": "「2026 투자유치 프로그램: 멘토링」참가기업 모집 공고",
+      "runId": "run-2026-08-30T093144.421Z-6e8bb1",
+      "runSha256": "8d9e28cfb99e72108d7005b18200319511323b7fb5797c88f4edabc4936ae7aa",
+      "releaseId": "deep-rhwp-launch-2026-08-30-reviewed-10-r1-20260830T213436Z-0002fd68",
+      "promotionItemId": "470d9320-5a51-4eb6-ab57-18f173453b6a",
+      "active": true,
+      "kindChanges": [
+        {
+          "grantId": "3ff8d603-217e-4d74-8a57-78d91311e42a",
+          "runId": "run-2026-08-30T093144.421Z-6e8bb1",
+          "criterionIndex": 1,
+          "originalKind": "required",
+          "servingKind": "exclusion",
+          "dimension": "other"
+        }
+      ],
+      "runInputSha256": "1ad83054b4c6cb31af83ce0a3305d51711c69dd885775a551081ba2dac7e57de",
+      "currentInputSha256": "1f8af854f246dc475dbea77974acf3846dccd94e25fa7806bf2219bf7c167859",
+      "preservedInputSha256": "1ad83054b4c6cb31af83ce0a3305d51711c69dd885775a551081ba2dac7e57de",
+      "inputUnchanged": false,
+      "preservedInputUnchanged": true,
+      "runAttachmentManifestSha256": "498e8c8b27cb4a6acaa24207d5d8564bdefe3bd4bbfd5b7fae22728ac7312b95",
+      "currentAttachmentManifestSha256": "543048988980707a50d5d745dbd9bede7984eb917dc20c440dfb689fcb61501e",
+      "preservedAttachmentManifestSha256": "aed7805754e14f89cb97e48978a376c9fd46dec9ca758f16073ebf8cf3a437b8",
+      "attachmentUnchanged": false,
+      "preservedAttachmentUnchanged": false,
+      "servingSourceRevisionSha256": "7df48d9a75ca99bede5b238314f7571956f56593d75f653f7dac5b916f01a00d",
+      "priorCurrentSourceRevisionSha256": "3355ac666594338222a5b2126b13dfb54bada8d325d3c9ccabc26ecdeadf8233",
+      "currentSourceRevisionSha256": "3355ac666594338222a5b2126b13dfb54bada8d325d3c9ccabc26ecdeadf8233",
+      "dbOnlySourceRevisionSha256": "3355ac666594338222a5b2126b13dfb54bada8d325d3c9ccabc26ecdeadf8233",
+      "sourceStableSinceSnapshot": true,
+      "operationalSealed": true,
+      "observedAt": "2026-09-09T18:51:51.917Z",
+      "sourceStableSincePriorMonitor": true,
+      "baselineCohort": true,
+      "disposition": "eligibility_and_preference_detail",
+      "assessment": "기존 주요 신청·제외 요건은 첨부에 반복되지만 투자유치·멘토링 활용계획 적부 심사와 교육 이력·투자 이력·여성기업 가점이 추가된다. 기존 run은 preferred 항목이 없다.",
+      "newlyLoadedBlocks": [
+        {
+          "label": "첨부 공고문: 2026 투자유치 프로그램 멘토링 참가기업 모집 공고.hwp",
+          "chars": 4930,
+          "truncated": false
+        }
+      ],
+      "sourceExcerpts": [
+        {
+          "text": "멘토링 활용 · 참여 계획 수립 여부",
+          "unicodeCodePointOffset": 3061,
+          "inputSha256": "1f8af854f246dc475dbea77974acf3846dccd94e25fa7806bf2219bf7c167859"
+        },
+        {
+          "text": "26년 IR 교육 참여 여부(회당 1점, 최대 3점)",
+          "unicodeCodePointOffset": 3103,
+          "inputSha256": "1f8af854f246dc475dbea77974acf3846dccd94e25fa7806bf2219bf7c167859"
+        }
+      ],
+      "operationalBlockerCodes": [],
+      "privateEvidenceSha256": "ed7851c106a541b6ba3c3f8a2408598006752c3e872aa86604af6247bef02fdd"
+    },
+    {
+      "grantId": "6639bc53-d0e9-4b87-93d0-3625f8eed134",
+      "source": "kstartup",
+      "sourceId": "179010",
+      "title": "2026 오픈소스 로봇 손(Amazing Hand)으로 배우는 Physical AI 실습 교육",
+      "runId": "run-2026-08-31T204818.968Z-43b369",
+      "runSha256": "a7b6b89b104b3b9c69eb9ebc931aeaad53ea36228df825864f37c6734f19af30",
+      "releaseId": "deep-deep-v28-2026-09-01-release-21-r1-20260901T003102Z-058e0e46",
+      "promotionItemId": "afbb2169-78df-4586-a78c-df65fcedb9c6",
+      "active": true,
+      "kindChanges": [],
+      "runInputSha256": "ebd34e4c140ed492c50934a5f726116e91f13b88f66bb94936d73f4d7f993c90",
+      "currentInputSha256": "ebd34e4c140ed492c50934a5f726116e91f13b88f66bb94936d73f4d7f993c90",
+      "preservedInputSha256": "ebd34e4c140ed492c50934a5f726116e91f13b88f66bb94936d73f4d7f993c90",
+      "inputUnchanged": true,
+      "preservedInputUnchanged": true,
+      "runAttachmentManifestSha256": "add20e2f758f096594bda310259989265fc7a7aecb9a00a2431f3ea512f95eb6",
+      "currentAttachmentManifestSha256": "add20e2f758f096594bda310259989265fc7a7aecb9a00a2431f3ea512f95eb6",
+      "preservedAttachmentManifestSha256": "add20e2f758f096594bda310259989265fc7a7aecb9a00a2431f3ea512f95eb6",
+      "attachmentUnchanged": true,
+      "preservedAttachmentUnchanged": true,
+      "servingSourceRevisionSha256": "98bef54bccad37e24d41595dba1e1fae7363c1ef8f1a795e8235efab36274366",
+      "priorCurrentSourceRevisionSha256": "6ff622862feebd96da2093aa9202fc48e24cf8807268e4927fb22759866e0f6c",
+      "currentSourceRevisionSha256": "6ff622862feebd96da2093aa9202fc48e24cf8807268e4927fb22759866e0f6c",
+      "dbOnlySourceRevisionSha256": "6ff622862feebd96da2093aa9202fc48e24cf8807268e4927fb22759866e0f6c",
+      "sourceStableSinceSnapshot": true,
+      "operationalSealed": false,
+      "observedAt": "2026-09-09T18:51:52.197Z",
+      "sourceStableSincePriorMonitor": true,
+      "baselineCohort": true,
+      "disposition": "same_lab_input_provenance_unresolved",
+      "assessment": "현재 전체 lab 입력과 첨부 manifest는 원본 run과 같지만 operational source revision 불일치의 구성요소는 미확정이다. 안전한 재봉인 또는 재분석 불필요 판정이 아니다.",
+      "newlyLoadedBlocks": [],
+      "sourceExcerpts": [],
+      "operationalBlockerCodes": [
+        "blocked_fetch"
+      ],
+      "privateEvidenceSha256": "c6d4b484a61ccb84fad6d67d1ecbfe096cf65a1b31382a848657cf7c1a62ed9f"
+    },
+    {
+      "grantId": "68a8ae09-ccbd-4610-aa26-77cd9944894e",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000123719",
+      "title": "2026년 3차 품질보증조달물품 지정계획 공고",
+      "runId": "run-2026-08-16T113948.040Z-cd6092",
+      "runSha256": "17de7020d40a3470775f3aa4f9e31959c1f98f4669e237cb37078580e21f92cd",
+      "releaseId": "deep-deep-v21-closed-beta-seq-0-8-r2-20260816T231937Z-0dcd5712",
+      "promotionItemId": "2b2164e0-da9f-4723-96bf-b9bf686f2a90",
+      "active": true,
+      "kindChanges": [],
+      "runInputSha256": "89cbd98e28c3d7b324d0fb59651bfeda3cd3d1f5776d561425d18e00dc1eb99d",
+      "currentInputSha256": "39843925e62fe1c3823a95b96c89e123ba7c1bb7edb7eeeba2cfcfebce387a35",
+      "preservedInputSha256": "89cbd98e28c3d7b324d0fb59651bfeda3cd3d1f5776d561425d18e00dc1eb99d",
+      "inputUnchanged": false,
+      "preservedInputUnchanged": true,
+      "runAttachmentManifestSha256": "dfc5358d21e7f6e6af1e141de2e8727669e38b1e1aee362035d1ee29220cd7eb",
+      "currentAttachmentManifestSha256": "16ca2ee91f00efadbab93a860a5c63b97d508f3d0e50155af357085b81013c19",
+      "preservedAttachmentManifestSha256": "dfc5358d21e7f6e6af1e141de2e8727669e38b1e1aee362035d1ee29220cd7eb",
+      "attachmentUnchanged": false,
+      "preservedAttachmentUnchanged": true,
+      "servingSourceRevisionSha256": "060d639c0d92057c3630a00469f494f6e0559aeecbed408accd9beaab35fbfbd",
+      "priorCurrentSourceRevisionSha256": "b8848ac61b8f1387c91fa202329fa8e6c048cf22ac4acd7b8b279bcb01a8e41e",
+      "currentSourceRevisionSha256": "b8848ac61b8f1387c91fa202329fa8e6c048cf22ac4acd7b8b279bcb01a8e41e",
+      "dbOnlySourceRevisionSha256": "b8848ac61b8f1387c91fa202329fa8e6c048cf22ac4acd7b8b279bcb01a8e41e",
+      "sourceStableSinceSnapshot": true,
+      "operationalSealed": true,
+      "observedAt": "2026-09-09T18:51:54.923Z",
+      "sourceStableSincePriorMonitor": true,
+      "baselineCohort": true,
+      "disposition": "exclusion_coverage_gap",
+      "assessment": "새로 읽힌 지정·관리규정 제10조에 입찰 참가 제한, 부도·파산·폐업과 회생절차 예외 등이 있다. 기존 run에는 exclusion 항목이 없어 자격 영향 재검수가 필요하다.",
+      "newlyLoadedBlocks": [
+        {
+          "label": "첨부 공고문: 2. 품질보증조달물품 지정계획 공고 별첨문서(3차)__02__3. 품질보증조달물품 지정 및 관리규정(조달청고시)(제2026-35호).hwp",
+          "chars": 47427,
+          "truncated": false
+        }
+      ],
+      "sourceExcerpts": [
+        {
+          "text": "부정당업자로서 입찰 참가자격 제한 중에 있는 자",
+          "unicodeCodePointOffset": 27927,
+          "inputSha256": "39843925e62fe1c3823a95b96c89e123ba7c1bb7edb7eeeba2cfcfebce387a35"
+        },
+        {
+          "text": "회생절차가 개시된 때에는 심사대상에 포함",
+          "unicodeCodePointOffset": 27990,
+          "inputSha256": "39843925e62fe1c3823a95b96c89e123ba7c1bb7edb7eeeba2cfcfebce387a35"
+        }
+      ],
+      "operationalBlockerCodes": [],
+      "privateEvidenceSha256": "bea887260931423a79278a2d24216b0771f2a15cbb1818a56ae66067c0bc8746"
+    },
+    {
+      "grantId": "6f5c4bf2-1fc1-4b46-9f8f-5cfbae10ccde",
+      "source": "kstartup",
+      "sourceId": "178927",
+      "title": "2026 큐네스티 소셜임팩트 TIPS IR 데모데이 참가기업 모집 (@ 배민스타트업스퀘어)",
+      "runId": "run-2026-09-01T001004.785Z-00b703",
+      "runSha256": "ed5ccba0eece834c953fcfadce595520fb50188bd0bac9084a6619a31a77c143",
+      "releaseId": "deep-deep-v28-2026-09-01-release-21-r1-20260901T003102Z-058e0e46",
+      "promotionItemId": "8d7bef24-dc60-4c09-bcfa-8c9113628851",
+      "active": true,
+      "kindChanges": [],
+      "runInputSha256": "02140cd31d19bf23489e3414d6961e5dabf864b8fbaa01a13691d480c7eb7f2c",
+      "currentInputSha256": "02140cd31d19bf23489e3414d6961e5dabf864b8fbaa01a13691d480c7eb7f2c",
+      "preservedInputSha256": "02140cd31d19bf23489e3414d6961e5dabf864b8fbaa01a13691d480c7eb7f2c",
+      "inputUnchanged": true,
+      "preservedInputUnchanged": true,
+      "runAttachmentManifestSha256": "884e74db013c0cdf3b52b76ea00869e4f630346e96a294f42d6833e4ab3c88e6",
+      "currentAttachmentManifestSha256": "884e74db013c0cdf3b52b76ea00869e4f630346e96a294f42d6833e4ab3c88e6",
+      "preservedAttachmentManifestSha256": "884e74db013c0cdf3b52b76ea00869e4f630346e96a294f42d6833e4ab3c88e6",
+      "attachmentUnchanged": true,
+      "preservedAttachmentUnchanged": true,
+      "servingSourceRevisionSha256": "52e952ed85d8213675de804e804f243d5d43742c05bbd79cfb597fa31d4d47e1",
+      "priorCurrentSourceRevisionSha256": "73084ca99bfeb8dc9bb2efbb1a54cbae68ad3ded0f9d375f0dc656083126fcbf",
+      "currentSourceRevisionSha256": "73084ca99bfeb8dc9bb2efbb1a54cbae68ad3ded0f9d375f0dc656083126fcbf",
+      "dbOnlySourceRevisionSha256": "73084ca99bfeb8dc9bb2efbb1a54cbae68ad3ded0f9d375f0dc656083126fcbf",
+      "sourceStableSinceSnapshot": true,
+      "operationalSealed": false,
+      "observedAt": "2026-09-09T18:51:55.649Z",
+      "sourceStableSincePriorMonitor": true,
+      "baselineCohort": true,
+      "disposition": "same_lab_input_provenance_unresolved",
+      "assessment": "현재 전체 lab 입력과 첨부 manifest는 원본 run과 같지만 operational source revision 불일치의 구성요소는 미확정이다. 안전한 재봉인 또는 재분석 불필요 판정이 아니다.",
+      "newlyLoadedBlocks": [],
+      "sourceExcerpts": [],
+      "operationalBlockerCodes": [
+        "blocked_conversion"
+      ],
+      "privateEvidenceSha256": "2aa6654d20214e31ff8abdfc4f545a5f7db89bca7b0dc17d8f1579081105a441"
+    },
+    {
+      "grantId": "83c55377-8794-450f-bc3f-4b3b50232981",
+      "source": "kstartup",
+      "sourceId": "179068",
+      "title": "싱가포르 현지 진출 지원 국내 블록체인 기업 모집",
+      "runId": "run-2026-08-30T093301.415Z-7456b9",
+      "runSha256": "f5311e78c827dc4a5c34841df530823bfaa5c2a6d0a8a13c7941d21779c066e4",
+      "releaseId": "deep-rhwp-launch-2026-08-30-reviewed-10-r1-20260830T213436Z-0002fd68",
+      "promotionItemId": "73a7b40a-8e42-428a-8125-f4c4fd6505bf",
+      "active": true,
+      "kindChanges": [],
+      "runInputSha256": "7d79d2b9a4f9e3b3e2441503ab36ce7f8707bb7047a723df14f609bca590b030",
+      "currentInputSha256": "c343d741d3c95f7811a2ce61270aa1a458a4f6fa640dbe02c8326261242ca328",
+      "preservedInputSha256": "7d79d2b9a4f9e3b3e2441503ab36ce7f8707bb7047a723df14f609bca590b030",
+      "inputUnchanged": false,
+      "preservedInputUnchanged": true,
+      "runAttachmentManifestSha256": "a2bbda9bfd34b503f97520832f4c6ef47a37046e8378a058f52d9935de65f506",
+      "currentAttachmentManifestSha256": "c2bf7be232bcb7e528df9ce00bafa1fbb8c6e65a79c08f15abaedf78533fcde4",
+      "preservedAttachmentManifestSha256": "698c7647041ff983edb403257fa3005c39b617d978320d3c94da3ff5f180263a",
+      "attachmentUnchanged": false,
+      "preservedAttachmentUnchanged": false,
+      "servingSourceRevisionSha256": "595ee9dced072dce4ebfaf990e03a05d713f34ca3f8d88616e94271fbfb4d90b",
+      "priorCurrentSourceRevisionSha256": "4449aed0272953ea0e6eac367cdcdfccc672d23d882fee27988e135501ba376c",
+      "currentSourceRevisionSha256": "4449aed0272953ea0e6eac367cdcdfccc672d23d882fee27988e135501ba376c",
+      "dbOnlySourceRevisionSha256": "4449aed0272953ea0e6eac367cdcdfccc672d23d882fee27988e135501ba376c",
+      "sourceStableSinceSnapshot": true,
+      "operationalSealed": true,
+      "observedAt": "2026-09-09T18:51:56.732Z",
+      "sourceStableSincePriorMonitor": true,
+      "baselineCohort": true,
+      "disposition": "exclusion_and_age_boundary_gap",
+      "assessment": "공고 첨부에 업력 10년 이내와 채무불이행·체납·휴폐업·체불 등 제외 요건이 명시된다. 기존 run은 제외 조건 없이 포털의 10년 미만을 해석했다.",
+      "newlyLoadedBlocks": [
+        {
+          "label": "첨부 공고문: [공고문] 싱가포르 현지 진출 지원 국내 블록체인 기업 모집.hwpx",
+          "chars": 6230,
+          "truncated": false
+        },
+        {
+          "label": "첨부 공고문: [신청서식] 싱가포르 현지 진출 지원 국내 블록체인 기업 모집.hwpx",
+          "chars": 2794,
+          "truncated": false
+        }
+      ],
+      "sourceExcerpts": [
+        {
+          "text": "(업력 10년 이내)",
+          "unicodeCodePointOffset": 1911,
+          "inputSha256": "c343d741d3c95f7811a2ce61270aa1a458a4f6fa640dbe02c8326261242ca328"
+        },
+        {
+          "text": "국세 또는 지방세 체납 중인 자 (기업)",
+          "unicodeCodePointOffset": 3126,
+          "inputSha256": "c343d741d3c95f7811a2ce61270aa1a458a4f6fa640dbe02c8326261242ca328"
+        }
+      ],
+      "operationalBlockerCodes": [],
+      "privateEvidenceSha256": "4e5a6ea5d6e122bbcf9eeecf5a18061ce525b80bde819adec596dcacc960737a"
+    },
+    {
+      "grantId": "87d36b6f-23f3-4484-8f08-fe8394ba5e10",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000123385",
+      "title": "[부산] 2026년 노동권익센터 동네방네 노무사 사업 참여사업장 모집 공고",
+      "runId": "run-2026-08-16T112508.431Z-aadeee",
+      "runSha256": "fef17148cb2ce735b4ad5e33a67c30beb95e17e37fe05a3124c976dedf543e4a",
+      "releaseId": "deep-deep-v21-closed-beta-seq-0-8-r2-20260816T231937Z-0dcd5712",
+      "promotionItemId": "fae1837c-67fd-4586-be3a-6ee7352a0ff8",
+      "active": true,
+      "kindChanges": [],
+      "runInputSha256": "ee26c0038e4f65cfb51b8f2b063818c9b17e92ce9917c23d724847cdc23d15bd",
+      "currentInputSha256": "75e69822af1c77eca0b134e61e63c1b2aa972dadd92da91aa23ee6a0539301a5",
+      "preservedInputSha256": "ee26c0038e4f65cfb51b8f2b063818c9b17e92ce9917c23d724847cdc23d15bd",
+      "inputUnchanged": false,
+      "preservedInputUnchanged": true,
+      "runAttachmentManifestSha256": "7424923e47e81d6f9fc9a0c2b9cc5c25beb4fab8df7da80942bf2efbddd8239d",
+      "currentAttachmentManifestSha256": "1a4d98d97a793a2adcba74170a4aef81591ef07e8067ab4201169e3eeb927412",
+      "preservedAttachmentManifestSha256": "e663a410de5bd0974f4952c768f32d06f334185f910b19b731cd9b265e637a79",
+      "attachmentUnchanged": false,
+      "preservedAttachmentUnchanged": false,
+      "servingSourceRevisionSha256": "1c054364a5d478a36672df5ea7dfa024ecb76331951544f2872c62cc1cc50595",
+      "priorCurrentSourceRevisionSha256": "cfe0e148fc34b567294a443d5d7ea9dca2eee9d1667b2086861fd704475b3cc2",
+      "currentSourceRevisionSha256": "cfe0e148fc34b567294a443d5d7ea9dca2eee9d1667b2086861fd704475b3cc2",
+      "dbOnlySourceRevisionSha256": "cfe0e148fc34b567294a443d5d7ea9dca2eee9d1667b2086861fd704475b3cc2",
+      "sourceStableSinceSnapshot": true,
+      "operationalSealed": true,
+      "observedAt": "2026-09-09T18:51:57.753Z",
+      "sourceStableSincePriorMonitor": true,
+      "baselineCohort": true,
+      "disposition": "subprogram_threshold_gap",
+      "assessment": "신청서에서 노무관리 진단·괴롭힘 조사 지원은 30인 미만, 임금명세서 지원은 10인 미만으로 갈린다. 기존 공고 단위 employees <=29만으로 모든 세부 지원을 판정할 수 없다.",
+      "newlyLoadedBlocks": [
+        {
+          "label": "첨부 공고문: 붙임2. 개인 및 기업정보 수집등 동의서.hwp",
+          "chars": 1420,
+          "truncated": false
+        },
+        {
+          "label": "첨부 공고문: 붙임1. 신청서(26년동네방네노무사).hwp",
+          "chars": 714,
+          "truncated": false
+        }
+      ],
+      "sourceExcerpts": [
+        {
+          "text": "부산소재 10인 미만 사업장",
+          "unicodeCodePointOffset": 3064,
+          "inputSha256": "75e69822af1c77eca0b134e61e63c1b2aa972dadd92da91aa23ee6a0539301a5"
+        }
+      ],
+      "operationalBlockerCodes": [],
+      "privateEvidenceSha256": "dd49d1aa06937ade78a3f984fa0e8c72d88683e0eb203a5d0b431ed256763562"
+    },
+    {
+      "grantId": "9e84871c-fc08-45d3-b883-4e77cd5a8b1c",
+      "source": "kstartup",
+      "sourceId": "178952",
+      "title": "「모두의 창업 프로젝트」통합 모집공고 2차",
+      "runId": "run-2026-08-31T000455.761Z-ec61d2",
+      "runSha256": "1e7322cc0b597c61ba0de150aa08db9236aa5fc43e2add485ed4ab4201d7074f",
+      "releaseId": "deep-deep-v27-2026-08-31-release-26-r2-20260831T060309Z-8bf7be8e",
+      "promotionItemId": "5b54fb99-58f8-4b7a-afa2-3b891fb2e6c9",
+      "active": true,
+      "kindChanges": [],
+      "runInputSha256": "97e70486fb2ecab329ce4e535b82828c038e24b255ec3da430915355aa4ebe59",
+      "currentInputSha256": "bfe9c8c5ca363882f9a3ba63144d4f0cbe30067d90ab4a7e0e60611359a9d651",
+      "preservedInputSha256": "97e70486fb2ecab329ce4e535b82828c038e24b255ec3da430915355aa4ebe59",
+      "inputUnchanged": false,
+      "preservedInputUnchanged": true,
+      "runAttachmentManifestSha256": "90ee409a1e88e8cd30a9ffc170a947bb3e070da4879717936c9562c42bb585fa",
+      "currentAttachmentManifestSha256": "2ab74f28a53f764d82a3a7452085c3fda795e12cfbbae7026af973806e8ac423",
+      "preservedAttachmentManifestSha256": "1bce9477d23aa089cb8acf5f1c7f88dc3c68972d1cb49130bb2074a8484971d5",
+      "attachmentUnchanged": false,
+      "preservedAttachmentUnchanged": false,
+      "servingSourceRevisionSha256": "b61c45d789943844323d9b958604af0b371d3f52ee15e97760bf7194c66ff076",
+      "priorCurrentSourceRevisionSha256": "4492105ab979cc117632312d8aa11247234c64e7d6387258e60f78dcbfa33222",
+      "currentSourceRevisionSha256": "4492105ab979cc117632312d8aa11247234c64e7d6387258e60f78dcbfa33222",
+      "dbOnlySourceRevisionSha256": "4492105ab979cc117632312d8aa11247234c64e7d6387258e60f78dcbfa33222",
+      "sourceStableSinceSnapshot": true,
+      "operationalSealed": false,
+      "observedAt": "2026-09-09T18:51:58.517Z",
+      "sourceStableSincePriorMonitor": true,
+      "baselineCohort": true,
+      "disposition": "age_boundary_and_track_gap",
+      "assessment": "첨부는 7년 이내와 트랙별 사업자등록·이종창업 시점, 제외 조건 및 예외를 포함한다. 기존 run의 83개월 이하와 대조가 필요하다.",
+      "newlyLoadedBlocks": [
+        {
+          "label": "첨부 공고문: (붙임) 제2026-511호 「모두의 창업 프로젝트」 통합 모집공고 2차.hwpx",
+          "chars": 29527,
+          "truncated": false
+        }
+      ],
+      "sourceExcerpts": [
+        {
+          "text": "예비창업자 또는 업력 7년 이내 기창업자",
+          "unicodeCodePointOffset": 2042,
+          "inputSha256": "bfe9c8c5ca363882f9a3ba63144d4f0cbe30067d90ab4a7e0e60611359a9d651"
+        },
+        {
+          "text": "3R 라운드 진출 시 이종창업(다른업종) 사업자등록 필수",
+          "unicodeCodePointOffset": 2069,
+          "inputSha256": "bfe9c8c5ca363882f9a3ba63144d4f0cbe30067d90ab4a7e0e60611359a9d651"
+        }
+      ],
+      "operationalBlockerCodes": [
+        "blocked_conversion"
+      ],
+      "privateEvidenceSha256": "acef7b660c3b3b654d595bd8fff88fe3e74d1e10ead4d36bdcc6378feff8316b"
+    },
+    {
+      "grantId": "a9a1d08e-a265-4cd4-add3-a9eaab1f19ac",
+      "source": "kstartup",
+      "sourceId": "179009",
+      "title": "2026 경기 스타트업 서밋(G-SUMMIT 2026) 사전등록 오픈",
+      "runId": "run-2026-08-30T225542.376Z-ea2ec5",
+      "runSha256": "71d80c394387ac789e45fad903c0b2f2aa56c4a3e8ba95681b59c5a79596473f",
+      "releaseId": "deep-deep-v27-2026-08-31-release-26-r2-20260831T060309Z-8bf7be8e",
+      "promotionItemId": "412e268d-6132-4ecc-a033-338fee320052",
+      "active": true,
+      "kindChanges": [],
+      "runInputSha256": "15bdbc16ccab3a15b22175539e3311d11b915fde9d1a5a95e3e57a32ae8f5ef6",
+      "currentInputSha256": "15bdbc16ccab3a15b22175539e3311d11b915fde9d1a5a95e3e57a32ae8f5ef6",
+      "preservedInputSha256": "15bdbc16ccab3a15b22175539e3311d11b915fde9d1a5a95e3e57a32ae8f5ef6",
+      "inputUnchanged": true,
+      "preservedInputUnchanged": true,
+      "runAttachmentManifestSha256": "1449f91a3bb5f5a533ad9eda3b9c5270090d17d618f6f47ef712cfde4de7d7a9",
+      "currentAttachmentManifestSha256": "1449f91a3bb5f5a533ad9eda3b9c5270090d17d618f6f47ef712cfde4de7d7a9",
+      "preservedAttachmentManifestSha256": "1449f91a3bb5f5a533ad9eda3b9c5270090d17d618f6f47ef712cfde4de7d7a9",
+      "attachmentUnchanged": true,
+      "preservedAttachmentUnchanged": true,
+      "servingSourceRevisionSha256": "2b398d1625602d570e5c2ce14dc08a65ce504f9c3f98e7ef5b0207e8b291e815",
+      "priorCurrentSourceRevisionSha256": "55dff41dbbebaf0dfd28a20095e37c7a4b8efccc427c01bc112891d69fb6c954",
+      "currentSourceRevisionSha256": "55dff41dbbebaf0dfd28a20095e37c7a4b8efccc427c01bc112891d69fb6c954",
+      "dbOnlySourceRevisionSha256": "55dff41dbbebaf0dfd28a20095e37c7a4b8efccc427c01bc112891d69fb6c954",
+      "sourceStableSinceSnapshot": true,
+      "operationalSealed": true,
+      "observedAt": "2026-09-09T18:51:58.799Z",
+      "sourceStableSincePriorMonitor": true,
+      "baselineCohort": true,
+      "disposition": "same_lab_input_provenance_unresolved",
+      "assessment": "현재 전체 lab 입력과 첨부 manifest는 원본 run과 같지만 operational source revision 불일치의 구성요소는 미확정이다. 안전한 재봉인 또는 재분석 불필요 판정이 아니다.",
+      "newlyLoadedBlocks": [],
+      "sourceExcerpts": [],
+      "operationalBlockerCodes": [],
+      "privateEvidenceSha256": "09088cdd450842df6070e41f745f29cbb0fdd3c3bc65aa5d97fca2d56bd16c69"
+    },
+    {
+      "grantId": "bf4a7f10-b98f-467b-b6b9-27f92e35dd58",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000124661",
+      "title": "[전북] 2026년 오픈랩 활용 기술지원 프로그램 참여기업 모집 공고(거점기관 개방형 혁신사업)",
+      "runId": "run-2026-08-16T115426.057Z-7c375c",
+      "runSha256": "86fd9c875f6390bf60d24e8a40c780d554da71db59b23ebfd79c1c406bed9efd",
+      "releaseId": "deep-deep-v21-closed-beta-seq-0-8-r2-20260816T231937Z-0dcd5712",
+      "promotionItemId": "13fb1f24-bda4-45c9-add0-7ca2f27ee4ca",
+      "active": true,
+      "kindChanges": [
+        {
+          "grantId": "bf4a7f10-b98f-467b-b6b9-27f92e35dd58",
+          "runId": "run-2026-08-16T115426.057Z-7c375c",
+          "criterionIndex": 1,
+          "originalKind": "required",
+          "servingKind": "exclusion",
+          "dimension": "other"
+        }
+      ],
+      "runInputSha256": "9cdd7ef11137d2cb8c2581297438d602ec828eb520e61d23d8617bb6590a4de9",
+      "currentInputSha256": "9cdd7ef11137d2cb8c2581297438d602ec828eb520e61d23d8617bb6590a4de9",
+      "preservedInputSha256": "9cdd7ef11137d2cb8c2581297438d602ec828eb520e61d23d8617bb6590a4de9",
+      "inputUnchanged": true,
+      "preservedInputUnchanged": true,
+      "runAttachmentManifestSha256": "6dff8bbcfce1f2cf23c5919f239bf5ced94c7859436fe84cd3ddc9ad0adc9e57",
+      "currentAttachmentManifestSha256": "1211a09b4cdc056813087338ea7b30863634fea47f95a32022b0614dc6a7eeb2",
+      "preservedAttachmentManifestSha256": "1211a09b4cdc056813087338ea7b30863634fea47f95a32022b0614dc6a7eeb2",
+      "attachmentUnchanged": false,
+      "preservedAttachmentUnchanged": false,
+      "servingSourceRevisionSha256": "8129177e768fd0d4567a6b07d0736d469012fddce6412353fdd29da0ba9b7bd5",
+      "priorCurrentSourceRevisionSha256": "41ac947a6b521b94529d806df8fc86f296a77ddb0d4ca8aa057af40de5b6b723",
+      "currentSourceRevisionSha256": "41ac947a6b521b94529d806df8fc86f296a77ddb0d4ca8aa057af40de5b6b723",
+      "dbOnlySourceRevisionSha256": "41ac947a6b521b94529d806df8fc86f296a77ddb0d4ca8aa057af40de5b6b723",
+      "sourceStableSinceSnapshot": true,
+      "operationalSealed": false,
+      "observedAt": "2026-09-09T18:51:59.070Z",
+      "sourceStableSincePriorMonitor": true,
+      "baselineCohort": true,
+      "disposition": "same_text_attachment_binding_changed",
+      "assessment": "전체 lab 입력 텍스트는 같지만 첨부 manifest가 다르며 해당 첨부는 계속 미투입이다. 포인터·선언 SHA·로드 상태의 역사 대조가 필요하다.",
+      "newlyLoadedBlocks": [],
+      "sourceExcerpts": [],
+      "operationalBlockerCodes": [
+        "blocked_fetch"
+      ],
+      "privateEvidenceSha256": "44ebf1d4478f164cb37ce50af191c61a1c87eb81c2f300baa0e563985a3d683f"
+    },
+    {
+      "grantId": "c232e2c8-92f8-4ec0-b1e7-123ebdefcc66",
+      "source": "kstartup",
+      "sourceId": "179057",
+      "title": "2026 대덕특구 딥테크 혁신성장 플랫폼(전략기술 발굴 및 매칭) (9/1 ~ 9/30)",
+      "runId": "run-2026-09-01T085745.132Z-9675d9",
+      "runSha256": "68fbebd4fc1b6793901eab710fa50169e18532e3e7739844b2b273883d9eec12",
+      "releaseId": "deep-deep-v30-2026-09-02-r1-20260901T150815Z-f2a72ffc",
+      "promotionItemId": "adc37fb5-e97a-4209-9995-a47b464f13cc",
+      "active": true,
+      "kindChanges": [],
+      "runInputSha256": "b6a0bbc36530eabfeecde3d90056dd856930c394709e36526617b16201efadf3",
+      "currentInputSha256": "b6a0bbc36530eabfeecde3d90056dd856930c394709e36526617b16201efadf3",
+      "preservedInputSha256": "b6a0bbc36530eabfeecde3d90056dd856930c394709e36526617b16201efadf3",
+      "inputUnchanged": true,
+      "preservedInputUnchanged": true,
+      "runAttachmentManifestSha256": "405b269b04a713f7d77f2fba6921dbd2d208fa56edbf17796a058f22e6406479",
+      "currentAttachmentManifestSha256": "405b269b04a713f7d77f2fba6921dbd2d208fa56edbf17796a058f22e6406479",
+      "preservedAttachmentManifestSha256": "405b269b04a713f7d77f2fba6921dbd2d208fa56edbf17796a058f22e6406479",
+      "attachmentUnchanged": true,
+      "preservedAttachmentUnchanged": true,
+      "servingSourceRevisionSha256": "b72484dcc16c6802ffee89c6568d3147c14580ddde54ad1f5a8d9280ad4d96c9",
+      "priorCurrentSourceRevisionSha256": "39cb2b91d39513dbe1ddaf3a2d98d3e3480a234e723a74b10f7c19ce00f7acb4",
+      "currentSourceRevisionSha256": "39cb2b91d39513dbe1ddaf3a2d98d3e3480a234e723a74b10f7c19ce00f7acb4",
+      "dbOnlySourceRevisionSha256": "39cb2b91d39513dbe1ddaf3a2d98d3e3480a234e723a74b10f7c19ce00f7acb4",
+      "sourceStableSinceSnapshot": true,
+      "operationalSealed": false,
+      "observedAt": "2026-09-09T18:51:59.354Z",
+      "sourceStableSincePriorMonitor": true,
+      "baselineCohort": true,
+      "disposition": "same_lab_input_provenance_unresolved",
+      "assessment": "현재 전체 lab 입력과 첨부 manifest는 원본 run과 같지만 operational source revision 불일치의 구성요소는 미확정이다. 안전한 재봉인 또는 재분석 불필요 판정이 아니다.",
+      "newlyLoadedBlocks": [],
+      "sourceExcerpts": [],
+      "operationalBlockerCodes": [
+        "blocked_fetch"
+      ],
+      "privateEvidenceSha256": "b579ebd8021e5ead2cea5644a44a67ece16f35da361d1a9f5677901e6a355c91"
+    },
+    {
+      "grantId": "c5455c07-6501-44ec-89bc-4bf8fd290e65",
+      "source": "kstartup",
+      "sourceId": "178930",
+      "title": "광명업사이클아트센터 2026년 하반기 가상오피스 지원기업 모집",
+      "runId": "run-2026-09-01T090004.457Z-815dbc",
+      "runSha256": "be787e007465456d54f53495fa9fdfecb3f08979ae550753a518d205ebd4c6ff",
+      "releaseId": "deep-deep-v30-2026-09-02-r1-20260901T150815Z-f2a72ffc",
+      "promotionItemId": "eb781e61-9f4b-473e-a29c-1f9eba494449",
+      "active": true,
+      "kindChanges": [
+        {
+          "grantId": "c5455c07-6501-44ec-89bc-4bf8fd290e65",
+          "runId": "run-2026-09-01T090004.457Z-815dbc",
+          "criterionIndex": 4,
+          "originalKind": "required",
+          "servingKind": "exclusion",
+          "dimension": "other"
+        }
+      ],
+      "runInputSha256": "cf01b2f35cd65a467b720fae573cafd0363920359c59029e95b7a047f56dcba2",
+      "currentInputSha256": "df4cf33317945126c940118bd7b505837b72969b3714df971920164f6cef3842",
+      "preservedInputSha256": "cf01b2f35cd65a467b720fae573cafd0363920359c59029e95b7a047f56dcba2",
+      "inputUnchanged": false,
+      "preservedInputUnchanged": true,
+      "runAttachmentManifestSha256": "f0fe9849cd039bb4f6540897c908c6bd6106bd03649447b86c1f9dab489d5b0f",
+      "currentAttachmentManifestSha256": "e823fd5970c0e254359bf82bfdf35754a86fdf30959503c907bc12a002e4332c",
+      "preservedAttachmentManifestSha256": "227e56022abe9fb6d2fdcebb404e5e39b220d6c132c60d2e674bedb2af0b915b",
+      "attachmentUnchanged": false,
+      "preservedAttachmentUnchanged": false,
+      "servingSourceRevisionSha256": "ef232dbd76def8e783a7a64316d91b77c0066d67792049c9c522aceebf079ad9",
+      "priorCurrentSourceRevisionSha256": "d1384dc2e6f7ee92cf74f5c5151d84883b58a9518498454781b458f3be8a4691",
+      "currentSourceRevisionSha256": "d1384dc2e6f7ee92cf74f5c5151d84883b58a9518498454781b458f3be8a4691",
+      "dbOnlySourceRevisionSha256": "d1384dc2e6f7ee92cf74f5c5151d84883b58a9518498454781b458f3be8a4691",
+      "sourceStableSinceSnapshot": true,
+      "operationalSealed": false,
+      "observedAt": "2026-09-09T18:52:00.109Z",
+      "sourceStableSincePriorMonitor": true,
+      "baselineCohort": true,
+      "disposition": "alternative_path_and_exclusion_gap",
+      "assessment": "타 분야 기업도 에코디자인·콘텐츠 융복합 사업 기획 시 참여 가능한 경로가 있고 체납·채무불이행·휴폐업·제재 제외가 추가된다. 기존 업종 필수 태그와 법인 제외만으로 충분하지 않다.",
+      "newlyLoadedBlocks": [
+        {
+          "label": "첨부 공고문: (공고문)가상오피스 하반기 모집.hwpx",
+          "chars": 5043,
+          "truncated": false
+        }
+      ],
+      "sourceExcerpts": [
+        {
+          "text": "타 분야 기업 중 에코디자인 및 콘텐츠 융ㆍ복합 사업을 기획하고 있는 기업은 참여 가능",
+          "unicodeCodePointOffset": 2695,
+          "inputSha256": "df4cf33317945126c940118bd7b505837b72969b3714df971920164f6cef3842"
+        },
+        {
+          "text": "국세 또는 지방세 체납 중인 자 또는 기업, 휴ㆍ폐업 중인 기업",
+          "unicodeCodePointOffset": 3405,
+          "inputSha256": "df4cf33317945126c940118bd7b505837b72969b3714df971920164f6cef3842"
+        }
+      ],
+      "operationalBlockerCodes": [
+        "blocked_conversion",
+        "blocked_fetch"
+      ],
+      "privateEvidenceSha256": "88e13aa04d440448f041cec25ff4e8c96113179a127d4eab3a319965a5b37a57"
+    },
+    {
+      "grantId": "cccd9bb2-6828-4189-b2d6-1a1bd13e44ec",
+      "source": "kstartup",
+      "sourceId": "179018",
+      "title": "2026년 중동상황 대응 「수출위기 극복 물류지원금」 지원사업 모집",
+      "runId": "run-2026-08-30T225019.805Z-f86a10",
+      "runSha256": "5b4ce29b06ff4e9b8ad934a3aa7fdfc1f7a127cc69df3a58a754987ab97ee1fa",
+      "releaseId": "deep-deep-v27-2026-08-31-release-26-r2-20260831T060309Z-8bf7be8e",
+      "promotionItemId": "73a1a845-a11d-4003-b661-33257aec03b8",
+      "active": true,
+      "kindChanges": [
+        {
+          "grantId": "cccd9bb2-6828-4189-b2d6-1a1bd13e44ec",
+          "runId": "run-2026-08-30T225019.805Z-f86a10",
+          "criterionIndex": 4,
+          "originalKind": "required",
+          "servingKind": "exclusion",
+          "dimension": "other"
+        },
+        {
+          "grantId": "cccd9bb2-6828-4189-b2d6-1a1bd13e44ec",
+          "runId": "run-2026-08-30T225019.805Z-f86a10",
+          "criterionIndex": 3,
+          "originalKind": "required",
+          "servingKind": "exclusion",
+          "dimension": "other"
+        }
+      ],
+      "runInputSha256": "a334ab1f5d978acf0c361b7c600bd5a28569de9ddb6aa35fef3ce1b56aa1be25",
+      "currentInputSha256": "a334ab1f5d978acf0c361b7c600bd5a28569de9ddb6aa35fef3ce1b56aa1be25",
+      "preservedInputSha256": "a334ab1f5d978acf0c361b7c600bd5a28569de9ddb6aa35fef3ce1b56aa1be25",
+      "inputUnchanged": true,
+      "preservedInputUnchanged": true,
+      "runAttachmentManifestSha256": "fcfa71b8bdcaebc1aa96038c19ccc1fb5068cbb47201dce6bfab54d7b4b4db11",
+      "currentAttachmentManifestSha256": "fcfa71b8bdcaebc1aa96038c19ccc1fb5068cbb47201dce6bfab54d7b4b4db11",
+      "preservedAttachmentManifestSha256": "fcfa71b8bdcaebc1aa96038c19ccc1fb5068cbb47201dce6bfab54d7b4b4db11",
+      "attachmentUnchanged": true,
+      "preservedAttachmentUnchanged": true,
+      "servingSourceRevisionSha256": "228b6af98c26835c063564af25f807cdd050b9a788a0a7d3b9dc3a0b952c7e86",
+      "priorCurrentSourceRevisionSha256": "88770f7afc1a08334783435318f8300edbb2f22f46a6db0689a1c338400ad49f",
+      "currentSourceRevisionSha256": "88770f7afc1a08334783435318f8300edbb2f22f46a6db0689a1c338400ad49f",
+      "dbOnlySourceRevisionSha256": "88770f7afc1a08334783435318f8300edbb2f22f46a6db0689a1c338400ad49f",
+      "sourceStableSinceSnapshot": true,
+      "operationalSealed": false,
+      "observedAt": "2026-09-09T18:52:00.410Z",
+      "sourceStableSincePriorMonitor": true,
+      "baselineCohort": true,
+      "disposition": "same_lab_input_provenance_unresolved",
+      "assessment": "현재 전체 lab 입력과 첨부 manifest는 원본 run과 같지만 operational source revision 불일치의 구성요소는 미확정이다. 안전한 재봉인 또는 재분석 불필요 판정이 아니다.",
+      "newlyLoadedBlocks": [],
+      "sourceExcerpts": [],
+      "operationalBlockerCodes": [
+        "blocked_conversion"
+      ],
+      "privateEvidenceSha256": "47c64e93132baf65a4d73e2f88be41917aa1ebeecd5ef1d0ff89113e4d8596e1"
+    },
+    {
+      "grantId": "dacf41a4-69be-4289-bfbe-9c6456314768",
+      "source": "kstartup",
+      "sourceId": "179037",
+      "title": "2026 모험·도전적 AI 스타트업 투자대상 발굴 경진대회",
+      "runId": "run-2026-08-31T213233.700Z-3c1981",
+      "runSha256": "71883968201cf7618518b66f19467268a46b1e3dd5e37a695da88831f8736ef0",
+      "releaseId": "deep-deep-v28-2026-09-01-release-21-r1-20260901T003102Z-058e0e46",
+      "promotionItemId": "55f9cc99-904c-48ef-912b-a2f3c918cf11",
+      "active": true,
+      "kindChanges": [],
+      "runInputSha256": "e421ea0e88763c7a8c11f066ca76ac427e768b771f98b06ef3d96081b6365c53",
+      "currentInputSha256": "e421ea0e88763c7a8c11f066ca76ac427e768b771f98b06ef3d96081b6365c53",
+      "preservedInputSha256": "e421ea0e88763c7a8c11f066ca76ac427e768b771f98b06ef3d96081b6365c53",
+      "inputUnchanged": true,
+      "preservedInputUnchanged": true,
+      "runAttachmentManifestSha256": "db22da10288e690573a32a87a20f0a6e474e5069413f0517878c2d29f91d56d3",
+      "currentAttachmentManifestSha256": "db22da10288e690573a32a87a20f0a6e474e5069413f0517878c2d29f91d56d3",
+      "preservedAttachmentManifestSha256": "db22da10288e690573a32a87a20f0a6e474e5069413f0517878c2d29f91d56d3",
+      "attachmentUnchanged": true,
+      "preservedAttachmentUnchanged": true,
+      "servingSourceRevisionSha256": "679ead4457be33b226680b7ad360044924232623c75e9d910067dbe675f12699",
+      "priorCurrentSourceRevisionSha256": "b80526a7e8b638a2bab0b1d86c3ee8ba2f3f7f79557f128cb27a8779b8ce0cac",
+      "currentSourceRevisionSha256": "b80526a7e8b638a2bab0b1d86c3ee8ba2f3f7f79557f128cb27a8779b8ce0cac",
+      "dbOnlySourceRevisionSha256": "b80526a7e8b638a2bab0b1d86c3ee8ba2f3f7f79557f128cb27a8779b8ce0cac",
+      "sourceStableSinceSnapshot": true,
+      "operationalSealed": false,
+      "observedAt": "2026-09-09T18:52:00.728Z",
+      "sourceStableSincePriorMonitor": true,
+      "baselineCohort": true,
+      "disposition": "same_lab_input_provenance_unresolved",
+      "assessment": "현재 전체 lab 입력과 첨부 manifest는 원본 run과 같지만 operational source revision 불일치의 구성요소는 미확정이다. 안전한 재봉인 또는 재분석 불필요 판정이 아니다.",
+      "newlyLoadedBlocks": [],
+      "sourceExcerpts": [],
+      "operationalBlockerCodes": [
+        "blocked_fetch"
+      ],
+      "privateEvidenceSha256": "bc90d790a5721883c89798f9b391fbb6bbaf8f53765b76e1438266c88f593490"
+    },
+    {
+      "grantId": "f6270af6-883c-4054-9b62-9c75f0d4c514",
+      "source": "kstartup",
+      "sourceId": "179005",
+      "title": "'26-2차 KHNP AI(아이)누리 입주기업 공모",
+      "runId": "run-2026-09-01T140708.473Z-8ca231",
+      "runSha256": "4460455529a574e1a6731e51b6acf4040886a891b514799c03a733bfeb5f1ebc",
+      "releaseId": "deep-deep-v30-2026-09-02-r1-20260901T150815Z-f2a72ffc",
+      "promotionItemId": "26597548-8ebf-4f8a-80b5-92d1d3ded5c1",
+      "active": true,
+      "kindChanges": [],
+      "runInputSha256": "dd7022d45c8b015ec155cdccc9051137251d6493873092839b4fda1da4caa716",
+      "currentInputSha256": "dd7022d45c8b015ec155cdccc9051137251d6493873092839b4fda1da4caa716",
+      "preservedInputSha256": "dd7022d45c8b015ec155cdccc9051137251d6493873092839b4fda1da4caa716",
+      "inputUnchanged": true,
+      "preservedInputUnchanged": true,
+      "runAttachmentManifestSha256": "25495d563226da82564bb64a61e115617c633cdb393305894d27c09848e49ac4",
+      "currentAttachmentManifestSha256": "25495d563226da82564bb64a61e115617c633cdb393305894d27c09848e49ac4",
+      "preservedAttachmentManifestSha256": "25495d563226da82564bb64a61e115617c633cdb393305894d27c09848e49ac4",
+      "attachmentUnchanged": true,
+      "preservedAttachmentUnchanged": true,
+      "servingSourceRevisionSha256": "22836b37333cfdb7776fdaa5ce95db12883b8898ea4690ad34b0eb84fd40ac82",
+      "priorCurrentSourceRevisionSha256": "dffc8313a3d8aecb3e579318d4329172202e3a926bd839111c98f949cafac926",
+      "currentSourceRevisionSha256": "dffc8313a3d8aecb3e579318d4329172202e3a926bd839111c98f949cafac926",
+      "dbOnlySourceRevisionSha256": "dffc8313a3d8aecb3e579318d4329172202e3a926bd839111c98f949cafac926",
+      "sourceStableSinceSnapshot": true,
+      "operationalSealed": false,
+      "observedAt": "2026-09-09T18:52:00.999Z",
+      "sourceStableSincePriorMonitor": true,
+      "baselineCohort": true,
+      "disposition": "same_lab_input_provenance_unresolved",
+      "assessment": "현재 전체 lab 입력과 첨부 manifest는 원본 run과 같지만 operational source revision 불일치의 구성요소는 미확정이다. 안전한 재봉인 또는 재분석 불필요 판정이 아니다.",
+      "newlyLoadedBlocks": [],
+      "sourceExcerpts": [],
+      "operationalBlockerCodes": [
+        "blocked_fetch"
+      ],
+      "privateEvidenceSha256": "f24a2389c37b1ff3fbda137320faabfe96334df812de51384828c21ba798e8fe"
+    },
+    {
+      "grantId": "fe45953d-110b-4846-b4bd-bda705308b56",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000125934",
+      "title": "싱가포르 현지 진출 지원 국내 블록체인 기업 모집 공고",
+      "runId": "run-2026-08-30T092933.916Z-3e7a05",
+      "runSha256": "c4829d40ff4cf5ca066215632e40002d75198b1f2e0caa22de6062f4c33e6f25",
+      "releaseId": "deep-rhwp-launch-2026-08-30-reviewed-10-r1-20260830T213436Z-0002fd68",
+      "promotionItemId": "ab544851-cd47-498e-a87e-e5fb68c95853",
+      "active": true,
+      "kindChanges": [],
+      "runInputSha256": "038f7d444f3f16c03a0fd33a80eb98609fcb12c4f65c3ecfc4e23bdeaecb11d3",
+      "currentInputSha256": "038f7d444f3f16c03a0fd33a80eb98609fcb12c4f65c3ecfc4e23bdeaecb11d3",
+      "preservedInputSha256": "038f7d444f3f16c03a0fd33a80eb98609fcb12c4f65c3ecfc4e23bdeaecb11d3",
+      "inputUnchanged": true,
+      "preservedInputUnchanged": true,
+      "runAttachmentManifestSha256": "2562294565909f857a1b86ed13ab0994cfc72d81bf409643c972f917689b9f14",
+      "currentAttachmentManifestSha256": "2562294565909f857a1b86ed13ab0994cfc72d81bf409643c972f917689b9f14",
+      "preservedAttachmentManifestSha256": "2562294565909f857a1b86ed13ab0994cfc72d81bf409643c972f917689b9f14",
+      "attachmentUnchanged": true,
+      "preservedAttachmentUnchanged": true,
+      "servingSourceRevisionSha256": "21ad597fc6d933e52abfcaa6d4721cfc23160c4b5ed26dab2ba2fcfdaab408ed",
+      "priorCurrentSourceRevisionSha256": "957ff7d4ba7b2cd6b68156c38fd1f3a16b7392cfb7ef82458bc4f2bdfc965d94",
+      "currentSourceRevisionSha256": "957ff7d4ba7b2cd6b68156c38fd1f3a16b7392cfb7ef82458bc4f2bdfc965d94",
+      "dbOnlySourceRevisionSha256": "957ff7d4ba7b2cd6b68156c38fd1f3a16b7392cfb7ef82458bc4f2bdfc965d94",
+      "sourceStableSinceSnapshot": true,
+      "operationalSealed": true,
+      "observedAt": "2026-09-09T18:52:01.738Z",
+      "sourceStableSincePriorMonitor": true,
+      "baselineCohort": true,
+      "disposition": "same_lab_input_provenance_unresolved",
+      "assessment": "현재 전체 lab 입력과 첨부 manifest는 원본 run과 같지만 operational source revision 불일치의 구성요소는 미확정이다. 안전한 재봉인 또는 재분석 불필요 판정이 아니다.",
+      "newlyLoadedBlocks": [],
+      "sourceExcerpts": [],
+      "operationalBlockerCodes": [],
+      "privateEvidenceSha256": "03f0fe0b9adf4c9e3fb44255fdab72960fead1afafe843953254fefa11878240"
+    },
+    {
+      "grantId": "95b40166-cdc5-452f-82fc-ffd35f1b53d7",
+      "source": "kstartup",
+      "sourceId": "178527",
+      "title": "[안양대학교 창업보육센터] 2026년 하반기 신규 입주기업 모집",
+      "runId": "run-2026-08-16T112847.189Z-fa64a7",
+      "runSha256": "7a46a8ff241c07a2aebe65e6dc81c1eeb2ecaa4f7a1e0475fa963f4bd2000926",
+      "releaseId": "deep-deep-v21-closed-beta-seq-0-8-r2-20260816T231937Z-0dcd5712",
+      "promotionItemId": "1a04fba4-2e4c-458a-92bc-439ac5594563",
+      "active": true,
+      "kindChanges": [
+        {
+          "grantId": "95b40166-cdc5-452f-82fc-ffd35f1b53d7",
+          "runId": "run-2026-08-16T112847.189Z-fa64a7",
+          "criterionIndex": 3,
+          "originalKind": "required",
+          "servingKind": "exclusion",
+          "dimension": "other"
+        }
+      ],
+      "runInputSha256": "13a5fb39ccd4a0b280fe4dc1b754282789ceba4513ffa13eb12409a4ab82d549",
+      "currentInputSha256": "13a5fb39ccd4a0b280fe4dc1b754282789ceba4513ffa13eb12409a4ab82d549",
+      "preservedInputSha256": "13a5fb39ccd4a0b280fe4dc1b754282789ceba4513ffa13eb12409a4ab82d549",
+      "inputUnchanged": true,
+      "preservedInputUnchanged": true,
+      "runAttachmentManifestSha256": "6f5e6aadf15b2e1f4ac81170896db4c3823edc8ba2fa74b6ce07088317c27f08",
+      "currentAttachmentManifestSha256": "6f5e6aadf15b2e1f4ac81170896db4c3823edc8ba2fa74b6ce07088317c27f08",
+      "preservedAttachmentManifestSha256": "6f5e6aadf15b2e1f4ac81170896db4c3823edc8ba2fa74b6ce07088317c27f08",
+      "attachmentUnchanged": true,
+      "preservedAttachmentUnchanged": true,
+      "servingSourceRevisionSha256": "92edc3068c51c63e25f87e3f846bab760374c18fdb4207858bbbfd3cae40fb45",
+      "priorCurrentSourceRevisionSha256": null,
+      "currentSourceRevisionSha256": "dd10f4386c84c43673d365697693a73995b341c5fc7191a36cb032e9477dc709",
+      "dbOnlySourceRevisionSha256": "dd10f4386c84c43673d365697693a73995b341c5fc7191a36cb032e9477dc709",
+      "sourceStableSinceSnapshot": true,
+      "operationalSealed": true,
+      "observedAt": "2026-09-09T18:53:29.379Z",
+      "sourceStableSincePriorMonitor": null,
+      "baselineCohort": false,
+      "disposition": "same_lab_input_provenance_unresolved",
+      "assessment": "현재 전체 lab 입력과 첨부 manifest는 원본 run과 같지만 operational source revision 불일치의 구성요소는 미확정이다. 안전한 재봉인 또는 재분석 불필요 판정이 아니다.",
+      "newlyLoadedBlocks": [],
+      "sourceExcerpts": [],
+      "operationalBlockerCodes": [],
+      "privateEvidenceSha256": "a2dd5bcd4ab23e718f72ff54ff27f382d562c0457d3776f1b03f72c47423283e"
+    }
+  ],
+  "kindTargets": [
+    {
+      "grantId": "00251ec0-ca28-4949-9032-bfe177f5f330",
+      "sourceId": "PBLN_000000000125696",
+      "title": "2026년 예비오션스타 기업 모집 공고",
+      "active": true,
+      "status": "open",
+      "sourceRevisionUnchanged": true,
+      "historicalKindChanges": 1,
+      "currentKindChanges": [
+        {
+          "criterionId": "9286d4a9-a718-4473-a69f-a8864b5fcbfd",
+          "criterionIndex": 13,
+          "originalKind": "preferred",
+          "servingKind": "exclusion",
+          "dimension": "other"
+        }
+      ],
+      "runSha256": "652c25a066a26aee3e887bd2f75a9d3c4916b7e94932f4b8cccf3e76406e25d9",
+      "releaseId": "deep-deep-v29-2026-09-01-r1-20260901T071336Z-0a7ade7e",
+      "promotionItemId": "dec46b6a-d519-496e-8e48-3d7b11f76fb7"
+    },
+    {
+      "grantId": "0b560715-0510-474b-b93c-a8afdf8a638d",
+      "sourceId": "PBLN_000000000125873",
+      "title": "[울산] 남구 2026년 1차 지역산업위기대응 맞춤형 지원사업 수혜기업 모집 공고",
+      "active": true,
+      "status": "open",
+      "sourceRevisionUnchanged": true,
+      "historicalKindChanges": 1,
+      "currentKindChanges": [
+        {
+          "criterionId": "3e81217a-f620-4259-99ec-bc557c1e8043",
+          "criterionIndex": 1,
+          "originalKind": "required",
+          "servingKind": "exclusion",
+          "dimension": "other"
+        }
+      ],
+      "runSha256": "9d8442a3e06fc7fb9d63d758c70ace9a32d938bf633a7ca8b6e025de12b403e0",
+      "releaseId": "deep-deep-v28-2026-09-01-release-21-r1-20260901T003102Z-058e0e46",
+      "promotionItemId": "45c0b6c6-38e8-481b-81fd-ad4006de6301"
+    },
+    {
+      "grantId": "14fb7949-904b-4c76-be94-a9f0f298b9d1",
+      "sourceId": "PBLN_000000000123155",
+      "title": "[경기] 용인시 2026년 우체국 국제특급우편(EMS) 할인서비스 이용 희망기업 모집 공고",
+      "active": true,
+      "status": "open",
+      "sourceRevisionUnchanged": true,
+      "historicalKindChanges": 2,
+      "currentKindChanges": [
+        {
+          "criterionId": "8485ca2a-6824-4c71-b9de-92de0e63515b",
+          "criterionIndex": 3,
+          "originalKind": "required",
+          "servingKind": "exclusion",
+          "dimension": "other"
+        },
+        {
+          "criterionId": "ab7994a3-eee5-4f90-8f40-b810249104ba",
+          "criterionIndex": 1,
+          "originalKind": "required",
+          "servingKind": "exclusion",
+          "dimension": "other"
+        }
+      ],
+      "runSha256": "6647e1e85b2672287672e77570fa5a19eaee776ab0d070c6e5427dd57e8557a3",
+      "releaseId": "deep-deep-v28-2026-09-01-release-21-r1-20260901T003102Z-058e0e46",
+      "promotionItemId": "88e08c16-33f2-4c4f-a533-544f53cf3c9c"
+    },
+    {
+      "grantId": "1d4b5ab8-7671-4911-9d36-545dfa7c6e14",
+      "sourceId": "178984",
+      "title": "2026 인도네시아 자카르타 할랄 식품전시회 지역 수출컨소시엄",
+      "active": true,
+      "status": "open",
+      "sourceRevisionUnchanged": false,
+      "historicalKindChanges": 1,
+      "currentKindChanges": [
+        {
+          "criterionId": "084d77a3-c44f-46a9-b6f2-04c715e59ecf",
+          "criterionIndex": 4,
+          "originalKind": "preferred",
+          "servingKind": "exclusion",
+          "dimension": "other"
+        }
+      ],
+      "runSha256": "d496a48c6964f8104c4d09c57899b95ed50ac71b5690d03ec85e9134df3f6ab1",
+      "releaseId": "deep-deep-v28-2026-09-01-release-21-r1-20260901T003102Z-058e0e46",
+      "promotionItemId": "f7e7e406-bb7d-4ea0-9b14-c02819ba8a8e"
+    },
+    {
+      "grantId": "26ebb680-8d19-4472-b2bc-8e0114c09cc1",
+      "sourceId": "179011",
+      "title": "2026년 하반기 경기도여성창업보육센터 입주기업 모집공고",
+      "active": true,
+      "status": "open",
+      "sourceRevisionUnchanged": false,
+      "historicalKindChanges": 1,
+      "currentKindChanges": [
+        {
+          "criterionId": "588e1259-a249-400c-81c5-cbfccc06b48a",
+          "criterionIndex": 6,
+          "originalKind": "required",
+          "servingKind": "exclusion",
+          "dimension": "other"
+        }
+      ],
+      "runSha256": "116c79e03ebf0610c57138469e27563c693858adeb62beb17454edef40eaae27",
+      "releaseId": "deep-rhwp-launch-2026-08-30-reviewed-10-r1-20260830T213436Z-0002fd68",
+      "promotionItemId": "33c108a7-0bf4-4988-ae98-275c051eec46"
+    },
+    {
+      "grantId": "2aa03c52-55a7-4276-b8f1-6ae42f448a8e",
+      "sourceId": "PBLN_000000000123174",
+      "title": "[경기] 포천시 2026년 현장기술 돌봄이 지원사업 모집 수정 공고",
+      "active": true,
+      "status": "open",
+      "sourceRevisionUnchanged": true,
+      "historicalKindChanges": 1,
+      "currentKindChanges": [
+        {
+          "criterionId": "55ef9094-eb06-47eb-bd4d-01fb13069a57",
+          "criterionIndex": 1,
+          "originalKind": "required",
+          "servingKind": "exclusion",
+          "dimension": "other"
+        }
+      ],
+      "runSha256": "3796fb7114e853ab71fb411f37027209c21769f142c9245ab8b6a0921df5c9f2",
+      "releaseId": "deep-deep-v28-2026-09-01-release-21-r1-20260901T003102Z-058e0e46",
+      "promotionItemId": "13941beb-7786-41c0-977d-9ae5d739ff5a"
+    },
+    {
+      "grantId": "3023d6a5-6548-48d9-8d8f-a64f96794ca3",
+      "sourceId": "PBLN_000000000125880",
+      "title": "2026년 2차 스마트상점 기술보급사업 참여 소상공인 모집 공고(구입형ㆍ렌탈형ㆍS/W형)",
+      "active": true,
+      "status": "open",
+      "sourceRevisionUnchanged": true,
+      "historicalKindChanges": 1,
+      "currentKindChanges": [
+        {
+          "criterionId": "4c5385e0-35a2-47e7-96fa-deb1ccd6b016",
+          "criterionIndex": 2,
+          "originalKind": "required",
+          "servingKind": "exclusion",
+          "dimension": "other"
+        }
+      ],
+      "runSha256": "e5cf8023dce6e7402a34d1db997754c5d874fa7835f12b9d93918a7f69cbdefc",
+      "releaseId": "deep-deep-v27-2026-08-31-release-26-r2-20260831T060309Z-8bf7be8e",
+      "promotionItemId": "0993a368-ac88-4379-b150-002eac61dbd2"
+    },
+    {
+      "grantId": "31764871-f3d8-4d33-b907-bf4a6a87e152",
+      "sourceId": "PBLN_000000000125679",
+      "title": "[서울] 2026년 중동상황 대응 중소기업 수출위기극복 및 대체시장 개척 심화컨설팅 참여기업 모집 공고",
+      "active": false,
+      "status": "open",
+      "sourceRevisionUnchanged": true,
+      "historicalKindChanges": 3,
+      "currentKindChanges": [],
+      "runSha256": "2b7c4b83b3f98afdeb7d3d8e644676a06e64b009df3b2ea96b5ce11eb1c04cea",
+      "releaseId": "deep-deep-v28-2026-09-01-release-21-r1-20260901T003102Z-058e0e46",
+      "promotionItemId": "becc8ada-2af3-43a0-818b-06a841545767"
+    },
+    {
+      "grantId": "3ff8d603-217e-4d74-8a57-78d91311e42a",
+      "sourceId": "179064",
+      "title": "「2026 투자유치 프로그램: 멘토링」참가기업 모집 공고",
+      "active": true,
+      "status": "open",
+      "sourceRevisionUnchanged": false,
+      "historicalKindChanges": 1,
+      "currentKindChanges": [
+        {
+          "criterionId": "2187923a-e70e-4e8d-907b-33a362870e03",
+          "criterionIndex": 1,
+          "originalKind": "required",
+          "servingKind": "exclusion",
+          "dimension": "other"
+        }
+      ],
+      "runSha256": "8d9e28cfb99e72108d7005b18200319511323b7fb5797c88f4edabc4936ae7aa",
+      "releaseId": "deep-rhwp-launch-2026-08-30-reviewed-10-r1-20260830T213436Z-0002fd68",
+      "promotionItemId": "470d9320-5a51-4eb6-ab57-18f173453b6a"
+    },
+    {
+      "grantId": "569665c5-2fa7-45da-9fc7-8a1801e254a9",
+      "sourceId": "PBLN_000000000116832",
+      "title": "2026년 미래내일 일경험 사업 참여기업 모집 공고(인턴형ㆍ기업탐방형)",
+      "active": true,
+      "status": "open",
+      "sourceRevisionUnchanged": true,
+      "historicalKindChanges": 1,
+      "currentKindChanges": [
+        {
+          "criterionId": "5df3e74c-cfe6-4706-8a03-2c4881d1ce83",
+          "criterionIndex": 1,
+          "originalKind": "required",
+          "servingKind": "exclusion",
+          "dimension": "other"
+        }
+      ],
+      "runSha256": "608581edc2de1911fd093eb0e77df106d8e6a947ad47d7eaba08f987e9a735e9",
+      "releaseId": "deep-deep-v30-2026-09-02-r1-20260901T150815Z-f2a72ffc",
+      "promotionItemId": "02badd58-cf56-4f9a-a663-10a8e4f0c186"
+    },
+    {
+      "grantId": "73c0bb82-dce4-40ed-a338-f25df6c14326",
+      "sourceId": "PBLN_000000000116966",
+      "title": "[경남] 김해시 2026년 가축분뇨 수집ㆍ운반 수수료 지원사업 신청서 접수 공고",
+      "active": true,
+      "status": "open",
+      "sourceRevisionUnchanged": true,
+      "historicalKindChanges": 1,
+      "currentKindChanges": [
+        {
+          "criterionId": "bda5a303-6cbd-4378-a2cb-758cf9ad0ddf",
+          "criterionIndex": 1,
+          "originalKind": "required",
+          "servingKind": "exclusion",
+          "dimension": "other"
+        }
+      ],
+      "runSha256": "073f8b469c6aac82ecd679b235c2760846e8f13f87d08f8eb370626eeeecfcf0",
+      "releaseId": "deep-deep-v27-2026-08-31-release-26-r2-20260831T060309Z-8bf7be8e",
+      "promotionItemId": "43e36dcd-bcc1-429b-b5b1-5b3b0c07fb9f"
+    },
+    {
+      "grantId": "74a114d6-6dc9-4f4e-aee1-a5b3432d520d",
+      "sourceId": "PBLN_000000000119589",
+      "title": "[제주] 2026년 해외 수출물류 네트워크 지원사업 참가업체 모집 공고",
+      "active": true,
+      "status": "open",
+      "sourceRevisionUnchanged": true,
+      "historicalKindChanges": 1,
+      "currentKindChanges": [
+        {
+          "criterionId": "4793da0d-224c-4266-92b1-564b246970d8",
+          "criterionIndex": 2,
+          "originalKind": "required",
+          "servingKind": "exclusion",
+          "dimension": "other"
+        }
+      ],
+      "runSha256": "a1164b1b34330d190e9a6cdc049d98a30c202ea16af7e2597368f5dc41f98b16",
+      "releaseId": "deep-deep-v27-2026-08-31-release-26-r2-20260831T060309Z-8bf7be8e",
+      "promotionItemId": "0db5c6c7-9eeb-418e-9d48-4c370ba5b936"
+    },
+    {
+      "grantId": "8fe030df-7e63-4df6-8d96-2cbec95daa51",
+      "sourceId": "PBLN_000000000118294",
+      "title": "[경북] 영주시 2026년 공공배달앱 활성화 지원사업 참여업체 모집 공고(기본배달료 지원)",
+      "active": true,
+      "status": "open",
+      "sourceRevisionUnchanged": true,
+      "historicalKindChanges": 1,
+      "currentKindChanges": [
+        {
+          "criterionId": "ab2f011f-740e-420c-ab37-70aac57c7a3d",
+          "criterionIndex": 1,
+          "originalKind": "required",
+          "servingKind": "exclusion",
+          "dimension": "other"
+        }
+      ],
+      "runSha256": "1e908be23dec3c5c5a0b4831efa9b9452439989ce760fd581b53a6d5e9106ff2",
+      "releaseId": "deep-deep-v29-2026-09-01-r1-20260901T071336Z-0a7ade7e",
+      "promotionItemId": "6e369480-6d3c-4fec-84f0-188e8b95c5b0"
+    },
+    {
+      "grantId": "940ba9a5-c352-4a04-9820-8641952b0e8a",
+      "sourceId": "176855",
+      "title": "2026년 판교테크노밸리 입주기업 임대보증금 지원사업",
+      "active": true,
+      "status": "open",
+      "sourceRevisionUnchanged": true,
+      "historicalKindChanges": 1,
+      "currentKindChanges": [
+        {
+          "criterionId": "5eeb0154-e5a0-44c6-be93-acdd54013608",
+          "criterionIndex": 2,
+          "originalKind": "required",
+          "servingKind": "exclusion",
+          "dimension": "other"
+        }
+      ],
+      "runSha256": "6cb782eecbd61ac55ba47988a50bb968cd86e12962be86ba7eeac612c7e05a75",
+      "releaseId": "deep-deep-v27-2026-08-31-release-26-r2-20260831T060309Z-8bf7be8e",
+      "promotionItemId": "2ac8db94-f5a8-4b03-a384-0aba2681f733"
+    },
+    {
+      "grantId": "95b40166-cdc5-452f-82fc-ffd35f1b53d7",
+      "sourceId": "178527",
+      "title": "[안양대학교 창업보육센터] 2026년 하반기 신규 입주기업 모집",
+      "active": true,
+      "status": "open",
+      "sourceRevisionUnchanged": false,
+      "historicalKindChanges": 1,
+      "currentKindChanges": [
+        {
+          "criterionId": "c5a74318-b848-44ad-bee0-6b8b339dac23",
+          "criterionIndex": 3,
+          "originalKind": "required",
+          "servingKind": "exclusion",
+          "dimension": "other"
+        }
+      ],
+      "runSha256": "7a46a8ff241c07a2aebe65e6dc81c1eeb2ecaa4f7a1e0475fa963f4bd2000926",
+      "releaseId": "deep-deep-v21-closed-beta-seq-0-8-r2-20260816T231937Z-0dcd5712",
+      "promotionItemId": "1a04fba4-2e4c-458a-92bc-439ac5594563"
+    },
+    {
+      "grantId": "968cb601-89f1-4b55-8b30-67a115c98439",
+      "sourceId": "PBLN_000000000125892",
+      "title": "2026년 1차 K-브랜드 정부인증제도 참여기업 모집 공고",
+      "active": true,
+      "status": "open",
+      "sourceRevisionUnchanged": true,
+      "historicalKindChanges": 1,
+      "currentKindChanges": [
+        {
+          "criterionId": "14c697f7-7fb9-4ebe-9866-0096cfec3a7e",
+          "criterionIndex": 4,
+          "originalKind": "preferred",
+          "servingKind": "exclusion",
+          "dimension": "other"
+        }
+      ],
+      "runSha256": "4d07835fae4f483f37dea0368582cfcac6e69e1f04f65bed99c7ef3baedcb5ed",
+      "releaseId": "deep-deep-v30-2026-09-02-r1-20260901T150815Z-f2a72ffc",
+      "promotionItemId": "82b19db8-14c7-47ca-8e14-384eb8be8914"
+    },
+    {
+      "grantId": "9a0d187e-822e-4e7f-ac59-d1221895e7fb",
+      "sourceId": "PBLN_000000000124622",
+      "title": "[경북] 구미시 2026년 기업 위기대응 원스톱 에이전트 참여기업 모집 공고(구미경제정책지원센터 설치ㆍ운영사업)",
+      "active": true,
+      "status": "open",
+      "sourceRevisionUnchanged": true,
+      "historicalKindChanges": 1,
+      "currentKindChanges": [
+        {
+          "criterionId": "4c5a4ba7-c9e1-480d-a27b-c62e82ad884e",
+          "criterionIndex": 1,
+          "originalKind": "required",
+          "servingKind": "exclusion",
+          "dimension": "other"
+        }
+      ],
+      "runSha256": "148b60394288d01a0f406662acbed923e1e1a7731461ad2d60867a1a9df77bf4",
+      "releaseId": "deep-rhwp-launch-2026-08-30-reviewed-10-r1-20260830T213436Z-0002fd68",
+      "promotionItemId": "01b9035d-6cce-486a-918c-9aa438cae3e9"
+    },
+    {
+      "grantId": "a45c355c-a331-4ef8-826a-fc389a8558c0",
+      "sourceId": "176856",
+      "title": "[종로여성인력개발센터] 2026년 청년일자리도약장려금 참여기업 모집 공고",
+      "active": true,
+      "status": "open",
+      "sourceRevisionUnchanged": true,
+      "historicalKindChanges": 1,
+      "currentKindChanges": [
+        {
+          "criterionId": "14f01eea-7cd3-4fa9-b16f-0c52b96f89b8",
+          "criterionIndex": 1,
+          "originalKind": "required",
+          "servingKind": "exclusion",
+          "dimension": "other"
+        }
+      ],
+      "runSha256": "9d6c044f0ea733eb3aab522f5e0c7e01cef9a394e84eac300125af2d5a2bf861",
+      "releaseId": "deep-rhwp-launch-2026-08-30-reviewed-10-r1-20260830T213436Z-0002fd68",
+      "promotionItemId": "327320a9-a00f-4a78-8f58-81026451fe45"
+    },
+    {
+      "grantId": "aef77866-68af-48ce-a770-cd870b256381",
+      "sourceId": "PBLN_000000000119947",
+      "title": "[충남] 2026년 FTA통상진흥센터 수출기업 현장 컨설팅 참여기업 모집 공고",
+      "active": true,
+      "status": "open",
+      "sourceRevisionUnchanged": true,
+      "historicalKindChanges": 1,
+      "currentKindChanges": [
+        {
+          "criterionId": "a1da5047-f770-40ef-a6fa-e2b383b2804e",
+          "criterionIndex": 2,
+          "originalKind": "required",
+          "servingKind": "exclusion",
+          "dimension": "other"
+        }
+      ],
+      "runSha256": "e3eb03d3cfd8652e1a84a2a2cb82372daa4e63b8017a66696820ee552a210d63",
+      "releaseId": "deep-deep-v27-2026-08-31-release-26-r2-20260831T060309Z-8bf7be8e",
+      "promotionItemId": "9e0a7c78-8d7f-4e62-a0b2-2790b028e48a"
+    },
+    {
+      "grantId": "b1d964ae-fe8b-4212-9fa7-31d65a4ded12",
+      "sourceId": "176566",
+      "title": "한남대학교 캠퍼스혁신파크 산학연혁신허브 입점자 모집 공고(상시)",
+      "active": true,
+      "status": "open",
+      "sourceRevisionUnchanged": true,
+      "historicalKindChanges": 2,
+      "currentKindChanges": [
+        {
+          "criterionId": "511cd2f4-132c-4b05-9ac4-e70767acd783",
+          "criterionIndex": 5,
+          "originalKind": "required",
+          "servingKind": "exclusion",
+          "dimension": "other"
+        },
+        {
+          "criterionId": "8d314336-effe-48a3-ad03-f5887673742a",
+          "criterionIndex": 6,
+          "originalKind": "required",
+          "servingKind": "exclusion",
+          "dimension": "other"
+        }
+      ],
+      "runSha256": "be435535ad722178ca0f51d84ef62cda3a9679d0e9adeba3fd0ab969ad0fb2ad",
+      "releaseId": "deep-deep-v30-2026-09-02-r1-20260901T150815Z-f2a72ffc",
+      "promotionItemId": "096750b9-151d-4d22-82d1-baff8c1a7b0b"
+    },
+    {
+      "grantId": "b4b0f634-b068-4f30-b83f-e2863a22dbc9",
+      "sourceId": "PBLN_000000000118133",
+      "title": "[경북] 2026년 화장품산업 경쟁력 강화사업(성분 분석ㆍ검증 시험인증) 모집공고",
+      "active": true,
+      "status": "open",
+      "sourceRevisionUnchanged": true,
+      "historicalKindChanges": 1,
+      "currentKindChanges": [
+        {
+          "criterionId": "80f25067-d66c-4982-8822-8881835ae299",
+          "criterionIndex": 1,
+          "originalKind": "required",
+          "servingKind": "exclusion",
+          "dimension": "other"
+        }
+      ],
+      "runSha256": "7b4603ee9941d9466b7b23578b4f37cfe3be05e8ffdeb348590f612070cfe233",
+      "releaseId": "deep-deep-v21-closed-beta-seq-0-8-r2-20260816T231937Z-0dcd5712",
+      "promotionItemId": "edf4a1c6-4430-4a0e-9da2-4b5280cbfc5c"
+    },
+    {
+      "grantId": "bf4a7f10-b98f-467b-b6b9-27f92e35dd58",
+      "sourceId": "PBLN_000000000124661",
+      "title": "[전북] 2026년 오픈랩 활용 기술지원 프로그램 참여기업 모집 공고(거점기관 개방형 혁신사업)",
+      "active": true,
+      "status": "open",
+      "sourceRevisionUnchanged": false,
+      "historicalKindChanges": 1,
+      "currentKindChanges": [
+        {
+          "criterionId": "24745f34-99cf-4050-a5a0-e0abf387e4e6",
+          "criterionIndex": 1,
+          "originalKind": "required",
+          "servingKind": "exclusion",
+          "dimension": "other"
+        }
+      ],
+      "runSha256": "86fd9c875f6390bf60d24e8a40c780d554da71db59b23ebfd79c1c406bed9efd",
+      "releaseId": "deep-deep-v21-closed-beta-seq-0-8-r2-20260816T231937Z-0dcd5712",
+      "promotionItemId": "13fb1f24-bda4-45c9-add0-7ca2f27ee4ca"
+    },
+    {
+      "grantId": "c5455c07-6501-44ec-89bc-4bf8fd290e65",
+      "sourceId": "178930",
+      "title": "광명업사이클아트센터 2026년 하반기 가상오피스 지원기업 모집",
+      "active": true,
+      "status": "open",
+      "sourceRevisionUnchanged": false,
+      "historicalKindChanges": 1,
+      "currentKindChanges": [
+        {
+          "criterionId": "08896206-8306-4b3e-a5ee-5a8341f935ac",
+          "criterionIndex": 4,
+          "originalKind": "required",
+          "servingKind": "exclusion",
+          "dimension": "other"
+        }
+      ],
+      "runSha256": "be787e007465456d54f53495fa9fdfecb3f08979ae550753a518d205ebd4c6ff",
+      "releaseId": "deep-deep-v30-2026-09-02-r1-20260901T150815Z-f2a72ffc",
+      "promotionItemId": "eb781e61-9f4b-473e-a29c-1f9eba494449"
+    },
+    {
+      "grantId": "c6186084-4cf9-4b61-b718-68e3f523d974",
+      "sourceId": "PBLN_000000000125630",
+      "title": "[경남] 김해시 2026년 3차 중소기업 해외지사화 지원사업 참가기업 모집 공고",
+      "active": true,
+      "status": "open",
+      "sourceRevisionUnchanged": true,
+      "historicalKindChanges": 2,
+      "currentKindChanges": [
+        {
+          "criterionId": "fa582ce7-fe5f-443d-82f8-cb31ce2dfa67",
+          "criterionIndex": 3,
+          "originalKind": "required",
+          "servingKind": "exclusion",
+          "dimension": "other"
+        },
+        {
+          "criterionId": "8e9ea301-566f-4eed-9e42-f6d75afe6fbd",
+          "criterionIndex": 2,
+          "originalKind": "required",
+          "servingKind": "exclusion",
+          "dimension": "other"
+        }
+      ],
+      "runSha256": "11a7816514090c2d06239798cb74da0030d37cd8cc80215bbe9b4a0c1cebf2e0",
+      "releaseId": "deep-deep-v27-2026-08-31-release-26-r2-20260831T060309Z-8bf7be8e",
+      "promotionItemId": "785c85de-b45e-4e35-a705-aca1aeca61e7"
+    },
+    {
+      "grantId": "cccd9bb2-6828-4189-b2d6-1a1bd13e44ec",
+      "sourceId": "179018",
+      "title": "2026년 중동상황 대응 「수출위기 극복 물류지원금」 지원사업 모집",
+      "active": true,
+      "status": "open",
+      "sourceRevisionUnchanged": false,
+      "historicalKindChanges": 2,
+      "currentKindChanges": [
+        {
+          "criterionId": "e4db51bf-5ef3-4562-baf5-cd5240761911",
+          "criterionIndex": 4,
+          "originalKind": "required",
+          "servingKind": "exclusion",
+          "dimension": "other"
+        },
+        {
+          "criterionId": "27b1e0d3-a0da-44f6-a987-3ba782c19a21",
+          "criterionIndex": 3,
+          "originalKind": "required",
+          "servingKind": "exclusion",
+          "dimension": "other"
+        }
+      ],
+      "runSha256": "5b4ce29b06ff4e9b8ad934a3aa7fdfc1f7a127cc69df3a58a754987ab97ee1fa",
+      "releaseId": "deep-deep-v27-2026-08-31-release-26-r2-20260831T060309Z-8bf7be8e",
+      "promotionItemId": "73a1a845-a11d-4003-b661-33257aec03b8"
+    },
+    {
+      "grantId": "ccefe95c-2166-4aa0-b21e-d48113fae147",
+      "sourceId": "PBLN_000000000120246",
+      "title": "[충남] 2026년 수출입보험료 및 바이어 신용조사 지원사업 공고",
+      "active": true,
+      "status": "open",
+      "sourceRevisionUnchanged": true,
+      "historicalKindChanges": 1,
+      "currentKindChanges": [
+        {
+          "criterionId": "4468aad5-33a0-4bc2-b220-6c9b3ab85483",
+          "criterionIndex": 1,
+          "originalKind": "required",
+          "servingKind": "exclusion",
+          "dimension": "other"
+        }
+      ],
+      "runSha256": "2e957136cb1f6ee079dcf3c8bc8900ec1cce4d41f9d8cb14df5b5dc275dab249",
+      "releaseId": "deep-deep-v29-2026-09-01-r1-20260901T071336Z-0a7ade7e",
+      "promotionItemId": "7be0483a-7e87-4dfb-827c-8fa1809d70a0"
+    },
+    {
+      "grantId": "e216c293-c440-4871-81ef-edefeb50b856",
+      "sourceId": "PBLN_000000000125297",
+      "title": "[충북] 2026년 충북조달박람회 개별참가 지원사업 재공고",
+      "active": true,
+      "status": "open",
+      "sourceRevisionUnchanged": true,
+      "historicalKindChanges": 1,
+      "currentKindChanges": [
+        {
+          "criterionId": "2e1c2cc4-081d-4a48-90c2-3cca8e42c4d2",
+          "criterionIndex": 2,
+          "originalKind": "required",
+          "servingKind": "exclusion",
+          "dimension": "other"
+        }
+      ],
+      "runSha256": "56dce31aa485736b859278a25c5e0ad9a2ef8c78a75a4db8dd88b6daaf855a87",
+      "releaseId": "deep-deep-v27-2026-08-31-release-26-r2-20260831T060309Z-8bf7be8e",
+      "promotionItemId": "5aae5472-be0f-41b5-87a8-7817e2324cdd"
+    },
+    {
+      "grantId": "e3fdc29e-f980-46dd-8845-1098aa3fc338",
+      "sourceId": "PBLN_000000000117599",
+      "title": "2026년 미국 현지 변호사 및 관세사와 1:1 온라인 상담 지원 공고",
+      "active": true,
+      "status": "open",
+      "sourceRevisionUnchanged": true,
+      "historicalKindChanges": 1,
+      "currentKindChanges": [
+        {
+          "criterionId": "52fd3718-89ea-4f6d-94d2-dbbb277a38d4",
+          "criterionIndex": 0,
+          "originalKind": "required",
+          "servingKind": "exclusion",
+          "dimension": "other"
+        }
+      ],
+      "runSha256": "699f7106fb2bc06ff3eeb4a9920ea004a115a88f22730ee77a00429deb820c7d",
+      "releaseId": "deep-deep-v29-2026-09-01-r1-20260901T071336Z-0a7ade7e",
+      "promotionItemId": "9cfc6a6c-c9a9-4818-bf21-a652726e085a"
+    },
+    {
+      "grantId": "f991b4e7-54b6-4f3e-bf63-3916b5d1f6ac",
+      "sourceId": "PBLN_000000000125927",
+      "title": "[경기] 파주시 2026년 수제품 박람회 참가자 모집 공고",
+      "active": false,
+      "status": "open",
+      "sourceRevisionUnchanged": true,
+      "historicalKindChanges": 1,
+      "currentKindChanges": [],
+      "runSha256": "18e3cb283e3be272f0b4b5b6cc97cfbba88fab6cb068c05e922965c5f57f2ca4",
+      "releaseId": "deep-deep-v29-2026-09-01-r1-20260901T071336Z-0a7ade7e",
+      "promotionItemId": "266ce30b-1faa-4ae5-aa7b-1246adba1e0b"
+    },
+    {
+      "grantId": "fb94a181-8102-4379-9c35-c19bd437db95",
+      "sourceId": "PBLN_000000000117167",
+      "title": "[경기] 포천시 2026년 소공인가구지원센터 운영 지원 사업 공고",
+      "active": true,
+      "status": "open",
+      "sourceRevisionUnchanged": true,
+      "historicalKindChanges": 1,
+      "currentKindChanges": [
+        {
+          "criterionId": "caed9952-775d-4d8c-807e-1e0ac1d89fab",
+          "criterionIndex": 1,
+          "originalKind": "required",
+          "servingKind": "exclusion",
+          "dimension": "other"
+        }
+      ],
+      "runSha256": "205376aafc2801ef0537e3ba20af58f6bbc7bd7f7f121f31978bc7ec36ef907b",
+      "releaseId": "deep-deep-v27-2026-08-31-release-26-r2-20260831T060309Z-8bf7be8e",
+      "promotionItemId": "9b9ae854-3c6f-4acb-88b3-739a98aef1bc"
+    }
+  ],
+  "boundaries": {
+    "modelCalls": 0,
+    "serviceWrites": 0,
+    "r2Writes": 0,
+    "sourceMutation": false,
+    "promotion": false,
+    "deployment": false,
+    "releaseApproval": false,
+    "fullCurrentMonitorRun": false,
+    "fullSourceSemanticReview": false,
+    "allExternalAttachmentsVerified": false,
+    "originalInputHashEqualityIsReleaseAdmission": false,
+    "nextEnvSha256": "7ad303e40d4fddf44f156129e397511953a71481c5cfd86b1862649aaaf240cc"
+  }
+}
