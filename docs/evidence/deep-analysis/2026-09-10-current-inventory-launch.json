@@ -1,0 +1,1023 @@
+{
+  "schema": "closed-beta-current-inventory-evidence-v1",
+  "stockObservedAt": "2026-09-09T19:45:43.660Z",
+  "inputReuseObservedAt": "2026-09-09T19:49:17.675Z",
+  "postcheckObservedAt": "2026-09-09T20:03:04.678Z",
+  "sourceCommit": "76b4f44c4d4bc3d1a7a89dff5ee6826db9c8da9d",
+  "stock": {
+    "canonicalServing": 82,
+    "canonicalCriteria": 481,
+    "historicalExcluded": 711,
+    "openVisibleLab": 2041,
+    "eligible": 473,
+    "groups": {
+      "not_eligible": 1568,
+      "historical_not_serving": 310,
+      "approved_unapplied_candidate": 34,
+      "serving": 82,
+      "new_unseen": 47
+    },
+    "newSources": {
+      "bizinfo": 46,
+      "kstartup": 1
+    },
+    "newStrata": {
+      "bizinfo/medium": 40,
+      "kstartup/thick": 1,
+      "bizinfo/thick": 1,
+      "bizinfo/thin": 5
+    },
+    "inventorySha256": "3c1f3103a36fa70e0e0ee53c6791d3c30146bf5eeb954b7d3d7208982d1592e6",
+    "snapshotSha256": "6b07e82579f78190df544f7152009384298046fa6f45bf669db471f23f9cafa5"
+  },
+  "preparation": {
+    "manifestSha256": "0a6860c2a40a4d2f3262e4e2cb3a32ea0024973e0de5c67c226e31dc829abfb7",
+    "path": "/Users/ffgg/noten.works/cunote/spike-out/analysis-lab/launch/manifests/0a6860c2a40a4d2f3262e4e2cb3a32ea0024973e0de5c67c226e31dc829abfb7.json",
+    "inventorySha256": "18b7087059e07701388837e0c4b406ccba1f6281a51bcb3e1a6338442505fde2",
+    "inventoryPath": "/Users/ffgg/noten.works/cunote/spike-out/analysis-lab/launch/inventories/18b7087059e07701388837e0c4b406ccba1f6281a51bcb3e1a6338442505fde2.json",
+    "historicalExcluded": 711,
+    "modelCalls": 0,
+    "serviceWrites": 0,
+    "liveExecutionAuthorized": false,
+    "targetCount": 47,
+    "sourceKind": "current_inventory",
+    "concurrency": 2
+  },
+  "execution": {
+    "applicationFieldAnalysisVersion": "kordoc-application-roundtrip-v9",
+    "concurrency": 2,
+    "existingRunPolicy": "skip_existing",
+    "gitShaAtPreparation": "76b4f44c4d4bc3d1a7a89dff5ee6826db9c8da9d",
+    "model": "claude-opus-5",
+    "packageRuntimeSha256": "8acb4b33383c62bc67322dfb5d5c804794fc5f134965b06ed114ac2360dec421",
+    "promptVersion": "lab-deep-v22",
+    "roundtripModel": "claude-opus-5",
+    "transport": "claude-cli",
+    "validatorVersion": "deep-analysis-validator-v15",
+    "withApplicationRoundtrip": true
+  },
+  "targets": [
+    {
+      "attachmentManifestSha256": "84a86f988389f840178cd0275321278289a75f212abcb2299edab529b8653874",
+      "grantId": "5caca6eb-ce31-4ed3-8b04-0f02f3db730f",
+      "inputSha256": "7ee96970005e4023daea84ce862fc3d023013e2f92dba7fa8c912638ead077f4",
+      "sequence": 0,
+      "sourceRevisionSha256": "c96c8b57158d93ff498d1f4ab70571fd800a490f615adab82cd793ea4ffba508",
+      "stratum": "bizinfo/medium",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000126173",
+      "title": "[부산ㆍ울산ㆍ경남] 2026년 동남권 지역혁신클러스터육성사업(비R&D) 추가모집 공고",
+      "applyEnd": "2026-09-10T00:00:00.000Z",
+      "sameDayDeadline": true
+    },
+    {
+      "attachmentManifestSha256": "0d63e9bf8961c250f341b5a41811c3ebc69c2d4c3cddf148ac1f21498bccf68e",
+      "grantId": "20f1a6d8-50c4-4e50-a1cd-9368d3a1f1b9",
+      "inputSha256": "0e44ab9a21ef91bcb3e1e925ef8dacba01bed4f316a2cac0bff4595368e7112e",
+      "sequence": 1,
+      "sourceRevisionSha256": "efc3e0d5b59ff07a956e8b23fcdead79ac6501f222ad20eae6aaa1242111f744",
+      "stratum": "bizinfo/medium",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000126185",
+      "title": "[경남] 진주시 2026년 2차 우리동네 맑은공기 패키지 지원사업 사전 기술진단 참여 사업장 추가 모집 공고",
+      "applyEnd": "2026-09-11T00:00:00.000Z",
+      "sameDayDeadline": false
+    },
+    {
+      "attachmentManifestSha256": "3d819eced63d4e8eb74169e0939e411cae7cb47d3de538a7dda9aa7c02151c21",
+      "grantId": "451e32e4-b298-4f4d-9007-713b3d770688",
+      "inputSha256": "207b7bbf4747313d51205bb6275e2764901e2a03af24ae34dd7e93f79be91aba",
+      "sequence": 2,
+      "sourceRevisionSha256": "41dc9c2e7463112c493bfd9e00ef544444a300527ddb0672b6e47436d3e1cfce",
+      "stratum": "bizinfo/medium",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000126228",
+      "title": "[충남] 2026년 제11회 비건페스타&그린페스타 참가경영체 추가모집 공고",
+      "applyEnd": "2026-09-11T00:00:00.000Z",
+      "sameDayDeadline": false
+    },
+    {
+      "attachmentManifestSha256": "0afb6268d32a4bbd3355babfc9612f65b568238bb6b9ec668ce778e8cb3abf06",
+      "grantId": "61735e3d-0729-44d7-b069-83f7e5a536b8",
+      "inputSha256": "733689ec044b45097d713631a29ad5455e2bcb079a18bd4f964dd8e8a41bbbda",
+      "sequence": 3,
+      "sourceRevisionSha256": "f5767ac28def403b4942b935ea006c62589d021815ebda6b6083a1711cb371de",
+      "stratum": "bizinfo/medium",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000126226",
+      "title": "[충남] K-FOOD EXPO 대구국제음식박람회 추가 모집 공고",
+      "applyEnd": "2026-09-11T00:00:00.000Z",
+      "sameDayDeadline": false
+    },
+    {
+      "attachmentManifestSha256": "6b6a5d5fdbaf57f76e6f0af655c389b0e0825262f972895f7ec34d2557a958ba",
+      "grantId": "69ee2d0f-1b99-4bfe-acc8-96e9f0f5e4c8",
+      "inputSha256": "322970ec1a771c8c6c7ef8f3b4c99c927b08aa152bc9da3f754109e546ffe61e",
+      "sequence": 4,
+      "sourceRevisionSha256": "f8a41cf800ca1cf9ccee013118a7d3b18e517868ce620ccb2e5553192c24a704",
+      "stratum": "bizinfo/medium",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000126180",
+      "title": "[경기] 화성시 2026년 신중년 고용지원 사업 참여기업 모집 공고",
+      "applyEnd": "2026-09-11T00:00:00.000Z",
+      "sameDayDeadline": false
+    },
+    {
+      "attachmentManifestSha256": "e4e1f04d30408ab409e1c5614bd334ced39496ae2395a9613f2aa9809374b5a0",
+      "grantId": "72c5ded6-6bbe-4e66-b99f-9ff0be3774fd",
+      "inputSha256": "68f29623f5de4323e05a79317e56cd330af3f2ff6431c8f283b461ef2e83bf1d",
+      "sequence": 5,
+      "sourceRevisionSha256": "3f01cb78d317f10c6ddadb4844a48c26c90e75ebecf0484db270b278de2a3d49",
+      "stratum": "bizinfo/medium",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000126236",
+      "title": "[강원] 2026년 강원특별자치도 유통 점프업 참가기업 추가모집 공고",
+      "applyEnd": "2026-09-11T00:00:00.000Z",
+      "sameDayDeadline": false
+    },
+    {
+      "attachmentManifestSha256": "ef164b4af2fcc9ace30890b52f1faadaeeb81221aaaa776dfb940af457c218c3",
+      "grantId": "96e9d9e7-db95-4e30-8c0e-0fb56422a166",
+      "inputSha256": "c32ecb85aa4f17542d39b1fe221c1cbb52616da1c5d9f079678512780a4a0c69",
+      "sequence": 6,
+      "sourceRevisionSha256": "891b0098dbc56db41cf6cfd976851789a7c276791c0cda8d3717c817f8439ee2",
+      "stratum": "bizinfo/medium",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000126175",
+      "title": "[전남광주] 2026년 하반기 해외 전시박람회 단체참가 업체 추가모집 공고",
+      "applyEnd": "2026-09-11T00:00:00.000Z",
+      "sameDayDeadline": false
+    },
+    {
+      "attachmentManifestSha256": "2183006b419c6200529875fa1aa1baeb945f24eb91435edd685a95c8869b71e6",
+      "grantId": "98423ef8-127c-4006-a4a2-c1c8302c10d5",
+      "inputSha256": "1cbfb2248dd9df8c9fe50c26bd54fc55a8182ba33177961465299b6180c7c248",
+      "sequence": 7,
+      "sourceRevisionSha256": "47770e13b07eed2b368c5a0069d93cf5d9bff744873927e42c64260fade43846",
+      "stratum": "bizinfo/medium",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000126187",
+      "title": "[부산] 2026년 AX 에이지테크 시장확산 지원사업 모집 공고(해양문화도시 기반의 에이지테크 실증거점 조성)",
+      "applyEnd": "2026-09-11T00:00:00.000Z",
+      "sameDayDeadline": false
+    },
+    {
+      "attachmentManifestSha256": "93b475400bbad7a6caaaf6a807539546b8f083597ae62c8f799d79e9500114e0",
+      "grantId": "d830177e-afc6-40d9-a678-927ef4bb59a5",
+      "inputSha256": "412be9d3dad2eb2d634ff90d054c8ecfa86942e0397f5e8ba575b0dfa535471e",
+      "sequence": 8,
+      "sourceRevisionSha256": "cb85facfb96e4e80956e0723800a90035170d82dd58fbb6f860ada37e192bf41",
+      "stratum": "bizinfo/medium",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000125886",
+      "title": "[경북] 안동시 2026년 중소기업 근로자 기숙사 임차비 지원사업 참여기업 추가모집 공고",
+      "applyEnd": "2026-09-11T00:00:00.000Z",
+      "sameDayDeadline": false
+    },
+    {
+      "attachmentManifestSha256": "863ec2b1f98aa380e0e776997580cd6575d83b95cff6cf14b30d1d60d61e7bbd",
+      "grantId": "8691415b-3377-4695-9bed-2eb7da87f8ae",
+      "inputSha256": "dbe4000baa091f5a4a5f0d34d14333bf98a484e3b4332d05334fb45d663b3f08",
+      "sequence": 9,
+      "sourceRevisionSha256": "2f241ae2d2a39c6a1c09898477b442189ff17125a1e1cc6c84014b444df6aff1",
+      "stratum": "bizinfo/thin",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000126234",
+      "title": "[서울] 강북구 착한가격업소 지정 신청 공고",
+      "applyEnd": "2026-09-14T00:00:00.000Z",
+      "sameDayDeadline": false
+    },
+    {
+      "attachmentManifestSha256": "50b2f3825756d2f4a18f387a9bf21433b9a822c15b25570e31536d6222b3859c",
+      "grantId": "8c3b8542-5fd3-4b54-945d-ba9c44862d69",
+      "inputSha256": "51f24d683af6f101c445153af4712611773eb52fa70866d3b21a418edfa2ca54",
+      "sequence": 10,
+      "sourceRevisionSha256": "a150e34100088974e05621d4b9b33cf59201e8b8c281b8043089178f4a51fdd4",
+      "stratum": "bizinfo/medium",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000126176",
+      "title": "[강원] 2026년 협동조합 활성화 지원사업 Co-Up 홍보ㆍ마케팅 지원사업모집 공고",
+      "applyEnd": "2026-09-14T00:00:00.000Z",
+      "sameDayDeadline": false
+    },
+    {
+      "attachmentManifestSha256": "0e250df72ec1bd68ceda0714f1cd6551797f1612bf4cb3c4fbe3416b463e0541",
+      "grantId": "36d8b931-11be-40f4-ba58-f97f9b0d8fac",
+      "inputSha256": "7dd150be69984e96ac2c82af0b8c1b5fd2e54b1bf098e21cc259e5a12e9f5ce9",
+      "sequence": 11,
+      "sourceRevisionSha256": "6e62b98fd1680e6271e50a3c25cefe79e5bd89374a7a4006033174ebec7570ba",
+      "stratum": "kstartup/thick",
+      "source": "kstartup",
+      "sourceId": "179111",
+      "title": "2026년 인천국제공항공사 상생형 창업·벤처기업 지원사업 모집공고",
+      "applyEnd": "2026-09-15T00:00:00.000Z",
+      "sameDayDeadline": false
+    },
+    {
+      "attachmentManifestSha256": "6ff3d591c7f6e243da13043df700ceaf3b4844ff97f3013736f6bc2c46cd5151",
+      "grantId": "4f922c79-7468-4967-9c54-e03ad8246f07",
+      "inputSha256": "cbfc1c0e7c4072655c145b50a116faa63087d0c1f30ee54253bf19cce12d54b7",
+      "sequence": 12,
+      "sourceRevisionSha256": "10e5bc0af0233dc240db0eb60ebf0235bdd6dd7f43c6263e52fae3e66caa3924",
+      "stratum": "bizinfo/medium",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000126181",
+      "title": "[경남] 진주시 2026년 2차 반려동물 동반 출입 음식점 물품구입 지원 추가 공고",
+      "applyEnd": "2026-09-15T00:00:00.000Z",
+      "sameDayDeadline": false
+    },
+    {
+      "attachmentManifestSha256": "f1a6921edcde086d200417fabe4a184f97483a830c01cae2e87e0024fe9c7800",
+      "grantId": "7d5c4a1b-38d5-4818-89ee-4b2f28f2c4ea",
+      "inputSha256": "21f0dc4a922c05cf20db8e94c82b86514fd861dd359870ac3d93fb04d1e54d4f",
+      "sequence": 13,
+      "sourceRevisionSha256": "e04aa08b8170dbc1d5ced9922a77df43e8f91b032c3fc4d64e335b88dcddb25d",
+      "stratum": "bizinfo/medium",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000126182",
+      "title": "[경기] 화성시 2026년 하반기 지역서점 인증(갱신) 신청 접수 공고",
+      "applyEnd": "2026-09-15T00:00:00.000Z",
+      "sameDayDeadline": false
+    },
+    {
+      "attachmentManifestSha256": "914a848d7131e3cb997926b7162c1bd3a55cce076420df89537e20753080bff9",
+      "grantId": "2e1bf1b2-9827-47eb-a4c2-0d3a3f54e43d",
+      "inputSha256": "d9287dc709f93a4ffd66640b2a40590845f13669ed43c81d66c393db2995fe3c",
+      "sequence": 14,
+      "sourceRevisionSha256": "adad771e7cada6724a320d9f6c4644c59db187902e36871b95d1228cc0c97adf",
+      "stratum": "bizinfo/medium",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000126240",
+      "title": "[서울] 강서구 2026년 국외 전시ㆍ박람회 참가기업 추가 모집 공고",
+      "applyEnd": "2026-09-16T00:00:00.000Z",
+      "sameDayDeadline": false
+    },
+    {
+      "attachmentManifestSha256": "9a05895347592910f4b43cecc05e3acf940982905cafcab737fc262c9f542cc1",
+      "grantId": "0783dc4a-1ecc-4ab2-9ab4-6ffca2a3297f",
+      "inputSha256": "04002b158c0001688bc13bd7b5c8fe0d5e33bc410f9ead968f3de0a06f4c1bbb",
+      "sequence": 15,
+      "sourceRevisionSha256": "e3dcef80ae327c14778b19c056b8da40e34b52a780bdc34e94800644b902bb9d",
+      "stratum": "bizinfo/medium",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000126191",
+      "title": "[제주] 2026년 지역ㆍ산업맞춤형 일자리지원 사업(제주지역 자율계정) 관광콘텐츠 특화형 고용정착 및 인재육성 지원사업 추가모집 공고",
+      "applyEnd": "2026-09-17T00:00:00.000Z",
+      "sameDayDeadline": false
+    },
+    {
+      "attachmentManifestSha256": "8ab69d62aa859dd56abfe8b099975930a620b60e57835d12b503e695429a56d9",
+      "grantId": "41b8d7d5-2cd0-4a9f-ab7a-bccc50341ec1",
+      "inputSha256": "96cd962c88fbb25186399631d2694867781f61cd74837eecffc4e78b779a0a8c",
+      "sequence": 16,
+      "sourceRevisionSha256": "2c440562408db7b058aeb1d72001c663928342dcde616c3741a71132983cf0e8",
+      "stratum": "bizinfo/medium",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000126288",
+      "title": "[경남] 창원시 CES2027 참가기업 지원사업 참가기업 추가 모집 공고",
+      "applyEnd": "2026-09-17T00:00:00.000Z",
+      "sameDayDeadline": false
+    },
+    {
+      "attachmentManifestSha256": "68d3349d57a8488a6638138b208b8ec0d2ffb997ee2f2d2ea20f28196e12f5bf",
+      "grantId": "ecbfa181-5686-4184-a274-caebe99657a1",
+      "inputSha256": "78693f11ffd3cdad63aba02904d15570d5c993635b58974de7912f3275bc639e",
+      "sequence": 17,
+      "sourceRevisionSha256": "53ad03519d6ccbe2f34eb8683b73d403f92a05b1815d06293732eb164f88892c",
+      "stratum": "bizinfo/medium",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000126243",
+      "title": "[전남광주] 동구 2026년 별별동구 사회적경제 충장장터 참여기업 모집 공고",
+      "applyEnd": "2026-09-17T00:00:00.000Z",
+      "sameDayDeadline": false
+    },
+    {
+      "attachmentManifestSha256": "20d5c79146872a84bef0e1458b948fdd420f74fede5337b9cea237a5277362a8",
+      "grantId": "6fe78538-c62a-49a4-8b45-39ac80e1c31c",
+      "inputSha256": "bf965db3a06a7e6dd30b8e4587ff6f108b89ff26ffc8f30011cc20864128ffc8",
+      "sequence": 18,
+      "sourceRevisionSha256": "bfc1811b5d1fd7352c947f84f7b67c2af3de9f7d617a20ee1b5419d4f2a3cd76",
+      "stratum": "bizinfo/medium",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000126276",
+      "title": "[부산] 북구 2026년 착한가격업소 신규 지정 신청 공고",
+      "applyEnd": "2026-09-18T00:00:00.000Z",
+      "sameDayDeadline": false
+    },
+    {
+      "attachmentManifestSha256": "e6740533a6dee25302e3852013c45b92eb5b27a448099923ed856ba2c69d88ba",
+      "grantId": "8781a8a8-74cb-49c9-8642-49e1f169c859",
+      "inputSha256": "dcf26c927d267cb8cca8a43f2d6b0cbdec3c405c9ff3c2e0b00c0d84bed0c15a",
+      "sequence": 19,
+      "sourceRevisionSha256": "0b09dc39ed07b20fc46908690fe9f92aae035c1ac3c9281714c6604a3963706b",
+      "stratum": "bizinfo/medium",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000125628",
+      "title": "[경기] 안양시 2027년 기업환경 개선사업 수요조사 실시 공고",
+      "applyEnd": "2026-09-18T00:00:00.000Z",
+      "sameDayDeadline": false
+    },
+    {
+      "attachmentManifestSha256": "27ee379afc68c707f84f20648fd7dacb26250192fa241888f6c64d0f7bd44dd7",
+      "grantId": "7b095ee7-0c01-4650-a5ae-e6f47bb3f8a1",
+      "inputSha256": "4da1c2d5e17baada52ed6bbc572719c7663feec864edcfc5bedae95caff6eb1e",
+      "sequence": 20,
+      "sourceRevisionSha256": "90395d5bdf7710eeabd29036eef1089dbf0009cd9ebadd2fd2b84ad735ad8982",
+      "stratum": "bizinfo/thin",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000126231",
+      "title": "중동전쟁 피해기업 대상 쇼피 동남아 수출물류 지원사업 공고",
+      "applyEnd": "2026-09-20T00:00:00.000Z",
+      "sameDayDeadline": false
+    },
+    {
+      "attachmentManifestSha256": "0e3301fd7dfcd810259bbf38c3525229d6ada412cc5c4bc04c1b9ca25dcf9058",
+      "grantId": "05c149e8-a7f5-4c8b-92ff-e448eee38178",
+      "inputSha256": "d1b772ed21f81471d9bac408886795fdd98c330bfbe3af0016d1d424227c9cce",
+      "sequence": 21,
+      "sourceRevisionSha256": "5d80072d25d5517db1ca61c83a1d6dd3cf383b39b2471162d0ea31ccbb43db96",
+      "stratum": "bizinfo/thin",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000126189",
+      "title": "2026년 라오스(비엔티안) 전력기자재 사절단 참가 공고",
+      "applyEnd": "2026-09-21T00:00:00.000Z",
+      "sameDayDeadline": false
+    },
+    {
+      "attachmentManifestSha256": "0916c3f73209450ac32b822e01c0c5b80d6af666ab9ac90fe52206a0c329756b",
+      "grantId": "94344565-f799-4794-be81-90966a013f40",
+      "inputSha256": "df8071ccdadc910bca84ad5f0f00c4f0a5a49428e73dd1901ead1402358a6b40",
+      "sequence": 22,
+      "sourceRevisionSha256": "cd932047ae88e3ebeb38087764bf1785496c4d1ccf65b63b23bbecbbd9b517ac",
+      "stratum": "bizinfo/medium",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000126037",
+      "title": "[경기] 2026년 경기도형 스마트공장 종합지원 SMATEC 2026 경기도통합관 참가기업 및 연계 컨퍼런스 발표기업 모집 공고",
+      "applyEnd": "2026-09-21T00:00:00.000Z",
+      "sameDayDeadline": false
+    },
+    {
+      "attachmentManifestSha256": "538c6f2daaaed5ebde338a1d31e895008188bafd7236feb0cefe7d73ec7d009d",
+      "grantId": "6d3ecd42-67fc-4279-979d-17b8c752f472",
+      "inputSha256": "5138a61e6a49d9f27162eeffc1306eee8b4c642d8d5270d26d3a2e03d1d9a80c",
+      "sequence": 23,
+      "sourceRevisionSha256": "881a4eb03936024368e81f907e88c8b058c4a7d17ed3064e945e004ab2b29531",
+      "stratum": "bizinfo/medium",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000126274",
+      "title": "[부산] 서구 한시적 수출 수산식품 포장재 지원사업 2차 신청 공고",
+      "applyEnd": "2026-09-22T00:00:00.000Z",
+      "sameDayDeadline": false
+    },
+    {
+      "attachmentManifestSha256": "a299d162bdacff1ea20a7f4afc6fee6e0bdb047ab4dd855b2236fa56a2842262",
+      "grantId": "f3f92427-ccd1-45cc-abed-773a596efacb",
+      "inputSha256": "3f67691883cedcf5695ab3c0930f2267ba17f47a7dd1be228519b02cbabbacc9",
+      "sequence": 24,
+      "sourceRevisionSha256": "5e7b4020efa16ce4c304fd9e67a5477e7d79dabc9568c28c550d901791d5b74b",
+      "stratum": "bizinfo/medium",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000126287",
+      "title": "[전남광주] 완도군 2026 부산국제수산엑스포 완도군 공동 홍보관 참가기업 모집 공고",
+      "applyEnd": "2026-09-22T00:00:00.000Z",
+      "sameDayDeadline": false
+    },
+    {
+      "attachmentManifestSha256": "726ca95d7d048ab81d71c9fe2d431afc4c231e3b9ac8acfd3aa4632e3a32cb22",
+      "grantId": "f70f452e-5e70-4492-8961-34eaf3bd5e02",
+      "inputSha256": "c43f898ef806e8908e96212d03cff1b6b35df22d54b2a42c7bae83662168c5ef",
+      "sequence": 25,
+      "sourceRevisionSha256": "f2aee2b11c01a73d42130ae6ead9fc6e73bddb63fa1aba3412ffc13dcba77611",
+      "stratum": "bizinfo/thick",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000126178",
+      "title": "[울산] 울주군 2026년 소규모 사업장 방지시설 설치 지원사업 공고(우리동네 맑은공기 패키지 지원사업)",
+      "applyEnd": "2026-09-22T00:00:00.000Z",
+      "sameDayDeadline": false
+    },
+    {
+      "attachmentManifestSha256": "608fe93e4ff9a1edf361af21b00cd5266532cafe71ea4cbe241579fcb1266162",
+      "grantId": "5df4828d-ec85-4dca-850d-3c028b57f06f",
+      "inputSha256": "4e12e58e290c27e28f6743b49d4febd4e381201ea98c4c75fce08bf7aa4a5bce",
+      "sequence": 26,
+      "sourceRevisionSha256": "a730e74224a9bf046bb814c909499be20118ed3b23cdd3f5d71e638d0048d484",
+      "stratum": "bizinfo/medium",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000126244",
+      "title": "[전남광주] 북구 2026년 3차 라이브커머스 지원 참여 소상공인 모집 공고",
+      "applyEnd": "2026-09-28T00:00:00.000Z",
+      "sameDayDeadline": false
+    },
+    {
+      "attachmentManifestSha256": "d5a5da0482e95c04bc9dbae473b0ecd39e626159dcc8025dce850f6b403a7050",
+      "grantId": "2b34258c-5164-431a-b5df-b82daea0b70f",
+      "inputSha256": "b8302af51b11e1f6b6536095f7d5e89ee9c6c66d0c0782d0aeb079821bed6e41",
+      "sequence": 27,
+      "sourceRevisionSha256": "05ece6344f293ddb461bb238ea5cb53037091ce0ee45f7525853b8f5a98de139",
+      "stratum": "bizinfo/medium",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000126285",
+      "title": "[경북] 영천시 2026년 산학연 협력 기반 기업 지원 사업 수혜기업 모집 공고",
+      "applyEnd": "2026-09-30T00:00:00.000Z",
+      "sameDayDeadline": false
+    },
+    {
+      "attachmentManifestSha256": "11cf5afcce6c8ff10469dc052fc40a411dd638d4960fbfc6b4bcd64ea215480b",
+      "grantId": "395bee4f-937b-4151-bd57-36fe976cc7d9",
+      "inputSha256": "f0ff2d104396ddee3347016a9df2b4c77df5e04d44d2af40bd872a9d28de9869",
+      "sequence": 28,
+      "sourceRevisionSha256": "64494017026b3e0fbbb8ca399420c1da7b1fd2bd98556deeb3d140cbf853fd9c",
+      "stratum": "bizinfo/medium",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000126227",
+      "title": "[부산] 2026년 중소기업인 대상 선정 계획 공고",
+      "applyEnd": "2026-09-30T00:00:00.000Z",
+      "sameDayDeadline": false
+    },
+    {
+      "attachmentManifestSha256": "f6c3439bee292a95a92214e0773a5059c896244320193a6339a919cb14d69847",
+      "grantId": "9bdba896-6292-4b1b-b339-36ff11a7ef81",
+      "inputSha256": "f71366fabbf896e70af08659d403abcdde046a278873019fb59b54bead95a5fd",
+      "sequence": 29,
+      "sourceRevisionSha256": "898247a5101f63d59a6577e0d780e30418b77b5738d0f88f7b7ca55671e237d2",
+      "stratum": "bizinfo/thin",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000126239",
+      "title": "2026년 4차 친환경양식어업육성 사업대상자 모집 재공고(품종별산업화시설지원-친환경개체굴생산지원)",
+      "applyEnd": "2026-09-30T00:00:00.000Z",
+      "sameDayDeadline": false
+    },
+    {
+      "attachmentManifestSha256": "037d278ceb6920cf6b496283163d8f25801ed1bbad7df174d24d1445f9ec7a77",
+      "grantId": "c10fff28-6d5b-409b-9d7f-60cbf7fa3705",
+      "inputSha256": "4d7ce19ed73739e5902fbfbe2213fade8b386f16bf365854585ea3ff88ad534e",
+      "sequence": 30,
+      "sourceRevisionSha256": "67c21eb5a1756317f4417c69cbb32fb6958bbe0dc929a2ca5b9c07ae902d5847",
+      "stratum": "bizinfo/medium",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000126177",
+      "title": "[경기] 부천시 2026년 9월 유해물질 시험분석 수수료 지원 사업 참여 기업 모집 공고",
+      "applyEnd": "2026-09-30T00:00:00.000Z",
+      "sameDayDeadline": false
+    },
+    {
+      "attachmentManifestSha256": "224920c00de6cc177c5abbe197cafe97b120e02d7d144abf4b93e28144ab4d94",
+      "grantId": "c36cf3fa-9b09-40a6-8789-3791f8189f09",
+      "inputSha256": "3d0e793013f075e0dbba2c9aed56a91665170bfe738e741c375ba8c404399dec",
+      "sequence": 31,
+      "sourceRevisionSha256": "9743b481ad9f4393c0f8a88a9935379874cef24eb5ee6dbe1079a9f264d827cb",
+      "stratum": "bizinfo/medium",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000126179",
+      "title": "[대전] 대덕구 2026년 3분기 착한가격업소 신규 모집 공고",
+      "applyEnd": "2026-09-30T00:00:00.000Z",
+      "sameDayDeadline": false
+    },
+    {
+      "attachmentManifestSha256": "e95cd1b5c802a70432d6bf1bcb4d86dcbbcda76dca259ca0f106e90cfc0c2b9a",
+      "grantId": "c603f8b2-cf17-4aba-9ec7-b27519e1650e",
+      "inputSha256": "6cbdc51d00e53eb3184711d5988c08cbe507e8463372c26fb5d43b57100f0ccf",
+      "sequence": 32,
+      "sourceRevisionSha256": "03df677cc0d13e19ccf9f3be7d2700fd11433ea16150711edba9d709a277c040",
+      "stratum": "bizinfo/medium",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000126284",
+      "title": "2026년 전남 글로벌 스타트업 육성사업(일본) 모집 공고",
+      "applyEnd": "2026-09-30T00:00:00.000Z",
+      "sameDayDeadline": false
+    },
+    {
+      "attachmentManifestSha256": "9c6dcbbd4b6c54d1674a307b49a1c781fbecfbb0e720802e6614c0542009b914",
+      "grantId": "28bd3746-07a5-4ac3-839a-2bd0dbcdf690",
+      "inputSha256": "d7c188a264c6d3c1fecf0397415ccb743f1ea182512fe78f362197e19b55ec83",
+      "sequence": 33,
+      "sourceRevisionSha256": "ba03e6321698bc14ad26e491182e2fe272781db385ed2dd21f6f2c962ddbf6e3",
+      "stratum": "bizinfo/medium",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000126291",
+      "title": "[전남광주] 진도군 2026년 착한가격업소 신규지정 추가 모집 공고",
+      "applyEnd": "2026-10-02T00:00:00.000Z",
+      "sameDayDeadline": false
+    },
+    {
+      "attachmentManifestSha256": "9dd570937b4960a0c442de0998bec79d4ed654b687b2b40bf2ebbec9cc7fa9b9",
+      "grantId": "9146ac5b-2eac-40ec-915d-3dff411daf2c",
+      "inputSha256": "adfc4c94e3375e2194d896257f47803b8fc96c8d12f20951af43387f4271b1db",
+      "sequence": 34,
+      "sourceRevisionSha256": "b5c6a9426e64bba89e8aa65bf88653e67d0a018926607365731ddbf2701dbe9d",
+      "stratum": "bizinfo/medium",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000126229",
+      "title": "[전남광주] 2026년 중소기업 대상 선정 계획 공고",
+      "applyEnd": "2026-10-02T00:00:00.000Z",
+      "sameDayDeadline": false
+    },
+    {
+      "attachmentManifestSha256": "fb349554cca3322ab9cdda6be0445937dab8e9e44c4ba43e15b99dbe2f6aaaab",
+      "grantId": "c86bf635-4f16-443a-b6cd-33dbc6b0efb8",
+      "inputSha256": "74c5bbbba7e409cb608caf96416e6aa16c94de28dd408ce739a86b4a39ca521d",
+      "sequence": 35,
+      "sourceRevisionSha256": "4792274180a9762e5c053525c496428842ec3c4d4d433387b870721415ba1d0f",
+      "stratum": "bizinfo/medium",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000126283",
+      "title": "2026년 LX세미콘ㆍ충남창조경제혁신센터 Nexus Connect 오픈이노베이션 밋업 데이 참여기업 모집 공고",
+      "applyEnd": "2026-10-06T00:00:00.000Z",
+      "sameDayDeadline": false
+    },
+    {
+      "attachmentManifestSha256": "3741d250a715aca6f4209b9e9bd141ab84932d8c3686a63fe03da99a1794d0df",
+      "grantId": "2419b131-1a5f-419c-bd56-692eea5c55e2",
+      "inputSha256": "b7c1ce1ee4592cd16f3a082049f38e2472a824149e55676aa25ee09976b64c7f",
+      "sequence": 36,
+      "sourceRevisionSha256": "86a10a462a009172e275215db802d56db824b58996b051179a69d95cc6a3756c",
+      "stratum": "bizinfo/thin",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000126235",
+      "title": "2026년 은평구 청년식당 신규입점 청년 모집 공고",
+      "applyEnd": "2026-10-12T00:00:00.000Z",
+      "sameDayDeadline": false
+    },
+    {
+      "attachmentManifestSha256": "e4979de0a6e2105ef04e6ea41124e13d8096a14bf8d8c3f370027f6d24553396",
+      "grantId": "23122b13-d77c-4d00-9841-1906754ab2c9",
+      "inputSha256": "e8a474cbdca6650491cef8ff44375853e163b8eccbc33c3ab2b6c7a568f5f814",
+      "sequence": 37,
+      "sourceRevisionSha256": "5fe904105876e921392a752ec600ad252f0d9860ca6db25f463dd07a41e43d71",
+      "stratum": "bizinfo/medium",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000126289",
+      "title": "[경남] 창원시 2026년 K-DEX 공동관 참가기업 모집 공고",
+      "applyEnd": "2026-10-23T00:00:00.000Z",
+      "sameDayDeadline": false
+    },
+    {
+      "attachmentManifestSha256": "274ed3c46670cc78f38c81e01e6ea2cfc792c6da60ac4ad67282d236b31734ea",
+      "grantId": "4c5d0d95-e16f-47b8-9ba7-9894d6710a8a",
+      "inputSha256": "e160f36be4cd4de5193dfd3662f4d7f180bb792c0d663ac0ea276df127a31426",
+      "sequence": 38,
+      "sourceRevisionSha256": "f758192e74ca7593cf4e6aec0b360636fa46ecb2c552080b622c19529962b34f",
+      "stratum": "bizinfo/medium",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000126281",
+      "title": "[전남광주] 무안군 2026년 GAP인증농가(농약안전보관함, 포장재) 지원사업 신청 연장 공고",
+      "applyEnd": "2026-10-30T00:00:00.000Z",
+      "sameDayDeadline": false
+    },
+    {
+      "attachmentManifestSha256": "4d81ae057899b79298895d634fa5e570835511fd22b75103659778073a15ffda",
+      "grantId": "877b6cde-116e-4550-b6a2-86472693d655",
+      "inputSha256": "d7cc368f0f80d24bb8081211bd47906c312e38d8c51b572d4baf2f51ffa4033a",
+      "sequence": 39,
+      "sourceRevisionSha256": "f380614d8932ae0fe77ce2279ef93e49c61bcb2079480a80bb81dc569a80a2ef",
+      "stratum": "bizinfo/medium",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000122587",
+      "title": "[대전] 2026년 소상공인 육아휴직자 대체인력 인건비 지원사업 모집 변경 공고",
+      "applyEnd": "2026-10-30T00:00:00.000Z",
+      "sameDayDeadline": false
+    },
+    {
+      "attachmentManifestSha256": "cddda660df80eef05f751477d9179d1acfe69d82519364d70cd1ffa34722b036",
+      "grantId": "8f1585bd-739d-449d-850c-0274107b8a0d",
+      "inputSha256": "de1145b940365392549f20afc572f550b03ca103f57419ac1a72147cf6eb2796",
+      "sequence": 40,
+      "sourceRevisionSha256": "3f6ac330afa6c3a5a7d674a90ae60be945e88b693344f5502ad7af14756fe6d9",
+      "stratum": "bizinfo/medium",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000126190",
+      "title": "2026년 2차 지역산업위기대응 이차보전 지원사업 변경 공고",
+      "applyEnd": "2026-11-13T00:00:00.000Z",
+      "sameDayDeadline": false
+    },
+    {
+      "attachmentManifestSha256": "10e06604075a2a44ecbe9be8ea0f001b7fd45c030c7ba237cda59afdaa9c09b1",
+      "grantId": "4ad4129a-b669-4d43-9ff4-e557bd3e26f5",
+      "inputSha256": "b83ea1800fc499608338d0a51cbd763571f8b54616141f2db9ead54f87475b71",
+      "sequence": 41,
+      "sourceRevisionSha256": "d75cf1663b63e2aa937c0c56eab208b31c259542b9a4319c33a494b9125a0703",
+      "stratum": "bizinfo/medium",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000117774",
+      "title": "[서울] 가죽ㆍ패션산업 소공인 장비 임대지원사업 공고",
+      "applyEnd": "2026-11-30T00:00:00.000Z",
+      "sameDayDeadline": false
+    },
+    {
+      "attachmentManifestSha256": "962780899b25d2260290813609e6c7c87604c2108e0654ca3c0c5ada6ce4a0c9",
+      "grantId": "7034f0cb-a31c-45d1-a9ca-1d8ca41201bc",
+      "inputSha256": "9d563be4738fe015ef47ff06435c9dceb155814ffb3e26e81a4237e6023e221c",
+      "sequence": 42,
+      "sourceRevisionSha256": "ce55d2de3e7286242ccde1b2c9dc7a570865e4ab5eb46cb6a2cd721aa38a10b3",
+      "stratum": "bizinfo/medium",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000117463",
+      "title": "[강원] 2026년 글로벌 IP 스타기업 육성 해외등록비용 지원사업 공고",
+      "applyEnd": "2026-11-30T00:00:00.000Z",
+      "sameDayDeadline": false
+    },
+    {
+      "attachmentManifestSha256": "e097904085e43b8693873a15c860c892f3018e49e711d3fd702f03bf7fe39797",
+      "grantId": "24a1a417-b5ae-4814-82f2-d86b6d0359a2",
+      "inputSha256": "7097cf8c04732a49cb3dc143fd29907b8639bb0cbcf6fa18ce39fdd1a8679a74",
+      "sequence": 43,
+      "sourceRevisionSha256": "cb206928a475523cdb83cce0fe4c8330eef89d590914762c4379cf4327d15692",
+      "stratum": "bizinfo/medium",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000118189",
+      "title": "[전남] 2026년 해외박람회 개별 참가 지원사업 모집 공고",
+      "applyEnd": "2026-12-31T00:00:00.000Z",
+      "sameDayDeadline": false
+    },
+    {
+      "attachmentManifestSha256": "1ef1d6fe133666fa2daecac9040462e3966eb6f8ce4fa15d30ad6f9417a9f7d3",
+      "grantId": "5dc60fb5-24ee-469b-80a3-c78ee0e229d0",
+      "inputSha256": "969c174d0a9091f7488546b88cb949e9f05e11b0015758aabfffc1d777d402f0",
+      "sequence": 44,
+      "sourceRevisionSha256": "ceda9dbaf6436b28b91c9a197ddcdae100cadda5033905650a578af6d84bea25",
+      "stratum": "bizinfo/medium",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000126273",
+      "title": "[전남광주] 곡성군 2026년 4차 신중년 희망일자리 장려금 지원사업 참여기업 모집 공고",
+      "applyEnd": "2026-12-31T00:00:00.000Z",
+      "sameDayDeadline": false
+    },
+    {
+      "attachmentManifestSha256": "8e5f80328674ae97e4e6b1422dc4e0616c2465cb9e7e4f35a956e74a93ca6923",
+      "grantId": "c93990d0-ee69-4113-b749-ab42056a30f9",
+      "inputSha256": "6564f645fbe2c45d596d041f2b5bc09fa1533d32678bfd57b21267a86a71b1ef",
+      "sequence": 45,
+      "sourceRevisionSha256": "a8d297b8cf4880c9246f3421fa376f634a921cde8def7c607171a2204c47fc92",
+      "stratum": "bizinfo/medium",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000117889",
+      "title": "[제주] 2026년 소상공인 고용보험료 지원 사업 공고",
+      "applyEnd": "2026-12-31T00:00:00.000Z",
+      "sameDayDeadline": false
+    },
+    {
+      "attachmentManifestSha256": "632c6ee240ebb25b738245b80d7a29d423cc7b0b186a844092da93f728e3aa9d",
+      "grantId": "e18cc76e-3313-4903-8ea3-3f3ef93dd0cb",
+      "inputSha256": "53b395c447d021850f998f6cc32f02c3c7afbde1da4255243acd93270fd47b91",
+      "sequence": 46,
+      "sourceRevisionSha256": "47dd3a632129df4d665c0f61fa0505c3bee55db34b57b6e6199ca0a2f30565be",
+      "stratum": "bizinfo/medium",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000117696",
+      "title": "2026년 동반성장몰 지원사업 공고",
+      "applyEnd": "2026-12-31T00:00:00.000Z",
+      "sameDayDeadline": false
+    }
+  ],
+  "existingSourceEvidence": [
+    {
+      "grantId": "f6854d19-6b35-4163-8e05-656534606062",
+      "source": "kstartup",
+      "sourceId": "177060",
+      "releaseId": "deep-deep-v31-50-20260902-r1-20260902T143920Z-4787a6b6",
+      "runId": "run-2026-09-02T072557.086Z-01cff9",
+      "runSha256": "95778fa8c47785be7632f4122daa4f8caebb08522e268ca067ab98b2687a5f86",
+      "sourceRevisionSha256": "5eebc036ad738dabcc8bf539589ab68385abd501e97d5de79a1771695f171bfd",
+      "sourceArtifactVerification": {
+        "ok": true,
+        "changed": []
+      },
+      "served": false
+    },
+    {
+      "grantId": "73bf4da4-cabf-4512-93fb-1ba50278917c",
+      "source": "kstartup",
+      "sourceId": "176937",
+      "releaseId": "deep-deep-v31-50-20260902-r1-20260902T143920Z-4787a6b6",
+      "runId": "run-2026-09-02T071621.171Z-6cb62d",
+      "runSha256": "37f75f401fa9be57520c4e556967184f82e572ac3f9e5d2898a308c2cee9f957",
+      "sourceRevisionSha256": "4ff90c8c0af8df03168643d61c6d9a7484c60922ef9dec0da7a4369c943117a8",
+      "sourceArtifactVerification": {
+        "ok": true,
+        "changed": []
+      },
+      "served": false
+    },
+    {
+      "grantId": "68880c2a-e32c-4bef-a9b9-19b910a01f78",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000125940",
+      "releaseId": "deep-deep-v31-50-20260902-r1-20260902T143920Z-4787a6b6",
+      "runId": "run-2026-09-02T074029.889Z-34dc0c",
+      "runSha256": "b1ada746266f47b8b17116f875ca01d3192aeea17c42e5fefacc85c4931574af",
+      "sourceRevisionSha256": "64f3fdc545503eca71b327a933c988ac87edefb2d1e056e1414f0a5d30d489a2",
+      "sourceArtifactVerification": {
+        "ok": true,
+        "changed": []
+      },
+      "served": false
+    },
+    {
+      "grantId": "cd168241-58dc-431b-9705-b51cb9b4c68b",
+      "source": "kstartup",
+      "sourceId": "177681",
+      "releaseId": "deep-deep-v31-50-20260902-r1-20260902T143920Z-4787a6b6",
+      "runId": "run-2026-09-02T084256.177Z-e775dd",
+      "runSha256": "879db1b16b542f6af637be7d967f653a14f11fa70f2c73cf1f75e222c76830ff",
+      "sourceRevisionSha256": "11590140a15478ce947aca74aa0c8156a702290ca1addb277efaec65686a1746",
+      "sourceArtifactVerification": {
+        "ok": true,
+        "changed": []
+      },
+      "served": false
+    },
+    {
+      "grantId": "d392f9cc-c30d-4e00-9313-ee53a3043999",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000120089",
+      "releaseId": "deep-deep-v31-50-20260902-r1-20260902T143920Z-4787a6b6",
+      "runId": "run-2026-09-02T071636.681Z-2e7749",
+      "runSha256": "072861b19bfd8da5478c2022d58eb5172edd17a4b3231ff26bbe755a5dbc150e",
+      "sourceRevisionSha256": "9aba527965f085465e21cc88348acc1ee5d80ec8a0eb2d4194a5ae82ff0e266d",
+      "sourceArtifactVerification": {
+        "ok": true,
+        "changed": []
+      },
+      "served": false
+    },
+    {
+      "grantId": "597cd497-8c05-43c7-8cc9-5ec595eab887",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000123736",
+      "releaseId": "deep-deep-v31-50-20260902-r1-20260902T143920Z-4787a6b6",
+      "runId": "run-2026-09-02T103758.473Z-195653",
+      "runSha256": "c1008ab034cf9affd66e8989faf28803c95330a8baeb179bb6140fdda91715b5",
+      "sourceRevisionSha256": "1a3c3ca16b6df4750b2873d64d28e718108bc8c82a4d106f97d8a78e670f4ab0",
+      "sourceArtifactVerification": {
+        "ok": true,
+        "changed": []
+      },
+      "served": false
+    },
+    {
+      "grantId": "fc59439d-27e0-4110-b646-ae00401e9c97",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000126026",
+      "releaseId": "deep-deep-v31-50-20260902-r1-20260902T143920Z-4787a6b6",
+      "runId": "run-2026-09-02T074857.577Z-9761da",
+      "runSha256": "d86e07126679eb60c69f21196a8cd37bd0a67c88587e56cb8bb6aa7e73c5f45d",
+      "sourceRevisionSha256": "596a93e84c443923d2d913b63b7514fa26c04186da4bf7de11b078ab43994f9a",
+      "sourceArtifactVerification": {
+        "ok": true,
+        "changed": []
+      },
+      "served": false
+    },
+    {
+      "grantId": "487ec5d1-ce37-4c0a-9a88-f6ed21ff6620",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000126036",
+      "releaseId": "deep-deep-v31-50-20260902-r1-20260902T143920Z-4787a6b6",
+      "runId": "run-2026-09-02T074531.517Z-fc074d",
+      "runSha256": "bd253c45a2933f9f88ebecb0b10087e31c84b4ea9c5982776f749fe908db1607",
+      "sourceRevisionSha256": "8e4a903f46a48af3faa4e93742b9d02a23e5da3ca450ce6cdbb5a6554b038db4",
+      "sourceArtifactVerification": {
+        "ok": true,
+        "changed": []
+      },
+      "served": false
+    },
+    {
+      "grantId": "f2c61c3a-300d-4b0d-92e6-71ee67d1fa0b",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000126031",
+      "releaseId": "deep-deep-v31-50-20260902-r1-20260902T143920Z-4787a6b6",
+      "runId": "run-2026-09-02T072521.633Z-c28e23",
+      "runSha256": "43568f54bdf1e4e17bc9965ab8da651b20da8fa2b4bce6770d1dd70c150e0865",
+      "sourceRevisionSha256": "041caeb21cb0577a8883d761f61e652736ec9345530059fe498da202aa70eaef",
+      "sourceArtifactVerification": {
+        "ok": true,
+        "changed": []
+      },
+      "served": false
+    },
+    {
+      "grantId": "70ceb551-c9fa-49f6-ab4c-c92839ab26bf",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000126024",
+      "releaseId": "deep-deep-v31-50-20260902-r1-20260902T143920Z-4787a6b6",
+      "runId": "run-2026-09-02T104157.748Z-835f48",
+      "runSha256": "0c9115a40430edcb444094c1af87c5bf78acf6aa9561c51eaa9e3b7c938311c7",
+      "sourceRevisionSha256": "de193adf928c03cd00fd8dc7b70aef14fa0601583704e578d21d0e969d3c6f4c",
+      "sourceArtifactVerification": {
+        "ok": true,
+        "changed": []
+      },
+      "served": false
+    },
+    {
+      "grantId": "45d4f26e-681c-4126-b424-43a7a80d8f70",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000126023",
+      "releaseId": "deep-deep-v31-50-20260902-r1-20260902T143920Z-4787a6b6",
+      "runId": "run-2026-09-02T122221.832Z-be49fd",
+      "runSha256": "97ca3fe1f4200c71ba64bfa9cccb8571bcde5018378803148a5949d121cbe62a",
+      "sourceRevisionSha256": "03d3e8dc2fabdfc486462dae7b007e71baa9a778d2de9754b3ffad30b57d8581",
+      "sourceArtifactVerification": {
+        "ok": true,
+        "changed": []
+      },
+      "served": false
+    },
+    {
+      "grantId": "d3b0ed2f-354a-4863-a6e7-947135968259",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000119356",
+      "releaseId": "deep-deep-v31-50-20260902-r1-20260902T143920Z-4787a6b6",
+      "runId": "run-2026-09-02T071808.768Z-ef785e",
+      "runSha256": "09b65fda7a257d836e42a45577fab663909404ded3ef9a9ea5e57ef612bd3b44",
+      "sourceRevisionSha256": "57b27328225a26846081cd17ad50283664f6b23666aca45ff5b32a4c0fd0f1e0",
+      "sourceArtifactVerification": {
+        "ok": true,
+        "changed": []
+      },
+      "served": false
+    },
+    {
+      "grantId": "2e1a109a-f2c6-4ca8-afbc-8c74c5c3cb0d",
+      "source": "kstartup",
+      "sourceId": "176442",
+      "releaseId": "deep-deep-v31-50-20260902-r1-20260902T143920Z-4787a6b6",
+      "runId": "run-2026-09-02T104949.920Z-54fc6a",
+      "runSha256": "25e979f89e08968755c1762fe0281c52aab5620e42b6eb64bdfc47ba3fb824d6",
+      "sourceRevisionSha256": "13bb0beb64321bbe7e22964712d9232055ce90c42096263ef6e79ae19a329211",
+      "sourceArtifactVerification": {
+        "ok": true,
+        "changed": []
+      },
+      "served": false
+    },
+    {
+      "grantId": "7298ebbd-b320-4a07-a0db-fc61c21b2cb4",
+      "source": "kstartup",
+      "sourceId": "177210",
+      "releaseId": "deep-deep-v31-50-20260902-r1-20260902T143920Z-4787a6b6",
+      "runId": "run-2026-09-02T102818.498Z-0fa5fb",
+      "runSha256": "f76334ed578f7fe097ea71b854892d8fead9610e9dbb096b5e736a042f8e1b48",
+      "sourceRevisionSha256": "4e5ebffc8443bff5a3c3d81935ad384ddbe2cc05d1ca4e435d811b2602b3b306",
+      "sourceArtifactVerification": {
+        "ok": true,
+        "changed": []
+      },
+      "served": false
+    },
+    {
+      "grantId": "13b61469-0b2e-465e-a50c-4d3d919db65a",
+      "source": "kstartup",
+      "sourceId": "178792",
+      "releaseId": "deep-deep-v31-50-20260902-r1-20260902T143920Z-4787a6b6",
+      "runId": "run-2026-09-02T122519.385Z-1884d5",
+      "runSha256": "ba66d61bff3f24440e9165f54c611c6041870ca205daea75857bcf8d1f565def",
+      "sourceRevisionSha256": "1265ac3585f77192a895c936f02e32e43cb488030078d62356b9f35cf712e720",
+      "sourceArtifactVerification": {
+        "ok": true,
+        "changed": []
+      },
+      "served": false
+    },
+    {
+      "grantId": "30d002d3-0002-4618-a7e9-e2875e4f6cac",
+      "source": "kstartup",
+      "sourceId": "178802",
+      "releaseId": "deep-deep-v31-50-20260902-r1-20260902T143920Z-4787a6b6",
+      "runId": "run-2026-09-02T134430.049Z-615a09",
+      "runSha256": "231892cefb4343b19a44f8ce225fd3042e9946bb82e459bdf31d37b588260ffa",
+      "sourceRevisionSha256": "f03c640831f5c543858c488e8bf5f8df84e23fd831a33cf58255054224904b34",
+      "sourceArtifactVerification": {
+        "ok": true,
+        "changed": []
+      },
+      "served": false
+    },
+    {
+      "grantId": "2172d918-0279-4667-b125-c0b59fa6344d",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000125493",
+      "releaseId": "deep-deep-v31-50-20260902-r1-20260902T143920Z-4787a6b6",
+      "runId": "run-2026-09-02T102818.499Z-9e03d6",
+      "runSha256": "837e65d90dd2009d0434263da415dbcc0ac1a9d1b55e83451a92dcbd268a9958",
+      "sourceRevisionSha256": "b9d52661c941ff67d81c1f08e4eedd7d9a8aeb3369d73285fd67b2b7a1631f60",
+      "sourceArtifactVerification": {
+        "ok": true,
+        "changed": []
+      },
+      "served": false
+    },
+    {
+      "grantId": "bf642042-7ef5-45fd-b29d-19697133b29c",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000125848",
+      "releaseId": "deep-deep-v31-50-20260902-r1-20260902T143920Z-4787a6b6",
+      "runId": "run-2026-09-02T072857.513Z-77571e",
+      "runSha256": "8a1d04d26209fb20338444a8b90e6442d8e835bd2719aeed9e8773bb844fe8eb",
+      "sourceRevisionSha256": "23445aa9b53fb305aa503d1d9b1111733fb0898f1301282bada4c4fcfb42798a",
+      "sourceArtifactVerification": {
+        "ok": true,
+        "changed": []
+      },
+      "served": false
+    },
+    {
+      "grantId": "eeee5561-a723-4718-956b-83eff7bf0294",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000125837",
+      "releaseId": "deep-deep-v31-50-20260902-r1-20260902T143920Z-4787a6b6",
+      "runId": "run-2026-09-02T071245.541Z-d199b5",
+      "runSha256": "d86507dae034bab54ff1b97acb010876c11e5f84d33ed40db4ad7db48ca38dc8",
+      "sourceRevisionSha256": "a4f6536959fe7863582bb37b59f4055625717c001c1ace41185a515e17e51a08",
+      "sourceArtifactVerification": {
+        "ok": true,
+        "changed": []
+      },
+      "served": false
+    },
+    {
+      "grantId": "af808cf6-d1ec-41d1-b1f6-d79ec569b1cd",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000125835",
+      "releaseId": "deep-deep-v31-50-20260902-r1-20260902T143920Z-4787a6b6",
+      "runId": "run-2026-09-02T141937.373Z-161970",
+      "runSha256": "8f5494949c727034e826d62ded360a80fdee76d7c2f61ea94d6e09f12e1daac1",
+      "sourceRevisionSha256": "b07cc21c834e0e08c1aa6739efdbe149e5dffa16cd75b75f90d57891b125399f",
+      "sourceArtifactVerification": {
+        "ok": true,
+        "changed": []
+      },
+      "served": false
+    }
+  ],
+  "approvedUnappliedSourceDrift": 14,
+  "historicalNotServingUnclassified": 310,
+  "postcheck": {
+    "observedAt": "2026-09-09T20:03:04.678Z",
+    "guard": {
+      "readonly": "on",
+      "isolation": "repeatable read",
+      "observed_at": "2026-09-09 20:03:04.373979+00"
+    },
+    "runtime": {
+      "controlKey": "global",
+      "mode": "paused",
+      "generation": 383,
+      "changedBy": "lab:launch",
+      "changeReason": "로컬 구독 분석 권한 해제",
+      "localOwnerId": null,
+      "localLeaseExpiresAt": null,
+      "createdAt": "2026-08-05T14:21:42.217Z",
+      "updatedAt": "2026-09-06T06:23:56.814Z",
+      "databaseObservedAt": "2026-09-09T20:03:04.656Z",
+      "activeDeepLeases": 0,
+      "activeApplicationLeases": 0
+    },
+    "manifestSha256": "0a6860c2a40a4d2f3262e4e2cb3a32ea0024973e0de5c67c226e31dc829abfb7",
+    "inventorySha256": "18b7087059e07701388837e0c4b406ccba1f6281a51bcb3e1a6338442505fde2",
+    "contract": {
+      "gitChangedSincePreparation": false
+    },
+    "targetCount": 47,
+    "inputAndAttachmentStableFromInitialPreparation": 47,
+    "sourceAndEligibilityCurrent": 47,
+    "historicalExcludedBefore": 711,
+    "historicalExcludedAfter": 758,
+    "existingSourceEvidenceStillCurrent": 20,
+    "liveGrantCount": 0,
+    "modelCalls": 0,
+    "serviceWrites": 0,
+    "formalSeriesCreated": false
+  },
+  "checks": [
+    {
+      "command": "pnpm test",
+      "result": "PASS",
+      "logPath": "/tmp/cunote-current-aggregate-final.log",
+      "logSha256": "cee6b7ceb50ec083e95319ba52a840a5d0eea986058cc3d33174309c380b04f8",
+      "sourceCommit": "76b4f44c4d4bc3d1a7a89dff5ee6826db9c8da9d"
+    },
+    {
+      "command": "pnpm lab:launch:test",
+      "result": "PASS",
+      "logPath": "/tmp/cunote-current-launch-suite-final.log",
+      "logSha256": "f3476abce0631d15c5f1183bf31d560b95eb698d82f9dd26c8e7029b14e778c8",
+      "sourceCommit": "76b4f44c4d4bc3d1a7a89dff5ee6826db9c8da9d"
+    },
+    {
+      "command": "pnpm lab:experiment:test",
+      "result": "PASS",
+      "logPath": "/tmp/cunote-current-experiment-final.log",
+      "logSha256": "8219f83d8a4f51e189a7d7c8c6af67797d8c338d98ebf53c4ae7581f45e512a3",
+      "sourceCommit": "76b4f44c4d4bc3d1a7a89dff5ee6826db9c8da9d"
+    }
+  ],
+  "limitations": [
+    "47 targets are prepared, not analyzed or served",
+    "20 prior artifacts passed source verification, not final promotion admission",
+    "current batch throughput and authenticated beta acceptance are not yet measured",
+    "formal deep-v35 target100 and required strata are unchanged",
+    "no model execution, grant, promotion, deployment or service writes performed"
+  ]
+}
