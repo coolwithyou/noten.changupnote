@@ -3,6 +3,7 @@ import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { isImmutableArtifactTempFileName } from "./immutable-artifact-fs";
 import { analysisLabDir } from "./run-store";
+import { CURRENT_INVENTORY_SCHEMA, validateCurrentLaunchInventory } from "./current-inventory-launch";
 
 const LEGACY_COHORT_SNAPSHOT_FILE = /^cohort\..+\.json$/;
 const PRIMARY_RUN_FILE = /^run-[0-9TZ.\-]{10,40}(?:-[a-f0-9]{4,8})?\.json$/;
@@ -48,6 +49,16 @@ export async function readDeepRepairHistoricalGrantIds(options: {
   }
 
   const seriesRoot = join(root, "experiments", "series");
+  // 새 current inventory도 준비된 exact 대상으로 all 이력에서 제외한다.
+  for (const entry of scope === "all" ? await readDirectoryOrEmpty(join(root, "launch", "inventories")) : []) {
+    if (isImmutableArtifactTempFileName(entry.name)) continue;
+    if (!entry.isFile() || !/^[a-f0-9]{64}\.json$/u.test(entry.name)) throw new Error("unexpected current inventory entry");
+    const bytes = await readFile(join(root, "launch", "inventories", entry.name));
+    if (`${createHash("sha256").update(bytes).digest("hex")}.json` !== entry.name) throw new Error("current inventory SHA mismatch");
+    const inventory = validateCurrentLaunchInventory(JSON.parse(bytes.toString("utf8")));
+    if (inventory.schema !== CURRENT_INVENTORY_SCHEMA) throw new Error("current inventory schema mismatch");
+    for (const target of inventory.targets) ids.add(target.grantId);
+  }
   for (const entry of await readDirectoryOrEmpty(seriesRoot)) {
     if (!entry.isFile()) throw new Error(`unexpected experiment series entry: ${entry.name}`);
     if (isImmutableArtifactTempFileName(entry.name)) continue;

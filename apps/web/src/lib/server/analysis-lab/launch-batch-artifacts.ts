@@ -64,7 +64,7 @@ export interface AnalysisLaunchManifest {
   readonly schema: "analysis-launch-manifest-v1";
   readonly preparedAt: string;
   readonly source: {
-    readonly kind: "formal_plan" | "authoring_guide_adoption" | "independent_review_repair";
+    readonly kind: "formal_plan" | "current_inventory" | "authoring_guide_adoption" | "independent_review_repair";
     readonly seriesId: string;
     readonly planSha256: string;
     readonly planArtifactSha256: string;
@@ -205,6 +205,20 @@ export function createAnalysisLaunchManifest(
     sourceKind: "formal_plan",
     adoptionManifestSha256: null,
     existingRunPolicy: "skip_existing",
+  });
+}
+
+/** 현행 재고의 exact 목록. 역사 formal 표본 수/필수 층 계약은 변경하지 않는다. */
+export function createCurrentInventoryAnalysisLaunchManifest(
+  input: AnalysisLaunchManifestPreparationInput,
+): AnalysisLaunchManifest {
+  if (input.inventory.planSha256 !== input.inventory.planArtifactSha256) {
+    throw new Error("current inventory의 content address 결속이 다릅니다.");
+  }
+  const formal = createAnalysisLaunchManifest(input);
+  return normalizeAnalysisLaunchManifest({
+    ...formal,
+    source: { ...formal.source, kind: "current_inventory" },
   });
 }
 
@@ -573,13 +587,14 @@ export function normalizeAnalysisLaunchManifest(value: unknown): AnalysisLaunchM
     throw new Error("launch Kordoc exact 재사용 runId가 중복됐습니다.");
   }
   if (
-    (sourceKind === "formal_plan"
+    ((sourceKind === "formal_plan" || sourceKind === "current_inventory")
       && (
         adoptionManifestSha256 !== null
         || existingRunPolicy !== "skip_existing"
         || !withApplicationRoundtrip
         || roundtripModel !== APPLICATION_ROUNDTRIP_ADOPTED_MODEL
         || applicationFieldAnalysisVersion !== APPLICATION_ROUNDTRIP_VERSION
+        || (sourceKind === "current_inventory" && planSha256 !== planArtifactSha256)
       ))
     || (sourceKind === "authoring_guide_adoption"
       && (
@@ -601,6 +616,7 @@ export function normalizeAnalysisLaunchManifest(value: unknown): AnalysisLaunchM
       ))
     || (
       sourceKind !== "formal_plan"
+      && sourceKind !== "current_inventory"
       && sourceKind !== "authoring_guide_adoption"
       && sourceKind !== "independent_review_repair"
     )

@@ -20,7 +20,7 @@ export interface AnalysisLaunchTargetBinding {
 export interface AnalysisLaunchBatchExecutionBinding {
   readonly grantSha256: string;
   readonly manifestSha256: string;
-  readonly sourceKind: "formal_plan" | "authoring_guide_adoption" | "independent_review_repair";
+  readonly sourceKind: "formal_plan" | "current_inventory" | "authoring_guide_adoption" | "independent_review_repair";
   readonly model: string;
   readonly transport: "claude-cli";
   readonly promptVersion: string;
@@ -58,6 +58,7 @@ function normalizeBinding(
   }
   if (
     binding.sourceKind !== "formal_plan"
+    && binding.sourceKind !== "current_inventory"
     && binding.sourceKind !== "authoring_guide_adoption"
     && binding.sourceKind !== "independent_review_repair"
   ) {

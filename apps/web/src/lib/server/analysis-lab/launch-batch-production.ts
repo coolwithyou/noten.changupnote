@@ -42,6 +42,7 @@ import {
 } from "./launch-status";
 import { classifyLabRunOutcome } from "./run-outcome";
 import { findMonorepoRoot, labRunFilePath } from "./run-store";
+import { verifyCurrentInventoryLaunchBinding } from "./current-inventory-launch";
 
 export async function prepareAnalysisLaunchManifest(input: {
   readonly seriesId: string;
@@ -94,6 +95,7 @@ export async function approveAnalysisLaunchManifest(input: {
     approvedBy: input.approvedBy,
     now: new Date(),
   });
+  await verifyCurrentInventoryLaunchBinding(findMonorepoRoot(), manifest);
   const stored = await writeAnalysisLaunchArtifact("grants", grant);
   return Object.freeze({ grantSha256: stored.sha256, path: stored.path });
 }
@@ -178,6 +180,7 @@ export async function runApprovedAnalysisLaunchBatch(input: {
   if (grant.targetCount !== manifest.targets.length) {
     throw new Error("launch grant targetCount가 manifest와 다릅니다.");
   }
+  const currentInventory = await verifyCurrentInventoryLaunchBinding(repositoryRoot, manifest);
   const contract = assertAnalysisLaunchExecutionContract({
     manifest,
     current: await readCurrentDeepRepairExecutionProvenance({ repositoryRoot }),
@@ -284,6 +287,10 @@ export async function runApprovedAnalysisLaunchBatch(input: {
         runAnalysisImpl: async (grantId, overrides) => {
           const target = manifest.targets.find((item) => item.grantId === grantId)!;
           try {
+            if (currentInventory) {
+              const { verifyCurrentInventoryLaunchTarget } = await import("./current-inventory-launch-production");
+              await verifyCurrentInventoryLaunchTarget(currentInventory, grantId);
+            }
             if (target.applicationRoundtripReuse) {
               await verifyIndependentReviewApplicationRoundtripReuseBinding({
                 manifest,
