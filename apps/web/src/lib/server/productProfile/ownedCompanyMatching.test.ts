@@ -80,6 +80,26 @@ try {
     { field: "certification", value: [] },
     { field: "industry", unknown: true },
     { field: "revenue", range: { min: 0, max: 100_000_000, unit: "krw" } },
+    {
+      field: "premises",
+      mode: "replace",
+      value: {
+        schemaVersion: "premises-v1",
+        locations: [{
+          locationId: "00000000-0000-4000-8000-000000000201",
+          facilityType: "headquarters",
+          sidoCode: "11",
+          validFrom: "2025-01-01",
+          validTo: null,
+        }],
+        coverage: {
+          facilityTypes: ["headquarters"],
+          validFrom: "2025-01-01",
+          validTo: "2026-01-01",
+          completeness: "complete",
+        },
+      },
+    },
   ]) {
     const beforeAnswer = await loadOwnedCompanyMatching({ companyId: a, userId: owner });
     const response = await post({ ...answer, companyId: a, expectedProfileRevision: beforeAnswer.profileRevision });
@@ -87,14 +107,15 @@ try {
     const savedResult = (await response.json()).data;
     const savedMatching = savedResult.matching;
     assert.equal(savedMatching.companyId, a);
+    assert.equal(savedMatching.profileWriteAllowed, true);
     const reopenedMatching = await loadOwnedCompanyMatching({ companyId: a, userId: owner });
     assert.equal(savedMatching.profileRevision, reopenedMatching.profileRevision, `${answer.field}: 저장 응답 토큰으로 재개 가능`);
   }
-  assert.equal(writes, 4);
+  assert.equal(writes, 5);
   const stale = await post({ companyId: a, field: "employees", value: 999, expectedProfileRevision: "0".repeat(64) });
   assert.equal(stale.status, 409);
   assert.equal((await stale.json()).error.code, "company_profile_conflict");
-  assert.equal(writes, 4, "오래된 화면은 저장 및 파생 상태 쓰기 전에 거부한다");
+  assert.equal(writes, 5, "오래된 화면은 저장 및 파생 상태 쓰기 전에 거부한다");
   const malformedRevision = await post({ companyId: a, field: "employees", value: 999, expectedProfileRevision: null });
   assert.equal(malformedRevision.status, 400);
   // 새 객체로 decode해 재조회. 브라우저 draft나 직전 응답 profile 객체에 의존하지 않는다.
@@ -104,6 +125,7 @@ try {
   assert.deepEqual(snapshot.unknownDimensions, ["industry"]);
   assert.equal(snapshot.teaser.profileView.rows.find((row) => row.dimension === "employees")?.status, "known");
   assert.equal(snapshot.teaser.profileView.rows.find((row) => row.dimension === "certification")?.displayValue, "해당 없음");
+  assert.equal(snapshot.teaser.profileView.rows.find((row) => row.dimension === "premises")?.premisesValue?.locations.length, 1);
   const persisted: CompanyProfile = read(a, owner);
   assert.equal(persisted.employees_count, 0);
   assert.deepEqual(persisted.certs, []);
@@ -111,6 +133,7 @@ try {
   const response = await get(a);
   assert.equal(response.status, 200);
   assert.equal(response.headers.get("cache-control"), "private, no-store");
+  assert.equal((await response.clone().json()).data.profileWriteAllowed, true);
   assert.equal((await get()).status, 200, "선택 회사가 없으면 접근 가능한 첫 회사로 재진입한다");
   assert.equal((await get("")).status, 400, "명시한 빈 회사는 기본 회사로 후퇴하지 않는다");
   assert.equal((await get(b)).status, 403);
@@ -122,7 +145,7 @@ try {
   assert.equal((await confirmations.PUT(new Request(`https://local.test/confirmations?companyId=${b}`, {
     method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ answers: [] }),
   }), confirmationContext)).status, 403);
-  assert.equal(writes, 4, "잘못된 회사·viewer 요청은 아무 프로필도 저장하지 않는다");
+  assert.equal(writes, 5, "잘못된 회사·viewer 요청은 아무 프로필도 저장하지 않는다");
 
   const beforeCorrection = read(a, owner);
   rows.set(`${a}:${owner}`, encodeCompanyProfileRows(a, {
@@ -135,7 +158,11 @@ try {
   const correction = await post({ companyId: a, field: "certification", value: [], allowAuthoritativeOverride: true });
   assert.equal(correction.status, 400, "원천 확인값은 클라이언트 override 플래그로 우회하지 못한다");
   assert.deepEqual(read(a, owner).certs, ["창업기업확인서"]);
-  assert.equal(writes, 4, "정정 문의 전에는 원천 확인값을 바꾸지 않는다");
+  assert.equal(writes, 5, "정정 문의 전에는 원천 확인값을 바꾸지 않는다");
+
+  const viewerResponse = await get(viewerCompany);
+  assert.equal(viewerResponse.status, 200);
+  assert.equal((await viewerResponse.json()).data.profileWriteAllowed, false, "viewer 조회는 쓰기 가능 플래그를 열지 않는다");
 
   process.env.CUNOTE_MOCK_USER_ID = colleague;
   const otherUser = await (await get(a)).json();
@@ -150,7 +177,7 @@ try {
   process.env.CUNOTE_MOCK_USER_ID = owner;
   const resumed = await (await get(a)).json();
   assert.deepEqual(resumed.data.unknownDimensions, ["industry"]);
-  assert.equal(writes, 4, "재진입·사용자 전환·읽기 요청은 저장하지 않는다");
+  assert.equal(writes, 5, "재진입·사용자 전환·읽기 요청은 저장하지 않는다");
 } finally {
   process.env.CUNOTE_SOURCE_CORRECTIONS_ENABLED = "false";
   repositories.companies.listUserCompanies = saved.list;

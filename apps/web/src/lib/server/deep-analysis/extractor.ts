@@ -937,6 +937,8 @@ export const DEEP_ANALYSIS_SCORING_TABLE_COMPLETENESS_RULE =
   "선정평가표·평가기준·배점표는 표 제목만 보지 말고 모든 평가항목, 하위 배점 행, 가점 행을 끝까지 검사한다. 점수를 바꾸는 서로 다른 사실은 각각 preferred criterion으로 보존하고 가장 가까운 22축에 배치한다. 안전한 canonical 값이 없으면 other/text_only와 원문 note로 남긴다. 같은 표의 다른 행을 추출했다는 이유로 외국어 홈페이지, 홍보자료, 인증, 사업장, 수출실적 같은 독립 배점 행을 생략하지 마라.";
 export const DEEP_ANALYSIS_LOCALITY_PREMISES_RULE =
   "시·군·구 단위 소재지 요건은 region의 시도 코드만으로 의미가 완전히 보존되지 않는다. 예를 들어 '하남시 관내 본사 또는 공장'이면 region에 경기 41을 required로 두는 동시에 premises에 시군구와 본사·공장 조건을 그대로 담은 required/text_only criterion을 별도로 만든다. 다만 본사가 관외여도 대상 공장·사업장이 관내면 신청 가능한 대안이 있으면 현재 회사 본사 region만으로 선차단할 수 없으므로 region/in을 만들지 말고 region/text_only 한 건에 본사·공장 OR 경로를 모두 보존한다. 시도보다 좁은 소재지 요건이나 시설 대안을 시도 코드 하나로만 끝내지 마라.";
+export const DEEP_ANALYSIS_PREMISES_V1_RULE =
+  "premises를 구조화할 수 있는 유일한 경우는 신청기업이 원문에 명시된 절대 기준일(YYYY-MM-DD) 현재 등록 사업장 중 하나를 지정 시도와 시설 유형으로 보유해야 하는 단순 필수조건이다. 이때만 dimension=premises, kind=required, operator=exists, value={\"schemaVersion\":\"premises-v1\",\"state\":\"registered_current_site\",\"sidoCodes\":[시도코드],\"facilityTypes\":[\"headquarters\"|\"factory\"|\"research_institute\"],\"facilitySemantics\":\"any\",\"basisDate\":\"YYYY-MM-DD\"}로 낸다. source_span 자체가 현재 등록 상태, 해당 시설 유형, 시도, 절대 기준일을 모두 직접 입증해야 하며 공고일·접수일·현재·협약일 같은 상대 표현에서 날짜를 추정하지 마라. 시·군·구, 입주기간·등록기간, 이전 예정·입주 확약, 특정 건물·공간·장비, 증빙서류 종류, 시설별 추가 전제, 서로 다른 조건의 AND/OR·대안 경로, preferred·exclusion은 premises-v1으로 부분 구조화하지 말고 원래 premises kind와 전체 source_span을 보존한 text_only로 둔다.";
 export const DEEP_ANALYSIS_PRIOR_AWARD_STATE_RULE =
   "prior_award states의 completed는 사업 수행을 끝냈다는 뜻으로만 한정하지 않고 선정·수혜 사실이 확정된 상태를 뜻한다. 원문이 '선정된', '선정 이력', '지원을 받은'이면 completed, 현재 참여·수행 중이면 participating, 교육·프로그램 수료·졸업이면 graduated를 사용한다. 다만 원문이 '협약을 체결했던 이력'처럼 상태를 가리지 않고 중단처분·중도포기까지 명시적으로 포함하면 states를 넣지 말고 해당 program의 모든 이력을 대상으로 보존한다. states=[\"completed\"]로 범위를 줄이지 마라. 명시적 '선정된'을 completed로 표현한 결과를 수행완료 오분류로 감사하지 마라.";
 export const DEEP_ANALYSIS_COMPOUND_PREDICATE_RULE =
@@ -988,6 +990,7 @@ export const DEEP_ANALYSIS_REVIEW_ALIGNMENT_RULES = Object.freeze([
   DEEP_ANALYSIS_SCORING_TABLE_COMPLETENESS_RULE,
   DEEP_ANALYSIS_ELIGIBILITY_RANKING_SEPARATION_RULE,
   DEEP_ANALYSIS_LOCALITY_PREMISES_RULE,
+  DEEP_ANALYSIS_PREMISES_V1_RULE,
   DEEP_ANALYSIS_COMPOUND_PREDICATE_RULE,
   DEEP_ANALYSIS_CERTIFICATION_CONJUNCTION_RULE,
   DEEP_ANALYSIS_CONDITIONAL_INDUSTRY_RULE,
@@ -1048,6 +1051,7 @@ export const DEEP_ANALYSIS_SYSTEM_PROMPT = [
   DEEP_ANALYSIS_SCORING_TABLE_COMPLETENESS_RULE,
   DEEP_ANALYSIS_ELIGIBILITY_RANKING_SEPARATION_RULE,
   DEEP_ANALYSIS_LOCALITY_PREMISES_RULE,
+  DEEP_ANALYSIS_PREMISES_V1_RULE,
   DEEP_ANALYSIS_COMPOUND_PREDICATE_RULE,
   DEEP_ANALYSIS_CERTIFICATION_CONJUNCTION_RULE,
   DEEP_ANALYSIS_CONDITIONAL_INDUSTRY_RULE,
@@ -1095,7 +1099,7 @@ export const DEEP_ANALYSIS_SYSTEM_PROMPT = [
   "region={regions:[시도코드],nationwide?}, biz_age={min_months?,max_months?,include_preliminary?}, industry={tags:[문자열]}, size={sizes:[정규 규모]}, revenue={min_krw?,max_krw?}, employees={min?,max?}, founder_age={ranges:[{min?,max?,label}]}, founder_trait={traits:[문자열]}, certification={certs:[문자열]}, ip={types:[문자열]}, target_type={targets:[문자열],list_semantics:\"open\"|\"closed\"}.",
   "위 canonical value 를 채울 수 없으면 빈 배열·빈 객체를 내지 말고 operator=text_only, dimension=other, value={note:근거문장} 으로 둔다.",
   "현재 사업자 상태로 판정할 수 없는 포괄적 '기타 부적합' 재량 문구는 분석 주의사항으로만 보존하고 criterion으로 만들지 마라.",
-  "premises(사업장·입주공간 조건)와 export_performance(수출실적 조건)도 누락하지 않는다. 현재 matcher의 canonical 값이 열리기 전까지 이 두 축은 해당 dimension을 유지하고 operator=text_only, value={\"note\":\"근거문장\"}로 추출한다. other로 강등하지 마라.",
+  "premises(사업장·입주공간 조건)와 export_performance(수출실적 조건)도 누락하지 않는다. premises는 premises-v1 규칙의 좁은 현재 등록 사업장 필수조건만 구조화하고, 그 밖의 premises와 모든 export_performance는 해당 dimension을 유지한 operator=text_only, value={\"note\":\"근거문장\"}로 추출한다. other로 강등하지 마라.",
   "모든 criteria 는 근거 문장만 담은 source_span 이 반드시 있어야 한다. 근거를 특정할 수 없으면 그 조건은 만들지 마라.",
   "",
   "[axis_assessments — 22축 전수 검사(premises·export_performance 포함, 각 축 정확히 한 번)]",

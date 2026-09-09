@@ -33,7 +33,7 @@ import {
 } from "@/lib/server/analysis-serving/matchingConversionContract";
 
 export const ANALYSIS_LAB_SHADOW_SOURCE_PREFIX = "lab-shadow";
-export const ANALYSIS_LAB_SHADOW_PARSER_VERSION = "analysis-lab-shadow-v3";
+export const ANALYSIS_LAB_SHADOW_PARSER_VERSION = "analysis-lab-shadow-v4";
 export const ANALYSIS_LAB_SHADOW_CONVERSION_CONTRACT_VERSION =
   MATCHING_CONVERSION_CONTRACT_VERSION;
 /** 변환 산출 criterion 의 source_field — 현행 파이프라인 산출과 육안 구분용. */
@@ -76,8 +76,11 @@ function toLlmRow(criterion: LabCriterion, needsReview = false): Record<string, 
     value: normalized.value,
     confidence: normalized.confidence,
     ...(normalized.sourceSpan ? { source_span: normalized.sourceSpan } : {}),
+    ...(normalized.note ? { note: normalized.note } : {}),
     source_field: ANALYSIS_LAB_SHADOW_SOURCE_FIELD,
-    needs_review: needsReview,
+    needs_review: needsReview || (
+      normalized.dimension === "premises" && normalized.spanVerified !== true
+    ),
   };
 }
 

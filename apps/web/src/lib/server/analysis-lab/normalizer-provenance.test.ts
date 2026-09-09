@@ -9,10 +9,10 @@ import { resolveGrantRunStates } from "./run-scan-state";
 
 assert.equal(BIZINFO_NORMALIZER_VERSION, "bizinfo-llm-criteria-v3");
 assert.equal(KSTARTUP_LLM_EXTRACTOR_VERSION, "kstartup-llm-criteria-v1");
-assert.equal(ANALYSIS_LAB_PROMPT_VERSION, "lab-deep-v21");
+assert.equal(ANALYSIS_LAB_PROMPT_VERSION, "lab-deep-v22");
 assert.equal(
   LLM_CRITERIA_NORMALIZATION_CONTRACT_VERSION,
-  "grant-llm-criteria-normalization-v1",
+  "grant-llm-criteria-normalization-v2",
 );
 
 // 공용 normalizer provenance는 additive다. 기존 자동 재분석 상태는 promptVersion만으로

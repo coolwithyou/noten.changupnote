@@ -50,6 +50,7 @@ import {
 import { cn } from "@/lib/utils";
 import { DisqualificationSheet } from "./DisqualificationSheet";
 import { PriorAwardSheet } from "./PriorAwardSheet";
+import { PremisesInputPanel } from "./PremisesInputPanel";
 import {
   DISQUALIFICATION_AXES,
   REVENUE_UNIT_OPTIONS,
@@ -78,7 +79,7 @@ import {
 
 type ProfileSheetView = "profile" | "disqualification" | "prior_award";
 
-const PROFILE_SHEET_DIMENSIONS = [
+export const PROFILE_SHEET_DIMENSIONS = [
   { key: "region", label: "소재지" },
   { key: "industry", label: "업종" },
   { key: "biz_age", label: "업력" },
@@ -89,9 +90,10 @@ const PROFILE_SHEET_DIMENSIONS = [
   { key: "employees", label: "상시근로자" },
   { key: "founder_age", label: "대표자 연령" },
   { key: "certification", label: "보유 인증" },
+  { key: "premises", label: "등록 사업장" },
 ] as const satisfies ReadonlyArray<{ key: CriterionDimension; label: string }>;
 
-interface ProfileSheetRow {
+export interface ProfileSheetRow {
   key: CriterionDimension | "corp_name";
   label: string;
   value: string;
@@ -120,6 +122,7 @@ export function ProfileSection({
   savingCompany = false,
   savedCompany = false,
   companyId,
+  profileWriteAllowed = false,
 }: {
   teaser: ProductTeaserResult;
   onAnswer: (answer: MatchingProfileAnswerRequest) => Promise<void>;
@@ -134,9 +137,11 @@ export function ProfileSection({
   savingCompany?: boolean;
   savedCompany?: boolean;
   companyId?: string | null;
+  profileWriteAllowed?: boolean;
 }) {
   const fields = useMemo(() => buildProfileFields(teaser), [teaser]);
   const coverage = matchingProfileCoverage(teaser);
+  const canEditProfile = !companyId || profileWriteAllowed;
   const completion = buildProfileCompletion(teaser.profileView);
   const rows = useMemo(() => buildProfileSheetRows(teaser, fields, answers), [fields, teaser, answers]);
   const groupedRows = useMemo(() => {
@@ -167,6 +172,19 @@ export function ProfileSection({
     setSavedFeedback(null);
     setView("profile");
   }, [open]);
+
+  useEffect(() => {
+    setActiveFieldKey(null);
+    setSavedFeedback(null);
+    setView("profile");
+  }, [companyId]);
+
+  useEffect(() => {
+    if (!companyId || profileWriteAllowed) return;
+    setActiveFieldKey((current) => current === "premises" ? current : null);
+    setSavedFeedback(null);
+    setView("profile");
+  }, [companyId, profileWriteAllowed]);
 
   async function submitProfileField(
     row: ProfileSheetRow,
@@ -251,6 +269,9 @@ export function ProfileSection({
                   recentlySavedKey={savedFeedback?.key ?? null}
                   submitting={submitting}
                   teaser={teaser}
+                  companyId={companyId}
+                  profileWriteAllowed={profileWriteAllowed}
+                  canEditProfile={canEditProfile}
                   onEdit={setActiveFieldKey}
                   onCancel={() => setActiveFieldKey(null)}
                   onSubmit={submitProfileField}
@@ -264,6 +285,9 @@ export function ProfileSection({
                   recentlySavedKey={savedFeedback?.key ?? null}
                   submitting={submitting}
                   teaser={teaser}
+                  companyId={companyId}
+                  profileWriteAllowed={profileWriteAllowed}
+                  canEditProfile={canEditProfile}
                   onEdit={setActiveFieldKey}
                   onCancel={() => setActiveFieldKey(null)}
                   onSubmit={submitProfileField}
@@ -271,6 +295,7 @@ export function ProfileSection({
 
                 <ProfileVerificationGroup
                   teaser={teaser}
+                  canEditProfile={canEditProfile}
                   onOpenDisqualification={() => setView("disqualification")}
                   onOpenPriorAward={() => setView("prior_award")}
                 />
@@ -278,7 +303,7 @@ export function ProfileSection({
             </ScrollArea>
 
             <SheetFooter className="border-t border-border-subtle px-6 py-3.5">
-              {onSaveCompany ? (
+              {onSaveCompany && canEditProfile ? (
                 <Button type="button" disabled={submitting || savingCompany} onClick={onSaveCompany}>
                   {savingCompany ? "처리 중" : savedCompany ? "저장된 정보로 이어가기" : "회사에 저장하고 이어가기"}
                 </Button>
@@ -302,6 +327,9 @@ function ProfileSheetGroup({
   recentlySavedKey,
   submitting,
   teaser,
+  companyId,
+  profileWriteAllowed,
+  canEditProfile,
   onEdit,
   onCancel,
   onSubmit,
@@ -313,6 +341,9 @@ function ProfileSheetGroup({
   recentlySavedKey: CriterionDimension | null;
   submitting: boolean;
   teaser: ProductTeaserResult;
+  companyId: string | null | undefined;
+  profileWriteAllowed: boolean;
+  canEditProfile: boolean;
   onEdit: (key: CriterionDimension) => void;
   onCancel: () => void;
   onSubmit: (row: ProfileSheetRow, answer: MatchingProfileAnswerRequest) => Promise<void>;
@@ -342,6 +373,9 @@ function ProfileSheetGroup({
                 recentlySaved={row.field?.key === recentlySavedKey}
                 submitting={submitting}
                 teaser={teaser}
+                companyId={companyId}
+                profileWriteAllowed={profileWriteAllowed}
+                canEditProfile={canEditProfile}
                 onEdit={onEdit}
                 onCancel={onCancel}
                 onSubmit={(answer) => onSubmit(row, answer)}
@@ -367,6 +401,9 @@ function ProfileSheetRowView({
   recentlySaved,
   submitting,
   teaser,
+  companyId,
+  profileWriteAllowed,
+  canEditProfile,
   onEdit,
   onCancel,
   onSubmit,
@@ -376,6 +413,9 @@ function ProfileSheetRowView({
   recentlySaved: boolean;
   submitting: boolean;
   teaser: ProductTeaserResult;
+  companyId: string | null | undefined;
+  profileWriteAllowed: boolean;
+  canEditProfile: boolean;
   onEdit: (key: CriterionDimension) => void;
   onCancel: () => void;
   onSubmit: (answer: MatchingProfileAnswerRequest) => Promise<void>;
@@ -393,9 +433,9 @@ function ProfileSheetRowView({
             {row.field?.status === "partial" ? `${row.sourceLabel ?? "저장된 정보"} · 일부 확인` : row.sourceLabel}
           </span>
         ) : null}
-        {field?.editMode === "direct" ? (
+        {field?.editMode === "direct" && (canEditProfile || field.key === "premises") ? (
           <Button type="button" size="xs" variant="ghost" disabled={submitting} onClick={() => onEdit(field.key)}>
-            확인·수정
+            {canEditProfile ? "확인·수정" : "보기"}
           </Button>
         ) : null}
       </div>
@@ -425,7 +465,7 @@ function ProfileSheetRowView({
               {recentlySaved ? "방금 반영됨" : row.sourceLabel ?? "직접 입력"}
             </div>
           </div>
-        ) : field?.editMode === "direct" ? (
+        ) : field?.editMode === "direct" && (canEditProfile || field.key === "premises") ? (
           <Button
             type="button"
             size="xs"
@@ -435,13 +475,13 @@ function ProfileSheetRowView({
             onClick={() => onEdit(field.key)}
           >
             <Plus data-icon="inline-start" strokeWidth={3} />
-            채우기
+            {canEditProfile ? "채우기" : "보기"}
           </Button>
         ) : (
           <span className="text-xs font-medium text-muted-foreground">{field?.action.label ?? "확인 필요"}</span>
         )}
 
-        {row.state === "direct" && field?.editMode === "direct" && !active ? (
+        {row.state === "direct" && field?.editMode === "direct" && !active && (canEditProfile || field.key === "premises") ? (
           <Button
             type="button"
             size="xs"
@@ -449,7 +489,7 @@ function ProfileSheetRowView({
             disabled={submitting}
             onClick={() => onEdit(field.key)}
           >
-            수정
+            {canEditProfile ? "수정" : "보기"}
           </Button>
         ) : null}
       </div>
@@ -458,12 +498,24 @@ function ProfileSheetRowView({
 
       {active && field ? (
         <div className="mt-2 pl-[22px]">
-          <ProfileInputPanel
-            field={field}
-            submitting={submitting}
-            onCancel={onCancel}
-            onSubmit={onSubmit}
-          />
+          {field.key === "premises" ? (
+            <PremisesInputPanel
+              key={companyId ?? "anonymous"}
+              initialValue={field.premisesValue ?? null}
+              readOnly={!profileWriteAllowed}
+              {...(!companyId ? { readOnlyMessage: "로그인해 회사를 저장하거나 선택한 뒤 등록 사업장 정보를 입력할 수 있습니다." } : {})}
+              submitting={submitting}
+              onCancel={onCancel}
+              onSubmit={onSubmit}
+            />
+          ) : (
+            <ProfileInputPanel
+              field={field}
+              submitting={submitting}
+              onCancel={onCancel}
+              onSubmit={onSubmit}
+            />
+          )}
         </div>
       ) : row.state === "missing" ? (
         <p className="mt-1 pl-[22px] text-xs leading-5 text-text-tertiary">
@@ -476,10 +528,12 @@ function ProfileSheetRowView({
 
 function ProfileVerificationGroup({
   teaser,
+  canEditProfile,
   onOpenDisqualification,
   onOpenPriorAward,
 }: {
   teaser: ProductTeaserResult;
+  canEditProfile: boolean;
   onOpenDisqualification: () => void;
   onOpenPriorAward: () => void;
 }) {
@@ -496,6 +550,7 @@ function ProfileVerificationGroup({
           confirmed={disqConfirmed}
           confirmedLabel="답변 확인됨 ✓"
           subtitle={disqualificationImpactCopy(teaser)}
+          disabled={!canEditProfile}
           onClick={onOpenDisqualification}
         />
         <VerificationRow
@@ -503,6 +558,7 @@ function ProfileVerificationGroup({
           confirmed={priorConfirmed}
           confirmedLabel="확인됨 ✓"
           subtitle={priorAwardImpactCopy(teaser)}
+          disabled={!canEditProfile}
           onClick={onOpenPriorAward}
         />
       </div>
@@ -515,12 +571,14 @@ function VerificationRow({
   confirmed,
   confirmedLabel,
   subtitle,
+  disabled,
   onClick,
 }: {
   label: string;
   confirmed: boolean;
   confirmedLabel: string;
   subtitle: string;
+  disabled: boolean;
   onClick: () => void;
 }) {
   if (confirmed) {
@@ -528,6 +586,7 @@ function VerificationRow({
       <Button
         type="button"
         variant="ghost"
+        disabled={disabled}
         onClick={onClick}
         className="flex h-auto w-full items-center gap-2.5 rounded-[14px] bg-brand-mint-soft px-4 py-3 hover:bg-brand-mint-soft"
       >
@@ -542,6 +601,7 @@ function VerificationRow({
     <Button
       type="button"
       variant="ghost"
+      disabled={disabled}
       onClick={onClick}
       className="flex h-auto w-full flex-col items-stretch gap-1 rounded-[14px] border border-border-card bg-card px-4 py-3 whitespace-normal hover:bg-surface-soft"
     >
@@ -592,7 +652,7 @@ function hardUnknownGrantCount(
     .map((match) => match.grantId)).size;
 }
 
-function buildProfileSheetRows(
+export function buildProfileSheetRows(
   teaser: ProductTeaserResult,
   fields: ProfileFieldView[],
   answers: readonly MatchingProfileAnswerRequest[],
@@ -655,6 +715,12 @@ function profileFieldImpactCopy(row: ProfileSheetRow, teaser: ProductTeaserResul
   if (row.key === "employees") return "고용 인원 기준 공고 판정에 반영돼요";
   if (row.key === "founder_age") return "청년 대상 공고 판정에 반영돼요";
   if (row.key === "certification") return "준비하면 열리는 공고를 확인할 수 있어요";
+  if (row.key === "premises") {
+    const affected = hardUnknownGrantCount(teaser, ["premises"]);
+    return affected > 0
+      ? `공고 ${affected.toLocaleString("ko-KR")}건의 등록 사업장 조건 확인에 필요해요`
+      : "등록 사업장 조건이 있는 공고 판정에만 반영돼요";
+  }
   if (row.key === "region") return "지역 조건이 있는 공고 판정에 반영돼요";
   if (row.key === "industry") return "업종 조건이 있는 공고 판정에 반영돼요";
   if (row.key === "biz_age") return "업력 조건이 있는 공고 판정에 반영돼요";

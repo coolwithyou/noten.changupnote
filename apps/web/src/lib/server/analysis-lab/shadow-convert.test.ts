@@ -226,6 +226,61 @@ assert.equal(
   "미확인 배제 조건은 자동 통과하지 않는다",
 );
 
+const premisesV1Value = {
+  schemaVersion: "premises-v1",
+  state: "registered_current_site",
+  sidoCodes: ["11"],
+  facilityTypes: ["headquarters", "factory"],
+  facilitySemantics: "any",
+  basisDate: "2026-09-09",
+} as const;
+const premisesV1Span = "2026년 9월 9일 현재 서울특별시에 등록된 본사 또는 공장을 둔 기업";
+function projectPremisesV1(sourceSpan: string, needsReview: boolean) {
+  return convertSelectedLabCriteria(fixtureRun([criterion({
+    dimension: "premises",
+    kind: "required",
+    operator: "exists",
+    value: premisesV1Value,
+    sourceSpan,
+    spanVerified: true,
+  })]), { selections: [{ criterionIndex: 0, needsReview }] });
+}
+const reviewedPremisesV1 = projectPremisesV1(premisesV1Span, false);
+assert.equal(reviewedPremisesV1.report.items?.[0]?.status, "converted");
+assert.equal(reviewedPremisesV1.criteria[0]?.dimension, "premises");
+assert.equal(reviewedPremisesV1.criteria[0]?.needs_review, false);
+for (const [label, projected] of [
+  ["unreviewed", projectPremisesV1(premisesV1Span, true)],
+  [
+    "district omission",
+    projectPremisesV1(
+      "2026년 9월 9일 현재 서울특별시 강남구에 등록된 본사 또는 공장을 둔 기업",
+      false,
+    ),
+  ],
+] as const) {
+  assert.equal(projected.report.items?.[0]?.status, "downgraded", `${label} premises must be held`);
+  assert.equal(projected.criteria[0]?.dimension, "other");
+  assert.equal(
+    (projected.criteria[0]?.value as { downgrade_reason?: string }).downgrade_reason,
+    "reserved_dimension",
+  );
+}
+const unverifiedPremisesV1 = convertSelectedLabCriteria(fixtureRun([criterion({
+  dimension: "premises",
+  kind: "required",
+  operator: "exists",
+  value: premisesV1Value,
+  sourceSpan: premisesV1Span,
+  spanVerified: false,
+})]), { selections: [{ criterionIndex: 0, needsReview: false }] });
+assert.equal(unverifiedPremisesV1.report.items?.[0]?.status, "downgraded");
+assert.equal(
+  (unverifiedPremisesV1.criteria[0]?.value as { downgrade_reason?: string }).downgrade_reason,
+  "reserved_dimension",
+  "semantic-looking text without exact sealed span verification cannot enter premises-v1",
+);
+
 const structuredDirection = convertReviewedLabRun(fixtureRun([
   criterion({
     dimension: "region",

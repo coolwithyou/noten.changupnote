@@ -13,6 +13,7 @@ import {
 } from "../questions/definitions.js";
 import { daysUntil, grantKey, type MatchedGrant } from "../use-cases/match-card.js";
 import { priorAwardProgramLabel } from "../prior-award/canonical.js";
+import { inspectPremisesCriterionSourceCompatibility } from "../premises/contract.js";
 
 export interface PlannedProfileQuestion {
   question: NextQuestionDto;
@@ -108,7 +109,9 @@ function candidatesForMatch<TPayload>(
       (item.trace.kind === "required" || item.trace.kind === "exclusion") &&
       item.criterion !== undefined);
   const resolvable = hardUnknowns.filter(({ trace, criterion }) =>
-    trace.unresolved_reason === "company_profile_missing" && isProfileResolvableCriterion(criterion));
+    trace.dimension !== "premises"
+    && trace.unresolved_reason === "company_profile_missing"
+    && isProfileResolvableCriterion(criterion));
   if (resolvable.length === 0) return [];
 
   const unresolvedDimensions = new Set(hardUnknowns.map((item) => item.trace.dimension));
@@ -254,7 +257,17 @@ function isRangeCompanyValue(value: unknown): boolean {
 export function isProfileResolvableCriterion(criterion: GrantCriterion): boolean {
   if (criterion.operator === "text_only" || criterion.needs_review === true) return false;
   if (!criterion.source_span?.trim() && !criterion.source_field?.trim()) return false;
-  if (criterion.dimension === "other" || criterion.dimension === "premises" || criterion.dimension === "export_performance") {
+  if (criterion.dimension === "premises") {
+    return criterion.kind === "required"
+      && criterion.operator === "exists"
+      && criterion.needs_review === false
+      && Boolean(criterion.source_span?.trim())
+      && inspectPremisesCriterionSourceCompatibility({
+        value: criterion.value,
+        sourceSpan: criterion.source_span,
+      }).ok;
+  }
+  if (criterion.dimension === "other" || criterion.dimension === "export_performance") {
     return false;
   }
   const value = criterion.value && typeof criterion.value === "object" && !Array.isArray(criterion.value)

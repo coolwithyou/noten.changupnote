@@ -203,6 +203,14 @@ function validateAnswer(answer: MatchingProfileAnswerRequest): MatchingProfileAn
       "answer",
     );
   }
+  if (answer.field === "premises" && (!hasValue || answer.mode === "merge")) {
+    throw new CompanyProfileAnswerError(
+      "invalid_premises_answer",
+      "등록 사업장 정보는 전체 목록을 직접 입력해야 합니다.",
+      400,
+      "answer",
+    );
+  }
   if (hasRange && !validRange(answer.field, answer.range)) {
     throw new CompanyProfileAnswerError(
       "invalid_profile_range",

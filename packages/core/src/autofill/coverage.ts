@@ -22,8 +22,11 @@ export type AutofillCoverageStatus =
   | "failed"
   | "n/a";
 
-/** 예약축 premises/export_performance와 자유입력 other를 제외한 운영 구조화 19축. */
-export const OPERATIONAL_AUTOFILL_DIMENSIONS = OPERATIONAL_PROFILE_DIMENSIONS;
+/** 개인 입력 전용 premises와 예약축 export_performance, 자유입력 other를 제외한 autofill 19축. */
+export const OPERATIONAL_AUTOFILL_DIMENSIONS = OPERATIONAL_PROFILE_DIMENSIONS.filter(
+  (dimension): dimension is Exclude<(typeof OPERATIONAL_PROFILE_DIMENSIONS)[number], "premises"> =>
+    dimension !== "premises",
+);
 
 export type OperationalAutofillDimension = (typeof OPERATIONAL_AUTOFILL_DIMENSIONS)[number];
 

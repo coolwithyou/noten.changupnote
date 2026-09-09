@@ -36,7 +36,7 @@ const result = await applyCompanyProfileAnswer({
 assert.equal(result.profile.revenue_krw, 900_000_000);
 assert.equal(result.profile.profile_evidence?.revenue?.sourceKind, "self_declared");
 assert.equal(result.profile.profile_evidence?.revenue?.provider, "cunote_profile_question");
-assert.equal(result.profileView.rows.length, 19);
+assert.equal(result.profileView.rows.length, 20);
 assert.equal(result.profileView.rows.find((row) => row.dimension === "revenue")?.status, "known");
 assert.equal(result.impact.dimension, "revenue");
 assert.ok(result.initialMatch.evaluatedGrantCount > 0);
@@ -52,15 +52,49 @@ const persisted = await getServiceRepositories().companies.resolveCompanyProfile
 assert.equal(persisted?.revenue_krw, 900_000_000);
 assert.equal(persisted?.profile_evidence?.revenue?.provider, "cunote_profile_question");
 
-await assert.rejects(
-  () => applyCompanyProfileAnswer({
-    companyId: company.id,
-    userId,
-    answer: { field: "premises", value: {} },
-    asOf,
-  }),
-  (error: unknown) => error instanceof CompanyProfileAnswerError && error.code === "invalid_profile_field",
+const premisesResult = await applyCompanyProfileAnswer({
+  companyId: company.id,
+  userId,
+  answer: {
+    field: "premises",
+    mode: "replace",
+    value: {
+      schemaVersion: "premises-v1",
+      locations: [{
+        locationId: "00000000-0000-4000-8000-000000000123",
+        facilityType: "headquarters",
+        sidoCode: "41",
+        validFrom: "2026-01-01",
+        validTo: null,
+      }],
+      coverage: {
+        facilityTypes: ["headquarters"],
+        validFrom: "2026-01-01",
+        validTo: "2026-06-26",
+        completeness: "complete",
+      },
+    },
+  },
+  asOf,
+});
+assert.equal(premisesResult.profile.premises?.coverage.asOf, asOf.toISOString(), "서버가 개인 답변 관측시각을 다시 찍는다");
+assert.equal(premisesResult.profileView.rows.find((row) => row.dimension === "premises")?.premisesValue?.locations.length, 1);
+assert.deepEqual(
+  (await getServiceRepositories().companies.resolveCompanyProfile({ companyId: company.id, userId }))?.premises,
+  premisesResult.profile.premises,
+  "저장 응답의 typed premises가 새 조회에서 그대로 열린다",
 );
+
+for (const answer of [
+  { field: "premises" as const, value: {} },
+  { field: "premises" as const, unknown: true },
+  { field: "premises" as const, mode: "merge" as const, value: premisesResult.profile.premises },
+]) {
+  await assert.rejects(
+    () => applyCompanyProfileAnswer({ companyId: company.id, userId, answer, asOf }),
+    (error: unknown) => Boolean(error && typeof error === "object" && "status" in error && error.status === 400),
+  );
+}
 
 const repositories = getServiceRepositories();
 const originalListGrants = repositories.grants.listActiveGrants;

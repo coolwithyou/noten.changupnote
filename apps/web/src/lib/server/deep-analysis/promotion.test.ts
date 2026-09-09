@@ -284,6 +284,64 @@ assert.equal(premisesResult.plan.criteria[0]?.needs_review, true);
 assert.equal(premisesResult.readiness.matcherRepresentable, "passed");
 assert.equal(premisesResult.readiness.terminalRoute, "auto_promotable");
 
+const exactPremisesSpan = "2026년 9월 9일 현재 서울특별시에 등록된 본사 또는 공장을 둔 기업";
+const exactPremisesOutput = outputWithResult({
+  ...output.result,
+  criteria: [{
+    dimension: "premises",
+    kind: "required",
+    operator: "exists",
+    value: {
+      schemaVersion: "premises-v1",
+      state: "registered_current_site",
+      sidoCodes: ["11"],
+      facilityTypes: ["headquarters", "factory"],
+      facilitySemantics: "any",
+      basisDate: "2026-09-09",
+    },
+    confidence: 0.95,
+    sourceSpan: exactPremisesSpan,
+    spanVerified: true,
+    note: null,
+  }],
+  axisAssessments: [{
+    dimension: "premises",
+    status: "condition_found",
+    confidence: 0.95,
+    comment: null,
+  }],
+});
+const exactPremisesPlan = buildDeepAnalysisPromotionPlan({
+  run: {
+    runId: "da-exact-premises",
+    grantId: "34343434-3434-4434-8434-343434343434",
+    source: "bizinfo",
+    sourceId: "PBLN_EXACT_PREMISES",
+    title: "현재 등록 사업장 공고",
+    model: "claude-opus-4-8",
+    promptVersion: "lab-deep-v22",
+    startedAt: new Date("2026-09-09T00:00:00Z"),
+    completedAt: new Date("2026-09-09T00:01:00Z"),
+    inputChars: exactPremisesSpan.length,
+    inputSha256: "e".repeat(64),
+    costUsd: 0.2,
+  },
+  output: exactPremisesOutput,
+  currentCriteria: [],
+  audit: {
+    model: "claude-sonnet-5",
+    promptVersion: "deep-analysis-blind-audit-v25",
+    completedAt: new Date("2026-09-09T00:01:00Z"),
+    verdict: "concur",
+  },
+});
+assert.equal(exactPremisesOutput.matcherRepresentability.items[0]?.status, "direct");
+assert.equal(exactPremisesPlan.plan.criteria[0]?.dimension, "premises");
+assert.equal(exactPremisesPlan.plan.criteria[0]?.operator, "exists");
+assert.equal(exactPremisesPlan.plan.criteria[0]?.needs_review, false);
+assert.equal(exactPremisesPlan.plan.conversion.downgraded, 0);
+assert.equal(exactPremisesPlan.readiness.terminalRoute, "auto_promotable");
+
 const aq8Output = outputWithResult({
   ...output.result,
   criteria: [

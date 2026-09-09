@@ -5,6 +5,7 @@ import type {
   MatchCard,
   MatchingProfileAnswerRequest,
   MatchingProfileViewRow,
+  PremisesProfileValue,
   NextQuestionDto,
   ProductTeaserResult,
   RuleTraceChipResult,
@@ -67,6 +68,7 @@ export type ProfileFieldView = {
   completeness: MatchingProfileViewRow["completeness"];
   editMode: MatchingProfileViewRow["editMode"];
   action: MatchingProfileViewRow["action"];
+  premisesValue?: PremisesProfileValue;
 };
 export type RevenueUnit = "won" | "manwon" | "eok";
 
@@ -193,6 +195,7 @@ export function buildProfileFields(teaser: ProductTeaserResult): ProfileFieldVie
     completeness: row.completeness,
     editMode: row.editMode,
     action: row.action,
+    ...(row.premisesValue ? { premisesValue: row.premisesValue } : {}),
   }));
 }
 

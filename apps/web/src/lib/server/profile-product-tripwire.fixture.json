@@ -32,6 +32,7 @@
     "apps/web/src/app/grants/[grantId]/workspace/page.tsx"
   ],
   "directCallSites": [
+    { "file": "apps/web/src/lib/server/analysis-lab/matching-reprojection.ts", "callee": "matchGrantCriteria", "count": 2 },
     { "file": "apps/web/src/lib/server/matches/execute-ruleset-match-state-refresh.ts", "callee": "matchNormalizedGrant", "count": 2 },
     { "file": "apps/web/src/lib/server/matches/plan-ruleset-match-state-refresh.ts", "callee": "matchNormalizedGrant", "count": 1 },
     { "file": "apps/web/src/lib/server/productProfile/applyCompanyProfileAnswer.ts", "callee": "buildInitialCompanyMatch", "count": 1 },

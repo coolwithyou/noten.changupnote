@@ -11,10 +11,13 @@ import type {
 import { isValidBizNoChecksum } from "@cunote/contracts";
 import {
   OPERATIONAL_PROFILE_DIMENSIONS,
+  REGION_LABELS,
   assembleCompanyProfile,
   companyProfileToFieldUpdates,
   companyProfileValueForDimension,
   normalizeCompanyIndustryProfile,
+  parseStoredPremisesProfileValue,
+  premisesProfileEvidenceIsUsable,
   type CompanyProfileAssemblyDecision,
   type CompanyProfileFieldUpdate,
   type CompanyRecord,
@@ -402,6 +405,9 @@ export function buildMatchingProfileView(profile: CompanyProfile, asOf: string):
         ? "known"
         : "partial";
     const editMode = editModeForDimension(dimension);
+    const premisesValue = dimension === "premises" && profile.premises && premisesProfileEvidenceIsUsable(evidence, profile.premises)
+      ? profile.premises
+      : undefined;
     return {
       dimension,
       ...(sourceDisputed ? { sourceDisputed: true } : {}),
@@ -413,6 +419,7 @@ export function buildMatchingProfileView(profile: CompanyProfile, asOf: string):
       completeness: evidence?.axisCompleteness ?? (status === "unknown" ? "not_covered" : null),
       editMode,
       action: actionForRow({ dimension, status, editMode }),
+      ...(premisesValue ? { premisesValue } : {}),
     };
   });
   return {
@@ -518,6 +525,7 @@ function collectAllowedUpdates(
 function legacyPortableProfileUpdates(profile: CompanyProfile, asOf: string): CompanyProfileFieldUpdate[] {
   const updates: CompanyProfileFieldUpdate[] = [];
   for (const field of OPERATIONAL_PROFILE_DIMENSIONS) {
+    if (field === "premises") continue;
     if (profile.profile_evidence?.[field]) continue;
     const value = companyProfileValueForDimension(profile, field);
     if (value === undefined || value === null) continue;
@@ -787,7 +795,21 @@ function displayValueForDimension(
       safeText(profile.investment?.last_round ? `최근 ${profile.investment.last_round}` : null),
       profile.investment?.tips_backed === true ? "TIPS 선정" : profile.investment?.tips_backed === false ? "TIPS 미선정" : null,
     ]);
+    case "premises": return formatPremises(profile.premises);
   }
+}
+
+function formatPremises(value: CompanyProfile["premises"]): string | null {
+  const parsed = parseStoredPremisesProfileValue(value);
+  if (!parsed.ok || parsed.value.locations.length === 0) return null;
+  const facilityLabels = {
+    headquarters: "본사",
+    factory: "공장",
+    research_institute: "연구소",
+  } as const;
+  const labels = parsed.value.locations.map((location) =>
+    `${facilityLabels[location.facilityType]} · ${REGION_LABELS[location.sidoCode] ?? location.sidoCode}`);
+  return labels.length > 2 ? `${labels.slice(0, 2).join(", ")} 외 ${labels.length - 2}곳` : labels.join(", ");
 }
 
 function editModeForDimension(

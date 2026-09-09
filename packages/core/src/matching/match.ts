@@ -39,8 +39,9 @@ import {
   type DisqualificationFlag,
 } from "../disqualification/canonical.js";
 import { activeNumericQuestionRange, type NumericQuestionRange } from "../company/question-answer-state.js";
+import { evaluatePremisesCriterion } from "../premises/contract.js";
 
-export const RULESET_VERSION = "ruleset-kstartup-spine-v13";
+export const RULESET_VERSION = "ruleset-kstartup-spine-v14";
 export const SCORING_VERSION = "scoring-verification-v3";
 
 const CORE_GATE_DIMENSIONS = new Set<CriterionDimension>([
@@ -341,8 +342,22 @@ function evaluateCriterion(criterion: GrantCriterion, company: CompanyProfile, a
       return evaluateInsuredWorkforce(criterion, company);
     case "investment":
       return evaluateInvestment(criterion, company);
-    // 예약 2축 — criteria가 존재할 수 없지만(파서 filter) 방어적으로 unknown 처리.
-    case "premises":
+    case "premises": {
+      const evaluated = evaluatePremisesCriterion({
+        criterion,
+        profile: company.premises,
+        evidence: company.profile_evidence?.premises,
+        asOf,
+      });
+      return trace(
+        criterion,
+        evaluated.result,
+        evaluated.message,
+        evaluated.companyValue,
+        evaluated.unresolvedReason,
+      );
+    }
+    // export_performance 예약 축 — 방어적으로 unknown 처리.
     case "export_performance":
       return trace(criterion, "unknown", `${labelFor(criterion.dimension)} 조건 확인 필요`);
     default:
@@ -1976,7 +1991,6 @@ function nextQuestion(fields: CriterionDimension[]): NextQuestion | undefined {
     "financial_health",
     "insured_workforce",
     "investment",
-    "premises",
     "export_performance",
     "other",
   ];
@@ -2003,7 +2017,8 @@ function nextQuestion(fields: CriterionDimension[]): NextQuestion | undefined {
     financial_health: "부채비율·자본잠식 등 재무 상태를 확인해 주세요.",
     insured_workforce: "고용보험 가입 여부와 피보험자 수를 확인해 주세요.",
     investment: "투자 유치 금액·라운드·TIPS 선정 이력을 확인해 주세요.",
-    premises: "사업장·입지 요건에 해당하는지 확인해 주세요.",
+    // premises는 날짜·시설별 전용 프로필 편집기만 사용하며 generic spotlight에는 노출하지 않는다.
+    premises: "사업장·입지 정보를 확인해 주세요.",
     export_performance: "수출 실적이 있는지 확인해 주세요.",
     other: "제외대상이나 특수 조건에 해당하는지 확인해 주세요.",
   };

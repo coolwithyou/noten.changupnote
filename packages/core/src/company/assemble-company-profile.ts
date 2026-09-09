@@ -10,6 +10,7 @@ import type {
 import { normalizeCompanyIndustryProfile } from "./profile-from-popbill.js";
 import { resolveEvidencePrecedence, type EvidencePrecedenceResult } from "./evidence-priority.js";
 import { updateCompanyProfileField, type CompanyProfileFieldUpdate } from "./update-profile-field.js";
+import { premisesProfileEvidenceIsUsable } from "../premises/contract.js";
 
 export const COMPANY_PROFILE_ASSEMBLY_VERSION = "p1-v1";
 
@@ -69,19 +70,20 @@ const TIE_REASONS = new Set<EvidencePrecedenceResult["reason"]>([
  */
 export function assembleCompanyProfile(input: AssembleCompanyProfileInput): AssembleCompanyProfileResult {
   const boundaryAsOf = requireIsoTimestamp(input.asOf, "asOf");
-  if (input.updates.length === 0) return { profile: cloneValue(input.baseProfile), decisions: [] };
-  let profile = cloneValue(input.baseProfile);
+  let profile = sanitizedAssemblyBase(input.baseProfile);
+  if (input.updates.length === 0) return { profile, decisions: [] };
   const candidatesByField = new Map<CriterionDimension, Candidate[]>();
 
-  for (const [rawField, evidence] of Object.entries(input.baseProfile.profile_evidence ?? {})) {
+  for (const [rawField, evidence] of Object.entries(profile.profile_evidence ?? {})) {
     if (!evidence) continue;
     const field = rawField as CriterionDimension;
-    const value = companyProfileValueForDimension(input.baseProfile, field);
+    const value = companyProfileValueForDimension(profile, field);
     if (value === undefined) continue;
     addCandidate(candidatesByField, candidateFromBase(field, value, evidence, boundaryAsOf));
   }
 
   for (const update of input.updates) {
+    if (update.field === "premises" && !supportedPremisesUpdate(update)) continue;
     addCandidate(candidatesByField, candidateFromUpdate(update, boundaryAsOf));
   }
 
@@ -221,6 +223,10 @@ export function companyProfileToFieldUpdates(
     const field = rawField as CriterionDimension;
     const value = companyProfileValueForDimension(profile, field);
     if (value === undefined) continue;
+    if (
+      field === "premises" &&
+      (!profile.premises || !premisesProfileEvidenceIsUsable(evidence, profile.premises))
+    ) continue;
     updates.push({
       field,
       value,
@@ -274,7 +280,7 @@ export function companyProfileValueForDimension(profile: CompanyProfile, field: 
     case "insured_workforce": return profile.insured_workforce;
     case "investment": return profile.investment;
     case "other": return profile.other_conditions;
-    case "premises":
+    case "premises": return profile.premises;
     case "export_performance": return undefined;
   }
 }
@@ -576,7 +582,7 @@ function clearCompanyProfileDimension(profile: CompanyProfile, field: CriterionD
     case "insured_workforce": delete next.insured_workforce; break;
     case "investment": delete next.investment; break;
     case "other": delete next.other_conditions; break;
-    case "premises":
+    case "premises": delete next.premises; break;
     case "export_performance": break;
   }
   if (next.list_completeness) delete next.list_completeness[field as keyof typeof next.list_completeness];
@@ -684,6 +690,11 @@ function canonicalizeCompanyProfile(profile: CompanyProfile, touched: ReadonlySe
     next.prior_award_history.known_programs = sortUniqueStrings(next.prior_award_history.known_programs);
     next.prior_award_history.known_program_types = sortUniqueStrings(next.prior_award_history.known_program_types);
   }
+  if (touched.has("premises") && next.premises) {
+    next.premises.locations = [...next.premises.locations]
+      .sort((left, right) => left.locationId.localeCompare(right.locationId));
+    next.premises.coverage.facilityTypes = [...next.premises.coverage.facilityTypes].sort();
+  }
   for (const field of ["tax_compliance", "credit_status", "sanction"] as const) {
     if (!touched.has(field)) continue;
     const value = next[field];
@@ -722,6 +733,40 @@ function isSupplementalMergeDimension(field: CriterionDimension): boolean {
   return isListDimension(field) || field === "tax_compliance" || field === "credit_status" ||
     field === "sanction" || field === "financial_health" || field === "insured_workforce" ||
     field === "investment";
+}
+
+function sanitizedAssemblyBase(profile: CompanyProfile): CompanyProfile {
+  const next = cloneValue(profile);
+  if (
+    next.premises &&
+    !premisesProfileEvidenceIsUsable(next.profile_evidence?.premises, next.premises)
+  ) {
+    delete next.premises;
+    if (next.profile_evidence) delete next.profile_evidence.premises;
+    if (next.confidence) delete next.confidence.premises;
+  }
+  return next;
+}
+
+function supportedPremisesUpdate(update: CompanyProfileFieldUpdate): boolean {
+  if (
+    update.sourceKind !== "self_declared" ||
+    update.provider !== "cunote_profile_question" ||
+    update.observation?.scope !== "user" ||
+    update.observation.persistenceClass !== "portable_user_answer" ||
+    !update.asOf
+  ) return false;
+  const profile = update.value as CompanyProfile["premises"];
+  if (!profile || typeof profile !== "object") return false;
+  return premisesProfileEvidenceIsUsable({
+    sourceKind: update.sourceKind,
+    provider: update.provider,
+    asOf: update.asOf,
+    axisCompleteness: update.axisCompleteness ?? profile.coverage?.completeness ?? "partial",
+    confidence: update.confidence ?? null,
+    scope: update.observation.scope,
+    persistenceClass: update.observation.persistenceClass,
+  }, profile);
 }
 
 function normalizeProvider(value: string): string {

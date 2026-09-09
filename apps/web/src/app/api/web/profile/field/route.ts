@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireCompanyAccess } from "@/lib/server/auth/companyGuard";
 import { requestCompanyScope } from "@/lib/server/auth/requestCompanyScope";
 import { webActionError } from "@/lib/server/auth/webActionError";
+import { canWriteCompany } from "@/lib/server/auth/companyAccessPolicy";
 import {
   applyCompanyProfileAnswer,
   type ApplyCompanyProfileAnswerResult,
@@ -40,6 +41,7 @@ export async function POST(request: NextRequest) {
       asOf: new Date(),
       ...(typeof body.expectedProfileRevision === "string" ? { expectedProfileRevision: body.expectedProfileRevision } : {}),
     });
+    data.matching.profileWriteAllowed = canWriteCompany(access.role);
 
     const response = NextResponse.json<ActionResult<ApplyCompanyProfileAnswerResult>>({ ok: true, data });
     response.cookies.set("cunote_question_session", data.event.sessionId, {

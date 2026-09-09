@@ -911,6 +911,7 @@ export const appV1OpenApi = {
             },
             additionalProperties: false,
           },
+          premisesValue: ref("PremisesProfileValue"),
         },
         additionalProperties: false,
       },
@@ -1583,6 +1584,7 @@ export const appV1OpenApi = {
           financial_health: ref("FinancialHealthProfileValue"),
           insured_workforce: ref("InsuredWorkforceProfileValue"),
           investment: ref("InvestmentProfileValue"),
+          premises: ref("PremisesProfileValue"),
           confidence: { type: "object", additionalProperties: { type: "number" } },
           profile_evidence: {
             type: "object",
@@ -1594,6 +1596,50 @@ export const appV1OpenApi = {
           },
         },
         additionalProperties: true,
+      },
+      PremisesProfileValue: {
+        type: "object",
+        required: ["schemaVersion", "locations", "coverage"],
+        properties: {
+          schemaVersion: { type: "string", enum: ["premises-v1"] },
+          locations: {
+            type: "array",
+            maxItems: 10,
+            items: ref("PremisesLocation"),
+          },
+          coverage: ref("PremisesCoverage"),
+        },
+        additionalProperties: false,
+      },
+      PremisesLocation: {
+        type: "object",
+        required: ["locationId", "facilityType", "sidoCode", "validFrom", "validTo"],
+        properties: {
+          locationId: { type: "string", format: "uuid" },
+          facilityType: { type: "string", enum: ["headquarters", "factory", "research_institute"] },
+          sidoCode: { type: "string", pattern: "^[0-9]{2}$" },
+          validFrom: { type: "string", format: "date" },
+          validTo: nullable({ type: "string", format: "date" }),
+        },
+        additionalProperties: false,
+      },
+      PremisesCoverage: {
+        type: "object",
+        required: ["facilityTypes", "validFrom", "validTo", "asOf", "completeness"],
+        properties: {
+          facilityTypes: {
+            type: "array",
+            minItems: 1,
+            maxItems: 3,
+            uniqueItems: true,
+            items: { type: "string", enum: ["headquarters", "factory", "research_institute"] },
+          },
+          validFrom: { type: "string", format: "date" },
+          validTo: { type: "string", format: "date" },
+          asOf: { type: "string", format: "date-time" },
+          completeness: { type: "string", enum: ["partial", "complete"] },
+        },
+        additionalProperties: false,
       },
       CompanyProfileFieldEvidence: {
         type: "object",

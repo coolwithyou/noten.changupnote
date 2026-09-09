@@ -23,6 +23,7 @@ import {
   canonicalizeGrantCriteria,
   canonicalizeGrantCriterion,
 } from "../criteria/canonicalize.js";
+import { inspectPremisesCriterionSourceCompatibility } from "../premises/contract.js";
 import { buildBizInfoDeterministicCriteria, mergeBizInfoDeterministicCriteria } from "./deterministic-criteria.js";
 import type { BizInfoProgramExtractionInput } from "./types.js";
 
@@ -33,7 +34,7 @@ export const DEFAULT_ANTHROPIC_MODEL = "claude-haiku-4-5-20251001";
  * source별 parser/prompt 버전과 분리해 정규화 구현 변경만 provenance에 결속한다.
  */
 export const LLM_CRITERIA_NORMALIZATION_CONTRACT_VERSION =
-  "grant-llm-criteria-normalization-v1" as const;
+  "grant-llm-criteria-normalization-v2" as const;
 
 interface AnthropicToolUseBlock {
   type: "tool_use";
@@ -241,10 +242,15 @@ export function normalizeBizInfoLlmRequiredDocuments(payload: unknown): GrantReq
 /**
  * 구조화 금지 축 강등(M4). LLM 이 아래를 반환하면 evaluator·프로필이 없어 false pass·해소 불가 unknown 을
  * 유발하므로 other/text_only 로 강등한다. 표현 능력만 낮추며 원래 kind·축·연산자·근거를 보존한다:
- *   - premises / export_performance (예약 2축) — M4: 파이프라인 미활성
+ *   - export_performance (예약 축) — M4: 파이프라인 미활성
+ *   - premises는 exact reviewed premises-v1만 통과하고 나머지는 같은 M4 경로로 보존한다.
  */
-function shouldDowngradeToOther(dimension: CriterionDimension): boolean {
-  if (RESERVED_LLM_EXCLUDED_DIMENSIONS.has(dimension)) return true; // M4 예약 2축
+function shouldDowngradeToOther(
+  dimension: CriterionDimension,
+  structuredPremisesAllowed: boolean,
+): boolean {
+  if (dimension === "premises") return !structuredPremisesAllowed;
+  if (RESERVED_LLM_EXCLUDED_DIMENSIONS.has(dimension)) return true; // M4 예약 축
   return false;
 }
 
@@ -277,6 +283,19 @@ function normalizeCriterionRow(
   if (!dimension || !kind) return null;
 
   const sourceSpan = cleanString(value.source_span);
+  const premisesCompatibility = dimension === "premises"
+    ? inspectPremisesCriterionSourceCompatibility({
+        value: value.value,
+        sourceSpan,
+        note: value.note,
+      })
+    : null;
+  const structuredPremisesAllowed = dimension === "premises"
+    && kind === "required"
+    && operator === "exists"
+    && options.forceNeedsReview !== true
+    && value.needs_review === false
+    && premisesCompatibility?.ok === true;
 
   // 강등 판정(M4·M1). 표현만 other/text_only 로 낮추고 자격 의미(kind)는 바꾸지 않는다.
   // 원래 축·연산자와 강등 사유는 matcher의 원천 정정 보호 및 오프라인 진단에서 사용한다.
@@ -285,7 +304,7 @@ function normalizeCriterionRow(
     | "missing_required_source_span"
     | "exclusive_upper_bound_mismatch"
     | "sanction_cause_state_flattening"
-    | null = shouldDowngradeToOther(dimension) ? "reserved_dimension" : null;
+    | null = shouldDowngradeToOther(dimension, structuredPremisesAllowed) ? "reserved_dimension" : null;
   if (!downgradeReason && SPAN_REQUIRED_DIMENSIONS.has(dimension) && operator !== "text_only" && !sourceSpan) {
     // M1: 신규 구조화 축이 source_span 없이 왔으면 판정 근거를 신뢰할 수 없다 → 강등.
     downgradeReason = "missing_required_source_span";
@@ -354,7 +373,9 @@ function normalizeCriterionRow(
     dimension,
     operator,
     kind,
-    value: normalizeCriterionValue(operator, value.value, dimension),
+    value: structuredPremisesAllowed && premisesCompatibility?.ok
+      ? premisesCompatibility.value
+      : normalizeCriterionValue(operator, value.value, dimension),
     confidence: clampNumber(value.confidence, 0.1, 0.95, 0.65),
     needs_review: options.forceNeedsReview ? true : Boolean(value.needs_review),
     parser_version: options.parserVersion,

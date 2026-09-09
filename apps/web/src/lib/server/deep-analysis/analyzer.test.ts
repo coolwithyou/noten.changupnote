@@ -26,6 +26,7 @@ import {
   DEEP_ANALYSIS_INDUSTRY_ENUMERATION_RULE,
   DEEP_ANALYSIS_JOB_FIELD_INDUSTRY_BOUNDARY_RULE,
   DEEP_ANALYSIS_LOCALITY_PREMISES_RULE,
+  DEEP_ANALYSIS_PREMISES_V1_RULE,
   DEEP_ANALYSIS_NON_MATCHING_DECLARATION_RULE,
   DEEP_ANALYSIS_PRIOR_AWARD_LOSSLESS_RULE,
   DEEP_ANALYSIS_PRIOR_AWARD_STATE_RULE,
@@ -316,6 +317,15 @@ assert.match(
 assert.match(
   DEEP_ANALYSIS_SYSTEM_PROMPT,
   /하남시 관내 본사 또는 공장.*premises.*required\/text_only/,
+);
+assert.equal(DEEP_ANALYSIS_SYSTEM_PROMPT.includes(DEEP_ANALYSIS_PREMISES_V1_RULE), true);
+assert.match(
+  DEEP_ANALYSIS_PREMISES_V1_RULE,
+  /registered_current_site.*source_span 자체가 현재 등록 상태, 해당 시설 유형, 시도, 절대 기준일을 모두 직접 입증/,
+);
+assert.match(
+  DEEP_ANALYSIS_PREMISES_V1_RULE,
+  /이전 예정·입주 확약.*AND\/OR·대안 경로.*text_only/,
 );
 assert.match(
   DEEP_ANALYSIS_LOCALITY_PREMISES_RULE,

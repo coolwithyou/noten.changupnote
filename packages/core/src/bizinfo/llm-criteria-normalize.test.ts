@@ -14,6 +14,7 @@ import assert from "node:assert/strict";
 import {
   LLM_CRITERIA_NORMALIZATION_CONTRACT_VERSION,
   normalizeBizInfoLlmCriteria,
+  normalizeGrantLlmCriteria,
 } from "./llm-criteria.js";
 import { validateGrantCriteriaContract } from "./criteria-contract.js";
 import { readCriterionDowngradeProvenance } from "../criteria/semantic-identity.js";
@@ -34,8 +35,95 @@ function normalizeOne(row: Record<string, unknown>) {
 check("[provenance] 공용 LLM normalizer 계약은 source parser 버전과 독립이다", () => {
   assert.equal(
     LLM_CRITERIA_NORMALIZATION_CONTRACT_VERSION,
-    "grant-llm-criteria-normalization-v1",
+    "grant-llm-criteria-normalization-v2",
   );
+});
+
+const exactPremisesValue = {
+  schemaVersion: "premises-v1",
+  state: "registered_current_site",
+  sidoCodes: ["11"],
+  facilityTypes: ["headquarters", "factory"],
+  facilitySemantics: "any",
+  basisDate: "2026-09-09",
+};
+const exactPremisesSpan = "2026년 9월 9일 현재 서울특별시에 등록된 본사 또는 공장을 둔 기업";
+
+function normalizeReviewedPremises(row: Record<string, unknown>) {
+  return normalizeGrantLlmCriteria({ criteria: [row] }, "premises-source", {
+    sourcePrefix: "lab-shadow",
+    parserVersion: "premises-test-v1",
+    forceNeedsReview: false,
+  })[0]!;
+}
+
+check("[premises-v1] exact reviewed required/exists evidence만 구조화", () => {
+  const criterion = normalizeReviewedPremises({
+    dimension: "premises",
+    operator: "exists",
+    kind: "required",
+    value: exactPremisesValue,
+    confidence: 0.95,
+    source_span: exactPremisesSpan,
+    needs_review: false,
+  });
+  assert.equal(criterion.dimension, "premises");
+  assert.equal(criterion.operator, "exists");
+  assert.equal(criterion.kind, "required");
+  assert.equal(criterion.needs_review, false);
+  assert.deepEqual(criterion.value, {
+    ...exactPremisesValue,
+    facilityTypes: ["factory", "headquarters"],
+  });
+});
+
+for (const [label, override] of [
+  ["missing explicit review", { needs_review: undefined }],
+  ["still needs review", { needs_review: true }],
+  ["unsupported kind", { needs_review: false, kind: "preferred" }],
+  ["relative basis evidence", {
+    needs_review: false,
+    source_span: "공고일 현재 서울특별시에 등록된 본사 또는 공장을 둔 기업",
+  }],
+  ["district omission", {
+    needs_review: false,
+    source_span: "2026년 9월 9일 현재 서울특별시 강남구에 등록된 본사 또는 공장을 둔 기업",
+  }],
+  ["future intent in note", {
+    needs_review: false,
+    note: "선정 후 본사를 이전할 예정",
+  }],
+] as const) {
+  check(`[premises-v1] ${label}는 기존 reserved_dimension 강등으로 보존`, () => {
+    const criterion = normalizeReviewedPremises({
+      dimension: "premises",
+      operator: "exists",
+      kind: "required",
+      value: exactPremisesValue,
+      confidence: 0.95,
+      source_span: exactPremisesSpan,
+      ...override,
+    });
+    assert.equal(criterion.dimension, "other");
+    assert.equal(criterion.operator, "text_only");
+    assert.equal(criterion.kind, override.kind ?? "required");
+    assert.equal(criterion.needs_review, true);
+    assert.equal((criterion.value as { downgrade_reason?: string }).downgrade_reason, "reserved_dimension");
+  });
+}
+
+check("[premises-v1] forceNeedsReview source parser path는 exact payload도 열지 않는다", () => {
+  const criterion = normalizeBizInfoLlmCriteria({ criteria: [{
+    dimension: "premises",
+    operator: "exists",
+    kind: "required",
+    value: exactPremisesValue,
+    confidence: 0.95,
+    source_span: exactPremisesSpan,
+    needs_review: false,
+  }] }, "generic-parser-source")[0]!;
+  assert.equal(criterion.dimension, "other");
+  assert.equal((criterion.value as { downgrade_reason?: string }).downgrade_reason, "reserved_dimension");
 });
 
 check("[업력 경계] 원문 3년 미만 + inclusive 36개월 모순은 원래 의미를 보존해 보류", () => {
@@ -595,11 +683,11 @@ check("[계약 backstop] malformed prior_award exclusion 은 scope/program/state
   assert.ok(issues.some((i) => i.path.endsWith(".scope")), "exclusion scope 누락 검출");
 });
 
-check("[계약 backstop] 예약 축을 직접 계약 검증하면 issue 검출", () => {
+check("[계약 backstop] malformed premises-v1을 직접 계약 검증하면 issue 검출", () => {
   const issues = validateGrantCriteriaContract([
     { id: "x", grant_id: "g", dimension: "premises", operator: "exists", kind: "required", value: {}, confidence: 0.8, source_span: "사업장." },
   ]);
-  assert.ok(issues.some((i) => /reserved dimension/.test(i.message)), "M4 위반 검출");
+  assert.ok(issues.some((issue) => issue.path.includes("$[0]")), "premises-v1 위반 검출");
 });
 
 check("[계약 backstop] span 없는 신규 구조화 축을 직접 계약 검증하면 issue 검출", () => {

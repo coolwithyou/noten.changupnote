@@ -9,13 +9,17 @@ import {
   DISQUALIFICATION_EXCEPTIONS,
 } from "../disqualification/canonical.js";
 import { criterionSemanticIdentity } from "../criteria/semantic-identity.js";
+import {
+  inspectPremisesCriterionSourceCompatibility,
+  parsePremisesCriterionValue,
+} from "../premises/contract.js";
 
 const DISQUALIFICATION_AXES = new Set(["tax_compliance", "credit_status", "sanction"]);
 const FLAG_SET = new Set<string>(ALL_DISQUALIFICATION_FLAGS);
 const EXCEPTION_SET = new Set<string>(DISQUALIFICATION_EXCEPTIONS);
 
-/** 구조화 금지·예약 축(M4). evaluator·프로필 파이프라인이 열리기 전까지 허용하지 않는다. */
-const RESERVED_DIMENSIONS = new Set(["premises", "export_performance"]);
+/** export_performance는 프로필·평가기준 계약이 열리기 전까지 구조화하지 않는다. */
+const RESERVED_DIMENSIONS = new Set(["export_performance"]);
 /**
  * M1 span 정책 대상 축 — 신규 결격/재무/고용/투자. 구조화(text_only 아님) 시 source_span 필수.
  * 분해기(extract.ts)는 이미 준수한다.
@@ -28,6 +32,7 @@ const SPAN_REQUIRED_DIMENSIONS = new Set([
   "financial_health",
   "insured_workforce",
   "investment",
+  "premises",
 ]);
 
 export interface GrantCriteriaContractIssue {
@@ -198,6 +203,20 @@ function validateDimensionValueSchema(
       issues.push({ index, path, message: "region requires non-empty regions or nationwide=true." });
     }
     optionalBooleanField(value.nationwide, `${path}.nationwide`, index, issues);
+    return;
+  }
+
+  if (dimension === "premises") {
+    const parsed = parsePremisesCriterionValue(value);
+    if (!parsed.ok) {
+      for (const issue of parsed.issues) {
+        issues.push({
+          index,
+          path: issue.path.replace(/^value/, path),
+          message: issue.message,
+        });
+      }
+    }
     return;
   }
 
@@ -492,7 +511,8 @@ function validateStringArray(
 
 /**
  * 구조화 금지·예약 축·span 정책 위반 검출(M4/M1) — 정규화기 강등의 계약 수준 backstop.
- *   - M4: premises / export_performance 예약 축은 구조화 금지(파이프라인 미활성).
+ *   - M4: export_performance 예약 축은 구조화 금지(파이프라인 미활성).
+ *   - premises-v1: reviewed required/exists 및 source/value 의미 일치만 허용.
  *   - M1: prior_award 및 신규 결격/재무/고용/투자 축의 구조화 criterion 은 source_span 필수.
  */
 function detectStructuringViolations(
@@ -505,7 +525,7 @@ function detectStructuringViolations(
   const operator = typeof record.operator === "string" ? record.operator : null;
   if (!dimension) return;
 
-  // M4: 예약 축은 어떤 형태로도 허용하지 않는다.
+  // M4: 미활성 예약 축은 어떤 형태로도 허용하지 않는다.
   if (RESERVED_DIMENSIONS.has(dimension)) {
     issues.push({
       index,
@@ -513,6 +533,32 @@ function detectStructuringViolations(
       message: `reserved dimension is not allowed: ${dimension} (must be downgraded to other/text_only).`,
     });
     return;
+  }
+
+  if (dimension === "premises") {
+    if (record.kind !== "required") {
+      issues.push({ index, path: `${basePath}.kind`, message: "premises-v1 only supports required criteria." });
+    }
+    if (operator !== "exists") {
+      issues.push({ index, path: `${basePath}.operator`, message: "premises-v1 only supports exists." });
+    }
+    if (record.needs_review !== false) {
+      issues.push({ index, path: `${basePath}.needs_review`, message: "premises-v1 requires explicit needs_review=false." });
+    }
+    const compatibility = inspectPremisesCriterionSourceCompatibility({
+      value: record.value,
+      sourceSpan: record.source_span,
+      note: record.raw_text,
+    });
+    if (!compatibility.ok) {
+      for (const issue of compatibility.issues) {
+        issues.push({
+          index,
+          path: issue.path === "source_span" ? `${basePath}.source_span` : `${basePath}.${issue.path}`,
+          message: issue.message,
+        });
+      }
+    }
   }
 
   // M1: 신규 구조화 축은 text_only 가 아니면 source_span 필수.

@@ -25,6 +25,11 @@ import {
 import { clearProfileQuestionAnswerState } from "./question-answer-state.js";
 import { normalizePriorAwardProgramLabel } from "../prior-award/canonical.js";
 import { isValidSidoCode, sidoCodeForToken } from "../criteria/regions.js";
+import {
+  InvalidPremisesProfileError,
+  PREMISES_PROFILE_PROVIDER,
+  normalizePremisesProfileValue,
+} from "../premises/contract.js";
 
 export interface CompanyProfileFieldUpdate {
   field: CriterionDimension;
@@ -64,6 +69,7 @@ export function updateCompanyProfileField(
   profile: CompanyProfile,
   update: CompanyProfileFieldUpdate,
 ): CompanyProfile {
+  if (update.field === "premises") assertPremisesUpdateEnvelope(update);
   assertEvidencePrecedence(profile, update);
   const next: CompanyProfile = {
     ...profile,
@@ -140,6 +146,15 @@ export function updateCompanyProfileField(
       next.investment = normalizeInvestment(update.value);
       break;
     case "premises":
+      try {
+        next.premises = normalizePremisesProfileValue(update.value, { asOf: update.asOf! });
+      } catch (error) {
+        if (error instanceof InvalidPremisesProfileError) {
+          throw new InvalidCompanyProfileFieldError(error.message, error.field);
+        }
+        throw error;
+      }
+      break;
     case "export_performance":
       throw new InvalidCompanyProfileFieldError(
         `${update.field} 축은 예약 상태로, 아직 프로필 입력을 받지 않습니다.`,
@@ -185,8 +200,9 @@ export function updateCompanyProfileField(
     const confidence = typeof update.confidence === "number"
       ? clampConfidence(update.confidence)
       : (isDisqualificationExpandedAxis(update.field) ? SELF_DECLARED_CONFIDENCE : next.confidence?.[update.field] ?? null);
-    const axisCompleteness = update.axisCompleteness ??
-      (isMergeableListDimension(update.field)
+    const axisCompleteness = update.field === "premises"
+      ? next.premises!.coverage.completeness
+      : update.axisCompleteness ?? (isMergeableListDimension(update.field)
         ? next.list_completeness?.[update.field as ListProfileDimension] ?? "partial"
         : "complete");
     const observation = {
@@ -218,6 +234,26 @@ export function updateCompanyProfileField(
   }
 
   return clearProfileQuestionAnswerState(next, update.field);
+}
+
+function assertPremisesUpdateEnvelope(update: CompanyProfileFieldUpdate): void {
+  if (update.mode !== undefined && update.mode !== "replace") {
+    throw new InvalidCompanyProfileFieldError("premises는 전체 교체 방식만 지원합니다.", "mode");
+  }
+  if (
+    update.sourceKind !== "self_declared" ||
+    update.provider !== PREMISES_PROFILE_PROVIDER ||
+    update.observation?.scope !== "user" ||
+    update.observation.persistenceClass !== "portable_user_answer"
+  ) {
+    throw new InvalidCompanyProfileFieldError(
+      "premises는 사용자 개인 직접 답변 원천으로만 저장할 수 있습니다.",
+      "sourceKind",
+    );
+  }
+  if (!update.asOf || Number.isNaN(Date.parse(update.asOf))) {
+    throw new InvalidCompanyProfileFieldError("premises asOf는 서버 시각이어야 합니다.", "asOf");
+  }
 }
 
 function assertEvidencePrecedence(

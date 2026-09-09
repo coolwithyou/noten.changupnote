@@ -27,12 +27,13 @@ export const INDEPENDENT_REVIEW_RESULT_SCHEMA = "independent-ai-review-result-v1
 export const INDEPENDENT_REVIEW_BUNDLE_SCHEMA = "independent-ai-review-bundle-v1";
 export const INDEPENDENT_REVIEW_COMBINED_RAW_SCHEMA = "independent-ai-review-combined-raw-v1";
 export const INDEPENDENT_REVIEW_AGGREGATE_SCHEMA = "independent-ai-review-aggregate-v2";
-export const INDEPENDENT_REVIEW_POLICY_VERSION = "codex-only-v6";
+export const INDEPENDENT_REVIEW_POLICY_VERSION = "codex-only-v7";
 export const LEGACY_INDEPENDENT_REVIEW_POLICY_VERSION = "codex-only-v1";
 export const LEGACY_INDEPENDENT_REVIEW_POLICY_VERSION_V2 = "codex-only-v2";
 export const LEGACY_INDEPENDENT_REVIEW_POLICY_VERSION_V3 = "codex-only-v3";
 export const LEGACY_INDEPENDENT_REVIEW_POLICY_VERSION_V4 = "codex-only-v4";
 export const LEGACY_INDEPENDENT_REVIEW_POLICY_VERSION_V5 = "codex-only-v5";
+export const LEGACY_INDEPENDENT_REVIEW_POLICY_VERSION_V6 = "codex-only-v6";
 
 export interface IndependentReviewConsensusFinding {
   sequence: number;
@@ -107,7 +108,8 @@ interface IndependentReviewManifest {
     | typeof LEGACY_INDEPENDENT_REVIEW_POLICY_VERSION_V2
     | typeof LEGACY_INDEPENDENT_REVIEW_POLICY_VERSION_V3
     | typeof LEGACY_INDEPENDENT_REVIEW_POLICY_VERSION_V4
-    | typeof LEGACY_INDEPENDENT_REVIEW_POLICY_VERSION_V5;
+    | typeof LEGACY_INDEPENDENT_REVIEW_POLICY_VERSION_V5
+    | typeof LEGACY_INDEPENDENT_REVIEW_POLICY_VERSION_V6;
   reviewers: Array<{
     reviewer: "codex" | "grok";
     transport: "codex-cli" | "grok-bot";
@@ -927,6 +929,7 @@ function resolveIndependentReviewMode(manifest: IndependentReviewManifest): "cod
       || manifest.reviewPolicyVersion === LEGACY_INDEPENDENT_REVIEW_POLICY_VERSION_V3
       || manifest.reviewPolicyVersion === LEGACY_INDEPENDENT_REVIEW_POLICY_VERSION_V4
       || manifest.reviewPolicyVersion === LEGACY_INDEPENDENT_REVIEW_POLICY_VERSION_V5
+      || manifest.reviewPolicyVersion === LEGACY_INDEPENDENT_REVIEW_POLICY_VERSION_V6
     )
     && manifest.policy.reviewerMode === "codex-only"
     && reviewers.length === 1

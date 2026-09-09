@@ -19,6 +19,7 @@ import type {
   MatchResult,
   MatchReviewReason,
   MatchScoreDisplay,
+  PremisesProfileValue,
   WriteSupportLevel,
 } from "./index.js";
 
@@ -178,6 +179,8 @@ export interface MatchingProfileViewRow {
     kind: "answer" | "connect" | "refresh" | "none";
     label: string;
   };
+  /** 개인 premises-v1 답변을 다시 편집하기 위한 exact typed 값. 다른 축·공용 원천에는 노출하지 않는다. */
+  premisesValue?: PremisesProfileValue;
 }
 
 export interface MatchingProfileView {
@@ -237,6 +240,8 @@ export interface OwnedCompanyMatchingResult {
   /** 표시한 정보의 낙관적 동시성 토큰. 기준 시각 자체는 포함하지 않는다. */
   profileRevision?: string;
   companyId: string;
+  /** 현재 인증된 사용자가 개인 프로필 답변을 저장할 수 있는지. 누락은 false로 취급한다. */
+  profileWriteAllowed?: boolean;
   teaser: ProductTeaserResult;
   unknownDimensions: CriterionDimension[];
 }

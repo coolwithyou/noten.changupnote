@@ -2072,6 +2072,9 @@
               }
             },
             "additionalProperties": false
+          },
+          "premisesValue": {
+            "$ref": "#/components/schemas/PremisesProfileValue"
           }
         },
         "additionalProperties": false
@@ -4031,6 +4034,9 @@
           "investment": {
             "$ref": "#/components/schemas/InvestmentProfileValue"
           },
+          "premises": {
+            "$ref": "#/components/schemas/PremisesProfileValue"
+          },
           "confidence": {
             "type": "object",
             "additionalProperties": {
@@ -4051,6 +4057,123 @@
           }
         },
         "additionalProperties": true
+      },
+      "PremisesProfileValue": {
+        "type": "object",
+        "required": [
+          "schemaVersion",
+          "locations",
+          "coverage"
+        ],
+        "properties": {
+          "schemaVersion": {
+            "type": "string",
+            "enum": [
+              "premises-v1"
+            ]
+          },
+          "locations": {
+            "type": "array",
+            "maxItems": 10,
+            "items": {
+              "$ref": "#/components/schemas/PremisesLocation"
+            }
+          },
+          "coverage": {
+            "$ref": "#/components/schemas/PremisesCoverage"
+          }
+        },
+        "additionalProperties": false
+      },
+      "PremisesLocation": {
+        "type": "object",
+        "required": [
+          "locationId",
+          "facilityType",
+          "sidoCode",
+          "validFrom",
+          "validTo"
+        ],
+        "properties": {
+          "locationId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "facilityType": {
+            "type": "string",
+            "enum": [
+              "headquarters",
+              "factory",
+              "research_institute"
+            ]
+          },
+          "sidoCode": {
+            "type": "string",
+            "pattern": "^[0-9]{2}$"
+          },
+          "validFrom": {
+            "type": "string",
+            "format": "date"
+          },
+          "validTo": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "PremisesCoverage": {
+        "type": "object",
+        "required": [
+          "facilityTypes",
+          "validFrom",
+          "validTo",
+          "asOf",
+          "completeness"
+        ],
+        "properties": {
+          "facilityTypes": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 3,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "enum": [
+                "headquarters",
+                "factory",
+                "research_institute"
+              ]
+            }
+          },
+          "validFrom": {
+            "type": "string",
+            "format": "date"
+          },
+          "validTo": {
+            "type": "string",
+            "format": "date"
+          },
+          "asOf": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "completeness": {
+            "type": "string",
+            "enum": [
+              "partial",
+              "complete"
+            ]
+          }
+        },
+        "additionalProperties": false
       },
       "CompanyProfileFieldEvidence": {
         "type": "object",

@@ -98,6 +98,98 @@ assert.equal(validateDeepAnalysisResult({
   result: result([reserved], axes(["premises"])),
 }).valid, true, "예약 축도 dimension을 보존한 안전 text_only이면 분석 계약을 통과한다");
 
+const exactPremisesSpan = "2026년 9월 9일 현재 서울특별시에 등록된 본사 또는 공장을 둔 기업";
+const exactPremisesValue = {
+  schemaVersion: "premises-v1",
+  state: "registered_current_site",
+  sidoCodes: ["11"],
+  facilityTypes: ["headquarters", "factory"],
+  facilitySemantics: "any",
+  basisDate: "2026-09-09",
+} as const;
+const exactPremisesValidation = validateDeepAnalysisResult({
+  seal: sealDeepAnalysisInput({
+    grantId: "grant-exact-premises",
+    sourceRevisionSha256: "2".repeat(64),
+    structuredText: exactPremisesSpan,
+    attachments: [],
+  }),
+  result: result([criterion({
+    dimension: "premises",
+    kind: "required",
+    operator: "exists",
+    value: exactPremisesValue,
+    sourceSpan: exactPremisesSpan,
+  })], axes(["premises"])),
+});
+assert.equal(exactPremisesValidation.valid, true, "exact premises-v1 evidence passes deep validation");
+assert.equal(
+  exactPremisesValidation.criteria[0]?.canonicalCriterion.needs_review,
+  false,
+  "raw deep criteria has no review field; the exact validator boundary materializes explicit false",
+);
+
+for (const [label, source, value, kind = "required"] of [
+  [
+    "relative basis date",
+    "공고일 현재 서울특별시에 등록된 본사를 둔 기업",
+    { ...exactPremisesValue, facilityTypes: ["headquarters"] },
+  ],
+  [
+    "district omitted by value",
+    "2026년 9월 9일 현재 서울특별시 강남구에 등록된 본사를 둔 기업",
+    { ...exactPremisesValue, facilityTypes: ["headquarters"] },
+  ],
+  [
+    "future relocation",
+    "2026년 9월 9일 선정 후 서울특별시로 본사를 이전할 예정인 기업",
+    { ...exactPremisesValue, facilityTypes: ["headquarters"] },
+  ],
+  [
+    "document-specific proof",
+    "2026년 9월 9일 현재 법인등기부등본상 서울특별시에 등록된 본사를 둔 기업",
+    { ...exactPremisesValue, facilityTypes: ["headquarters"] },
+  ],
+  [
+    "paired province and facility alternatives",
+    "2026년 9월 9일 현재 등록된 본사는 서울특별시에 있거나 공장은 경기도에 있는 기업",
+    { ...exactPremisesValue, sidoCodes: ["11", "41"] },
+  ],
+  [
+    "tenure omitted by value",
+    "2026년 9월 9일 현재 1년 이상 계속하여 서울특별시에 등록된 본사를 둔 기업",
+    { ...exactPremisesValue, facilityTypes: ["headquarters"] },
+  ],
+  [
+    "preferred is unsupported",
+    exactPremisesSpan,
+    exactPremisesValue,
+    "preferred",
+  ],
+] as const) {
+  const validation = validateDeepAnalysisResult({
+    seal: sealDeepAnalysisInput({
+      grantId: `grant-invalid-premises-${label}`,
+      sourceRevisionSha256: "3".repeat(64),
+      structuredText: source,
+      attachments: [],
+    }),
+    result: result([criterion({
+      dimension: "premises",
+      kind,
+      operator: "exists",
+      value,
+      sourceSpan: source,
+    })], axes(["premises"])),
+  });
+  assert.equal(validation.valid, false, `${label} must not enter premises-v1`);
+  assert.equal(
+    validation.issues.some((issue) => issue.code === "canonical_contract_invalid"),
+    true,
+    `${label} must fail at the canonical boundary`,
+  );
+}
+
 const nonCanonicalTargetType = criterion({
   dimension: "target_type",
   operator: "text_only",

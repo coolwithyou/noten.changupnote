@@ -7,8 +7,8 @@ import {
   requireProfileFieldKey,
 } from "./profile-field-spec.js";
 
-assert.equal(OPERATIONAL_PROFILE_DIMENSIONS.length, 19);
-assert.equal(new Set(OPERATIONAL_PROFILE_DIMENSIONS).size, 19);
+assert.equal(OPERATIONAL_PROFILE_DIMENSIONS.length, 20);
+assert.equal(new Set(OPERATIONAL_PROFILE_DIMENSIONS).size, 20);
 assert.equal(PROFILE_FIELD_SPEC_BY_KEY.size, PROFILE_FIELD_SPEC.length, "field key는 중복되면 안 된다");
 
 const parentRows = PROFILE_FIELD_SPEC.filter(
@@ -23,7 +23,7 @@ assert.deepEqual(
 const denominatorRows = PROFILE_FIELD_SPEC.filter((entry) => entry.includedInEligibilityDenominator);
 assert.deepEqual(
   denominatorRows.map((entry) => entry.key),
-  [...OPERATIONAL_PROFILE_DIMENSIONS],
+  OPERATIONAL_PROFILE_DIMENSIONS.filter((dimension) => dimension !== "premises"),
   "eligibility 분모는 운영 19축 부모 행만 포함해야 한다",
 );
 assert.ok(denominatorRows.every((entry) => entry.role === "eligibility"));
@@ -31,7 +31,11 @@ assert.ok(denominatorRows.every((entry) => entry.role === "eligibility"));
 const other = PROFILE_FIELD_SPEC_BY_KEY.get("other");
 assert.equal(other?.role, "grant_unstructured");
 assert.equal(other?.includedInEligibilityDenominator, false);
-for (const key of ["premises", "export_performance"] as const) {
+const premises = PROFILE_FIELD_SPEC_BY_KEY.get("premises");
+assert.equal(premises?.role, "eligibility");
+assert.equal(premises?.profileOrUpdatePath, "CompanyProfile.premises");
+assert.equal(premises?.includedInEligibilityDenominator, false);
+for (const key of ["export_performance"] as const) {
   const reserved = PROFILE_FIELD_SPEC_BY_KEY.get(key);
   assert.equal(reserved?.role, "reserved_eligibility");
   assert.equal(reserved?.includedInEligibilityDenominator, false);

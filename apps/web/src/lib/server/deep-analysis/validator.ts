@@ -13,6 +13,7 @@ import {
 import {
   EXCEPTION_FLAG_COVERAGE,
   canonicalizeGrantCriterion,
+  inspectPremisesCriterionSourceCompatibility,
   nonMatchingCriterionReason,
   validateGrantCriteriaContract,
   type DisqualificationException,
@@ -25,7 +26,7 @@ import {
   isLossyStructuredPriorAward,
 } from "./criterion-semantics";
 
-export const DEEP_ANALYSIS_VALIDATOR_VERSION = "deep-analysis-validator-v14" as const;
+export const DEEP_ANALYSIS_VALIDATOR_VERSION = "deep-analysis-validator-v15" as const;
 
 export type DeepAnalysisValidationIssueCode =
   | "raw_contract_invalid"
@@ -937,14 +938,27 @@ function validateCriterion(
   index: number,
   issues: DeepAnalysisValidationIssue[],
 ): DeepAnalysisValidatedCriterion {
+  const premisesCompatibility = criterion.dimension === "premises"
+    ? inspectPremisesCriterionSourceCompatibility({
+        value: criterion.value,
+        sourceSpan: criterion.sourceSpan,
+        note: criterion.note,
+      })
+    : null;
+  const structuredPremisesAllowed = criterion.kind === "required"
+    && criterion.operator === "exists"
+    && premisesCompatibility?.ok === true;
   const grantCriterion: GrantCriterion = {
     dimension: criterion.dimension,
     operator: criterion.operator as CriterionOperator,
     kind: criterion.kind as CriterionKind,
-    value: isRecord(criterion.value) ? criterion.value : {},
+    value: structuredPremisesAllowed && premisesCompatibility?.ok
+      ? premisesCompatibility.value
+      : isRecord(criterion.value) ? criterion.value : {},
     confidence: criterion.confidence,
     ...(criterion.sourceSpan ? { source_span: criterion.sourceSpan } : {}),
-    needs_review: criterion.dimension === "premises" || criterion.dimension === "export_performance",
+    needs_review: criterion.dimension === "export_performance"
+      || (criterion.dimension === "premises" && !structuredPremisesAllowed),
     parser_version: DEEP_ANALYSIS_VALIDATOR_VERSION,
   };
   const canonicalCriterion = canonicalizeGrantCriterion(grantCriterion);
@@ -1001,7 +1015,31 @@ function validateCriterion(
         });
       }
     }
-  } else if (criterion.dimension === "premises" || criterion.dimension === "export_performance") {
+  } else if (criterion.dimension === "premises") {
+    const note = isRecord(criterion.value) && typeof criterion.value.note === "string"
+      ? criterion.value.note.trim()
+      : "";
+    if (criterion.operator === "text_only" && note) {
+      // Legacy/unsupported premises stays lossless and review-held.
+    } else if (structuredPremisesAllowed) {
+      for (const issue of validateGrantCriteriaContract([canonicalCriterion])) {
+        issues.push({
+          code: "canonical_contract_invalid",
+          path: `$.criteria[${index}]${issue.path.slice(4)}`,
+          message: issue.message,
+        });
+      }
+    } else {
+      const detail = premisesCompatibility && !premisesCompatibility.ok
+        ? premisesCompatibility.issues.map((issue) => `${issue.path}: ${issue.message}`).join(" | ")
+        : "premises-v1 only supports required/exists.";
+      issues.push({
+        code: "canonical_contract_invalid",
+        path: `$.criteria[${index}].value`,
+        message: `premises must be exact reviewed premises-v1 or remain text_only with a non-empty value.note. ${detail}`,
+      });
+    }
+  } else if (criterion.dimension === "export_performance") {
     const note = isRecord(criterion.value) && typeof criterion.value.note === "string"
       ? criterion.value.note.trim()
       : "";
@@ -1009,7 +1047,7 @@ function validateCriterion(
       issues.push({
         code: "canonical_contract_invalid",
         path: `$.criteria[${index}].value`,
-        message: `${criterion.dimension} must remain text_only with a non-empty value.note.`,
+        message: "export_performance must remain text_only with a non-empty value.note.",
       });
     }
   } else {

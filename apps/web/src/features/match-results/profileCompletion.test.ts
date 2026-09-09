@@ -16,6 +16,8 @@ const basics = BASIC_PROFILE_DIMENSIONS.map((key) => row(key));
 assert.equal(buildProfileCompletion(view(basics)).percent, 100);
 assert.equal(buildProfileCompletion(view([...basics, row("tax_compliance", "unknown")])).percent, 100,
   "결격·공고별 추가정보는 기본정보 완료율과 분리한다");
+assert.equal(buildProfileCompletion(view([...basics, row("premises", "unknown")])).percent, 100,
+  "선택 입력인 등록 사업장 부재는 기본정보 완료율이나 자동 진입 조건을 낮추지 않는다");
 assert.equal(buildProfileCompletion(view([row("region"), row("industry", "partial"), row("employees")])).percent, 25,
   "일부 확인이나 무관한 추가 정보는 완료로 세지 않는다");
 assert.equal(profileInputState(row("employees")), "entered");

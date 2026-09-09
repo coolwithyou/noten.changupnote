@@ -10,6 +10,7 @@ import {
   isNonRestrictiveRegionEvidence,
   isSizeOnlyTargetTypeEvidence,
   isStructuredAgeMetadataEvidence,
+  INDEPENDENT_REVIEW_POLICY_VERSION,
   normalizeReviewSequences,
 } from "./independent-review-packet";
 
@@ -78,6 +79,8 @@ assert.match(
   "독립 검수자가 창업노트 prior_award 상태 계약을 공유해야 한다",
 );
 const independentSystemPrompt = buildIndependentReviewSystemPrompt("검수 기준서");
+assert.equal(INDEPENDENT_REVIEW_POLICY_VERSION, "codex-only-v7");
+assert.match(independentSystemPrompt, /premises를 구조화할 수 있는 유일한 경우.*registered_current_site/);
 assert.match(independentSystemPrompt, /source_field: aply_trgt.*list_semantics=open/);
 assert.match(independentSystemPrompt, /biz_enyy.*비제한 검색 메타데이터/);
 assert.match(independentSystemPrompt, /source_field: supt_regin.*region criterion을 만들지 마라/);

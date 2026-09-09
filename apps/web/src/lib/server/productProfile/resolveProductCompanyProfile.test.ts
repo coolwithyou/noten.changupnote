@@ -4,6 +4,7 @@ import type { CompanyRecord, EnrichmentCacheEntry } from "@cunote/core";
 import {
   PRODUCT_PROFILE_SOURCE_POLICIES,
   ProductProfileResolutionError,
+  buildMatchingProfileView,
   resolveProductCompanyProfile,
   resolveSystemProductCompanyProfile,
   type ProductProfileResolverDependencies,
@@ -45,6 +46,28 @@ const ownedProfile: CompanyProfile = {
     founder_age: {
       ...observation("codef", "user", 0.9),
       sourceKind: "auth_supplied",
+    },
+    premises: {
+      ...observation("cunote_profile_question", "user", 0.6),
+      sourceKind: "self_declared",
+      persistenceClass: "portable_user_answer",
+    },
+  },
+  premises: {
+    schemaVersion: "premises-v1",
+    locations: [{
+      locationId: "00000000-0000-4000-8000-000000000101",
+      facilityType: "headquarters",
+      sidoCode: "11",
+      validFrom: "2026-01-01",
+      validTo: null,
+    }],
+    coverage: {
+      facilityTypes: ["headquarters"],
+      validFrom: "2026-01-01",
+      validTo: "2026-07-14",
+      asOf,
+      completeness: "complete",
     },
   },
 };
@@ -122,7 +145,7 @@ const anonymous = await resolveProductCompanyProfile({
 assert.equal(anonymous.profile.region?.code, "11");
 assert.equal(anonymous.profile.name, "응답에 노출되면 안 되는 상호", "internal save materialization keeps safe company identity");
 assert.equal(anonymous.profile.other_conditions, undefined);
-assert.equal(anonymous.view.rows.length, 19);
+assert.equal(anonymous.view.rows.length, 20);
 assert.equal(anonymous.view.rows.find((row) => row.dimension === "region")?.status, "known");
 assert.equal(anonymous.sourceReceipts.find((receipt) => receipt.source === "popbill_cache")?.state, "consumed");
 assert.equal(companyLists, 0, "anonymous cache resolution must not touch owner access paths");
@@ -154,6 +177,9 @@ const revokedOwner = await resolveProductCompanyProfile({
 }, dependencies);
 assert.equal(revokedOwner.profile.employees_count, 8, "same-user portable answer remains visible");
 assert.equal(revokedOwner.profile.size, "중소", "legacy persisted user fields pass through the single compatibility adapter");
+assert.equal(revokedOwner.profile.premises?.locations[0]?.sidoCode, "11");
+assert.equal(revokedOwner.stateScope, "user", "premises-only personal matching remains user-scoped");
+assert.equal(revokedOwner.view.rows.find((row) => row.dimension === "premises")?.premisesValue?.locations.length, 1);
 assert.equal(revokedOwner.profile.id, companyId);
 assert.equal(revokedOwner.profile.name, "테스트 회사");
 assert.equal(revokedOwner.profile.revenue_krw, undefined, "revoked basic_info observation must be excluded");
@@ -221,7 +247,15 @@ const companyScoped = await resolveSystemProductCompanyProfile({
 });
 assert.equal(companyScoped.profile.employees_count, undefined, "company state must not absorb a user overlay");
 assert.equal(companyScoped.profile.size, undefined, "company state must not absorb a legacy user overlay");
+assert.equal(companyScoped.profile.premises, undefined, "company state must not absorb personal premises");
 assert.equal(companyScoped.stateScope, "company");
+
+const malformedView = buildMatchingProfileView({
+  premises: {} as NonNullable<CompanyProfile["premises"]>,
+  profile_evidence: { premises: ownedProfile.profile_evidence!.premises! },
+}, asOf);
+assert.equal(malformedView.rows.find((row) => row.dimension === "premises")?.status, "unknown");
+assert.equal(malformedView.rows.find((row) => row.dimension === "premises")?.premisesValue, undefined);
 
 assert.equal(PRODUCT_PROFILE_SOURCE_POLICIES.find((policy) => policy.id === "nice_demo")?.classification, "disabled");
 assert.equal(PRODUCT_PROFILE_SOURCE_POLICIES.some((policy) => String(policy.classification) === "pending"), false);

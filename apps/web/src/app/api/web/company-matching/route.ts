@@ -5,6 +5,7 @@ import { requestCompanyScope } from "@/lib/server/auth/requestCompanyScope";
 import { requireWebSession } from "@/lib/server/auth/session";
 import { webActionError } from "@/lib/server/auth/webActionError";
 import { loadOwnedCompanyMatching } from "@/lib/server/serviceData";
+import { canWriteCompany } from "@/lib/server/auth/companyAccessPolicy";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -14,7 +15,11 @@ export async function GET(request: Request) {
     await requireWebSession();
     const companyId = new URL(request.url).searchParams.get("companyId");
     const access = await requireCompanyAccess(requestCompanyScope(companyId ?? undefined));
-    const data = await loadOwnedCompanyMatching({ companyId: access.companyId, userId: access.userId });
+    const matching = await loadOwnedCompanyMatching({ companyId: access.companyId, userId: access.userId });
+    const data: OwnedCompanyMatchingResult = {
+      ...matching,
+      profileWriteAllowed: canWriteCompany(access.role),
+    };
     return NextResponse.json<ActionResult<OwnedCompanyMatchingResult>>({ ok: true, data }, {
       headers: { "Cache-Control": "private, no-store" },
     });

@@ -34,6 +34,7 @@ import {
   DEEP_ANALYSIS_PRIOR_AWARD_LOSSLESS_RULE,
   DEEP_ANALYSIS_PRIOR_AWARD_SCOPE_RULE,
   DEEP_ANALYSIS_PRIOR_AWARD_STATE_RULE,
+  DEEP_ANALYSIS_PREMISES_V1_RULE,
   DEEP_ANALYSIS_SIZE_TARGET_AXIS_RULE,
   DEEP_ANALYSIS_PROCEDURAL_EVIDENCE_CHECK_RULE,
   DEEP_ANALYSIS_PROGRAM_THEME_BOUNDARY_RULE,
@@ -50,7 +51,7 @@ import {
 } from "./auditScope";
 
 export const DEEP_ANALYSIS_AUDIT_CONTRACT_VERSION =
-  "deep-analysis-audit-candidates-v8" as const;
+  "deep-analysis-audit-candidates-v9" as const;
 export const DEEP_ANALYSIS_AUDIT_TOOL_NAME =
   "emit_deep_analysis_audit_candidates" as const;
 
@@ -111,6 +112,7 @@ export const DEEP_ANALYSIS_AUDIT_SYSTEM_PROMPT = [
   DEEP_ANALYSIS_PROGRAM_THEME_BOUNDARY_RULE,
   DEEP_ANALYSIS_PROCEDURAL_EVIDENCE_CHECK_RULE,
   DEEP_ANALYSIS_LOCALITY_PREMISES_RULE,
+  DEEP_ANALYSIS_PREMISES_V1_RULE,
   DEEP_ANALYSIS_SIZE_TARGET_AXIS_RULE,
   DEEP_ANALYSIS_TARGET_TYPE_LIST_SEMANTICS_RULE,
   DEEP_ANALYSIS_BUSINESS_CREDIT_AXIS_RULE,
@@ -139,7 +141,7 @@ export const DEEP_ANALYSIS_AUDIT_SYSTEM_PROMPT = [
   "prior_award exclusion은 범위를 반드시 value.scope로 명시한다. 동일·유사 지원, 동일 과제, 본 사업 과거 선정, 당해연도 타부처 중복은 scope=self와 self_kind를 쓰고, 창업보육센터·지역센터 입주 이력은 scope=self, channel=incubation_tenancy를 사용한다.",
   "특정 사업·사업유형 수혜 이력은 scope=program|program_type과 비어 있지 않은 programs를 사용한다. 금액 임계가 붙은 과거 지원 이력처럼 현재 prior_award canonical로 무손실 표현할 수 없거나 범위를 특정할 수 없으면 other/text_only exclusion과 exact evidence note로 보존한다.",
   "고용보험·피보험자 조건은 insured_workforce를 사용한다. 추가 전제가 없는 단순 누적 투자유치 하한만 investment/gte와 value.min_total_krw를 사용하고, 투자 상한과 기간·기관유형 등이 결합된 복합 투자조건은 investment/text_only와 value.note로 보존한다.",
-  "premises와 export_performance는 해당 dimension의 text_only와 value.note로 보존한다.",
+  "premises-v1 규칙 밖의 premises와 모든 export_performance는 해당 dimension의 text_only와 value.note로 보존한다.",
   "canonical value를 안전하게 만들 수 없는 명시적 매칭 규정은 other/text_only와 value.note로 보존한다.",
 ].join("\n");
 

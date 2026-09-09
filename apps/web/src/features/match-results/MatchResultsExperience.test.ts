@@ -84,6 +84,15 @@ assert.match(OWNED_PROFILE_SAVED_NOTICE, /직접 입력한 답변이 내 계정�
 assert.match(OWNED_PROFILE_SAVED_NOTICE, /다른 구성원과 공유되지 않습니다/);
 
 const source = readFileSync(new URL("./MatchResultsExperience.tsx", import.meta.url), "utf8");
+assert.ok(source.includes("useState(false)"), "프로필 쓰기 권한은 응답이 없으면 닫혀 있어야 합니다.");
+assert.ok(source.includes("result.profileWriteAllowed === true"), "서버의 명시적 true만 쓰기 권한으로 받아야 합니다.");
+const answerStart = source.indexOf("const applyAnswer = useCallback");
+const answerEnd = source.indexOf("const applyConfirmationResult = useCallback", answerStart);
+const answerSource = source.slice(answerStart, answerEnd);
+assert.ok(
+  answerSource.indexOf("if (companyId && !profileWriteAllowed)") < answerSource.indexOf("saveOwnedMatchingAnswer"),
+  "권한이 없는 저장 회사 답변은 네트워크 요청 전에 차단해야 합니다.",
+);
 const loaderStart = source.indexOf("const loadCompanyMatching = useCallback");
 const loaderEnd = source.indexOf("const loadTeaser = useCallback", loaderStart);
 const loader = source.slice(loaderStart, loaderEnd);

@@ -111,6 +111,7 @@ export * from "./popbill/types.js";
 export * from "./prior-award/canonical.js";
 export * from "./prior-award/evaluate.js";
 export * from "./prior-award/extract.js";
+export * from "./premises/contract.js";
 export * from "./registry/types.js";
 export * from "./registry/csv.js";
 export * from "./registry/normalize.js";

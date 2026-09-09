@@ -43,6 +43,8 @@ import {
   maskCorpNum,
   matchNormalizedGrant,
   normalizeCompanyIndustryProfile,
+  parseStoredPremisesProfileValue,
+  premisesProfileEvidenceIsUsable,
   resolveEvidencePrecedence,
   RULESET_VERSION,
   SCORING_VERSION,
@@ -1898,6 +1900,14 @@ export function decodeCompanyProfileRows(
   for (const row of rows) {
     const decoded = decodeCompanyProfileRowsLegacy(company, [row]);
     const evidence = decoded.profile_evidence?.[row.dimension];
+    if (
+      row.dimension === "premises" && (
+        !row.userId ||
+        row.value[VALUE_PRESENT_META_KEY] === false ||
+        !decoded.premises ||
+        !premisesProfileEvidenceIsUsable(evidence, decoded.premises)
+      )
+    ) continue;
     const state = decoded.question_answer_state?.[row.dimension];
     if (state) {
       const values = questionStates.get(row.dimension) ?? [];
@@ -2063,6 +2073,10 @@ export function decodeCompanyProfileRowsLegacy(
     }
     if (row.dimension === "investment") {
       profile.investment = toInvestmentProfileValue(value);
+    }
+    if (row.dimension === "premises") {
+      const parsed = parseStoredPremisesProfileValue(value);
+      if (parsed.ok) profile.premises = parsed.value;
     }
   }
 
@@ -2400,6 +2414,13 @@ export function encodeCompanyProfileRows(
   if (profile.investment) {
     push("investment", compactRecord(profile.investment as Record<string, unknown>));
   }
+  if (
+    userId &&
+    profile.premises &&
+    premisesProfileEvidenceIsUsable(profile.profile_evidence?.premises, profile.premises)
+  ) {
+    push("premises", compactRecord(profile.premises as unknown as Record<string, unknown>));
+  }
   if (profile.other_conditions) {
     push("other", compactRecord(profile.other_conditions));
   }
@@ -2409,6 +2430,7 @@ export function encodeCompanyProfileRows(
 
   for (const dimension of CRITERION_DIMENSIONS) {
     if (pushedDimensions.has(dimension)) continue;
+    if (dimension === "premises") continue;
     if (!profile.profile_evidence?.[dimension] && !profile.question_answer_state?.[dimension]) continue;
     push(dimension, {}, false);
   }

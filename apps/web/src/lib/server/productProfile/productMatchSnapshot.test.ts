@@ -38,7 +38,7 @@ const initial = buildProductTeaserSnapshot({
 });
 assert.equal(initial.counts.conditional, 1);
 assert.equal(initial.nextQuestion?.dimension, "revenue");
-assert.equal(initial.profileView.rows.length, 19);
+assert.equal(initial.profileView.rows.length, 20);
 assert.equal(initial.profileView.rows.find((row) => row.dimension === "revenue")?.status, "unknown");
 
 const answeredProfile = normalizeProductProfileAnswers({

@@ -89,6 +89,9 @@ for (const line of directCapture.split(/\r?\n/).filter(Boolean)) {
 }
 const actualDirect = [...directCounts.values()]
   .sort((left, right) => left.file.localeCompare(right.file) || left.callee.localeCompare(right.callee));
+// The sealed list intentionally includes analysis-lab/matching-reprojection.ts:
+// its two calls compare original/projected criteria against EMPTY_DIAGNOSTIC_COMPANY offline,
+// while keeping the product entrypoint list above unchanged.
 assert.deepEqual(actualDirect, fixture.directCallSites, "direct matcher/legacy merge surface changed; route it in P3");
 
 const companyScopedStateConsumers = [

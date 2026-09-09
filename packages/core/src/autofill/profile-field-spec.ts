@@ -20,6 +20,7 @@ export const OPERATIONAL_PROFILE_DIMENSIONS = [
   "financial_health",
   "insured_workforce",
   "investment",
+  "premises",
 ] as const satisfies readonly CriterionDimension[];
 
 export type ProfileFieldRole =
@@ -94,6 +95,8 @@ export const PROFILE_FIELD_SPEC = [
   eligibilityParent("financial_health", "CompanyProfile.financial_health", "compound"),
   eligibilityParent("insured_workforce", "CompanyProfile.insured_workforce", "compound"),
   eligibilityParent("investment", "CompanyProfile.investment", "compound"),
+  // 사용자 개인 답변 전용 선택 축. matcher에는 연결하지만 전사 autofill/완성률 분모에는 넣지 않는다.
+  field("premises", "premises", "eligibility", "CompanyProfile.premises", "compound"),
 
   field("biz_age.is_preliminary", "biz_age", "eligibility", "CompanyProfile.is_preliminary", "scalar"),
   field("industry.industry_codes", "industry", "eligibility", "CompanyProfile.industry_codes", "list"),
@@ -137,7 +140,6 @@ export const PROFILE_FIELD_SPEC = [
   field("investment.last_round", "investment", "eligibility", "CompanyProfile.investment.last_round", "scalar"),
   field("investment.tips_backed", "investment", "eligibility", "CompanyProfile.investment.tips_backed", "scalar"),
 
-  field("premises", "premises", "reserved_eligibility", "CompanyProfileFieldUpdate.value", "compound"),
   field("export_performance", "export_performance", "reserved_eligibility", "CompanyProfileFieldUpdate.value", "compound"),
   field("other", "other", "grant_unstructured", "CompanyProfile.other_conditions", "compound"),
 

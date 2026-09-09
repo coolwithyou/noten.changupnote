@@ -30,6 +30,7 @@ import {
   DEEP_ANALYSIS_ACTOR_TRACK_SCOPE_RULE,
   DEEP_ANALYSIS_FINANCIAL_THRESHOLD_RULE,
   DEEP_ANALYSIS_NON_MATCHING_DECLARATION_RULE,
+  DEEP_ANALYSIS_PREMISES_V1_RULE,
   DEEP_ANALYSIS_PRIOR_AWARD_SCOPE_RULE,
 } from "./extractor";
 import { validateDeepAnalysisResult } from "./validator";
@@ -52,6 +53,8 @@ assert.match(DEEP_ANALYSIS_AUDIT_SYSTEM_PROMPT, /조건이 없는 축을 표현�
 assert.match(DEEP_ANALYSIS_AUDIT_SYSTEM_PROMPT, /primary_source_ref/);
 assert.match(DEEP_ANALYSIS_AUDIT_SYSTEM_PROMPT, /impairment_excluded는 반드시.*배열/);
 assert.match(DEEP_ANALYSIS_AUDIT_SYSTEM_PROMPT, /prior_award exclusion은 범위를 반드시/);
+assert.equal(DEEP_ANALYSIS_AUDIT_SYSTEM_PROMPT.includes(DEEP_ANALYSIS_PREMISES_V1_RULE), true);
+assert.match(DEEP_ANALYSIS_AUDIT_SYSTEM_PROMPT, /premises-v1 규칙 밖의 premises.*text_only/);
 for (const rule of [
   DEEP_ANALYSIS_ACTOR_TRACK_SCOPE_RULE,
   DEEP_ANALYSIS_FINANCIAL_THRESHOLD_RULE,
@@ -60,7 +63,7 @@ for (const rule of [
 ]) {
   assert.equal(DEEP_ANALYSIS_AUDIT_SYSTEM_PROMPT.includes(rule), true);
 }
-assert.equal(DEEP_ANALYSIS_AUDIT_CONTRACT_VERSION, "deep-analysis-audit-candidates-v8");
+assert.equal(DEEP_ANALYSIS_AUDIT_CONTRACT_VERSION, "deep-analysis-audit-candidates-v9");
 assert.equal(DEEP_ANALYSIS_AUDIT_SCOPE_VERSION, "deep-analysis-match-impacting-scope-v1");
 
 const auditToolSchema = buildDeepAnalysisAuditToolSchema();
@@ -250,6 +253,48 @@ assert.equal(
   structuredEvidenceText.includes(structuredTextOnly.criteria[0]?.sourceSpan ?? ""),
   true,
 );
+
+const exactPremisesEvidence = "2026년 9월 9일 현재 서울특별시에 등록된 본사 또는 공장을 둔 기업";
+const exactPremisesSeal = sealDeepAnalysisInput({
+  grantId: "audit-exact-premises",
+  sourceRevisionSha256: "f".repeat(64),
+  structuredText: exactPremisesEvidence,
+  attachments: [],
+});
+const exactPremisesCatalog = createDeepAnalysisAuditEvidenceCatalog(exactPremisesEvidence);
+const exactPremisesRef = exactPremisesCatalog.promptText.match(/\[(ev_[0-9a-f]{16})\]/)?.[1];
+assert.ok(exactPremisesRef);
+const exactPremisesAudit = normalizeDeepAnalysisAuditCandidateResult({
+  model: "claude-haiku-4-5-20251001",
+  effort: null,
+  evidenceText: exactPremisesEvidence,
+  rawToolInput: {
+    criteria: [{
+      dimension: "premises",
+      operator: "exists",
+      kind: "required",
+      value: {
+        schemaVersion: "premises-v1",
+        state: "registered_current_site",
+        sidoCodes: ["11"],
+        facilityTypes: ["headquarters", "factory"],
+        facilitySemantics: "any",
+        basisDate: "2026-09-09",
+      },
+      confidence: 0.95,
+      primary_source_ref: exactPremisesRef,
+    }],
+  },
+  rawResponseText: "{}",
+  stopReason: "tool_use",
+  usage: null,
+});
+const exactPremisesAuditValidation = validateDeepAnalysisAuditResult({
+  seal: exactPremisesSeal,
+  result: exactPremisesAudit,
+});
+assert.equal(exactPremisesAuditValidation.valid, true, "blind audit exact premises-v1 is accepted");
+assert.equal(exactPremisesAuditValidation.criteria[0]?.canonicalCriterion.needs_review, false);
 
 const typedContractEvidence = [
   "재무제표 상, 부채비율이 마이너스(자본잠식)인 업체",

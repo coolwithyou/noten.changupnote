@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import type { CompanyProfile, Grant, GrantCriterion, NormalizedGrant } from "@cunote/contracts";
 import { matchGrantCriteria } from "./match.js";
-import { planProfileQuestions } from "./question-planner.js";
+import { isProfileResolvableCriterion, planProfileQuestions } from "./question-planner.js";
 import type { MatchedGrant } from "../use-cases/match-card.js";
 import { updateCompanyProfileField } from "../company/update-profile-field.js";
 
@@ -63,6 +63,45 @@ const textOnly = matched("text-only", "2026-07-20", [{
   value: { note: "원문 검토 필요" },
 }]);
 assert.equal(planProfileQuestions([malformed, textOnly], { asOf }).length, 0);
+
+const exactPremisesSpan = "2026년 9월 9일 현재 서울특별시에 등록된 본사를 둔 기업";
+const exactPremisesCriterion: GrantCriterion = {
+  dimension: "premises",
+  operator: "exists",
+  kind: "required",
+  confidence: 0.95,
+  source_span: exactPremisesSpan,
+  needs_review: false,
+  value: {
+    schemaVersion: "premises-v1",
+    state: "registered_current_site",
+    sidoCodes: ["11"],
+    facilityTypes: ["headquarters"],
+    facilitySemantics: "any",
+    basisDate: "2026-09-09",
+  },
+};
+assert.equal(isProfileResolvableCriterion(exactPremisesCriterion), true);
+for (const [label, candidate] of [
+  ["unreviewed", { ...exactPremisesCriterion, needs_review: true }],
+  ["review flag omitted", (() => {
+    const { needs_review: _needsReview, ...withoutReview } = exactPremisesCriterion;
+    return withoutReview;
+  })()],
+  ["district omitted", {
+    ...exactPremisesCriterion,
+    source_span: "2026년 9월 9일 현재 서울특별시 강남구에 등록된 본사를 둔 기업",
+  }],
+  ["malformed value", { ...exactPremisesCriterion, value: {} }],
+] as const) {
+  assert.equal(isProfileResolvableCriterion(candidate), false, `${label} premises is not resolvable`);
+}
+const premisesUnknown = matched("premises", "2026-09-30", [exactPremisesCriterion]);
+assert.equal(
+  planProfileQuestions([premisesUnknown], { asOf }).length,
+  0,
+  "premises-v1 is handled by the dedicated editor and never enters generic profile questions",
+);
 
 const disputedRegion = matchedForCompany("disputed-region", [{
   dimension: "region",

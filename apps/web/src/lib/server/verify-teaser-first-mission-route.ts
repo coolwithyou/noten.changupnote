@@ -54,7 +54,7 @@ try {
     assert.ok((firstBody.data.reviewNeededMatches?.length ?? 0) > 0, "검토 필요 버킷을 반환해야 함");
   }
   assert.ok(firstBody.data.nextQuestion !== undefined, "teaser 계약은 nextQuestion null을 포함해 명시해야 함");
-  assert.equal(firstBody.data.profileView.rows.length, 19, "제품 응답은 운영 19축을 모두 반환해야 함");
+  assert.equal(firstBody.data.profileView.rows.length, 20, "제품 응답은 운영 20축을 모두 반환해야 함");
   assert.equal(Object.hasOwn(firstBody.data, "profile"), false, "제품 응답에 raw CompanyProfile을 노출하면 안 됨");
   assert.equal(
     firstBody.data.profileView.rows.find((row) => row.dimension === "target_type")?.sourceKind,

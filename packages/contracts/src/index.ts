@@ -294,6 +294,48 @@ export interface InvestmentCriterionValue {
   labels?: string[];
 }
 
+/** premises-v1이 구조화하는 현재 등록 사업장 유형. 자유문구·특수시설은 포함하지 않는다. */
+export type PremisesFacilityType = "headquarters" | "factory" | "research_institute";
+
+/**
+ * 현재 등록 사업장 중 하나가 기준일에 지정 시도·시설 유형을 함께 만족해야 하는 좁은 조건.
+ * 시군구, 이전 예정, 특정 건물, 증빙 종류, 지역·시설의 짝을 각각 요구하는 OR 조합은 이 계약 밖이다.
+ */
+export interface PremisesCriterionValue {
+  schemaVersion: "premises-v1";
+  state: "registered_current_site";
+  sidoCodes: string[];
+  facilityTypes: PremisesFacilityType[];
+  facilitySemantics: "any";
+  basisDate: string;
+}
+
+export interface PremisesLocation {
+  locationId: string;
+  facilityType: PremisesFacilityType;
+  sidoCode: string;
+  validFrom: string;
+  validTo: string | null;
+}
+
+/**
+ * 목록 완전성은 전 역사에 대한 플래그가 아니라 시설 유형·날짜 구간·관측시각에 결속된다.
+ * complete여도 해당 범위 밖의 부재를 탈락 근거로 쓰지 않는다.
+ */
+export interface PremisesCoverage {
+  facilityTypes: PremisesFacilityType[];
+  validFrom: string;
+  validTo: string;
+  asOf: string;
+  completeness: "partial" | "complete";
+}
+
+export interface PremisesProfileValue {
+  schemaVersion: "premises-v1";
+  locations: PremisesLocation[];
+  coverage: PremisesCoverage;
+}
+
 export type PriorAwardScope = "self" | "program" | "program_type";
 export type PriorAwardSelfKind =
   | "current_similar"
@@ -338,6 +380,7 @@ export type CriterionValue =
   | FinancialHealthCriterionValue
   | InsuredWorkforceCriterionValue
   | InvestmentCriterionValue
+  | PremisesCriterionValue
   | PriorAwardCriterionValue
   | Record<string, unknown>;
 
@@ -578,7 +621,9 @@ export interface CompanyProfile {
     last_round?: string | null;
     tips_backed?: boolean;
   };
-  // premises / export_performance: 예약 축 — enum·타입 자리만. 프로필 필드는 후속 트랙에서 신설.
+  /** premises-v1 현재 등록 사업장. 기존 region으로부터 추정하거나 공유 프로필로 승격하지 않는다. */
+  premises?: PremisesProfileValue;
+  // export_performance: 예약 축 — enum·타입 자리만. 프로필 필드는 후속 트랙에서 신설.
   confidence?: Partial<Record<CriterionDimension, number>>;
   /** 축별 원천·기준일·완전성. 값과 분리해 API/자가응답/파생값을 추적한다. */
   profile_evidence?: Partial<Record<CriterionDimension, CompanyProfileFieldEvidence>>;

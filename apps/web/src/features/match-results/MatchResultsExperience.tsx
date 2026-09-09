@@ -81,6 +81,7 @@ export function MatchResultsExperience() {
   const [bizNo, setBizNo] = useState<string | null>(null);
   const [companyId, setCompanyId] = useState<string | null>(null);
   const [companyName, setCompanyName] = useState<string | null>(null);
+  const [profileWriteAllowed, setProfileWriteAllowed] = useState(false);
   const profileRevisionRef = useRef<string | undefined>(undefined);
   const ownedRequestRef = useRef<string | undefined>(undefined);
   const [error, setError] = useState<TeaserError | null>(null);
@@ -103,6 +104,7 @@ export function MatchResultsExperience() {
   const acceptOwnedMatching = useCallback((result: OwnedCompanyMatchingResult) => {
     setCompanyId(result.companyId);
     setCompanyName(result.companyName ?? null);
+    setProfileWriteAllowed(result.profileWriteAllowed === true);
     profileRevisionRef.current = result.profileRevision;
     ownedRequestRef.current = result.companyId;
     setTeaser(result.teaser);
@@ -176,6 +178,9 @@ export function MatchResultsExperience() {
 
   const applyAnswer = useCallback(
     async (answer: MatchingProfileAnswerRequest) => {
+      if (companyId && !profileWriteAllowed) {
+        throw new Error("이 회사 정보를 수정할 권한이 없습니다.");
+      }
       if (answerPendingRef.current) throw new Error("이전 답변을 반영하고 있어요. 잠시 후 다시 시도해주세요.");
       answerPendingRef.current = true;
       const previousTeaser = teaser;
@@ -218,7 +223,7 @@ export function MatchResultsExperience() {
         setProfileSubmitting(false);
       }
     },
-    [answers, bizNo, companyId, acceptOwnedMatching, loadTeaser, teaser],
+    [answers, bizNo, companyId, profileWriteAllowed, acceptOwnedMatching, loadTeaser, teaser],
   );
 
   // 저장 회사는 확인 답변을 포함해 건수·질문까지 재조회한다. 익명 복귀의 카드 치환은 호환 유지.
@@ -465,6 +470,7 @@ export function MatchResultsExperience() {
               savingCompany={continuing}
               savedCompany={Boolean(companyId)}
               companyId={companyId}
+              profileWriteAllowed={profileWriteAllowed}
             />
           </>
         ) : null}

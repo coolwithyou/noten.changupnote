@@ -20,7 +20,9 @@ import {
 
 const now = new Date("2026-07-14T00:00:00.000Z");
 const evidence = Object.fromEntries(
-  OPERATIONAL_PROFILE_DIMENSIONS.map((dimension) => [dimension, observationFor(dimension)]),
+  OPERATIONAL_PROFILE_DIMENSIONS
+    .filter((dimension) => dimension !== "premises")
+    .map((dimension) => [dimension, observationFor(dimension)]),
 ) as NonNullable<CompanyProfile["profile_evidence"]>;
 evidence.other = observationFor("other");
 
@@ -86,7 +88,9 @@ const profile: CompanyProfile = {
   },
   other_conditions: { support_goals: ["사업화"], registry_match_method: "exact" },
   confidence: Object.fromEntries([
-    ...OPERATIONAL_PROFILE_DIMENSIONS.map((dimension) => [dimension, 0.9] as const),
+    ...OPERATIONAL_PROFILE_DIMENSIONS
+      .filter((dimension) => dimension !== "premises")
+      .map((dimension) => [dimension, 0.9] as const),
     ["other", 0.8] as const,
   ]),
   profile_evidence: evidence,
@@ -112,7 +116,7 @@ const profile: CompanyProfile = {
 };
 
 const encoded = encodeCompanyProfileRows("company-1", profile, now, "user-1");
-assert.equal(encoded.length, 20, "19축 + other row를 빠짐없이 저장한다");
+assert.equal(encoded.length, 20, "기존 19축 + other row를 빠짐없이 저장하고 값 없는 premises 행은 만들지 않는다");
 assert.equal(encoded.find((row) => row.dimension === "region")?.source, "codef");
 assert.equal(encoded.find((row) => row.dimension === "business_status")?.source, "nts");
 assert.equal(

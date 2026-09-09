@@ -10,7 +10,9 @@ import {
 } from "@cunote/core";
 import { normalizeManualProfile } from "@/lib/server/teaser/resolveTeaserCompanyProfile";
 
-const OPERATIONAL_DIMENSIONS = new Set<string>(OPERATIONAL_PROFILE_DIMENSIONS);
+const ANONYMOUS_OPERATIONAL_DIMENSIONS = new Set<string>(
+  OPERATIONAL_PROFILE_DIMENSIONS.filter((dimension) => dimension !== "premises"),
+);
 const MAX_ANSWERS_PER_REQUEST = 64;
 
 export class ProductProfileAnswerError extends Error {
@@ -53,7 +55,7 @@ export function normalizeProductProfileAnswers(input: {
     if (!isRecord(answer) || typeof answer.field !== "string") {
       throw invalidAnswer(index, "field가 필요합니다.");
     }
-    if (!OPERATIONAL_DIMENSIONS.has(answer.field)) {
+    if (!ANONYMOUS_OPERATIONAL_DIMENSIONS.has(answer.field)) {
       throw new ProductProfileAnswerError(
         "unsupported_profile_field",
         `${answer.field}은(는) 익명 매칭 답변으로 지원하지 않습니다.`,

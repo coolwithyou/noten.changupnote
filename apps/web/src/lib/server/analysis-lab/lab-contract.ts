@@ -36,7 +36,8 @@ import type { MatchingConversionReport } from "@/lib/server/analysis-serving/mat
 // v19: K-Startup 신청대상 요약 메타데이터를 열린 목록으로 보존하고 설명/구조값 모순을 차단한다.
 // v20: 복수 인증의 AND 조건을 certs OR 목록으로 분해하지 않고 text_only로 보존한다.
 // v21: 사업 이력에 유사 분야·동일 책임자 조건이 붙으면 부분 구조화를 막고 무손실 보존한다.
-export const ANALYSIS_LAB_PROMPT_VERSION = "lab-deep-v21";
+// v22: 명시적 기준일 현재 등록 사업장의 시도·시설 유형만 premises-v1로 구조화한다.
+export const ANALYSIS_LAB_PROMPT_VERSION = "lab-deep-v22";
 export const ANALYSIS_LAB_DEFAULT_MODEL = "claude-opus-4-8";
 
 /**
