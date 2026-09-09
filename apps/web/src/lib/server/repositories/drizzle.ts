@@ -231,7 +231,7 @@ class DrizzleGrantRepository<TPayload> implements GrantRepository<TPayload> {
     );
   }
 
-  private async listActiveGrantsInSnapshot(
+  async listActiveGrantsInSnapshot(
     session: CunoteDbSession,
     options: GrantListOptions,
   ): Promise<Array<NormalizedGrant<TPayload>>> {
@@ -577,6 +577,22 @@ class DrizzleGrantRepository<TPayload> implements GrantRepository<TPayload> {
       .from(schema.grantApplicationSurfaces)
       .where(inArray(schema.grantApplicationSurfaces.sourceId, sourceIds));
   }
+}
+
+/**
+ * 이미 열린 promotion-serving repeatable-read snapshot에서 canonical 사용자 목록을 읽는다.
+ * monitor처럼 같은 snapshot의 ledger 결속도 함께 읽어야 하는 내부 경로 전용이다.
+ * top-level caller는 반드시 withPromotionServingReadSnapshot으로 session을 만들어야 한다.
+ */
+export async function listActiveGrantsInPromotionServingSnapshot<TPayload = unknown>(
+  session: CunoteDbSession,
+  options: GrantListOptions = {},
+): Promise<Array<NormalizedGrant<TPayload>>> {
+  const repository = new DrizzleGrantRepository<TPayload>({
+    dialect: "drizzle",
+    client: session as unknown as CunoteDb,
+  });
+  return repository.listActiveGrantsInSnapshot(session, options);
 }
 
 export interface ReviewedExtractionMetadataRow {

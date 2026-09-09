@@ -3,21 +3,25 @@ import {
   DEEP_ANALYSIS_SERVING_VERIFIER_VERSION,
   type CompanyProfile,
   type GrantCriterion,
+  type NormalizedGrant,
 } from "@cunote/contracts";
-import { and, eq, inArray, isNotNull, max } from "drizzle-orm";
-import { createDrizzleRepositories } from "../repositories/drizzle";
+import { and, eq, inArray, max } from "drizzle-orm";
+import {
+  createDrizzleRepositories,
+  withPromotionServingReadSnapshot,
+} from "../repositories/drizzle";
 import { getCunoteDb } from "../db/client";
 import * as schema from "../db/schema";
 import { loadMonorepoEnv } from "../loadMonorepoEnv";
 import {
   sha256Canonical,
   validatePromotionReleaseManifest,
-} from "../analysis-lab/promotion-release";
-import { verifyPromotionReleaseSources } from "../analysis-lab/promotion-candidates";
+} from "../analysis-serving/promotionReleaseContract";
 import {
   resolvePromotionServingEvidence,
   type PromotionServingLedgerItem,
 } from "../analysis-lab/promotion-serving";
+import type { ConfirmedGrantLinkSnapshot } from "../ingestion/grantRevisionInvalidation";
 import {
   loadPromotionGrantSnapshot,
   promotionGrantSnapshotStateSha256,
@@ -29,6 +33,21 @@ import { buildGrantAnalysisShadowMatch } from "../ingestion/grantAnalysisPilotVa
 import { createR2ObjectStorageFromEnv } from "../storage/r2ObjectStorage";
 import { appendVerifiedDeepAnalysisStageReceipt } from "./receipts";
 import { prepareDeepAnalysisInput } from "./prepareInput";
+import {
+  canonicalServingProjection,
+  classifyLocalOperationalInputState,
+  evaluateActiveServingMonitor,
+  runActiveServingMonitorTargets,
+  serializeActiveServingMonitorItemLog,
+  summarizeActiveServingMonitorEvaluation,
+  type ActiveServingMonitorStageResult,
+  type ActiveServingMonitorTarget,
+  type ActiveServingMonitorTargetResult,
+} from "./servingMonitor";
+import {
+  loadActiveServingMonitorInventory,
+  type LoadedActiveServingMonitorBinding,
+} from "./servingMonitorInventory";
 
 loadMonorepoEnv();
 
@@ -68,52 +87,55 @@ async function main(): Promise<number> {
     const cloudRunExecution = process.env.CLOUD_RUN_EXECUTION?.trim() || null;
     const monitorExecutionId = cloudRunExecution
       || `local-${new Date().toISOString()}-${process.pid}`;
-    const releaseRows = await db
-      .selectDistinct({ releaseId: schema.analysisLabPromotionReleases.releaseId })
-      .from(schema.analysisLabPromotionReleases)
-      .innerJoin(
-        schema.analysisLabPromotionItems,
-        eq(
-          schema.analysisLabPromotionItems.releaseDbId,
-          schema.analysisLabPromotionReleases.id,
-        ),
-      )
-      .where(and(
-        eq(schema.analysisLabPromotionReleases.status, "active"),
-        isNotNull(schema.analysisLabPromotionItems.deepAnalysisRunId),
-      ));
-    const results = [];
-    for (const release of releaseRows.sort((left, right) =>
-      left.releaseId.localeCompare(right.releaseId))) {
-      results.push(await verifyDeepAnalysisReleaseServing({
-        db,
-        storage,
-        releaseId: release.releaseId,
-        scope: "all",
-        observationMode: "active_monitor",
-        verificationMode: "full",
-        monitorExecutionId,
-        monitorRuntime: cloudRunExecution ? "cloud_run" : "local",
-      }));
-    }
-    const failures = results.flatMap((result) => result.failures);
-    const skippedItems = results.reduce(
-      (sum, result) => sum + ("skipped" in result ? result.skipped : 0),
-      0,
+    const startedAtMs = Date.now();
+    let peakRssBytes = process.memoryUsage().rss;
+    const asOf = new Date();
+    const before = await loadActiveServingMonitorInventory({ db, asOf });
+    const results = await runActiveServingMonitorTargets(
+      before.plan.targets,
+      async (target) => {
+        try {
+          return await verifyActiveServingTarget({
+            db,
+            storage,
+            target,
+            monitorExecutionId,
+            monitorRuntime: cloudRunExecution ? "cloud_run" : "local",
+          });
+        } finally {
+          peakRssBytes = Math.max(peakRssBytes, process.memoryUsage().rss);
+        }
+      },
+      (result, index) => {
+        console.log(serializeActiveServingMonitorItemLog({
+          monitorExecutionId,
+          index,
+          total: before.plan.targets.length,
+          result,
+        }));
+      },
     );
-    console.log(JSON.stringify({
-      schema: "deep-analysis-active-serving-monitor-v1",
-      verdict: failures.length > 0
-        ? "FAIL"
-        : skippedItems > 0
-          ? "WAITING_FOR_VISIBILITY"
-          : "PASS",
-      checkedReleases: results.length,
-      checkedItems: results.reduce((sum, result) => sum + result.checked, 0),
-      skippedItems,
+    const after = await loadActiveServingMonitorInventory({ db, asOf });
+    const evaluation = evaluateActiveServingMonitor({
+      plan: before.plan,
       results,
-    }, null, 2));
-    return failures.length === 0 ? 0 : 2;
+      inventoryStable: before.inventorySha256 === after.inventorySha256,
+    });
+    const summary = summarizeActiveServingMonitorEvaluation(evaluation);
+    console.log(JSON.stringify({
+      ...summary,
+      monitorExecutionId,
+      monitorRuntime: cloudRunExecution ? "cloud_run" : "local",
+      asOf: asOf.toISOString(),
+      inventoryBeforeSha256: before.inventorySha256,
+      inventoryAfterSha256: after.inventorySha256,
+      inventoryMetrics: before.metrics,
+      postInventoryMetrics: after.metrics,
+      elapsedMs: Date.now() - startedAtMs,
+      sampledPeakRssBytes: peakRssBytes,
+      maxRssBytes: process.resourceUsage().maxRSS * 1_024,
+    }));
+    return evaluation.verdict === "PASS" ? 0 : 2;
   }
 
   if (scope !== "canary" && scope !== "all") {
@@ -131,6 +153,324 @@ async function main(): Promise<number> {
   });
   console.log(JSON.stringify(result, null, 2));
   return result.failures.length === 0 ? 0 : 2;
+}
+
+export interface VerifyActiveServingTargetInput {
+  db: ReturnType<typeof getCunoteDb>;
+  storage: NonNullable<ReturnType<typeof createR2ObjectStorageFromEnv>>;
+  target: ActiveServingMonitorTarget<
+    NormalizedGrant,
+    LoadedActiveServingMonitorBinding
+  >;
+  /** @deprecated Active verification always reloads this component inside its own RR snapshot. */
+  confirmedLinks?: ConfirmedGrantLinkSnapshot[];
+  monitorExecutionId: string;
+  monitorRuntime: "cloud_run" | "local";
+}
+
+export async function verifyActiveServingTarget(
+  input: VerifyActiveServingTargetInput,
+): Promise<ActiveServingMonitorTargetResult> {
+  const { binding, entry } = input.target;
+  const notReached = (): ActiveServingMonitorStageResult => ({
+    status: "not_reached",
+    issues: [],
+  });
+  const result = (overrides: {
+    publication: ActiveServingMonitorStageResult;
+    serving?: ActiveServingMonitorStageResult;
+    freshness?: ActiveServingMonitorStageResult;
+  }): ActiveServingMonitorTargetResult => {
+    const publication = overrides.publication;
+    const serving = overrides.serving ?? notReached();
+    const freshness = overrides.freshness ?? notReached();
+    return {
+      promotionItemId: binding.promotionItemId,
+      grantId: binding.grantId,
+      releaseId: binding.releaseId,
+      evidenceKind: binding.evidenceKind,
+      verdict: [publication, serving, freshness].every((stage) => stage.status === "passed")
+        ? "PASS"
+        : "FAIL",
+      publication,
+      serving,
+      freshness,
+    };
+  };
+
+  let manifest: ReturnType<typeof validatePromotionReleaseManifest>;
+  let sourceArtifact: ReturnType<typeof validatePromotionReleaseManifest>["sourceArtifacts"][number];
+  let currentSnapshot: PromotionGrantSnapshot;
+  let verifiedSourceRevisionSha256: string;
+  let publication: ActiveServingMonitorStageResult;
+  try {
+    manifest = validatePromotionReleaseManifest(binding.manifest);
+    const planItem = manifest.plans.find((item) => item.grantId === binding.grantId);
+    const foundSourceArtifact = manifest.sourceArtifacts.find(
+      (artifact) => artifact.grantId === binding.grantId,
+    );
+    const resolvedEvidence = resolvePromotionServingEvidence({
+      grantId: binding.grantId,
+      runId: binding.runId,
+      planSha256: binding.planSha256,
+      deepAnalysisRunId: binding.deepAnalysisRunId,
+      releaseManifestSha256: binding.releaseManifestSha256,
+      manifest: binding.manifest,
+    });
+    const bindingIssues: string[] = [];
+    if (
+      manifest.releaseId !== binding.releaseId
+      || manifest.manifestSha256 !== binding.releaseManifestSha256
+      || manifest.releasePlanSha256 !== binding.releasePlanSha256
+    ) bindingIssues.push("release ledger와 embedded manifest 결속이 다릅니다.");
+    if (binding.release.status !== binding.releaseStatus) {
+      bindingIssues.push("inventory release status 결속이 다릅니다.");
+    }
+    if (binding.item.status !== "applied") bindingIssues.push("promotion item이 applied가 아닙니다.");
+    if (!binding.item.afterSha256) bindingIssues.push("promotion after hash가 없습니다.");
+    if (!planItem || planItem.planSha256 !== binding.planSha256) {
+      bindingIssues.push("promotion plan 결속이 다릅니다.");
+    }
+    if (!foundSourceArtifact || foundSourceArtifact.runId !== binding.runId) {
+      bindingIssues.push("promotion source artifact 결속이 다릅니다.");
+    }
+    if (!resolvedEvidence || resolvedEvidence.kind !== binding.evidenceKind) {
+      bindingIssues.push("promotion serving provenance 결속이 다릅니다.");
+    }
+    if (
+      binding.releaseStatus === "canary_passed"
+      && !manifest.canaryGrantIds.includes(binding.grantId)
+    ) bindingIssues.push("canary_passed release의 applied item이 canary 집합 밖입니다.");
+    if (binding.deepAnalysisRunId) {
+      if (
+        !binding.run
+        || binding.run.id !== binding.deepAnalysisRunId
+        || binding.run.grantId !== binding.grantId
+        || binding.run.runId !== binding.runId
+      ) bindingIssues.push("production deep run 결속이 다릅니다.");
+      if (binding.run && binding.run.status !== "passed") {
+        bindingIssues.push(`production deep run이 passed가 아닙니다: ${binding.run.status}`);
+      }
+    } else if (binding.run) {
+      bindingIssues.push("local serving item에 production run이 결속됐습니다.");
+    }
+    if (bindingIssues.length > 0 || !planItem || !foundSourceArtifact || !resolvedEvidence) {
+      publication = { status: "failed", issues: bindingIssues };
+      return result({ publication });
+    }
+    sourceArtifact = foundSourceArtifact;
+    verifiedSourceRevisionSha256 = binding.run?.sourceRevisionSha256
+      ?? sourceArtifact.sourceRevisionSha256
+      ?? "";
+    if (!verifiedSourceRevisionSha256) {
+      publication = {
+        status: "failed",
+        issues: ["serving source revision 결속이 없습니다."],
+      };
+      return result({ publication });
+    }
+    currentSnapshot = await withPromotionServingReadSnapshot(
+      input.db,
+      (session) => loadPromotionGrantSnapshot(session, binding.grantId),
+    );
+    const publicationIssues = verifyAppliedPromotionSnapshot({
+      grantId: binding.grantId,
+      planStableKeys: planItem.promotionPlan.criterionStableKeys,
+      plannedQuestions: planItem.promotionPlan.questions,
+      beforeSnapshot: binding.item.beforeSnapshot as unknown as PromotionGrantSnapshot,
+      currentSnapshot,
+      expectedStateSha256: binding.item.afterSha256!,
+    }).map((issue) => `${issue.code}:${issue.detail}`);
+    const evidence = {
+      schema: "deep-analysis-active-serving-item-evidence-v1",
+      releaseId: binding.releaseId,
+      observationMode: "active_monitor",
+      verificationMode: "canonical_serving",
+      monitorExecutionId: input.monitorExecutionId,
+      monitorRuntime: input.monitorRuntime,
+      releaseDbId: binding.releaseDbId,
+      promotionItemId: binding.promotionItemId,
+      planSha256: binding.planSha256,
+      expectedAfterSha256: binding.item.afterSha256,
+      actualAfterSha256: promotionGrantSnapshotStateSha256(currentSnapshot),
+      issueCount: publicationIssues.length,
+      issues: publicationIssues,
+    };
+    if (binding.run) {
+      await appendNextReceipt({
+        db: input.db,
+        storage: input.storage,
+        run: binding.run,
+        stage: "publication_complete",
+        status: publicationIssues.length === 0 ? "passed" : "failed",
+        evidence,
+      });
+    }
+    publication = {
+      status: publicationIssues.length === 0 ? "passed" : "failed",
+      issues: publicationIssues,
+      evidence,
+    };
+    if (publication.status !== "passed") return result({ publication });
+  } catch (error) {
+    publication = {
+      status: "error",
+      issues: [error instanceof Error ? error.message : String(error)],
+    };
+    return result({ publication });
+  }
+
+  let serving: ActiveServingMonitorStageResult;
+  try {
+    const projection = canonicalServingProjection(
+      currentSnapshot.criteria as unknown as Array<Record<string, unknown>>,
+      entry.criteria,
+    );
+    const expectedCriterionIds = currentSnapshot.criteria.map((criterion) => criterion.id).sort();
+    const traceRows = FIXED_SERVING_PROFILES.map(({ id, profile }) => {
+      const match = buildGrantAnalysisShadowMatch({
+        entry,
+        criteria: entry.criteria,
+        company: profile,
+        asOf: new Date(manifest.createdAt),
+      });
+      return {
+        profileId: id,
+        eligibility: match.eligibility,
+        tier: match.review_gate?.tier ?? null,
+        score: match.fit_score,
+        ruleTrace: match.rule_trace,
+      };
+    });
+    const servingIssues = [...projection.issues];
+    for (const trace of traceRows) {
+      const traceCriterionIds = trace.ruleTrace
+        .map((row) => row.criterion_id)
+        .filter((value): value is string => typeof value === "string")
+        .sort();
+      if (
+        traceCriterionIds.length !== expectedCriterionIds.length
+        || traceCriterionIds.some((value, index) => value !== expectedCriterionIds[index])
+      ) servingIssues.push(`${trace.profileId} matcher rule_trace criterion ID 집합 불일치`);
+    }
+    const evidence = {
+      schema: "deep-analysis-active-serving-item-evidence-v1",
+      releaseId: binding.releaseId,
+      observationMode: "active_monitor",
+      verificationMode: "canonical_serving",
+      monitorExecutionId: input.monitorExecutionId,
+      monitorRuntime: input.monitorRuntime,
+      promotionItemId: binding.promotionItemId,
+      repository: "drizzle-canonical-active-grant-repository",
+      matcher: "buildGrantAnalysisShadowMatch/matchNormalizedGrant",
+      profileCorpus: FIXED_SERVING_PROFILES.map((profile) => profile.id),
+      snapshotCriteriaSha256: projection.snapshotCriteriaSha256,
+      repositoryCriteriaSha256: projection.repositoryCriteriaSha256,
+      traceSha256: sha256Canonical(traceRows),
+      issueCount: servingIssues.length,
+      issues: servingIssues,
+    };
+    if (binding.run) {
+      await appendNextReceipt({
+        db: input.db,
+        storage: input.storage,
+        run: binding.run,
+        stage: "serving_complete",
+        status: servingIssues.length === 0 ? "passed" : "failed",
+        evidence,
+      });
+    }
+    serving = {
+      status: servingIssues.length === 0 ? "passed" : "failed",
+      issues: servingIssues,
+      evidence,
+    };
+    if (serving.status !== "passed") return result({ publication, serving });
+  } catch (error) {
+    serving = {
+      status: "error",
+      issues: [error instanceof Error ? error.message : String(error)],
+    };
+    return result({ publication, serving });
+  }
+
+  let freshness: ActiveServingMonitorStageResult;
+  try {
+    const currentInput = await prepareDeepAnalysisInput({
+      db: input.db,
+      storage: input.storage,
+      grantId: binding.grantId,
+      maxTotalChars: DEEP_ANALYSIS_DEFAULT_LIMITS.maxTotalInputChars,
+    });
+    const freshnessIssues: string[] = [];
+    const localOperationalState = binding.run
+      ? null
+      : classifyLocalOperationalInputState(currentInput);
+    if (binding.run && !currentInput.sealed) {
+      freshnessIssues.push("current input이 sealed가 아닙니다.");
+    }
+    if (currentInput.sourceRevisionSha256 !== verifiedSourceRevisionSha256) {
+      freshnessIssues.push("current source revision이 serving source와 다릅니다.");
+    }
+    if (binding.run && currentInput.inputSha256 !== binding.run.inputSha256) {
+      freshnessIssues.push("current input hash가 production serving run과 다릅니다.");
+    }
+    for (const materialIssue of localOperationalState?.materialIssues ?? []) {
+      freshnessIssues.push(
+        `current operational artifact verification failed (${materialIssue.code}:${materialIssue.attachmentId ?? "unknown"}).`,
+      );
+    }
+    const evidence = {
+      schema: "deep-analysis-active-serving-item-evidence-v1",
+      releaseId: binding.releaseId,
+      observationMode: "active_monitor",
+      verificationMode: "canonical_serving",
+      monitorExecutionId: input.monitorExecutionId,
+      monitorRuntime: input.monitorRuntime,
+      promotionItemId: binding.promotionItemId,
+      servingEvidenceKind: binding.evidenceKind,
+      servingSourceRevisionSha256: verifiedSourceRevisionSha256,
+      currentSourceRevisionSha256: currentInput.sourceRevisionSha256,
+      productionRunInputSha256: binding.run?.inputSha256 ?? null,
+      currentInputSha256: binding.run ? currentInput.inputSha256 : "not_compared_for_local_lab",
+      currentInputSealed: currentInput.sealed,
+      freshnessProofScope: binding.run ? "production_input_exact" : "current_source_binding",
+      localLabIndependentReviewReplayed: false,
+      externalSourceAvailabilityFullyVerified: false,
+      operationalReadinessBlockerCount: localOperationalState?.readinessBlockers.length ?? 0,
+      operationalReadinessBlockerCodes: localOperationalState
+        ? [...new Set(localOperationalState.readinessBlockers.map((blocker) => blocker.code))].sort()
+        : [],
+      operationalMaterialIssueCount: localOperationalState?.materialIssues.length ?? 0,
+      operationalMaterialIssueCodes: localOperationalState
+        ? [...new Set(localOperationalState.materialIssues.map((issue) => issue.code))].sort()
+        : [],
+      issueCount: freshnessIssues.length,
+      issues: freshnessIssues,
+    };
+    if (binding.run) {
+      await appendNextReceipt({
+        db: input.db,
+        storage: input.storage,
+        run: binding.run,
+        stage: "analysis_fresh",
+        status: freshnessIssues.length === 0 ? "passed" : "stale",
+        evidence,
+      });
+    }
+    freshness = {
+      status: freshnessIssues.length === 0 ? "passed" : "failed",
+      issues: freshnessIssues,
+      evidence,
+    };
+    return result({ publication, serving, freshness });
+  } catch (error) {
+    freshness = {
+      status: "error",
+      issues: [error instanceof Error ? error.message : String(error)],
+    };
+    return result({ publication, serving, freshness });
+  }
 }
 
 export async function verifyDeepAnalysisReleaseServing(input: {
@@ -481,6 +821,9 @@ export async function verifyDeepAnalysisReleaseServing(input: {
         freshnessIssues.push("current input hash가 serving run과 다릅니다.");
       }
     } else {
+      const { verifyPromotionReleaseSources } = await import(
+        "../analysis-lab/promotion-candidates"
+      );
       const drift = await verifyPromotionReleaseSources([sourceArtifact!]);
       freshnessIssues.push(...drift.map((issue) => `release source drift:${issue}`));
       currentSourceRevisionSha256 = verifiedSourceRevisionSha256;

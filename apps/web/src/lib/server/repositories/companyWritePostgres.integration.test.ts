@@ -12,6 +12,7 @@ import { verifyConfirmationEvaluationsPostgres } from "../matches/confirmationEv
 import { verifyMatchStateInputRevisionPostgres } from "../matches/matchStateInputRevisionPostgres.integration";
 import { verifyPromotionServingSnapshotPostgres } from "./promotionServingSnapshotPostgres.integration";
 import { verifyPremisesPostgres } from "./premisesPostgres.integration";
+import { verifyServingMonitorPostgres } from "../deep-analysis/servingMonitorPostgres.integration";
 
 const socket = process.env.CUNOTE_PRODUCT_TEST_SOCKET ?? "";
 assert.match(socket, /^\/tmp\/cunote-product-pg-[a-zA-Z0-9]+$/);
@@ -109,6 +110,7 @@ try {
     userId,
   });
   await verifyPromotionServingSnapshotPostgres({ admin, socket });
+  await verifyServingMonitorPostgres({ admin, socket });
   await verifyPremisesPostgres({ admin, client });
   await admin`delete from user_company where user_id=${userId} and company_id=${creationId}`;
   await assert.rejects(() => repo.createCompany({ userId, creationId, profile }));
