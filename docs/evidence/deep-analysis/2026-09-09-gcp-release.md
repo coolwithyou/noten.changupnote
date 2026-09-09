@@ -106,3 +106,14 @@ selector/판정 계약을 수정하거나 원천·release를 승격하지 않았
 4. 같은 이미지의 실제 monitor 실행에서 현행 85건에 대한 검사·제외 사유를 증명한다.
 
 GCP 재인증·이미지 출고 gate는 닫혔지만 운영 모니터 coverage gate는 열려 있다.
+
+## 후속 수정 종결 — 12:43 KST
+
+위 내용은 6d0a25b 배포 당시의 발견 기록이다. 추가 승인 후 c6ddcd9를 빌드·배포하고
+실제 Cloud Run에서 현행 **85건 전수 검사·누락 0건**을 확인해 coverage gate를 닫았다.
+세 Job은 generation 100/36/29이며 기존 observe_only/PAUSED/ENABLED 정책을 보존했다.
+
+새 monitor는 원천 revision 불일치 22건을 감지해 exit 2로 종료했다. 이는 0건 PASS 누락
+해결과 구분해야 할 데이터 후속 조사이며 건강 상태를 PASS로 바꾸지 않았다. exact build/digest,
+실행별 로그 대조 및 후속 목록은 [모니터 수정 증거](2026-09-09-serving-monitor-coverage.md)와
+[구조화 실행 영수증](2026-09-09-serving-monitor-runtime.json)에 기록했다.

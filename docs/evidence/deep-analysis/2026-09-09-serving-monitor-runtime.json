@@ -1,0 +1,320 @@
+{
+  "schema": "cunote-root-monitor-runtime-audit-v1",
+  "observedAt": "2026-09-09T03:44:29.773Z",
+  "sourceCommit": "c6ddcd90aa80fe51c0740b6ff3e677ec0a932b0e",
+  "buildId": "bda7e06b-1dc7-4193-a990-3ff1058baedc",
+  "image": "asia-northeast3-docker.pkg.dev/changupnote-com/cunote/deep-analysis-worker@sha256:e2a54022b728e4ce1ad4bf4acb27549cfea9afea02dc9c3a0bcb9b94ca0d6522",
+  "coverageVerdict": "PASS",
+  "dataVerdict": "FAIL",
+  "executions": [
+    {
+      "role": "main",
+      "name": "cunote-deep-analysis-gbhmq",
+      "startTime": "2026-09-09T03:42:40.197636Z",
+      "completionTime": "2026-09-09T03:42:48.942329Z",
+      "completedStatus": "True",
+      "completedReason": null,
+      "message": "Execution completed successfully in 8.74s.",
+      "succeededCount": 1,
+      "failedCount": 0,
+      "imageAndSourceVerified": true,
+      "executionReceiptSha256": "ee48a2879005302d9a081dde81ae1f64c022ed528a06f10136a5f4f22ed927c7",
+      "logsSha256": "529079e1ae83060709160dbc3130249e586413f5098334d78e0721066be7c529"
+    },
+    {
+      "role": "monitor",
+      "name": "cunote-deep-analysis-serving-monitor-c65gk",
+      "startTime": "2026-09-09T03:42:38.197162Z",
+      "completionTime": "2026-09-09T03:43:18.813711Z",
+      "completedStatus": "False",
+      "completedReason": "NonZeroExitCode",
+      "message": "Task cunote-deep-analysis-serving-monitor-c65gk-task0 failed with exit code: 2 and message: The container exited with an error.",
+      "succeededCount": 0,
+      "failedCount": 1,
+      "imageAndSourceVerified": true,
+      "executionReceiptSha256": "4767bedde333e3d289692f2301dbe2aca482a8ccb4ea37f76a2a72f39ed94d7e",
+      "logsSha256": "eb0c79a84a53f13ffac62f34d7bfcc72a4779cd57c6ca0211b416710fa2e1c0a"
+    }
+  ],
+  "mainObservation": {
+    "executionMode": "observe_only",
+    "runtimeMode": "paused",
+    "runtimeGeneration": 383,
+    "claimed": 0,
+    "enqueueSkipped": true,
+    "analysisSkipped": true,
+    "budgetMutationSkipped": true,
+    "heartbeatWrite": true
+  },
+  "monitor": {
+    "actualServingItems": 85,
+    "admittedItems": 85,
+    "checkedItems": 85,
+    "passedItems": 63,
+    "failedItems": 22,
+    "unverifiedServingItems": 0,
+    "stageCounts": {
+      "freshness": {
+        "error": 0,
+        "failed": 22,
+        "not_reached": 0,
+        "passed": 63
+      },
+      "publication": {
+        "error": 0,
+        "failed": 0,
+        "not_reached": 0,
+        "passed": 85
+      },
+      "serving": {
+        "error": 0,
+        "failed": 0,
+        "not_reached": 0,
+        "passed": 85
+      }
+    },
+    "inventoryBeforeSha256": "ac26ed117c791b795e9bae68c77f229ee63fc9de8a97e0a970446d4c54276981",
+    "inventoryAfterSha256": "ac26ed117c791b795e9bae68c77f229ee63fc9de8a97e0a970446d4c54276981",
+    "resultsSha256": "e973ca606973375ce8d0bfe4a4d8716956b242c560510cccd70fd55bf0ca7743",
+    "terminalItemLogs": 85,
+    "itemIdentitiesAndHashesVerified": true,
+    "exactBaselineGrantIds": true,
+    "asOf": "2026-09-09T03:42:45.873Z",
+    "elapsedMs": 29791,
+    "maxRssBytes": 240275456,
+    "coverageIssueCount": 0,
+    "exclusionCounts": {
+      "deadline_elapsed": 19,
+      "inactive_status": 14
+    },
+    "excludedBindings": 33,
+    "maxItemLogBytes": 3399
+  },
+  "jobContractAuditSha256": "42810f3d28c6d7727bcdfdeec0ef69756343df75e3c19d1c3cea7e5fd02dde99",
+  "monitorLogAuditSha256": "afda8ba5c6dde2d962da90b47791e6ea2ef8f60caede380f62645c593b6bf823",
+  "observationOnly": true,
+  "grantsOrSourceMutated": false,
+  "modelCalls": 0,
+  "promotionAuthority": false,
+  "freshnessProofScope": "current_source_binding",
+  "originalAnalysisSemanticsRevalidated": false,
+  "fullExternalSourceAvailabilityVerified": false,
+  "canonicalPostdeploy": {
+    "schema": "cunote-root-monitor-inventory-audit-v1",
+    "observedAt": "2026-09-09T03:42:16.045Z",
+    "asOf": "2026-09-09T02:46:54.774Z",
+    "verdict": "READY",
+    "actualServingItems": 85,
+    "admittedItems": 85,
+    "criteria": 502,
+    "dtoSha256": "113f162325535672520c9aa936931bad2dc29c7f282ce2437f00c3d329bb409f",
+    "inventorySha256": "ac26ed117c791b795e9bae68c77f229ee63fc9de8a97e0a970446d4c54276981",
+    "metrics": {
+      "appliedActiveOrCanaryRows": 120,
+      "servingEligibleBindings": 118,
+      "ineligibleAppliedBindings": 2
+    },
+    "issues": [],
+    "serviceWrites": 0
+  },
+  "sourceDriftTargets": [
+    {
+      "grantId": "0808e3c7-74e6-42dc-8d55-adaed98f3935",
+      "promotionItemId": "b108f992-093f-4223-ab28-e5f197e2fd08",
+      "releaseId": "deep-deep-v29-2026-09-01-r1-20260901T071336Z-0a7ade7e",
+      "evidenceKind": "verified_local_lab",
+      "servingSourceRevisionSha256": "f71dbbcd8d0622d1e7ea2c716f20b32547d34b63351ec1991002e944cd7794f9",
+      "currentSourceRevisionSha256": "705a182860c26dc4a6e1a80ff68efca5477b166c0af67586c634b4e84e70b1c0",
+      "resultSha256": "e07d1feb631f80c7395be39e02c0b67d6bc8ad4d247a69bdb0dde586d128bf6d"
+    },
+    {
+      "grantId": "11138b68-5705-495e-b630-2cbeb5a93929",
+      "promotionItemId": "7618824d-3569-406f-aeb8-38299f1b43a0",
+      "releaseId": "deep-deep-v29-2026-09-01-r1-20260901T071336Z-0a7ade7e",
+      "evidenceKind": "verified_local_lab",
+      "servingSourceRevisionSha256": "8e4d2139d4a8e661e4c551730c85e1fdab19ee34f01cfd7c8cd7973532f07568",
+      "currentSourceRevisionSha256": "51d1903cdeef9f3df4dc0f492223c36227e6c72eaa340b27918765e54d4df7cc",
+      "resultSha256": "75ab14b79e70d95a94c9af474ee513acd5ae7860a1009d1ceb90a9f5ecad6a6b"
+    },
+    {
+      "grantId": "1d4b5ab8-7671-4911-9d36-545dfa7c6e14",
+      "promotionItemId": "f7e7e406-bb7d-4ea0-9b14-c02819ba8a8e",
+      "releaseId": "deep-deep-v28-2026-09-01-release-21-r1-20260901T003102Z-058e0e46",
+      "evidenceKind": "verified_local_lab",
+      "servingSourceRevisionSha256": "47ede4fdfe776c8c1f19a75abf3619fe6b1e3dacb0b722ff19f32bbdbcee4823",
+      "currentSourceRevisionSha256": "fae0e5ab48db4394dd63d9dac43f760da10e20cc59185909545bd8811cb48fb9",
+      "resultSha256": "8eaf4c942c02af210fe6ca23231ae132b0f5620bf46b7b85a58d9735274579f6"
+    },
+    {
+      "grantId": "261fdfd0-492d-418c-885b-4d39efee1736",
+      "promotionItemId": "1461000a-9bad-4418-b102-06d47a651144",
+      "releaseId": "deep-deep-v28-2026-09-01-release-21-r1-20260901T003102Z-058e0e46",
+      "evidenceKind": "verified_local_lab",
+      "servingSourceRevisionSha256": "ef8595e0505ed1582498cbd3c7aa07f2085647c26fd286b21670fa78243499d8",
+      "currentSourceRevisionSha256": "d07c784e205913639336f0c7c900a8c1c586e4029b485d9e8dd6f73ddcea6591",
+      "resultSha256": "129f97124ea31bc72ecebb581ba8117e098df6c66a10c48b9c246f33836ea25d"
+    },
+    {
+      "grantId": "26ebb680-8d19-4472-b2bc-8e0114c09cc1",
+      "promotionItemId": "33c108a7-0bf4-4988-ae98-275c051eec46",
+      "releaseId": "deep-rhwp-launch-2026-08-30-reviewed-10-r1-20260830T213436Z-0002fd68",
+      "evidenceKind": "verified_local_lab",
+      "servingSourceRevisionSha256": "f97267af05087e4a636761caade4143284ec6e47bf19510de91135779630c1f6",
+      "currentSourceRevisionSha256": "4838305f7c7d326483238fce4d3ae2576accfdfced20f78ebb457ee55ccd2034",
+      "resultSha256": "00def8bb88132c776f354f35c50b664e400bef73d239cf8d1d5ca8dd8db54f06"
+    },
+    {
+      "grantId": "28fd2924-8e78-4eef-bb84-14fe21d8f44f",
+      "promotionItemId": "32eb8167-3921-4d95-ac04-2c4aece05999",
+      "releaseId": "deep-deep-v30-2026-09-02-r1-20260901T150815Z-f2a72ffc",
+      "evidenceKind": "verified_local_lab",
+      "servingSourceRevisionSha256": "4e6ccc8faff811ecabebc6745fdb8f67e0a984f49167ece104a513d57d7b2081",
+      "currentSourceRevisionSha256": "3f35e4e9291bffea7200974d65299db4b2e8ae5a388172a5641b221673ab480a",
+      "resultSha256": "0e7f2dcb97d43fca6e0ee8751553a7d70713dd26d40ec59175d2a6763023fa27"
+    },
+    {
+      "grantId": "38dfbefd-e078-4438-b714-01cd80e0655b",
+      "promotionItemId": "61a1b947-b7b0-4f1a-8c21-4fc5a453601e",
+      "releaseId": "deep-deep-v28-2026-09-01-release-21-r1-20260901T003102Z-058e0e46",
+      "evidenceKind": "verified_local_lab",
+      "servingSourceRevisionSha256": "ed59adf1142db4f18ed316e686c913f866eec8007863af7260843f5128a133d3",
+      "currentSourceRevisionSha256": "9457040c10d82c8ae3ad92dd5f81db7e1fbeb1dd800ecdde5bad020f275a0d9d",
+      "resultSha256": "d6e42771fea36cbb733621e83a8659b237bd9c132884b11d37a15221bc9c81ba"
+    },
+    {
+      "grantId": "3ff8d603-217e-4d74-8a57-78d91311e42a",
+      "promotionItemId": "470d9320-5a51-4eb6-ab57-18f173453b6a",
+      "releaseId": "deep-rhwp-launch-2026-08-30-reviewed-10-r1-20260830T213436Z-0002fd68",
+      "evidenceKind": "verified_local_lab",
+      "servingSourceRevisionSha256": "7df48d9a75ca99bede5b238314f7571956f56593d75f653f7dac5b916f01a00d",
+      "currentSourceRevisionSha256": "3355ac666594338222a5b2126b13dfb54bada8d325d3c9ccabc26ecdeadf8233",
+      "resultSha256": "0f31059a7ea7dda68b220504c0a35611997124780120e3181fa56276ac65b74e"
+    },
+    {
+      "grantId": "6639bc53-d0e9-4b87-93d0-3625f8eed134",
+      "promotionItemId": "afbb2169-78df-4586-a78c-df65fcedb9c6",
+      "releaseId": "deep-deep-v28-2026-09-01-release-21-r1-20260901T003102Z-058e0e46",
+      "evidenceKind": "verified_local_lab",
+      "servingSourceRevisionSha256": "98bef54bccad37e24d41595dba1e1fae7363c1ef8f1a795e8235efab36274366",
+      "currentSourceRevisionSha256": "6ff622862feebd96da2093aa9202fc48e24cf8807268e4927fb22759866e0f6c",
+      "resultSha256": "d703c95b245edaf0b2c10b2d88b80f01df01599c709c54bde406a0204383f04a"
+    },
+    {
+      "grantId": "68a8ae09-ccbd-4610-aa26-77cd9944894e",
+      "promotionItemId": "2b2164e0-da9f-4723-96bf-b9bf686f2a90",
+      "releaseId": "deep-deep-v21-closed-beta-seq-0-8-r2-20260816T231937Z-0dcd5712",
+      "evidenceKind": "verified_local_lab",
+      "servingSourceRevisionSha256": "060d639c0d92057c3630a00469f494f6e0559aeecbed408accd9beaab35fbfbd",
+      "currentSourceRevisionSha256": "b8848ac61b8f1387c91fa202329fa8e6c048cf22ac4acd7b8b279bcb01a8e41e",
+      "resultSha256": "4766dcde1b86e3b7a404b055a0fd314fbbd763f922af325e85f9236bdfa46768"
+    },
+    {
+      "grantId": "6f5c4bf2-1fc1-4b46-9f8f-5cfbae10ccde",
+      "promotionItemId": "8d7bef24-dc60-4c09-bcfa-8c9113628851",
+      "releaseId": "deep-deep-v28-2026-09-01-release-21-r1-20260901T003102Z-058e0e46",
+      "evidenceKind": "verified_local_lab",
+      "servingSourceRevisionSha256": "52e952ed85d8213675de804e804f243d5d43742c05bbd79cfb597fa31d4d47e1",
+      "currentSourceRevisionSha256": "73084ca99bfeb8dc9bb2efbb1a54cbae68ad3ded0f9d375f0dc656083126fcbf",
+      "resultSha256": "48a0618fa6d036af4f378d7ca8ea4dd90c9bdb14edc0c357c9fbb64053695162"
+    },
+    {
+      "grantId": "83c55377-8794-450f-bc3f-4b3b50232981",
+      "promotionItemId": "73a7b40a-8e42-428a-8125-f4c4fd6505bf",
+      "releaseId": "deep-rhwp-launch-2026-08-30-reviewed-10-r1-20260830T213436Z-0002fd68",
+      "evidenceKind": "verified_local_lab",
+      "servingSourceRevisionSha256": "595ee9dced072dce4ebfaf990e03a05d713f34ca3f8d88616e94271fbfb4d90b",
+      "currentSourceRevisionSha256": "4449aed0272953ea0e6eac367cdcdfccc672d23d882fee27988e135501ba376c",
+      "resultSha256": "2ad62e573a3ec8060ff5bd0261a3a753642e5cd7dfd010e292422bd97febacb2"
+    },
+    {
+      "grantId": "87d36b6f-23f3-4484-8f08-fe8394ba5e10",
+      "promotionItemId": "fae1837c-67fd-4586-be3a-6ee7352a0ff8",
+      "releaseId": "deep-deep-v21-closed-beta-seq-0-8-r2-20260816T231937Z-0dcd5712",
+      "evidenceKind": "verified_local_lab",
+      "servingSourceRevisionSha256": "1c054364a5d478a36672df5ea7dfa024ecb76331951544f2872c62cc1cc50595",
+      "currentSourceRevisionSha256": "cfe0e148fc34b567294a443d5d7ea9dca2eee9d1667b2086861fd704475b3cc2",
+      "resultSha256": "6fb88183a6425613ef4c31527f51d85ce51903b0a0dece69104e2857316c7941"
+    },
+    {
+      "grantId": "9e84871c-fc08-45d3-b883-4e77cd5a8b1c",
+      "promotionItemId": "5b54fb99-58f8-4b7a-afa2-3b891fb2e6c9",
+      "releaseId": "deep-deep-v27-2026-08-31-release-26-r2-20260831T060309Z-8bf7be8e",
+      "evidenceKind": "verified_local_lab",
+      "servingSourceRevisionSha256": "b61c45d789943844323d9b958604af0b371d3f52ee15e97760bf7194c66ff076",
+      "currentSourceRevisionSha256": "4492105ab979cc117632312d8aa11247234c64e7d6387258e60f78dcbfa33222",
+      "resultSha256": "96e78db74e2c294bad220fe2208ac257760f0fb5e688410635469d025349cda6"
+    },
+    {
+      "grantId": "a9a1d08e-a265-4cd4-add3-a9eaab1f19ac",
+      "promotionItemId": "412e268d-6132-4ecc-a033-338fee320052",
+      "releaseId": "deep-deep-v27-2026-08-31-release-26-r2-20260831T060309Z-8bf7be8e",
+      "evidenceKind": "verified_local_lab",
+      "servingSourceRevisionSha256": "2b398d1625602d570e5c2ce14dc08a65ce504f9c3f98e7ef5b0207e8b291e815",
+      "currentSourceRevisionSha256": "55dff41dbbebaf0dfd28a20095e37c7a4b8efccc427c01bc112891d69fb6c954",
+      "resultSha256": "7eac0c7ee657d44377a282d77480c9af32423e6dba7e4992911ab7284773a688"
+    },
+    {
+      "grantId": "bf4a7f10-b98f-467b-b6b9-27f92e35dd58",
+      "promotionItemId": "13fb1f24-bda4-45c9-add0-7ca2f27ee4ca",
+      "releaseId": "deep-deep-v21-closed-beta-seq-0-8-r2-20260816T231937Z-0dcd5712",
+      "evidenceKind": "verified_local_lab",
+      "servingSourceRevisionSha256": "8129177e768fd0d4567a6b07d0736d469012fddce6412353fdd29da0ba9b7bd5",
+      "currentSourceRevisionSha256": "41ac947a6b521b94529d806df8fc86f296a77ddb0d4ca8aa057af40de5b6b723",
+      "resultSha256": "f17551718ad37fb0eb1117b1567bd83bc2726a363fad7be88d67f987ac2fe369"
+    },
+    {
+      "grantId": "c232e2c8-92f8-4ec0-b1e7-123ebdefcc66",
+      "promotionItemId": "adc37fb5-e97a-4209-9995-a47b464f13cc",
+      "releaseId": "deep-deep-v30-2026-09-02-r1-20260901T150815Z-f2a72ffc",
+      "evidenceKind": "verified_local_lab",
+      "servingSourceRevisionSha256": "b72484dcc16c6802ffee89c6568d3147c14580ddde54ad1f5a8d9280ad4d96c9",
+      "currentSourceRevisionSha256": "39cb2b91d39513dbe1ddaf3a2d98d3e3480a234e723a74b10f7c19ce00f7acb4",
+      "resultSha256": "e6c64e8b47b7684fd581cade29c91694acd1323b8fed94b829c3bc411dc62988"
+    },
+    {
+      "grantId": "c5455c07-6501-44ec-89bc-4bf8fd290e65",
+      "promotionItemId": "eb781e61-9f4b-473e-a29c-1f9eba494449",
+      "releaseId": "deep-deep-v30-2026-09-02-r1-20260901T150815Z-f2a72ffc",
+      "evidenceKind": "verified_local_lab",
+      "servingSourceRevisionSha256": "ef232dbd76def8e783a7a64316d91b77c0066d67792049c9c522aceebf079ad9",
+      "currentSourceRevisionSha256": "d1384dc2e6f7ee92cf74f5c5151d84883b58a9518498454781b458f3be8a4691",
+      "resultSha256": "ccd35aa5980088e9a7e0aa77b57bf73858454ee5b8b2029dab60b40df5e9b164"
+    },
+    {
+      "grantId": "cccd9bb2-6828-4189-b2d6-1a1bd13e44ec",
+      "promotionItemId": "73a1a845-a11d-4003-b661-33257aec03b8",
+      "releaseId": "deep-deep-v27-2026-08-31-release-26-r2-20260831T060309Z-8bf7be8e",
+      "evidenceKind": "verified_local_lab",
+      "servingSourceRevisionSha256": "228b6af98c26835c063564af25f807cdd050b9a788a0a7d3b9dc3a0b952c7e86",
+      "currentSourceRevisionSha256": "88770f7afc1a08334783435318f8300edbb2f22f46a6db0689a1c338400ad49f",
+      "resultSha256": "488fc252cb2019cca9756609d37e1b95ba61e5af7b6a36d940822375e5b521f1"
+    },
+    {
+      "grantId": "dacf41a4-69be-4289-bfbe-9c6456314768",
+      "promotionItemId": "55f9cc99-904c-48ef-912b-a2f3c918cf11",
+      "releaseId": "deep-deep-v28-2026-09-01-release-21-r1-20260901T003102Z-058e0e46",
+      "evidenceKind": "verified_local_lab",
+      "servingSourceRevisionSha256": "679ead4457be33b226680b7ad360044924232623c75e9d910067dbe675f12699",
+      "currentSourceRevisionSha256": "b80526a7e8b638a2bab0b1d86c3ee8ba2f3f7f79557f128cb27a8779b8ce0cac",
+      "resultSha256": "a22110dc42765f7cf18900ce6799020ba0cabcfb7a50713832a94df76e1d829f"
+    },
+    {
+      "grantId": "f6270af6-883c-4054-9b62-9c75f0d4c514",
+      "promotionItemId": "26597548-8ebf-4f8a-80b5-92d1d3ded5c1",
+      "releaseId": "deep-deep-v30-2026-09-02-r1-20260901T150815Z-f2a72ffc",
+      "evidenceKind": "verified_local_lab",
+      "servingSourceRevisionSha256": "22836b37333cfdb7776fdaa5ce95db12883b8898ea4690ad34b0eb84fd40ac82",
+      "currentSourceRevisionSha256": "dffc8313a3d8aecb3e579318d4329172202e3a926bd839111c98f949cafac926",
+      "resultSha256": "7a4254c74617c9c72d93633e793f7bb4ad3531efccdd516d68f4487f6a1a40f8"
+    },
+    {
+      "grantId": "fe45953d-110b-4846-b4bd-bda705308b56",
+      "promotionItemId": "ab544851-cd47-498e-a87e-e5fb68c95853",
+      "releaseId": "deep-rhwp-launch-2026-08-30-reviewed-10-r1-20260830T213436Z-0002fd68",
+      "evidenceKind": "verified_local_lab",
+      "servingSourceRevisionSha256": "21ad597fc6d933e52abfcaa6d4721cfc23160c4b5ed26dab2ba2fcfdaab408ed",
+      "currentSourceRevisionSha256": "957ff7d4ba7b2cd6b68156c38fd1f3a16b7392cfb7ef82458bc4f2bdfc965d94",
+      "resultSha256": "42ad4ef757d92118ad7aaad86515777e13967b7da9c69984eb76910588cb87ab"
+    }
+  ]
+}

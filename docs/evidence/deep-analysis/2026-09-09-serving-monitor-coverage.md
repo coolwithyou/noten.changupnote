@@ -34,8 +34,8 @@ sol/xhigh가 구현하고 root가 독립 감사·실제 PostgreSQL 검증·출�
   임시 진단은 서비스 데이터 쓰기 없이 정식 reader의 top-level RR transaction을 사용했다.
 - 이전 실제 Cloud Run 실행의 checked 0/PASS와 원인·배포 설정은
   [선행 GCP 검증](2026-09-09-gcp-release.md)에 기록돼 있다.
-- 기존 kind 불일치 30공고/36조건 등 데이터 문제는 별도 교정 대상이다. 수정된 monitor가
-  이를 실패로 발견하는 것은 검사의 성공이며, 데이터 무결성 PASS와 구분한다.
+- 기존 kind 불일치 30공고/36조건 등 데이터 문제는 별도 교정 대상이다. 이 monitor의
+  게시 snapshot·DTO·matcher 결속 검사가 원문 분석 의미의 재검수나 kind 교정을 대체하지 않는다.
 
 ## 검증·출고 결과
 
@@ -114,4 +114,66 @@ local embedded manifest와 현재 sourceRevision이 일치하는지 검증하고
   `local-monitor-release.jsonl`, `local-monitor-release-execution.json`,
   `monitor-local-release-audit.json`을 같은 private scratch에 보존했다.
 - 현재 공급은 계속 85공고/502조건이며 초기 DTO SHA와 같다. 모델 실행·원천 수정·결과 승격은
-  하지 않았다. 다음 단계는 검증된 소스의 커밋·push·clean image build와 실제 Cloud Run 검증이다.
+  하지 않았다. 이 단계 이후의 커밋·push·clean image build와 Cloud Run 결과는 아래에 기록한다.
+
+### GCP 출고
+
+- 출고 소스 `c6ddcd90aa80fe51c0740b6ff3e677ec0a932b0e`를 커밋·push했다. 최종 집계 gate의
+  8개 소스 파일 hash를 해당 commit의 Git blob과 전수 비교해 일치를 확인했다.
+- `cunote-codex-dev`의 base `sw@noten.im`/project `changupnote-com`과 실제 tokeninfo의
+  전용 service account를 재확인했다. 토큰 값은 저장·출력하지 않았다.
+- Cloud Build `bda7e06b-1dc7-4193-a990-3ff1058baedc`. source는 지정
+  `gs://changupnote-com_cloudbuild/cunote-codex-dev/source/`에 staging했다. 기존 build
+  service account를 유지했고 추가 IAM 권한·JSON key를 만들지 않았다.
+- clean Git archive로 source를 만들었으며 `.env`, `.env.vercel.local`, `.git`, `.vercel`,
+  로컬 의존성과 사용자 dirty next-env를 포함하지 않았다. 사용자 개발 서버도 유지했다.
+- Cloud Build SUCCESS. 반환된 application image digest는
+  `sha256:e2a54022b728e4ce1ad4bf4acb27549cfea9afea02dc9c3a0bcb9b94ca0d6522`다.
+- 배포 직전 uid/generation/spec과 Scheduler를 다시 읽어 최초 snapshot과 일치를 확인했다.
+  main/input preparation/monitor generation은 각각 **99→100 / 35→36 / 28→29**, 모두 READY다.
+  실제 image와 GIT_COMMIT_SHA가 exact build/source와 일치한다.
+- image/GIT_COMMIT_SHA 및 자동 생성 client metadata/nonce를 제외한 전체 spec을 전후
+  대조했다. runtime service account, command/args, env/secret 참조, resources/timeout/retries가
+  그대로다. Scheduler state/schedule/target/auth/retry/timeZone도 보존됐다.
+  `job-contract-audit.json`에 결속했고, main은 observe_only, main/preparation Scheduler는
+  PAUSED, monitor Scheduler는 ENABLED다. preparation 실제 처리 실행은 하지 않았다.
+
+### 실제 Cloud Run 인수 — 12:43 KST
+
+- 메인 `cunote-deep-analysis-gbhmq`는 task 1/1 성공했다. exact image/SHA를 실행 spec에서
+  대조했고, 실제 로그에서 observe_only, DB paused/generation 383, claimed 0,
+  enqueueSkipped/analysisSkipped/budgetMutationSkipped=true를 확인했다. 관측 heartbeat는 썼다.
+- monitor `cunote-deep-analysis-serving-monitor-c65gk`는 **85 actual / 85 admitted / 85 checked**,
+  미검사 0, coverage issue 0이었다. 공고별 terminal 로그 85개와 최종 summary 1개를 읽어
+  중복·누락·잘림 없음, 각 ID/결과 SHA와 최종 results SHA를 root가 독립 대조했다.
+  실행 spec도 exact build image/SHA와 일치했다.
+- publication과 serving은 각각 85 PASS, freshness는 **63 PASS / 22 FAIL**이다. 실패 사유는
+  모두 현재 sourceRevision과 serving sourceRevision 불일치이며, 개별 처리 오류는 0이다.
+  따라서 task는 의도한 **exit 2 / NonZeroExitCode**로 종료했다. 인프라 성공이나 데이터 건강
+  PASS로 덮지 않는다. 공급 검사 범위 gate는 통과했고 원천 갱신 재검증은 남아 있다.
+- 적용 active/canary 120행 중 verified eligible 118행에서 비활성 14·기간 종료 19행을 제외해
+  현재 85건을 검사했다. provenance 미충족 2행은 정식 serving에도 없었다. 현재 85건은 모두
+  verified local active다. production/canary 지원은 실제 격리 PG 회귀 증거와 구분한다.
+- monitor 내부 경과 **29,791ms**, Linux max RSS **240,275,456 bytes**(기존 512Mi 한도 이내),
+  최대 개별 로그 3,399 bytes였다. 단일 실행 실측이며 p95·장기 부하·전체 분석 속도는 아니다.
+- 실행 전후 inventory SHA는 `ac26ed117c791b795e9bae68c77f229ee63fc9de8a97e0a970446d4c54276981`
+  로 같았다. 배포 후 독립 canonical 재조회도 85공고/502조건, 최초 DTO SHA 유지다.
+  사용자 next-env SHA와 4010/PID 60300 개발 서버 역시 유지됐다.
+- 구조화 [실행 영수증 및 원천 불일치 22건](2026-09-09-serving-monitor-runtime.json)에
+  build/image/execution 결속, 검사 집계, grant/item/release ID와 양쪽 source SHA를 저장했다.
+  이는 관측 당시 후속 조사 목록이며 live 모델 실행·교정 release 승인·승격 권한이 아니다.
+  private 원시 실행·로그는 `/tmp/cunote-monitor-coverage-rOfnkB/`에 남겼으며, 지속 증거는
+  저장소의 위 영수증과 Cloud Logging의 exact execution이다.
+
+## 종결과 다음 순서
+
+**이번 모니터링 누락 수정은 구현·테스트·배포·실제 실행까지 종결했다.** 지정 sol/xhigh가
+구현하고 root가 검사의 경계, 실제 PG 동시성, 공용 reader 재사용 및 실제 Cloud Run 로그를
+감사했다. 공용 canonical reader와 짧은 read-only RR 경계를 재사용해 별도 공급 정의가
+다시 갈라지는 위험을 줄였다.
+
+다음은 위 22건의 원천 변경이 실제 자격 조건에 영향을 주는지 읽기 전용으로 분류하고,
+기존 kind 불일치 30공고/36조건과 겹침을 대조하는 것이다. source SHA 차이만으로 전부
+잘못된 매칭이나 모델 재실행 필요로 단정하지 않는다. 재검수·교정·승격은 현행 material
+binding과 각 권한 범위를 확정한 뒤 별도로 진행한다. 경고를 없애려고 monitor를 끄거나
+원천/게시 SHA만 덮어쓰지 않는다. 24시간 지속 관측·알림 전달 인수는 이번 단일 실행의 증거 밖이다.
