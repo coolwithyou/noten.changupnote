@@ -247,6 +247,9 @@ const stackedLabelDocument: RhwpAnchorDocument = {
     { cellIdx: 0, row: 0, col: 0, pageIndex: 0, x: 100, y: 100, w: 800, h: 40 },
     { cellIdx: 1, row: 1, col: 0, pageIndex: 0, x: 100, y: 140, w: 800, h: 160 },
   ]),
+  getCellParagraphCount: () => 1,
+  getCellParagraphLength: () => 0,
+  getTextInCell: () => "",
 };
 const [stackedResolution] = resolveRhwpFieldAnchorsExact(stackedLabelDocument, [{
   fieldId: "startup-plan",
@@ -297,6 +300,217 @@ const [placeholderResolution] = resolveRhwpFieldAnchorsExact(placeholderDocument
 }]);
 assert.equal(placeholderResolution?.status, "unique");
 assert.equal(placeholderResolution?.status === "unique" ? placeholderResolution.anchor.target.cellIndex : null, 12);
+
+// source-bound 장문 라벨이 한 행 전체 셀을 차지하면 시각적 입력 여백도 같은 셀이다.
+// 바로 아래의 선언문/날짜/서명 셀로 이동하지 않고, 증명된 첫 문단을 보호한다.
+const sameCellTextareaLabel = "※ 기타 현재 상황, 개선하고자 하는 점 등 자유롭게 기술해주세요.";
+const sameCellTextareaDocument: RhwpAnchorDocument = {
+  ...document,
+  pageCount: () => 1,
+  searchAllText: () => "[]",
+  getPageTextLayout: () => JSON.stringify({ runs: [{
+    text: sameCellTextareaLabel,
+    secIdx: 0,
+    parentParaIdx: 0,
+    controlIdx: 3,
+    cellIdx: 39,
+    cellParaIdx: 0,
+    charStart: 0,
+  }] }),
+  getTableCellBboxes: () => JSON.stringify([
+    { cellIdx: 39, row: 14, col: 0, colSpan: 9, pageIndex: 0, x: 100, y: 600, w: 800, h: 120 },
+    { cellIdx: 40, row: 15, col: 0, colSpan: 9, pageIndex: 0, x: 100, y: 720, w: 800, h: 220 },
+  ]),
+  getCellParagraphCount: (_section, _parentPara, _controlIndex, cellIndex) => cellIndex === 39 ? 1 : 8,
+  getCellParagraphLength: (_section, _parentPara, _controlIndex, cellIndex, paragraph) => (
+    cellIndex === 39 && paragraph === 0 ? Array.from(sameCellTextareaLabel).length : 0
+  ),
+  getTextInCell: (_section, _parentPara, _controlIndex, cellIndex, paragraph) => (
+    cellIndex === 39 && paragraph === 0 ? sameCellTextareaLabel : ""
+  ),
+  getCellCharPropertiesAt: () => JSON.stringify({ charShapeId: 23 }),
+  getCellParaPropertiesAt: () => JSON.stringify({ paraShapeId: 2 }),
+};
+const sameCellTextareaField = {
+  fieldId: "current-situation",
+  label: sameCellTextareaLabel,
+  fieldType: "long_text",
+  position: {
+    page: 1,
+    bbox: null,
+    row: 14,
+    col: 0,
+    occurrence: 0,
+    normalizedLabel: "기타현재상황,개선하고자하는점등자유롭게기술해주세요",
+    targetKind: "table_cell_region",
+    targetRow: 14,
+    targetCol: 0,
+    protectedPrefixText: sameCellTextareaLabel,
+  },
+};
+const [sameCellTextareaResolution] = resolveRhwpFieldAnchorsExact(
+  sameCellTextareaDocument,
+  [sameCellTextareaField],
+);
+assert.equal(sameCellTextareaResolution?.status, "unique");
+assert.equal(
+  sameCellTextareaResolution?.status === "unique"
+    ? sameCellTextareaResolution.anchor.target.cellIndex
+    : null,
+  39,
+);
+assert.deepEqual(resolveStudioFieldBindings(
+  { ...sameCellTextareaDocument, getFieldList: () => "[]" },
+  [sameCellTextareaField],
+), [{
+  fieldId: "current-situation",
+  status: "unique",
+  target: {
+    kind: "table_cell_region",
+    section: 0,
+    parentPara: 0,
+    controlIndex: 3,
+    cellIndex: 39,
+    protectedPrefixChars: 37,
+  },
+  candidateCount: 1,
+}]);
+
+// 저장 후 셀 전체 텍스트가 라벨과 같지 않아도 첫 문단 exact prefix로 같은 cell39를 다시 찾는다.
+const appliedTextareaValue = "검증 가능한 현재 상황과 개선 계획";
+const appliedSameCellTextareaDocument: RhwpAnchorDocument = {
+  ...sameCellTextareaDocument,
+  searchAllText: (query) => query === sameCellTextareaLabel ? JSON.stringify([{
+    sec: 0,
+    length: 37,
+    charOffset: 0,
+    cellContext: { parentPara: 0, ctrlIdx: 3, cellIdx: 39, cellPara: 0 },
+  }]) : "[]",
+  getPageTextLayout: () => JSON.stringify({ runs: [
+    {
+      text: sameCellTextareaLabel,
+      secIdx: 0,
+      parentParaIdx: 0,
+      controlIdx: 3,
+      cellIdx: 39,
+      cellParaIdx: 0,
+      charStart: 0,
+    },
+    {
+      text: appliedTextareaValue,
+      secIdx: 0,
+      parentParaIdx: 0,
+      controlIdx: 3,
+      cellIdx: 39,
+      cellParaIdx: 1,
+      charStart: 0,
+    },
+  ] }),
+  getCellParagraphCount: () => 2,
+  getCellParagraphLength: (_section, _parentPara, _controlIndex, _cellIndex, paragraph) => (
+    paragraph === 0 ? 37 : Array.from(appliedTextareaValue).length
+  ),
+  getTextInCell: (_section, _parentPara, _controlIndex, _cellIndex, paragraph) => (
+    paragraph === 0 ? sameCellTextareaLabel : appliedTextareaValue
+  ),
+};
+assert.deepEqual(resolveStudioFieldBindings(
+  { ...appliedSameCellTextareaDocument, getFieldList: () => "[]" },
+  [sameCellTextareaField],
+), [{
+  fieldId: "current-situation",
+  status: "unique",
+  target: {
+    kind: "table_cell_region",
+    section: 0,
+    parentPara: 0,
+    controlIndex: 3,
+    cellIndex: 39,
+    protectedPrefixChars: 37,
+  },
+  candidateCount: 1,
+}]);
+
+const mixedPrefixTextareaDocument: RhwpAnchorDocument = {
+  ...sameCellTextareaDocument,
+  getCellCharPropertiesAt: (_section, _parentPara, _controlIndex, _cellIndex, _paragraph, offset) => (
+    JSON.stringify({ charShapeId: offset === 36 ? 24 : 23 })
+  ),
+};
+assert.deepEqual(resolveStudioFieldBindings(
+  { ...mixedPrefixTextareaDocument, getFieldList: () => "[]" },
+  [sameCellTextareaField],
+), [{ fieldId: "current-situation", status: "missing", candidateCount: 0 }]);
+assert.deepEqual(resolveStudioFieldBindings(
+  { ...sameCellTextareaDocument, getFieldList: () => "[]" },
+  [{
+    ...sameCellTextareaField,
+    position: { ...sameCellTextareaField.position, targetRow: 13 },
+  }],
+), [{ fieldId: "current-situation", status: "missing", candidateCount: 0 }]);
+
+// v10처럼 same-cell 명시 계약이 없으면 8문단 선언/날짜/서명 셀을 아래 입력칸으로 쓰지 않는다.
+const v10TextareaField = {
+  ...sameCellTextareaField,
+  position: {
+    ...sameCellTextareaField.position,
+    targetKind: undefined,
+    targetRow: undefined,
+    targetCol: undefined,
+    protectedPrefixText: undefined,
+  },
+};
+assert.deepEqual(resolveStudioFieldBindings(
+  { ...sameCellTextareaDocument, getFieldList: () => "[]" },
+  [v10TextareaField],
+), [{ fieldId: "current-situation", status: "missing", candidateCount: 0 }]);
+
+const separateLongTextLabel = "사업 추진 계획";
+function separateLongTextDocument(direction: "right" | "below"): RhwpAnchorDocument {
+  const labelCell = { cellIdx: 1, row: 0, col: 0, colSpan: direction === "right" ? 1 : 2, pageIndex: 0, x: 100, y: 100, w: direction === "right" ? 300 : 600, h: 80 };
+  const valueCell = { cellIdx: 2, row: direction === "right" ? 0 : 1, col: direction === "right" ? 1 : 0, colSpan: direction === "right" ? 1 : 2, pageIndex: 0, x: direction === "right" ? 400 : 100, y: direction === "right" ? 100 : 180, w: direction === "right" ? 300 : 600, h: 120 };
+  return {
+    ...document,
+    pageCount: () => 1,
+    searchAllText: () => "[]",
+    getPageTextLayout: () => JSON.stringify({ runs: [{
+      text: separateLongTextLabel,
+      secIdx: 0,
+      parentParaIdx: 0,
+      controlIdx: 0,
+      cellIdx: 1,
+      cellParaIdx: 0,
+      charStart: 0,
+    }] }),
+    getTableCellBboxes: () => JSON.stringify([labelCell, valueCell]),
+    getCellParagraphCount: () => 1,
+    getCellParagraphLength: (_section, _parentPara, _controlIndex, cellIndex) => (
+      cellIndex === 1 ? Array.from(separateLongTextLabel).length : 0
+    ),
+    getTextInCell: (_section, _parentPara, _controlIndex, cellIndex) => (
+      cellIndex === 1 ? separateLongTextLabel : ""
+    ),
+    getCellCharPropertiesAt: () => JSON.stringify({ charShapeId: 7 }),
+    getCellParaPropertiesAt: () => JSON.stringify({ paraShapeId: 9 }),
+  };
+}
+const separateLongTextField = {
+  fieldId: "business-plan",
+  label: separateLongTextLabel,
+  fieldType: "long_text",
+  position: { row: 0, col: 0, occurrence: 0, normalizedLabel: "사업추진계획" },
+};
+for (const direction of ["right", "below"] as const) {
+  assert.deepEqual(resolveStudioFieldBindings(
+    { ...separateLongTextDocument(direction), getFieldList: () => "[]" },
+    [separateLongTextField],
+  ), [{
+    fieldId: "business-plan",
+    status: "unique",
+    target: { kind: "table_cell_region", section: 0, parentPara: 0, controlIndex: 0, cellIndex: 2 },
+    candidateCount: 1,
+  }]);
+}
 
 // 실제 입력 셀의 파란 이탤릭 안내문과 셀 배경을 프리뷰 마스킹 정보로 전달한다.
 const guideAppearanceDocument: RhwpAnchorDocument = {

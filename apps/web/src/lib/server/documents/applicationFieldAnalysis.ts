@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { and, eq, sql } from "drizzle-orm";
 import type { DocumentFieldType } from "@cunote/contracts";
 import type { ReconciledField } from "@cunote/core";
-import type { RoundtripParsedDocument } from "@/lib/server/application-analysis/contract";
+import type { RoundtripFieldCandidate, RoundtripParsedDocument } from "@/lib/server/application-analysis/contract";
 import type { CompanyAccess } from "../auth/companyGuard";
 import { getCunoteDb, type CunoteDbSession } from "../db/client";
 import * as schema from "../db/schema";
@@ -254,7 +254,7 @@ export function buildReconciledApplicationFields(document: RoundtripParsedDocume
           paragraphPrefix: candidate.location.target.paragraphPrefix ?? "",
           paragraphSuffix: candidate.location.target.paragraphSuffix ?? "",
           paragraphOccurrence: candidate.location.target.paragraphOccurrence ?? 0,
-        } : {}),
+        } : tableCellRegionPosition(candidate, fieldType)),
       },
       visualEvidence: {
         source: "kordoc-rhwp",
@@ -310,6 +310,32 @@ export function buildReconciledApplicationFields(document: RoundtripParsedDocume
     });
   }
   return fields;
+}
+
+function tableCellRegionPosition(
+  candidate: RoundtripFieldCandidate,
+  fieldType: ReconciledField["fieldType"],
+): Pick<NonNullable<ReconciledField["position"]>,
+  "targetKind" | "targetRow" | "targetCol" | "protectedPrefixText"> | Record<string, never> {
+  const target = candidate.location.target;
+  if (
+    fieldType !== "long_text"
+    || target?.kind !== "table_cell"
+    || !Number.isSafeInteger(target.row)
+    || !Number.isSafeInteger(target.col)
+    || target.row !== candidate.location.row
+    || target.col !== candidate.location.col
+    || target.textStart !== 0
+    || target.textEnd !== candidate.label.length
+    || target.expectedText !== candidate.label
+    || target.expectedSha256 !== createHash("sha256").update(candidate.label).digest("hex")
+  ) return {};
+  return {
+    targetKind: "table_cell_region",
+    targetRow: target.row!,
+    targetCol: target.col!,
+    protectedPrefixText: candidate.label,
+  };
 }
 
 function result(

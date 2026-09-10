@@ -37,6 +37,11 @@ export const studioTableCellRegionTargetSchema = z.strictObject({
   cellIndex: nonnegativeSafeInteger,
 });
 
+/** native region 좌표에 고정 첫 문단 길이만 더한 host 전용 binding. */
+export const studioTableCellRegionBindingTargetSchema = studioTableCellRegionTargetSchema.extend({
+  protectedPrefixChars: positiveSafeInteger.max(4_000).optional(),
+});
+
 export const studioFormTextTargetSchema = z.strictObject({
   kind: z.literal("form_text"),
   section: nonnegativeSafeInteger,
@@ -66,7 +71,7 @@ export const studioFieldTargetSchema = z.discriminatedUnion("kind", [
 
 export const studioFieldBindingTargetSchema = z.discriminatedUnion("kind", [
   studioTableCellTextTargetSchema,
-  studioTableCellRegionTargetSchema,
+  studioTableCellRegionBindingTargetSchema,
   studioFormTextTargetSchema,
   studioParagraphFieldTargetSchema,
 ]);
@@ -262,10 +267,12 @@ export const studioDocumentChangedEventSchema = z.strictObject({
 export type StudioBodyParagraphTargetV1 = z.infer<typeof studioBodyParagraphTargetSchema>;
 export type StudioTableCellTextTargetV1 = z.infer<typeof studioTableCellTextTargetSchema>;
 export type StudioTableCellRegionTargetV1 = z.infer<typeof studioTableCellRegionTargetSchema>;
+export type StudioTableCellRegionBindingTargetV1 = z.infer<typeof studioTableCellRegionBindingTargetSchema>;
 export type StudioFormTextTargetV1 = z.infer<typeof studioFormTextTargetSchema>;
 export type StudioParagraphFieldTargetV1 = z.infer<typeof studioParagraphFieldTargetSchema>;
 export type StudioFieldTargetV1 = z.infer<typeof studioFieldTargetSchema>;
 export type StudioFieldBindingTargetV1 = z.infer<typeof studioFieldBindingTargetSchema>;
+export type StudioNavigableFieldTargetV1 = Exclude<StudioFieldBindingTargetV1, StudioParagraphFieldTargetV1>;
 export type StudioFieldRestoreFormatV1 = z.infer<typeof studioFieldRestoreFormatSchema>;
 export type StudioDocumentStateV1 = z.infer<typeof studioDocumentStateSchema>;
 export type StudioSelectionContextV1 = z.infer<typeof studioSelectionContextSchema>;
@@ -279,6 +286,95 @@ export type StudioFieldCommandReceiptV1 = z.infer<typeof studioFieldCommandRecei
 export type StudioFocusTargetResultV1 = z.infer<typeof studioFocusTargetResultSchema>;
 export type StudioDocumentChangedEventV1 = z.infer<typeof studioDocumentChangedEventSchema>;
 
+/** host metadata가 native SDK의 strict target 계약을 넘지 않게 좌표만 복사한다. */
+export function studioNativeFieldTarget(
+  target: Exclude<StudioFieldBindingTargetV1, StudioParagraphFieldTargetV1>,
+): StudioFieldTargetV1 {
+  if (target.kind === "form_text") {
+    return studioFieldTargetSchema.parse({
+      kind: target.kind,
+      section: target.section,
+      paragraph: target.paragraph,
+      fieldId: target.fieldId,
+    });
+  }
+  if (target.kind === "table_cell_text") {
+    return studioFieldTargetSchema.parse({
+      kind: target.kind,
+      section: target.section,
+      parentPara: target.parentPara,
+      controlIndex: target.controlIndex,
+      cellIndex: target.cellIndex,
+      cellParagraph: target.cellParagraph,
+    });
+  }
+  return studioFieldTargetSchema.parse({
+    kind: target.kind,
+    section: target.section,
+    parentPara: target.parentPara,
+    controlIndex: target.controlIndex,
+    cellIndex: target.cellIndex,
+  });
+}
+
+/** logical 제안을 고정 첫 문단을 포함한 native whole-region postimage로 바꾼다. */
+export function buildStudioFieldPhysicalReplacement(
+  beforeText: string,
+  target: StudioFieldBindingTargetV1,
+  logicalReplacement: string,
+): string {
+  if (target.kind !== "table_cell_region" || target.protectedPrefixChars === undefined) {
+    return logicalReplacement;
+  }
+  const beforeChars = Array.from(beforeText);
+  const prefixChars = target.protectedPrefixChars;
+  const prefix = beforeChars.slice(0, prefixChars).join("");
+  const remainder = beforeChars.slice(prefixChars).join("");
+  if (
+    beforeChars.length < prefixChars
+    || prefix.length === 0
+    || prefix.includes("\n")
+    || (remainder.length > 0 && !remainder.startsWith("\n"))
+  ) {
+    throw new Error("보호할 장문 셀 첫 문단이 서버 binding과 다릅니다.");
+  }
+  const physical = `${prefix}\n${logicalReplacement}`;
+  if (physical.length > 4_000 || physical.split("\n").some((part) => Array.from(part).length > 4_000)) {
+    throw new Error("고정 안내문을 포함한 장문 입력이 4,000자를 넘습니다.");
+  }
+  return physical;
+}
+
+/** client 요청과 서버가 재구축한 host binding을 metadata까지 exact 비교한다. */
+export function sameStudioFieldBindingTarget(
+  left: StudioFieldBindingTargetV1,
+  right: StudioFieldBindingTargetV1,
+): boolean {
+  if (left.kind !== right.kind || left.section !== right.section) return false;
+  if (left.kind === "body_paragraph_text" && right.kind === "body_paragraph_text") {
+    return left.paragraph === right.paragraph
+      && left.length === right.length
+      && left.valueStart === right.valueStart
+      && left.valueEnd === right.valueEnd;
+  }
+  if (left.kind === "form_text" && right.kind === "form_text") {
+    return left.paragraph === right.paragraph && left.fieldId === right.fieldId;
+  }
+  if (left.kind === "table_cell_text" && right.kind === "table_cell_text") {
+    return left.parentPara === right.parentPara
+      && left.controlIndex === right.controlIndex
+      && left.cellIndex === right.cellIndex
+      && left.cellParagraph === right.cellParagraph;
+  }
+  if (left.kind === "table_cell_region" && right.kind === "table_cell_region") {
+    return left.parentPara === right.parentPara
+      && left.controlIndex === right.controlIndex
+      && left.cellIndex === right.cellIndex
+      && left.protectedPrefixChars === right.protectedPrefixChars;
+  }
+  return false;
+}
+
 export interface StudioDocumentAgentProtocol {
   getDocumentState(): Promise<StudioDocumentStateV1>;
   getSelectionContext(): Promise<StudioSelectionContextV1>;
@@ -289,7 +385,7 @@ export interface StudioDocumentAgentProtocol {
 }
 
 export interface StudioFieldNavigationProtocol {
-  focusFieldTarget(target: StudioFieldTargetV1): Promise<StudioFocusTargetResultV1>;
+  focusFieldTarget(target: StudioNavigableFieldTargetV1): Promise<StudioFocusTargetResultV1>;
 }
 
 export interface StudioFieldSelectionProtocol {
@@ -354,7 +450,7 @@ export function resolveStudioFieldNavigationProtocol(editor: unknown): StudioFie
   if (typeof method !== "function") return null;
   return {
     focusFieldTarget: async (target) => studioFocusTargetResultSchema.parse(
-      await (method as UnknownMethod).call(editor, studioFieldTargetSchema.parse(target)),
+      await (method as UnknownMethod).call(editor, studioNativeFieldTarget(target)),
     ),
   };
 }
@@ -402,7 +498,7 @@ export function resolveStudioFieldAgentProtocol(editor: unknown): StudioFieldAge
   return {
     getDocumentState: async () => studioDocumentStateSchema.parse(await invoke("getDocumentState")),
     focusFieldTarget: async (target) => studioFocusTargetResultSchema.parse(
-      await invoke("focusFieldTarget", studioFieldTargetSchema.parse(target)),
+      await invoke("focusFieldTarget", studioNativeFieldTarget(target)),
     ),
     applyFieldCommand: async (command) => studioFieldCommandReceiptSchema.parse(
       await invoke("applyFieldCommand", studioApplyFieldCommandSchema.parse(command)),

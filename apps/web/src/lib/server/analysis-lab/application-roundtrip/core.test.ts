@@ -201,6 +201,141 @@ for (const placeholderLabel of ["금: 백만원", "은행 지점\n( 담당자 �
   assert.match(placeholder.inputSignals.join(" "), /앞 라벨/);
 }
 
+const rowSpanningContactFields = extractLocatedRoundtripFields([{
+  type: "table",
+  table: {
+    rows: 3,
+    cols: 5,
+    hasHeader: false,
+    cells: [
+      [
+        { text: "연락처", colSpan: 1, rowSpan: 3 },
+        { text: "담당자", colSpan: 1, rowSpan: 1 },
+        { text: "", colSpan: 1, rowSpan: 1 },
+        { text: "직위/직급", colSpan: 1, rowSpan: 1 },
+        { text: "", colSpan: 1, rowSpan: 1 },
+      ],
+      [
+        { text: "", colSpan: 1, rowSpan: 1 },
+        { text: "전화", colSpan: 1, rowSpan: 1 },
+        { text: "", colSpan: 1, rowSpan: 1 },
+        { text: "", colSpan: 1, rowSpan: 1 },
+        { text: "", colSpan: 1, rowSpan: 1 },
+      ],
+      [
+        { text: "", colSpan: 1, rowSpan: 1 },
+        { text: "이메일", colSpan: 1, rowSpan: 1 },
+        { text: "", colSpan: 1, rowSpan: 1 },
+        { text: "", colSpan: 1, rowSpan: 1 },
+        { text: "", colSpan: 1, rowSpan: 1 },
+      ],
+    ],
+  },
+}], "d".repeat(64)).fields;
+const contactOwner = rowSpanningContactFields.find((candidate) => candidate.label === "연락처");
+assert.equal(contactOwner?.originalValue, "담당자", "KorDoc의 병합 셀 값 오인 조건을 재현해야 한다");
+const contactPerson = rowSpanningContactFields.find((candidate) => candidate.label === "담당자");
+assert.equal(contactPerson?.empty, true, "rowSpan 그룹의 담당자 칸은 실제 빈 입력이어야 한다");
+assert.equal(contactPerson?.recommendedInput, true, "rowSpan 그룹 제목 때문에 담당자 입력을 제외하면 안 된다");
+assert.doesNotMatch(contactPerson?.inputSignals.join(" ") ?? "", /값 placeholder/);
+
+const emptyTestCell = () => ({ text: "", colSpan: 1, rowSpan: 1 });
+const rowSpanningLaborFields = extractLocatedRoundtripFields([{
+  type: "table",
+  table: {
+    rows: 2,
+    cols: 9,
+    hasHeader: false,
+    cells: [
+      [
+        { text: "노동자 수", colSpan: 1, rowSpan: 2 },
+        { text: "총 인원 :        명", colSpan: 8, rowSpan: 1 },
+        ...Array.from({ length: 7 }, emptyTestCell),
+      ],
+      [
+        emptyTestCell(),
+        { text: "남성 :    명 / 여성 :     명", colSpan: 4, rowSpan: 1 },
+        ...Array.from({ length: 3 }, emptyTestCell),
+        { text: "정규직:    명 / 비정규직:   명", colSpan: 4, rowSpan: 1 },
+        ...Array.from({ length: 3 }, emptyTestCell),
+      ],
+    ],
+  },
+}], "e".repeat(64)).fields;
+const totalHeadcountPlaceholder = rowSpanningLaborFields.find((candidate) => candidate.label.includes("총 인원"));
+assert.equal(totalHeadcountPlaceholder?.empty, true, "총 인원 안내문 오인 조건을 재현해야 한다");
+assert.equal(
+  totalHeadcountPlaceholder?.recommendedInput,
+  false,
+  "rowSpan 그룹의 행 끝 값 placeholder를 독립 입력 라벨로 되살리면 안 된다",
+);
+assert.match(totalHeadcountPlaceholder?.inputSignals.join(" ") ?? "", /값 placeholder/);
+
+const sameCellNarrativeLabel = "※ 기타 현재 상황, 개선하고자 하는 점 등 자유롭게 기술해주세요.";
+const sameCellNarrativeFields = extractRhwpStructuralFields([{
+  type: "table",
+  table: {
+    rows: 4,
+    cols: 9,
+    hasHeader: false,
+    cells: [
+      [
+        { text: "업체명", colSpan: 1, rowSpan: 1 },
+        { text: "", colSpan: 8, rowSpan: 1 },
+      ],
+      [
+        { text: "대표자명", colSpan: 1, rowSpan: 1 },
+        { text: "", colSpan: 8, rowSpan: 1 },
+      ],
+      [
+        { text: sameCellNarrativeLabel, colSpan: 9, rowSpan: 1 },
+        ...Array.from({ length: 8 }, emptyTestCell),
+      ],
+      [
+        { text: "위와 같이 상담 지원을 신청합니다.\n신청인 : 대표 (서명)", colSpan: 9, rowSpan: 1 },
+        ...Array.from({ length: 8 }, emptyTestCell),
+      ],
+    ],
+  },
+}], "f".repeat(64));
+const sameCellNarrative = sameCellNarrativeFields.find((candidate) => candidate.label === sameCellNarrativeLabel);
+assert.equal(sameCellNarrative?.inputKind, "textarea");
+assert.deepEqual(sameCellNarrative?.location.target, {
+  kind: "table_cell",
+  row: 2,
+  col: 0,
+  textStart: 0,
+  textEnd: sameCellNarrativeLabel.length,
+  expectedText: sameCellNarrativeLabel,
+  expectedSha256: "777be966576cf55f80c8c19540569941dfba8d597e185a395a4bd2dc11be0064",
+});
+assert.notEqual(sameCellNarrative?.location.target?.row, 3, "아래 선언·서명 셀을 장문 입력 대상으로 고르면 안 된다");
+
+const ordinaryLongTextFields = extractRhwpStructuralFields([{
+  type: "table",
+  table: {
+    rows: 4,
+    cols: 2,
+    hasHeader: false,
+    cells: [
+      [{ text: "업체명", colSpan: 1, rowSpan: 1 }, emptyTestCell()],
+      [{ text: "대표자명", colSpan: 1, rowSpan: 1 }, emptyTestCell()],
+      [{ text: "기업 현황", colSpan: 1, rowSpan: 1 }, emptyTestCell()],
+      [{ text: "※ 사업 계획을 자유롭게 작성해주세요.", colSpan: 2, rowSpan: 1 }, emptyTestCell()],
+    ],
+  },
+}], "0".repeat(64));
+assert.equal(
+  ordinaryLongTextFields.find((candidate) => candidate.label === "기업 현황")?.location.target,
+  undefined,
+  "별도 오른쪽 값 셀이 있는 일반 장문 라벨을 same-cell region으로 바꾸면 안 된다",
+);
+assert.equal(
+  ordinaryLongTextFields.find((candidate) => candidate.label.includes("사업 계획"))?.location.target,
+  undefined,
+  "아래 고정 선언·서명 근거가 없는 full-width 제목형 장문은 same-cell region으로 열면 안 된다",
+);
+
 const recoveredMergedFields = extractRhwpStructuralFields([{
   type: "table",
   table: {

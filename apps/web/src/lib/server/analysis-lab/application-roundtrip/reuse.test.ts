@@ -126,6 +126,61 @@ try {
     (error: unknown) => hasReuseCode(error, "artifact_incomplete"),
     "strict launch 재사용은 partial application 분석을 성공처럼 재사용하지 않음",
   );
+  const evidenceSkippedRun = sourceRun();
+  const evidenceDocument = structuredClone(evidenceSkippedRun.documents[0]!);
+  evidenceDocument.attachmentId = "evidence-attachment";
+  evidenceDocument.filename = "[별첨] 개인정보 동의서.hwp";
+  evidenceDocument.sourceSha256 = "b".repeat(64);
+  evidenceDocument.role = "evidence";
+  evidenceDocument.fieldPlanning.status = "skipped";
+  evidenceSkippedRun.documents.push(evidenceDocument);
+  evidenceSkippedRun.sourceCount = 2;
+  const evidenceSkippedManifest = sourceManifest();
+  evidenceSkippedManifest.attachments.push({
+    attachmentId: evidenceDocument.attachmentId,
+    filename: evidenceDocument.filename,
+    storageKey: "archives/evidence.hwp",
+    sourceSha256: evidenceDocument.sourceSha256,
+    detectedFormat: "hwp",
+  });
+  assert.doesNotThrow(
+    () => assertStrictApplicationRoundtripReuseArtifact({
+      run: evidenceSkippedRun,
+      manifest: evidenceSkippedManifest,
+      currentSources: [
+        { filename, storageKey, sha256: sourceSha256 },
+        {
+          filename: evidenceDocument.filename,
+          storageKey: "archives/evidence.hwp",
+          sha256: evidenceDocument.sourceSha256,
+        },
+      ],
+    }),
+    "증빙 문서는 field planning을 생략해도 신청 양식 분석이 완결되면 exact 재사용",
+  );
+  const skippedApplicationRun = sourceRun();
+  skippedApplicationRun.documents[0]!.fieldPlanning.status = "skipped";
+  assert.throws(
+    () => assertStrictApplicationRoundtripReuseArtifact({
+      run: skippedApplicationRun,
+      manifest: sourceManifest(),
+      currentSources: [{ filename, storageKey, sha256: sourceSha256 }],
+    }),
+    (error: unknown) => hasReuseCode(error, "artifact_incomplete"),
+    "신청 양식 역할은 field planning을 생략한 채 증빙 문서처럼 우회할 수 없음",
+  );
+  const evidenceOnlyRun = sourceRun();
+  evidenceOnlyRun.documents[0]!.role = "evidence";
+  evidenceOnlyRun.documents[0]!.fieldPlanning.status = "skipped";
+  assert.throws(
+    () => assertStrictApplicationRoundtripReuseArtifact({
+      run: evidenceOnlyRun,
+      manifest: sourceManifest(),
+      currentSources: [{ filename, storageKey, sha256: sourceSha256 }],
+    }),
+    (error: unknown) => hasReuseCode(error, "artifact_incomplete"),
+    "신청 양식이 없는 산출물은 role을 evidence로 바꿔 exact 재사용을 우회할 수 없음",
+  );
 
   const duplicateGroup = join(
     temporaryRoot,

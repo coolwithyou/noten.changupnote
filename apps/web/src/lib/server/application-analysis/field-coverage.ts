@@ -1,5 +1,8 @@
 // 제품과 실험실이 공유하는 문서 분석 구현. 실행 승인·로컬 artifact 저장은 호출자가 소유한다.
+import { createHash } from "node:crypto";
+import type { IRBlock } from "kordoc";
 import type {
+  RoundtripDocumentRole,
   RoundtripFieldCandidate,
   RoundtripFieldCoverageIssue,
   RoundtripFieldCoverageSummary,
@@ -12,6 +15,8 @@ const EXPLICIT_REJECTION_SIGNAL = /(표 머리글|표 첫 행의 긴 제목 가�
 const FIXED_MARKER_VALUE = /^[-‐‑‒–—―]$/u;
 const FIXED_MARKER_SIGNAL = /(?:고정.{0,12}(?:표기|문자|값|기호|마커)|(?:표기|문자|값|기호|마커).{0,12}고정)/u;
 const NON_INPUT_SIGNAL = /(?:입력\s*(?:대상|영역|항목)(?:이|가)?\s*(?:아님|아닙|아니|제외)|비입력\s*(?:대상|영역|항목)|작성\s*(?:대상|영역|항목)(?:이|가)?\s*(?:아님|아닙|아니|제외))/u;
+const INLINE_EMPTY_NUMBER_SLOT = /[:：][\t ]{2,}(?:명|개|건)(?=[\s/]|$)/gu;
+const LEADING_TEXT_CHECKBOX = /(?:^|\n)\s*[□☐■☑✓]/u;
 
 /**
  * 후보 판정의 마지막 seam. 구조적으로 안전하지 않은 거대 후보는 제외하고,
@@ -19,8 +24,12 @@ const NON_INPUT_SIGNAL = /(?:입력\s*(?:대상|영역|항목)(?:이|가)?\s*(?:
  */
 export function finalizeRoundtripFieldCoverage(
   fields: RoundtripFieldCandidate[],
+  unsupportedNativeGaps: readonly RoundtripFieldCoverageIssue[] = [],
 ): RoundtripFieldCoverageSummary {
-  const structuralWarnings = suppressCollapsedContextualFields(fields);
+  const structuralWarnings = [
+    ...unsupportedNativeGaps,
+    ...suppressCollapsedContextualFields(fields),
+  ];
   const unresolvedCandidates = fields.flatMap((field): RoundtripFieldCoverageIssue[] => {
     if (field.source === "contextual-region" || !field.empty || field.recommendedInput) return [];
     if (hasResolvedRejection(field)) return [];
@@ -50,6 +59,58 @@ export function finalizeRoundtripFieldCoverage(
     anchorReadyInputCount: acceptedFields.length - anchorUnready.length,
     anchorUnreadyInputCount: anchorUnready.length,
   };
+}
+
+/**
+ * 현재 writer가 exact subrange로 결속하지 못한 명시적 입력 흔적만 경고한다.
+ * 후보를 새 입력으로 승격하거나 값을 추정하지 않으며, 신청 역할 밖 문서는 검사하지 않는다.
+ */
+export function detectUnsupportedNativeInputGaps(input: {
+  blocks: readonly IRBlock[];
+  fields: readonly RoundtripFieldCandidate[];
+  role: RoundtripDocumentRole;
+}): RoundtripFieldCoverageIssue[] {
+  if (
+    input.role !== "application_form"
+    && input.role !== "business_plan"
+    && input.role !== "mixed_form"
+  ) return [];
+
+  const warnings: RoundtripFieldCoverageIssue[] = [];
+  input.blocks.forEach((block, blockIndex) => {
+    if (block.type !== "table" || !block.table) return;
+    block.table.cells.forEach((row, rowIndex) => {
+      row.forEach((cell, colIndex) => {
+        const text = cell.text.normalize("NFKC");
+        const inlineSlotCount = [...text.matchAll(INLINE_EMPTY_NUMBER_SLOT)].length;
+        const unsupportedKind = inlineSlotCount >= 2
+          ? "inline_number_slots"
+          : LEADING_TEXT_CHECKBOX.test(text)
+            ? "text_checkbox"
+            : null;
+        if (!unsupportedKind || hasExactCellTarget(input.fields, blockIndex, rowIndex, colIndex)) return;
+        const label = text.replace(/\s+/gu, " ").trim().slice(0, 100) || "미지원 입력 영역";
+        warnings.push({
+          fieldInstanceId: createHash("sha256")
+            .update(`unsupported-native-gap:${unsupportedKind}:${blockIndex}:${rowIndex}:${colIndex}:${text}`)
+            .digest("hex")
+            .slice(0, 24),
+          label,
+          reason: unsupportedKind === "inline_number_slots"
+            ? "한 셀 안의 복수 숫자 입력 위치를 각각 exact하게 결속하지 못해 원문 직접 확인이 필요함"
+            : "텍스트 체크박스의 exact marker 쓰기 위치를 결속하지 못해 원문 직접 확인이 필요함",
+          location: {
+            blockIndex,
+            row: rowIndex,
+            col: colIndex,
+            occurrence: 0,
+            pageNumber: block.pageNumber ?? null,
+          },
+        });
+      });
+    });
+  });
+  return warnings;
 }
 
 export function emptyRoundtripFieldCoverage(): RoundtripFieldCoverageSummary {
@@ -105,6 +166,19 @@ function suppressCollapsedContextualFields(
     warnings.push(issue(field, reason));
   }
   return warnings;
+}
+
+function hasExactCellTarget(
+  fields: readonly RoundtripFieldCandidate[],
+  blockIndex: number,
+  row: number,
+  col: number,
+): boolean {
+  return fields.some((field) => field.recommendedInput
+    && field.location.blockIndex === blockIndex
+    && field.location.target?.kind === "table_cell"
+    && field.location.target.row === row
+    && field.location.target.col === col);
 }
 
 function hasResolvedRejection(field: RoundtripFieldCandidate): boolean {

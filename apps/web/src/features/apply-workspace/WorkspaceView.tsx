@@ -8,7 +8,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ChevronLeft, WandSparkles } from "lucide-react";
+import { ChevronLeft, RotateCcw, WandSparkles } from "lucide-react";
 import { toast } from "sonner";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -16,6 +16,12 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/compone
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
 import { extractFieldOptions } from "@/lib/documents/fieldOptions";
+import {
+  acceptAutomaticProfileAutofillAnswers,
+  buildAutomaticProfileAutofillEntries,
+  undoAutomaticProfileAutofillAnswers,
+  type AutomaticProfileAutofillEntry,
+} from "@/lib/documents/applicationProfileAutofill";
 import type {
   RhwpFieldAnchor,
   RhwpFieldDescriptor,
@@ -91,6 +97,10 @@ export function WorkspaceView({
     canSave: false,
     canDownload: false,
   });
+  const [studioDocumentActionSourceKey, setStudioDocumentActionSourceKey] = useState<string | null>(null);
+  const [automaticProfileRunKey, setAutomaticProfileRunKey] = useState<string | null>(null);
+  const [automaticProfileBusy, setAutomaticProfileBusy] = useState(false);
+  const [automaticProfileUndoRevisionId, setAutomaticProfileUndoRevisionId] = useState<string | null>(null);
   const [fieldBindingsResolved, setFieldBindingsResolved] = useState(false);
   const [fieldBindingStatuses, setFieldBindingStatuses] = useState<Map<string, "unique" | "missing" | "ambiguous">>(
     () => new Map(),
@@ -98,6 +108,11 @@ export function WorkspaceView({
   const [fieldBindingTargets, setFieldBindingTargets] = useState<Map<string, StudioFieldBindingTargetV1>>(() => new Map());
   const [fieldAgentRuns, setFieldAgentRuns] = useState<Map<string, FieldAgentRunDto>>(() => new Map());
   const studioSurfaceRef = useRef<RhwpStudioSurfaceHandle | null>(null);
+  const automaticProfileUndoRef = useRef<{
+    sourceKey: string;
+    revisionId: string;
+    entries: readonly AutomaticProfileAutofillEntry[];
+  } | null>(null);
   const fieldIdByTargetRef = useRef<Map<string, string>>(new Map());
   const chat = useGrantChat({ grantId, draftId: data.draftId });
   const answersRef = useRef(answers);
@@ -137,6 +152,8 @@ export function WorkspaceView({
   const integratedFieldEditor = data.ladder === "a" && studioTransport !== null;
 
   useEffect(() => {
+    answersRef.current = data.fieldAnswers;
+    setAnswers(data.fieldAnswers);
     setWorkingDocument(null);
     setStudioDocumentActions({
       saveState: initialStudioSaveState,
@@ -145,10 +162,20 @@ export function WorkspaceView({
       canSave: false,
       canDownload: false,
     });
+    setStudioDocumentActionSourceKey(null);
+    setAutomaticProfileRunKey(null);
+    setAutomaticProfileBusy(false);
+    setAutomaticProfileUndoRevisionId(null);
+    automaticProfileUndoRef.current = null;
     setFieldBindingsResolved(false);
     setFieldBindingStatuses(new Map());
     setFieldBindingTargets(new Map());
     setFieldAgentRuns(new Map());
+  }, [currentStudioSourceKey]);
+
+  const handleStudioDocumentActionsChanged = useCallback((next: RhwpStudioDocumentActionState) => {
+    setStudioDocumentActions(next);
+    setStudioDocumentActionSourceKey(currentStudioSourceKey);
   }, [currentStudioSourceKey]);
 
   const saveCurrentDocument = useCallback(() => {
@@ -170,6 +197,33 @@ export function WorkspaceView({
     if (!surface) return Promise.reject(new Error("문서 편집 화면이 준비되지 않았습니다."));
     return surface.applyProfileAutofill(entries);
   }, []);
+
+  const undoAutomaticProfileAutofill = useCallback(async () => {
+    const pending = automaticProfileUndoRef.current;
+    const surface = studioSurfaceRef.current;
+    if (!pending || !surface || pending.sourceKey !== currentStudioSourceKey) return;
+    setAutomaticProfileBusy(true);
+    try {
+      const result = await surface.undoAutomaticProfileAutofill();
+      if (result.appliedRevisionId !== pending.revisionId) {
+        throw new Error("되돌릴 회사 정보 자동 입력 revision이 바뀌었습니다.");
+      }
+      const nextAnswers = undoAutomaticProfileAutofillAnswers({
+        current: answersRef.current,
+        entries: pending.entries,
+        appliedRevisionId: pending.revisionId,
+      });
+      answersRef.current = nextAnswers;
+      setAnswers(nextAnswers);
+      automaticProfileUndoRef.current = null;
+      setAutomaticProfileUndoRevisionId(null);
+      toast.success("회사 정보 자동 입력을 되돌리고 선택을 기억했습니다.");
+    } catch (caught) {
+      toast.error(caught instanceof Error ? caught.message : "회사 정보 자동 입력을 되돌리지 못했습니다.");
+    } finally {
+      setAutomaticProfileBusy(false);
+    }
+  }, [currentStudioSourceKey]);
 
   const inspectScheduleTable = useCallback(() => {
     const surface = studioSurfaceRef.current;
@@ -219,6 +273,92 @@ export function WorkspaceView({
     const first = authoringTasks[0];
     if (first) setSelectedFieldId(first.fieldId);
   }, [selectedFieldId, authoringTasks, data.connectedFields.length]);
+
+  useEffect(() => {
+    if (
+      data.execution.mode !== "persistent"
+      || !integratedFieldEditor
+      || !data.draftId
+      || !currentStudioSourceKey
+      || studioDocumentActionSourceKey !== currentStudioSourceKey
+      || !studioDocumentActions.canSave
+      || !fieldBindingsResolved
+    ) return;
+    setAutomaticProfileRunKey((current) => current ?? currentStudioSourceKey);
+  }, [
+    currentStudioSourceKey,
+    data.draftId,
+    data.execution.mode,
+    fieldBindingsResolved,
+    integratedFieldEditor,
+    studioDocumentActionSourceKey,
+    studioDocumentActions.canSave,
+  ]);
+
+  useEffect(() => {
+    if (!automaticProfileRunKey || automaticProfileRunKey !== currentStudioSourceKey || !data.draftId) return;
+    let disposed = false;
+    // Strict Mode의 첫 effect setup/cleanup에서 비동기 검사를 시작해 Studio mutation lock을
+    // 남기지 않도록 취소 가능한 다음 tick부터 실행한다.
+    const startTimer = setTimeout(() => {
+      if (disposed) return;
+      setAutomaticProfileBusy(true);
+      void inspectProfileAutofillBindings()
+        .then(async (bindings) => {
+          if (disposed) return;
+          const entries = buildAutomaticProfileAutofillEntries({
+            fields: data.connectedFields,
+            answers: answersRef.current,
+            bindings,
+            duplicateLabels: duplicateSet,
+          });
+          if (entries.length === 0) return;
+          const surface = studioSurfaceRef.current;
+          if (!surface || automaticProfileRunKey !== currentStudioSourceKey) return;
+          const result = await surface.applyProfileAutofill(entries, { automatic: true });
+          if (disposed || !result.revisionId || automaticProfileRunKey !== currentStudioSourceKey) return;
+          const nextAnswers = acceptAutomaticProfileAutofillAnswers({
+            current: answersRef.current,
+            entries,
+            revisionId: result.revisionId,
+          });
+          answersRef.current = nextAnswers;
+          setAnswers(nextAnswers);
+          automaticProfileUndoRef.current = {
+            sourceKey: currentStudioSourceKey,
+            revisionId: result.revisionId,
+            entries,
+          };
+          setAutomaticProfileUndoRevisionId(result.revisionId);
+          toast.success(`저장된 회사 정보로 빈 칸 ${result.appliedCount}개를 채웠습니다.`, {
+            action: {
+              label: "되돌리기",
+              onClick: () => void undoAutomaticProfileAutofill(),
+            },
+          });
+        })
+        .catch((caught) => {
+          if (!disposed) {
+            toast.error(caught instanceof Error ? caught.message : "저장된 회사 정보를 문서에 입력하지 못했습니다.");
+          }
+        })
+        .finally(() => {
+          if (!disposed) setAutomaticProfileBusy(false);
+        });
+    }, 0);
+    return () => {
+      disposed = true;
+      clearTimeout(startTimer);
+    };
+  }, [
+    automaticProfileRunKey,
+    currentStudioSourceKey,
+    data.connectedFields,
+    data.draftId,
+    duplicateSet,
+    inspectProfileAutofillBindings,
+    undoAutomaticProfileAutofill,
+  ]);
 
   const rhwpFields = useMemo<RhwpFieldDescriptor[]>(
     () => data.connectedFields.map((field) => ({
@@ -408,6 +548,13 @@ export function WorkspaceView({
     setWorkingDocument(document);
   }
 
+  const canUndoAutomaticProfileAutofill = Boolean(
+    automaticProfileUndoRevisionId
+    && workingDocument?.revisionId === automaticProfileUndoRevisionId
+    && automaticProfileUndoRef.current?.sourceKey === currentStudioSourceKey
+    && studioSurfaceRef.current?.canUndoAutomaticProfileAutofill()
+  );
+
   const handleFieldBindingsResolved = useCallback((resolutions: readonly StudioFieldBindingResolution[]) => {
     setFieldBindingStatuses(new Map(resolutions.map((resolution) => [resolution.fieldId, resolution.status])));
     setFieldBindingTargets(new Map(resolutions.flatMap((resolution) => (
@@ -445,10 +592,22 @@ export function WorkspaceView({
           <h1 className="truncate text-base font-semibold sm:text-lg">{data.grant.title}</h1>
         </div>
         <div className="flex flex-wrap items-center justify-end gap-3">
+          {canUndoAutomaticProfileAutofill ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={automaticProfileBusy}
+              onClick={() => void undoAutomaticProfileAutofill()}
+            >
+              <RotateCcw data-icon="inline-start" aria-hidden />
+              회사 정보 입력 되돌리기
+            </Button>
+          ) : null}
           {data.documents.length > 1 && data.activeDocumentKey ? (
             <Select
               value={data.activeDocumentKey}
-              disabled={suggestingLabels.size > 0}
+              disabled={suggestingLabels.size > 0 || automaticProfileBusy}
               // Base UI Select 는 items 를 줘야 SelectValue 가 raw value(documentKey) 대신 label 을 렌더한다.
               items={data.documents.map((document) => ({ value: document.documentKey, label: document.label }))}
               onValueChange={(next) => {
@@ -494,6 +653,15 @@ export function WorkspaceView({
         <p className="mt-1">{readiness.finalReview}</p>
       </details>
 
+      {integratedRhwpWorkspace && readiness.fieldAnalysisNotice ? (
+        <div className="shrink-0 px-3 pt-3 xl:px-4">
+          <Alert role="status">
+            <AlertTitle>{readiness.fieldAnalysisNotice.title}</AlertTitle>
+            <AlertDescription>{readiness.fieldAnalysisNotice.description}</AlertDescription>
+          </Alert>
+        </div>
+      ) : null}
+
       {integratedFieldEditor && studioTransport ? (
         <>
           <div
@@ -516,7 +684,7 @@ export function WorkspaceView({
                 documentAgentAvailable={false}
                 fieldEditorAgentAvailable={data.fieldEditorAgentAvailable}
                 presentation="field_aware"
-                onDocumentActionStateChanged={setStudioDocumentActions}
+                onDocumentActionStateChanged={handleStudioDocumentActionsChanged}
                 onFieldBindingsResolved={handleFieldBindingsResolved}
                 onFieldSelectionChanged={handleStudioFieldSelection}
                 onSaved={handleStudioSaved}

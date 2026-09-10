@@ -2,6 +2,8 @@ import type { RhwpModule, RhwpDocumentFormat } from "./client";
 import { canonicalJson, sha256Hex } from "./documentAgentContract";
 import {
   buildStudioDocumentAgentCommandEvidence,
+  buildStudioFieldPhysicalReplacement,
+  studioNativeFieldTarget,
   studioApplyTextCommandSchema,
   studioApplyFieldCommandSchema,
   studioRevertTextCommandSchema,
@@ -11,6 +13,7 @@ import {
   type StudioFieldAgentProtocol,
   type StudioFieldCommandReceiptV1,
   type StudioFieldRestoreFormatV1,
+  type StudioNavigableFieldTargetV1,
   type StudioFieldTargetV1,
   type StudioFormTextTargetV1,
   type StudioParagraphFieldTargetV1,
@@ -138,7 +141,7 @@ export function createStudioFieldAgentTransaction(input: {
   };
 }
 
-type NativeFieldBindingV1 = Omit<FieldCommandBindingV1, "target"> & { target: StudioFieldTargetV1 };
+type NativeFieldBindingV1 = Omit<FieldCommandBindingV1, "target"> & { target: StudioNavigableFieldTargetV1 };
 type ParagraphFieldBindingV1 = Omit<FieldCommandBindingV1, "target"> & { target: StudioParagraphFieldTargetV1 };
 type NativeFieldApplyInput = Parameters<StudioFieldAgentTransaction["apply"]>[0] & { binding: NativeFieldBindingV1 };
 type NativeFieldRevertInput = Parameters<StudioFieldAgentTransaction["revert"]>[0] & {
@@ -162,6 +165,12 @@ function createNativeStudioFieldAgentTransaction(input: {
   let latest: AppliedEntry | null = null;
   return {
     async apply(commandInput) {
+      const physicalReplacement = buildStudioFieldPhysicalReplacement(
+        commandInput.binding.beforeText,
+        commandInput.binding.target,
+        commandInput.replacement,
+      );
+      const nativeTarget = studioNativeFieldTarget(commandInput.binding.target);
       const beforeDocumentSha256 = await sha256Hex(commandInput.bytes);
       const beforeEvidence = await collectStudioFieldEvidence(
         input.rhwp,
@@ -179,17 +188,23 @@ function createNativeStudioFieldAgentTransaction(input: {
         expectedDocumentEpoch: state.documentEpoch,
         expectedChangeSeq: state.changeSeq,
         expectedDocumentSha256: state.documentSha256,
-        target: commandInput.binding.target,
+        target: nativeTarget,
         expectedBeforeSha256: commandInput.binding.beforeTextSha256,
         expectedFormatSha256: commandInput.binding.formatSha256,
         expectedAdjacentContextSha256: commandInput.binding.adjacentContextSha256,
-        replacement: commandInput.replacement,
-        replacementStyle: "actual-input",
+        replacement: physicalReplacement,
+        replacementStyle: commandInput.binding.target.kind === "table_cell_region"
+          && commandInput.binding.target.protectedPrefixChars !== undefined
+          ? "preserve"
+          : "actual-input",
       });
       let receipt: StudioFieldCommandReceiptV1;
       try {
         receipt = await input.protocol.applyFieldCommand(command);
-        assertApplyReceipt(receipt, commandInput, state);
+        await assertApplyReceipt(receipt, {
+          ...commandInput,
+          replacement: physicalReplacement,
+        }, state);
       } catch (error) {
         throw new StudioFieldAgentMutationVerificationError(
           "Studio 필드 명령 결과를 안전하게 확인하지 못했습니다.",
@@ -202,7 +217,11 @@ function createNativeStudioFieldAgentTransaction(input: {
           ...input,
           format: commandInput.format,
           target: commandInput.binding.target,
-          expectedText: commandInput.replacement,
+          expectedText: physicalReplacement,
+          ...(commandInput.binding.target.kind === "table_cell_region"
+            && commandInput.binding.target.protectedPrefixChars !== undefined
+            ? { expectedFormatSha256: commandInput.binding.formatSha256 }
+            : {}),
           expectedAdjacentContextSha256: commandInput.binding.adjacentContextSha256,
           receipt,
           beforeDocumentSha256,
@@ -229,6 +248,11 @@ function createNativeStudioFieldAgentTransaction(input: {
         const recovery = commandInput.recovery;
         if (!recovery) throw new Error("현재 Studio 세션의 가장 최근 필드 적용만 되돌릴 수 있습니다.");
         const beforeDocumentSha256 = await sha256Hex(commandInput.bytes);
+        const physicalAppliedText = buildStudioFieldPhysicalReplacement(
+          recovery.binding.beforeText,
+          recovery.binding.target,
+          recovery.appliedText,
+        );
         if (
           beforeDocumentSha256 !== recovery.appliedDocumentSha256
           || await sha256Hex(recovery.appliedText) !== commandInput.expectedAfterTextSha256
@@ -240,9 +264,9 @@ function createNativeStudioFieldAgentTransaction(input: {
         );
         const appliedBinding: NativeFieldBindingV1 = {
           ...recovery.binding,
-          target: recovery.binding.target as StudioFieldTargetV1,
-          beforeText: recovery.appliedText,
-          beforeTextSha256: commandInput.expectedAfterTextSha256,
+          target: recovery.binding.target as StudioNavigableFieldTargetV1,
+          beforeText: physicalAppliedText,
+          beforeTextSha256: await sha256Hex(physicalAppliedText),
           formatSha256: beforeEvidence.formatSha256,
         };
         assertBinding(appliedBinding, beforeEvidence);
@@ -265,7 +289,7 @@ function createNativeStudioFieldAgentTransaction(input: {
           expectedDocumentEpoch: state.documentEpoch,
           expectedChangeSeq: state.changeSeq,
           expectedDocumentSha256: state.documentSha256,
-          target: appliedBinding.target,
+          target: studioNativeFieldTarget(appliedBinding.target),
           expectedBeforeSha256: appliedBinding.beforeTextSha256,
           expectedFormatSha256: appliedBinding.formatSha256,
           expectedAdjacentContextSha256: appliedBinding.adjacentContextSha256,
@@ -279,7 +303,7 @@ function createNativeStudioFieldAgentTransaction(input: {
         let receipt: StudioFieldCommandReceiptV1;
         try {
           receipt = await input.protocol.applyFieldCommand(command);
-          assertApplyReceipt(receipt, recoveryInput, state);
+          await assertApplyReceipt(receipt, recoveryInput, state);
           return await verifyCommittedFieldMutation({
             ...input,
             format: commandInput.format,
@@ -298,6 +322,13 @@ function createNativeStudioFieldAgentTransaction(input: {
         }
       }
       const beforeDocumentSha256 = await sha256Hex(commandInput.bytes);
+      const logicalAfterTextSha256 = await sha256Hex(entry.replacement);
+      if (
+        commandInput.expectedAfterTextSha256 !== logicalAfterTextSha256
+        && commandInput.expectedAfterTextSha256 !== entry.receipt.afterTextSha256
+      ) {
+        throw new Error("필드 적용 값과 Undo 요청 값이 다릅니다.");
+      }
       const state = await input.protocol.getDocumentState();
       if (
         state.format !== commandInput.format
@@ -314,7 +345,7 @@ function createNativeStudioFieldAgentTransaction(input: {
         expectedDocumentEpoch: state.documentEpoch,
         expectedChangeSeq: state.changeSeq,
         expectedAfterDocumentSha256: state.documentSha256,
-        expectedAfterSha256: commandInput.expectedAfterTextSha256,
+        expectedAfterSha256: entry.receipt.afterTextSha256,
       });
       const receipt = await input.protocol.revertFieldCommand(command);
       if (
@@ -608,7 +639,7 @@ async function verifyCommittedFieldMutation(input: {
   rhwp: RhwpModule;
   exportCurrentBytes(format: RhwpDocumentFormat): Promise<Uint8Array>;
   format: RhwpDocumentFormat;
-  target: StudioFieldTargetV1;
+  target: StudioNavigableFieldTargetV1;
   expectedText: string;
   expectedFormatSha256?: string;
   expectedAdjacentContextSha256: string;
@@ -1247,11 +1278,11 @@ function assertBinding(binding: FieldCommandBindingV1, evidence: FieldEvidence):
   ) throw new Error("서버 field binding이 현재 Studio revision과 다릅니다.");
 }
 
-function assertApplyReceipt(
+async function assertApplyReceipt(
   receipt: StudioFieldCommandReceiptV1,
   input: { commandId: string; binding: NativeFieldBindingV1; replacement: string },
   state: { documentEpoch: number; changeSeq: number; documentSha256: string; pageCount: number },
-): void {
+): Promise<void> {
   if (
     receipt.operation !== "apply"
     || receipt.commandId !== input.commandId
@@ -1259,6 +1290,10 @@ function assertApplyReceipt(
     || receipt.beforeChangeSeq !== state.changeSeq
     || receipt.beforeDocumentSha256 !== state.documentSha256
     || receipt.beforeTextSha256 !== input.binding.beforeTextSha256
+    || receipt.afterTextSha256 !== await sha256Hex(input.replacement)
+    || (input.binding.target.kind === "table_cell_region"
+      && input.binding.target.protectedPrefixChars !== undefined
+      && receipt.formatSha256 !== input.binding.formatSha256)
     || receipt.adjacentContextSha256 !== input.binding.adjacentContextSha256
     || receipt.pageCountBefore !== state.pageCount
     || (input.binding.target.kind !== "table_cell_region" && receipt.pageCountAfter !== state.pageCount)
@@ -1266,7 +1301,7 @@ function assertApplyReceipt(
   ) throw new Error("Studio field apply receipt가 승인된 exact binding과 다릅니다.");
 }
 
-function sameTarget(left: StudioFieldTargetV1, right: StudioFieldTargetV1): boolean {
+function sameTarget(left: StudioFieldTargetV1, right: StudioNavigableFieldTargetV1): boolean {
   if (left.kind !== right.kind || left.section !== right.section) return false;
   if (left.kind === "form_text" && right.kind === "form_text") {
     return left.paragraph === right.paragraph && left.fieldId === right.fieldId;

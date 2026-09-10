@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import type {
   RoundtripFieldCandidate,
   RoundtripParsedDocument,
@@ -32,6 +33,15 @@ const document: RoundtripParsedDocument = {
       row: 4,
       inputKind: "textarea",
       originalValue: "※ 성장과정과 전공분야가 나타나도록 작성",
+    }),
+    field({
+      id: "same-cell-narrative",
+      label: "※ 기타 현재 상황, 개선하고자 하는 점 등 자유롭게 기술해주세요.",
+      row: 6,
+      col: 0,
+      inputKind: "textarea",
+      source: "rhwp-structural",
+      sameCellTarget: true,
     }),
     field({ id: "rejected", label: "접수번호", recommendedInput: false, row: 5 }),
   ],
@@ -75,12 +85,13 @@ const document: RoundtripParsedDocument = {
 
 const fields = buildReconciledApplicationFields(document);
 
-assert.equal(fields.length, 5, "추천 입력 4건과 HWP 객관식 1건만 반영해야 한다");
+assert.equal(fields.length, 6, "추천 입력 5건과 HWP 객관식 1건만 반영해야 한다");
 assert.deepEqual(fields.map((item) => item.fieldKey), [
   "company_name",
   "company_name-2",
   "홍보물_제작기업_기업명",
   "자기소개",
+  "기타_현재_상황_개선하고자_하는_점_등_자유롭게_기술해주세요",
   "신청_분야",
 ]);
 
@@ -115,8 +126,25 @@ assert.equal(selfIntro.fieldType, "long_text");
 assert.equal(selfIntro.fillStrategy, "ask_user");
 assert.equal(selfIntro.sourceSpan, "※ 성장과정과 전공분야가 나타나도록 작성");
 assert.equal((selfIntro.textEvidence as { helperText?: string })?.helperText, "※ 성장과정과 전공분야가 나타나도록 작성");
+assert.equal(selfIntro.position?.targetKind, undefined, "일반 장문 필드에 same-cell region 계약을 추정하면 안 된다");
 
-const choice = fields[4]!;
+const sameCellNarrative = fields[4]!;
+assert.deepEqual(sameCellNarrative.position, {
+  page: 1,
+  bbox: null,
+  blockIndex: 1,
+  row: 6,
+  col: 0,
+  occurrence: 6,
+  normalizedLabel: "※기타현재상황,개선하고자하는점등자유롭게기술해주세요.",
+  anchorLabel: "※ 기타 현재 상황, 개선하고자 하는 점 등 자유롭게 기술해주세요.",
+  targetKind: "table_cell_region",
+  targetRow: 6,
+  targetCol: 0,
+  protectedPrefixText: "※ 기타 현재 상황, 개선하고자 하는 점 등 자유롭게 기술해주세요.",
+});
+
+const choice = fields[5]!;
 assert.equal(choice.fieldType, "checkbox");
 assert.equal(choice.fillStrategy, "ask_user");
 assert.equal(choice.sourceSpan, "□ 홍보 브로슈어 □ 홍보 동영상");
@@ -133,8 +161,11 @@ function field(input: {
   required?: boolean;
   recommendedInput?: boolean;
   row?: number;
+  col?: number;
   inputKind?: RoundtripFieldCandidate["inputKind"];
   originalValue?: string;
+  source?: RoundtripFieldCandidate["source"];
+  sameCellTarget?: boolean;
 }): RoundtripFieldCandidate {
   return {
     fieldInstanceId: input.id,
@@ -150,7 +181,7 @@ function field(input: {
     inputSignals: ["테스트"],
     sampleValue: "샘플",
     sampleReason: "테스트",
-    source: "kordoc-form",
+    source: input.source ?? "kordoc-form",
     inputKind: input.inputKind ?? "text",
     writeOperation: "kordoc_field",
     helperText: input.originalValue ?? null,
@@ -161,9 +192,20 @@ function field(input: {
     location: {
       blockIndex: 1,
       row: input.row ?? 1,
-      col: 1,
+      col: input.col ?? 1,
       occurrence: input.row ?? 1,
       pageNumber: 1,
+      ...(input.sameCellTarget ? {
+        target: {
+          kind: "table_cell" as const,
+          row: input.row ?? 1,
+          col: input.col ?? 1,
+          textStart: 0,
+          textEnd: input.label.length,
+          expectedText: input.label,
+          expectedSha256: createHash("sha256").update(input.label).digest("hex"),
+        },
+      } : {}),
     },
   };
 }

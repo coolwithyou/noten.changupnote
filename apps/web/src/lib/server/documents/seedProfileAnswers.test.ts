@@ -4,7 +4,7 @@
  * 사용: pnpm test:seed-profile-answers
  *
  * 규범: §4.3 컨펌 규약(결정론 프로필 시드) · §8 Phase 2 P2-7.
- * 커버: mapped 필드 시드(suggested/profile/basis) · 멱등(기존 label 불변) · 미매핑/빈값 제외.
+ * 커버: mapped 필드 시드 · 미승인 template/profile 재결속 · 승인/수기/LLM 보존 · 미매핑/빈값 제외.
  */
 import assert from "node:assert/strict";
 import type { CompanyProfile } from "@cunote/contracts";
@@ -80,6 +80,70 @@ check("멱등: 기존 답변이 있는 label 은 불변", () => {
   assert.equal(seeded.기업명?.source, "user");
   // 다른 필드는 정상 시드.
   assert.equal(seeded.소재지?.status, "suggested");
+});
+
+check("유일한 mapped label의 미승인 template 제안은 저장 profile seed로 재결속", () => {
+  const current: DraftFieldAnswers = {
+    "업 체 명": { value: "예전 템플릿 값", status: "suggested", source: "template", updatedAt: "x" },
+  };
+  const seeded = seedProfileFieldAnswers({
+    fields: [{ label: "업 체 명", mappedCompanyField: "name", fieldId: "field-spaced-name" }],
+    profile,
+    current,
+    at: "rebound",
+  });
+  assert.equal(seeded["업 체 명"]?.value, "주식회사 가나");
+  assert.equal(seeded["업 체 명"]?.source, "profile");
+  assert.equal(seeded["업 체 명"]?.fieldId, "field-spaced-name");
+  assert.notEqual(seeded, current);
+});
+
+check("값이 같은 기존 profile 제안은 유일한 새 fieldId만 보강", () => {
+  const current: DraftFieldAnswers = {
+    기업명: { value: "주식회사 가나", status: "suggested", source: "profile", updatedAt: "x" },
+  };
+  const seeded = seedProfileFieldAnswers({
+    fields: [{ label: "기업명", mappedCompanyField: "name", fieldId: "field-name" }],
+    profile,
+    current,
+  });
+  assert.equal(seeded.기업명?.fieldId, "field-name");
+});
+
+check("중복 label과 LLM 제안은 profile seed로 바꾸지 않는다", () => {
+  const duplicated: DraftFieldAnswers = {
+    기업명: { value: "템플릿", status: "suggested", source: "template", updatedAt: "x" },
+  };
+  const duplicateResult = seedProfileFieldAnswers({
+    fields: [
+      { label: "기업명", mappedCompanyField: "name", fieldId: "field-a" },
+      { label: "기업명", mappedCompanyField: "name", fieldId: "field-b" },
+    ],
+    profile,
+    current: duplicated,
+  });
+  assert.equal(duplicateResult, duplicated);
+
+  const spacedDuplicate: DraftFieldAnswers = {
+    "업 체 명": { value: "템플릿", status: "suggested", source: "template", updatedAt: "x" },
+  };
+  assert.equal(seedProfileFieldAnswers({
+    fields: [
+      { label: "업 체 명", mappedCompanyField: "name", fieldId: "field-a" },
+      { label: "업체명", mappedCompanyField: "name", fieldId: "field-b" },
+    ],
+    profile,
+    current: spacedDuplicate,
+  }), spacedDuplicate, "공백만 다른 중복 label도 기존 template 제안을 재결속하면 안 됨");
+
+  const llm: DraftFieldAnswers = {
+    기업명: { value: "LLM 제안", status: "suggested", source: "llm", basis: "인용", updatedAt: "x" },
+  };
+  assert.equal(seedProfileFieldAnswers({
+    fields: [{ label: "기업명", mappedCompanyField: "name", fieldId: "field-name" }],
+    profile,
+    current: llm,
+  }), llm);
 });
 
 check("빈 프로필 값은 시드하지 않는다", () => {

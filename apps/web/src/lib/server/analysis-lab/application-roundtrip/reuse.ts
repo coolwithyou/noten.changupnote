@@ -165,10 +165,16 @@ export function assertStrictApplicationRoundtripReuseArtifact(input: {
   if (input.manifest.version !== 1) {
     throw new ApplicationRoundtripReuseError("contract_mismatch", "Kordoc manifest version이 다릅니다.");
   }
+  const applicationDocuments = input.run.documents.filter((document) => (
+    document.role === "application_form"
+    || document.role === "business_plan"
+    || document.role === "mixed_form"
+  ));
   if (
     input.run.documents.length === 0
     || input.manifest.attachments.length === 0
-    || input.run.documents.some((document) => (
+    || applicationDocuments.length === 0
+    || applicationDocuments.some((document) => (
       document.fieldPlanning.status !== "llm"
       || document.fieldCoverage.status !== "complete"
     ))

@@ -309,6 +309,9 @@ assert.equal(directRhwpHtml.includes("작성 항목을 분석하고 있습니다
 assert.ok(directRhwpHtml.includes("data-document-guided-editor"));
 assert.ok(directRhwpHtml.includes("문서 직접 편집기"));
 assert.ok(directRhwpHtml.includes("AI 작성 가이드"));
+assert.ok(directRhwpHtml.includes("작성 항목 분석이 연결되지 않았어요"));
+assert.ok(directRhwpHtml.includes("회사 정보 자동 입력과 항목별 AI 작성을 사용하려면"));
+assert.equal(directRhwpHtml.includes("등록정보로 일괄 채우기"), false);
 assert.equal(directRhwpHtml.includes('aria-label="문서 작성 방식"'), false);
 assert.equal(directRhwpHtml.includes("빠른 작성"), false);
 

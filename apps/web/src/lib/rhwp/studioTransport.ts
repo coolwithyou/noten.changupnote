@@ -4,6 +4,24 @@ export type StudioSnapshotCommit<T> =
   | { mode: "local_preview" }
   | { mode: "persistent"; value: T };
 
+export interface StudioMutationScope {
+  sourceKey: string | null;
+  sessionId: string | null;
+  requestSeq: number;
+}
+
+/** 지연된 편집 응답이 문서 전환 뒤 새 Studio 상태를 갱신하지 못하게 하는 exact scope 비교다. */
+export function isStudioMutationScopeCurrent(
+  expected: StudioMutationScope,
+  current: StudioMutationScope,
+): boolean {
+  return expected.sourceKey !== null
+    && expected.sourceKey === current.sourceKey
+    && expected.sessionId !== null
+    && expected.sessionId === current.sessionId
+    && expected.requestSeq === current.requestSeq;
+}
+
 /**
  * Studio 스냅샷의 영속 경계.
  *

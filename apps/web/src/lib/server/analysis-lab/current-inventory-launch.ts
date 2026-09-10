@@ -10,12 +10,14 @@ import {
 import { writeImmutableBytesAtomic } from "./immutable-artifact-fs";
 
 export const CURRENT_INVENTORY_SCHEMA = "analysis-current-inventory-v1" as const;
+export const MISSING_WORKSPACE_FIELDS_POLICY = "open-visible-current-period-missing-fields-v1" as const;
+export type CurrentInventoryPolicy = "open-visible-current-period-unseen-v1" | typeof MISSING_WORKSPACE_FIELDS_POLICY;
 export interface CurrentLaunchInventory {
   readonly schema: typeof CURRENT_INVENTORY_SCHEMA;
   readonly seriesId: string;
   readonly observedAt: string;
   readonly model: string;
-  readonly policy: "open-visible-current-period-unseen-v1";
+  readonly policy: CurrentInventoryPolicy;
   readonly historicalGrantIdsSha256: string;
   readonly targets: readonly (AnalysisLaunchPlanTarget & {
     readonly sourceRevisionSha256: string;
@@ -28,7 +30,7 @@ export function validateCurrentLaunchInventory(value: unknown): CurrentLaunchInv
   if (!value || typeof value !== "object") throw new Error("current inventory가 없습니다.");
   const inventory = value as CurrentLaunchInventory;
   if (inventory.schema !== CURRENT_INVENTORY_SCHEMA
-    || inventory.policy !== "open-visible-current-period-unseen-v1"
+    || (inventory.policy !== "open-visible-current-period-unseen-v1" && inventory.policy !== MISSING_WORKSPACE_FIELDS_POLICY)
     || typeof inventory.seriesId !== "string"
     || !/^current-[a-z0-9][a-z0-9-]{0,70}$/u.test(inventory.seriesId)
     || typeof inventory.model !== "string" || !inventory.model.trim()
@@ -37,6 +39,9 @@ export function validateCurrentLaunchInventory(value: unknown): CurrentLaunchInv
     || !SHA.test(inventory.historicalGrantIdsSha256)
     || !Array.isArray(inventory.targets) || inventory.targets.length < 1
     || inventory.targets.length > 100) throw new Error("current inventory 계약이 잘못됐습니다.");
+  if ((inventory.policy === MISSING_WORKSPACE_FIELDS_POLICY) !== inventory.seriesId.startsWith("current-field-repair-")) {
+    throw new Error("누락 필드 보완은 독립된 field-repair inventory로 봉인해야 합니다.");
+  }
   const ids = new Set<string>();
   for (const [index, target] of inventory.targets.entries()) {
     if (!target || target.sequence !== index || !UUID.test(target.grantId)

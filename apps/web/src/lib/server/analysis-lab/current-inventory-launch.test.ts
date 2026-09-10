@@ -6,15 +6,18 @@ import { join } from "node:path";
 import test from "node:test";
 import {
   CURRENT_INVENTORY_SCHEMA, buildCurrentInventoryLaunchManifest,
+  MISSING_WORKSPACE_FIELDS_POLICY,
   currentLaunchInventoryPath, readCurrentLaunchInventory, storeCurrentLaunchInventory,
   validateCurrentLaunchInventory, verifyCurrentInventoryLaunchBinding,
   type CurrentLaunchInventory,
 } from "./current-inventory-launch";
-import { verifyCurrentInventoryLaunchTarget } from "./current-inventory-launch-production";
+import { assertCurrentInventoryHistoryEligibility, assertMissingWorkspaceFieldsState, verifyCurrentInventoryLaunchTarget } from "./current-inventory-launch-production";
 import { parseCurrentInventoryLaunchArgs } from "./current-inventory-launch-cli";
+import { partitionCohortEntries } from "./batch-plan";
 import { readDeepRepairHistoricalGrantIds } from "./deep-repair-preparation-history";
 import { deepRepairTargetCountForSeries } from "./deep-repair-formal-policy";
 import { encodeCanonical, normalizeAnalysisLaunchManifest, createAnalysisLaunchGrant } from "./launch-batch-artifacts";
+import { shouldForceExactManifestReanalysis } from "./launch-batch-production";
 import { DEEP_ANALYSIS_VALIDATOR_VERSION } from "../deep-analysis/validator";
 
 const id = (n: number) => `00000000-0000-4000-8000-${String(n + 1).padStart(12, "0")}`;
@@ -135,4 +138,72 @@ test("대상 착수에서 범위 밖 ID·현재 지원 조건 실패·원천 변
   await assert.rejects(() => verifyCurrentInventoryLaunchTarget(value, id(0), async () => []));
   await assert.rejects(() => verifyCurrentInventoryLaunchTarget(value, id(0), async () => [{ grantId: id(0), sourceRevisionSha256: "e".repeat(64) }]));
   await assert.rejects(() => verifyCurrentInventoryLaunchTarget(value, id(0), async () => { throw new Error("공고 마감"); }), /공고 마감/);
+});
+
+test("과거 공고의 누락 필드 보완은 별도 정책으로 봉인하며 신규 모집단의 이력 제외를 보존한다", async () => {
+  const unseen = inventory(1);
+  assert.throws(() => assertCurrentInventoryHistoryEligibility([id(0)], [id(0)], unseen.policy), /과거 이력/);
+  const repair: CurrentLaunchInventory = { ...unseen,
+    policy: MISSING_WORKSPACE_FIELDS_POLICY, seriesId: "current-field-repair-20260910" };
+  assertCurrentInventoryHistoryEligibility([id(0)], [id(0)], repair.policy);
+  assert.throws(() => validateCurrentLaunchInventory({ ...repair, seriesId: unseen.seriesId }), /독립된/);
+  assert.throws(() => validateCurrentLaunchInventory({ ...unseen, seriesId: repair.seriesId }), /독립된/);
+  const launch = manifest(repair);
+  assert.equal(launch.execution.withApplicationRoundtrip, true);
+  assert.equal(launch.execution.transport, "claude-cli");
+  assert.equal(launch.execution.existingRunPolicy, "skip_existing");
+  assert.equal(launch.targets.length, 1);
+  const historicalPrimaryWithoutRoundtrip = new Map([[
+    id(0),
+    {
+      okCurrent: true,
+      okOutdated: false,
+      heldCurrent: false,
+      errorCurrent: false,
+      applicationFieldAnalysisReadyCurrent: false,
+    },
+  ]]);
+  const scheduled = partitionCohortEntries(
+    [{ grantId: id(0) }],
+    historicalPrimaryWithoutRoundtrip,
+    {
+      retryErrors: false,
+      reanalyzeOutdated: false,
+      exactManifestReanalysis: shouldForceExactManifestReanalysis({
+        existingRunPolicy: launch.execution.existingRunPolicy,
+        retryErrors: false,
+      }),
+      requireApplicationFieldAnalysis: launch.execution.withApplicationRoundtrip,
+    },
+  );
+  assert.deepEqual(scheduled.pending, [{ grantId: id(0) }]);
+  assert.deepEqual(scheduled.skippedOk, []);
+  const root = await mkdtemp(join(tmpdir(), "cunote-field-repair-"));
+  try {
+    await storeCurrentLaunchInventory(root, repair);
+    assert.deepEqual(await verifyCurrentInventoryLaunchBinding(root, launch), repair);
+    await assert.rejects(() => verifyCurrentInventoryLaunchBinding(root,
+      { ...launch, source: { ...launch.source, seriesId: unseen.seriesId } }), /범위/);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("누락 필드 보완은 필드 0개와 보관된 편집 양식이 필요하며 모델 착수 전 다시 확인한다", async () => {
+  assertMissingWorkspaceFieldsState({ fieldCount: 0, editableSurfaceCount: 2 });
+  for (const state of [
+    { fieldCount: 1, editableSurfaceCount: 2 },
+    { fieldCount: 0, editableSurfaceCount: 0 },
+    { fieldCount: -1, editableSurfaceCount: 1 },
+  ]) assert.throws(() => assertMissingWorkspaceFieldsState(state), /필드 0개/);
+  const repair: CurrentLaunchInventory = { ...inventory(1),
+    policy: MISSING_WORKSPACE_FIELDS_POLICY, seriesId: "current-field-repair-20260910" };
+  let currentFieldCount = 0;
+  const read = async (ids: readonly string[], policy: CurrentLaunchInventory["policy"]) => {
+    assert.deepEqual(ids, [id(0)]);
+    assert.equal(policy, MISSING_WORKSPACE_FIELDS_POLICY);
+    assertMissingWorkspaceFieldsState({ fieldCount: currentFieldCount, editableSurfaceCount: 2 });
+    return [{ grantId: id(0), sourceRevisionSha256: "d".repeat(64) }];
+  };
+  await verifyCurrentInventoryLaunchTarget(repair, id(0), read);
+  currentFieldCount = 1;
+  await assert.rejects(() => verifyCurrentInventoryLaunchTarget(repair, id(0), read), /필드 0개/);
 });

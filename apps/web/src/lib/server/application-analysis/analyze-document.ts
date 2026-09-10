@@ -17,7 +17,7 @@ import {
   resolveRoundtripFieldPlannerRuntimeConfig,
   type RoundtripFieldPlannerUsageEvent,
 } from "./field-planner";
-import { finalizeRoundtripFieldCoverage } from "./field-coverage";
+import { detectUnsupportedNativeInputGaps, finalizeRoundtripFieldCoverage } from "./field-coverage";
 import { extractHwpFormChoiceGroups } from "./hwp-form-controls";
 import { verifyRoundtripParagraphFieldBindings } from "./native-paragraph-bindings";
 
@@ -100,7 +100,12 @@ export async function analyzeRoundtripDocument(
   }
   suppressContextBackedFormFields(planned.fields);
   suppressUnsafeKordocHeaderFields(planned.fields);
-  const fieldCoverage = finalizeRoundtripFieldCoverage(planned.fields);
+  const unsupportedNativeGaps = detectUnsupportedNativeInputGaps({
+    blocks: parsed.blocks,
+    fields: planned.fields,
+    role: classification.role,
+  });
+  const fieldCoverage = finalizeRoundtripFieldCoverage(planned.fields, unsupportedNativeGaps);
   planned.summary = finalizeFieldPlanning(planned.summary, planned.fields);
   if (planned.summary.warning) warnings.push(`FIELD_PLAN: ${planned.summary.warning}`);
   for (const issue of fieldCoverage.unresolvedCandidates) {

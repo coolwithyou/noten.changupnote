@@ -13,6 +13,10 @@ import {
   resolveFieldAnswers,
   type DraftFieldAnswers,
 } from "./fieldAnswers";
+import {
+  buildProfileAutofillProjection,
+  ProfileAutofillProjectionError,
+} from "./profileAutofillProjection";
 
 const STUDIO_SNAPSHOT_MAX_BYTES = 30 * 1024 * 1024;
 const STUDIO_SESSION_ID_MAX_LENGTH = 128;
@@ -34,6 +38,8 @@ export interface StudioSnapshotSaveInput {
   fieldAgentSuggestionId?: string | null;
   agentOperation?: "apply" | "undo" | null;
   operationVersion?: number | null;
+  profileAutofillOperation?: "apply" | "undo" | null;
+  profileAutofillFieldIds?: string[];
   materializedAnswers: Record<string, string>;
   verification: Record<string, unknown>;
 }
@@ -298,8 +304,31 @@ export async function saveStudioSnapshot(
           revisionId,
         })
       : null;
-    const revisionFieldAnswers = fieldProjection?.fieldAnswers ?? resolveFieldAnswers(lockedDraft);
-    const revisionMaterializedAnswers = fieldProjection?.materializedAnswers ?? input.materializedAnswers;
+    let profileAutofillProjection: ReturnType<typeof buildProfileAutofillProjection> | null = null;
+    if (input.profileAutofillOperation) {
+      try {
+        profileAutofillProjection = buildProfileAutofillProjection({
+          operation: input.profileAutofillOperation,
+          fieldIds: input.profileAutofillFieldIds ?? [],
+          currentAnswers: resolveFieldAnswers(lockedDraft),
+          currentMaterializedAnswers: head?.materializedAnswers ?? {},
+          requestedMaterializedAnswers: input.materializedAnswers,
+          currentHeadRevisionId: head?.revisionId ?? null,
+          revisionId,
+        });
+      } catch (error) {
+        if (error instanceof ProfileAutofillProjectionError) {
+          throw new DocumentRevisionError(error.code, error.message, 409, head?.revisionId ?? null);
+        }
+        throw error;
+      }
+    }
+    const revisionFieldAnswers = fieldProjection?.fieldAnswers
+      ?? profileAutofillProjection?.fieldAnswers
+      ?? resolveFieldAnswers(lockedDraft);
+    const revisionMaterializedAnswers = fieldProjection?.materializedAnswers
+      ?? profileAutofillProjection?.materializedAnswers
+      ?? input.materializedAnswers;
     const fieldAnswersHash = hashFieldAnswers(revisionFieldAnswers);
 
     const [revision] = await tx
@@ -471,10 +500,22 @@ export async function saveStudioSnapshot(
       }).where(eq(schema.grantDocumentDrafts.id, input.draftId));
     }
 
+    if (profileAutofillProjection) {
+      await tx.update(schema.grantDocumentDrafts).set({
+        fieldAnswers: profileAutofillProjection.fieldAnswers,
+        filledFields: deriveFilledFields(profileAutofillProjection.fieldAnswers),
+        updatedAt: new Date(),
+      }).where(eq(schema.grantDocumentDrafts.id, input.draftId));
+    }
+
     await tx.insert(schema.grantDocumentDraftEvents).values({
       draftId: input.draftId,
       actorUserId: input.access.userId,
-      event: transactionAgentAuthorization
+      event: profileAutofillProjection
+        ? input.profileAutofillOperation === "apply"
+          ? "profile_autofill_applied"
+          : "profile_autofill_undone"
+        : transactionAgentAuthorization
         ? transactionAgentAuthorization.kind === "field"
           ? transactionAgentAuthorization.operation === "apply"
             ? "field_agent_suggestion_applied"
@@ -492,7 +533,10 @@ export async function saveStudioSnapshot(
         documentEpoch: revision.documentEpoch,
         changeSeq: revision.changeSeq,
         origin: revision.origin,
-        ...(transactionAgentAuthorization ? {
+        ...(profileAutofillProjection ? {
+          fieldIds: input.profileAutofillFieldIds,
+          operation: input.profileAutofillOperation,
+        } : transactionAgentAuthorization ? {
           runId: transactionAgentAuthorization.run.id,
           suggestionId: transactionAgentAuthorization.suggestion.id,
           operation: transactionAgentAuthorization.operation,
@@ -770,6 +814,30 @@ function validateSnapshotInput(input: StudioSnapshotSaveInput): void {
     || input.operationVersion != null
   ) {
     throw new DocumentRevisionError("unexpected_agent_operation", "일반 저장에는 AI 작업 정보를 넣을 수 없습니다.", 400);
+  }
+  const profileAutofillFieldIds = input.profileAutofillFieldIds ?? [];
+  const hasProfileAutofill = input.profileAutofillOperation != null || profileAutofillFieldIds.length > 0;
+  if (hasProfileAutofill) {
+    if (
+      (input.profileAutofillOperation !== "apply" && input.profileAutofillOperation !== "undo")
+      || profileAutofillFieldIds.length === 0
+      || profileAutofillFieldIds.length > 100
+      || new Set(profileAutofillFieldIds).size !== profileAutofillFieldIds.length
+      || profileAutofillFieldIds.some((fieldId) => !isUuid(fieldId))
+    ) {
+      throw new DocumentRevisionError(
+        "profile_autofill_fields_invalid",
+        "자동 입력할 회사 정보 필드가 올바르지 않습니다.",
+        400,
+      );
+    }
+    if (isAgentSnapshot(input) || input.origin !== "studio_manual") {
+      throw new DocumentRevisionError(
+        "profile_autofill_origin_invalid",
+        "회사 정보 자동 입력의 저장 유형이 올바르지 않습니다.",
+        400,
+      );
+    }
   }
   if (Object.keys(input.materializedAnswers).length > 500) {
     throw new DocumentRevisionError(

@@ -1,13 +1,16 @@
 import assert from "node:assert/strict";
 import {
   buildStudioDocumentAgentCommandEvidence,
+  buildStudioFieldPhysicalReplacement,
   resolveStudioDocumentAgentProtocol,
   resolveStudioFieldNavigationProtocol,
   resolveStudioFieldSelectionProtocol,
+  sameStudioFieldBindingTarget,
   studioApplyFieldCommandSchema,
   studioDocumentStateSchema,
   studioFieldBindingTargetSchema,
   studioFieldTargetSchema,
+  studioNativeFieldTarget,
   studioTextCommandReceiptSchema,
   type StudioDocumentAgentEvidenceDocument,
 } from "./studioDocumentAgentProtocol";
@@ -161,7 +164,53 @@ const regionTarget = {
   cellIndex: 3,
 };
 assert.deepEqual(await fieldProtocol.focusFieldTarget(regionTarget), { focused: true, page: 2 });
-assert.deepEqual(fieldCalls, [fieldTarget, formFieldTarget, regionTarget]);
+const protectedRegionTarget = { ...regionTarget, protectedPrefixChars: 37 };
+assert.deepEqual(studioFieldBindingTargetSchema.parse(protectedRegionTarget), protectedRegionTarget);
+assert.throws(
+  () => studioFieldTargetSchema.parse(protectedRegionTarget),
+  /unrecognized_keys|Unrecognized key/u,
+);
+assert.deepEqual(studioNativeFieldTarget(protectedRegionTarget), regionTarget);
+assert.equal(sameStudioFieldBindingTarget(protectedRegionTarget, protectedRegionTarget), true);
+assert.equal(sameStudioFieldBindingTarget(
+  protectedRegionTarget,
+  { ...protectedRegionTarget, protectedPrefixChars: 36 },
+), false, "서버 authority는 host prefix 길이 변조를 좌표 일치로 허용하지 않는다");
+assert.equal(sameStudioFieldBindingTarget(protectedRegionTarget, regionTarget), false);
+assert.equal(
+  buildStudioFieldPhysicalReplacement(
+    "※ 기타 현재 상황, 개선하고자 하는 점 등 자유롭게 기술해주세요.",
+    protectedRegionTarget,
+    "검증 가능한 개선 계획",
+  ),
+  "※ 기타 현재 상황, 개선하고자 하는 점 등 자유롭게 기술해주세요.\n검증 가능한 개선 계획",
+);
+assert.equal(
+  buildStudioFieldPhysicalReplacement(
+    "※ 기타 현재 상황, 개선하고자 하는 점 등 자유롭게 기술해주세요.\n기존 값",
+    protectedRegionTarget,
+    "새 값",
+  ),
+  "※ 기타 현재 상황, 개선하고자 하는 점 등 자유롭게 기술해주세요.\n새 값",
+);
+assert.throws(
+  () => buildStudioFieldPhysicalReplacement("잘못된 prefix", protectedRegionTarget, "새 값"),
+  /첫 문단/u,
+);
+assert.throws(
+  () => buildStudioFieldPhysicalReplacement(`${"가".repeat(37)}기존 값`, protectedRegionTarget, "새 값"),
+  /첫 문단/u,
+);
+assert.throws(
+  () => buildStudioFieldPhysicalReplacement(
+    "※ 기타 현재 상황, 개선하고자 하는 점 등 자유롭게 기술해주세요.",
+    protectedRegionTarget,
+    "가".repeat(3_963),
+  ),
+  /4,000자/u,
+);
+assert.deepEqual(await fieldProtocol.focusFieldTarget(protectedRegionTarget), { focused: true, page: 2 });
+assert.deepEqual(fieldCalls, [fieldTarget, formFieldTarget, regionTarget, regionTarget]);
 assert.equal(resolveStudioFieldNavigationProtocol({ focusTarget: async () => ({ focused: true, page: 1 }) }), null);
 await assert.rejects(
   () => fieldProtocol.focusFieldTarget({ ...fieldTarget, cellIndex: -1 }),
