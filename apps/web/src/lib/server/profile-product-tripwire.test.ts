@@ -92,6 +92,7 @@ const actualDirect = [...directCounts.values()]
 // The sealed list intentionally includes analysis-lab/matching-reprojection.ts:
 // its two calls compare original/projected criteria against EMPTY_DIAGNOSTIC_COMPANY offline,
 // while keeping the product entrypoint list above unchanged.
+// applyCompanyProfileAnswer's second profile update preserves an existing user target_type merge before persistence.
 assert.deepEqual(actualDirect, fixture.directCallSites, "direct matcher/legacy merge surface changed; route it in P3");
 
 const companyScopedStateConsumers = [

@@ -91,6 +91,22 @@ export async function verifyDocumentJourneyPostgres(input: { admin: postgres.Sql
       assert.ok(candidate);
       const common = { draftId, access: input.access, format, filename: `fixture.${format}`, pageCount: 1, sessionId: crypto.randomUUID(), documentEpoch: 0, origin: "studio_manual" as const, checkpointRequestId: null, materializedAnswers: {}, verification: {} };
       const baseline = await saveStudioSnapshot({ ...common, body: Buffer.from(original), baseRevisionId: null, changeSeq: 1 }, { storage });
+      const [epochZeroRun] = await input.admin`insert into grant_document_agent_runs
+        (draft_id,created_by,client_request_id,status,lease_owner,lease_expires_at,request_binding_sha256,
+         base_revision_id,document_sha256,studio_session_id,document_epoch,change_seq,selected_page,candidate,
+         candidate_id,model_version,prompt_version,grounding_binding_sha256,grounding_provenance)
+        values (${draftId},${input.access.userId},${crypto.randomUUID()},'generating',${crypto.randomUUID()},now() + interval '2 minutes',
+          ${"a".repeat(64)},${baseline.revisionId},${baseline.sha256},${common.sessionId},0,1,1,'{}',${"b".repeat(64)},
+          'fixture-model','fixture-prompt',${"c".repeat(64)},'{}')
+        returning id,document_epoch`;
+      assert.equal(epochZeroRun?.document_epoch, 0, "초기 Studio checkpoint의 epoch 0도 agent run에 결속할 수 있다");
+      await input.admin`update grant_document_agent_runs
+        set status='cancelled', status_version=1, lease_owner=null, lease_expires_at=null, completed_at=now()
+        where id=${epochZeroRun!.id}`;
+      await assert.rejects(
+        () => input.admin`update grant_document_agent_runs set document_epoch=-1 where id=${epochZeroRun!.id}`,
+        /grant_document_agent_runs_state_check/,
+      );
       const replacement = "검증 회사는 시제품 검증과 고객 인터뷰를 순차적으로 진행합니다.";
       const applied = await applyDocumentAgentEdit({ rhwp, bytes: original, format, reservedAnchors: [], command: { schemaVersion: "document-agent-v1", candidate, replacement } });
       const saved = await saveStudioSnapshot({ ...common, body: Buffer.from(applied.bytes), baseRevisionId: baseline.revisionId, changeSeq: 2 }, { storage });

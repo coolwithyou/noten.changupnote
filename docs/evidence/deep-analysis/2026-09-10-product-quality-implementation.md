@@ -1,6 +1,7 @@
 # 매칭·RHWP·LLM 품질 개선 실행 기록
 
-2026-09-10. 상태: 첫 구현 묶음·자동 검증 통과, 실제 사용자 인수 대기. 추가 배치·서비스 게시 완료 기록이 아니다.
+2026-09-10. 상태: 구현·자동 검증과 매칭·RHWP 일부 실제 흐름 통과. LLM은 공유 DB 수정 적용 대기.
+아래 기록은 단계별 증거이며, 추가 배치·서비스 게시 완료 기록이 아니다.
 
 ## 범위와 개발 순서
 
@@ -192,3 +193,74 @@ untracked 품질·처리 효율 개선 계획의 내용을 보존한다. 기존 
 
 2차 상세 로그·소스 해시:
 `/var/folders/90/3_v527vj59d6wv2ql7_k6rzm0000gn/T/cunote-quality-next-sl0d0bwc/`.
+
+## 리모트 반영과 실제 브라우저 검증
+
+사용자가 기존 커밋 push와 직접 개발 서버 실행을 명시적으로 요청해 진행했다.
+`7e8ca6110ef363abf1aca848565981f7c5fa49f1`에 위 개선 묶음을 커밋했고, 앞선 6개 커밋과
+함께 `origin/main`으로 push한 뒤 remote SHA 일치를 확인했다.
+
+`pnpm dev:web`를 4010에서 실행했다. 실제 로그인 검증은 인증 callback 주소와 일치하는
+`https://dev.changupnote.com`에서 별도의 가상 QA 계정·회사로 수행했다. localhost에서 화면이
+열린 것만으로 로그인 성공을 판정하지 않고 실제 세션을 확인했다. 문서·항목 작성 제안의
+두 개발 feature flag를 켰으며 운영 배포나 worker 활성화는 하지 않았다.
+
+### 실제 저장·재열기 확인
+
+강북구 착한가격업소 신청서 HWPX를 실제 persistent workspace에서 열었다. 빈 업소명 셀에
+`QA검증-20260910`을 한 번 입력하고 서버 저장 응답 201, 다운로드, 브라우저 재열기,
+재다운로드를 확인했다. 1쪽 표 구조와 원래 신청서 제목을 보존했고 ZIP 무결성 검사도 통과했다.
+
+- 편집본과 재열기 후 다운로드 SHA 모두
+  `7c6bdae1f49b846f0d010575bf1c2e3086d5d7516883239300e0369a452ae7cd`.
+- section XML 동일, 검증 문구 각 1회, 재열기 화면에서도 같은 셀에서 확인.
+- 해당 양식의 연결 필드는 0개다. 이 결과는 수동 편집·저장 증거이며 회사 정보 자동 입력이나
+  항목별 AI 작성의 성공 증거로 확대하지 않는다.
+
+별도 `/dev/document-agent-phase0`에서 실제 HWP와 native HWPX를 사용한 문서 명령 gate도
+확인했다. HWPX seq27은 적용 1,886.3ms, export·재열기, 비대상 문단·쪽 수 보존,
+정확한 Undo와 편집 포커스 복구가 통과했다. 이는 모델 없는 실제 편집기 명령의 검증이며
+서버 제안 생성이나 계정 저장의 증거는 위 persistent 검증과 구분한다.
+
+### 브라우저에서 발견한 결함
+
+- 매칭: 사업자 유형 답변 저장 200 뒤 반환된 최신 revision으로 근로자 수를 연속 제출해도
+  409가 발생했다. 공유 원천과 사용자 답변의 저장 후 재구성 결과와 응답 revision이 달랐다.
+  저장 후 정본으로 응답하고 기존 사용자 병합값을 후속 저장에서도 보존하도록 고쳤다.
+  실제 화면에서 사업자 유형 → 근로자 1~4명을 새로고침 없이 연속 제출해 모두 200을
+  확인했다. `답하면 확정 1건`에서 `지금 신청 가능 1건`으로 전환됐고, 재열기에도 결과와
+  `개인사업자, 소규모 사업장 사업주` 값이 유지됐다. 상세는 `matching-sequential-result.json`.
+- 문서 LLM: 실제 HWP의 위치 선택·checkpoint 저장 201 뒤 제안 요청이 모델 호출 전에 500으로
+  실패했다. 정상 초기 checkpoint의 `document_epoch=0`을 DB run 제약조건이 `>=1`로 거부했다.
+  `0084_document_agent_epoch_zero.sql`은 이 하한만 `>=0`으로 맞추는 수정안이다.
+- 예상하지 못한 DB 오류의 원문 SQL이 화면에 노출되던 동작을 route의 일반 오류 문구로
+  바꿨다. 수정 후 실제 동일 요청에서 일반 문구만 표시됨을 확인했다.
+- HWPX 문서 명령: Studio 내부 상태 SHA와 host export ZIP의 SHA가 각각 안정적이어도
+  서로 다를 수 있었다. export 전후의 문서 상태가 동일한지 검사한 뒤 내부 SHA는 command
+  receipt에, byte SHA는 요청·저장 파일에 각각 결속하도록 수정했다. 두 해시를 버리지 않으며
+  export 중 편집과 요청 byte 불일치는 계속 거부한다.
+
+공유 DB migration 적용과 실제 모델 제안·적용 검증은 별도 상태로 기록한다. 현행 DB에 필드
+분석이 연결되지 않은 양식의 자동 입력·항목별 AI는 코드 수정만으로 복구됐다고 판정하지 않는다.
+
+브라우저 증거 디렉터리:
+`/var/folders/90/3_v527vj59d6wv2ql7_k6rzm0000gn/T/cunote-browser-20260910-fags1a1s/`.
+`hwpx-persistent-result.json`과 `screenshots/hwpx-cell-edited.png`,
+`screenshots/hwpx-reopened-large.png`, `screenshots/llm-error-sanitized.png`를 남겼다.
+계정 자격정보·쿠키가 포함된 raw 요청·원문 SQL 로그는 Git에 추가하지 않는다.
+
+### 최종 통합 확인
+
+- `pnpm test` 최종 **exit 0**. 첫 실행에서 추가 공용 함수 호출을 반영하지 못한 tripwire
+  inventory가 실패해, 동일 제품 경계 안의 저장 보존 호출임을 확인하고 count를 갱신했다.
+  재실행 전후 수정 소스·테스트·package 15개 SHA가 동일했다.
+- 격리 PostgreSQL의 `pnpm test:product-postgres` 통과: migration 85개 fresh 적용, epoch 0
+  INSERT 허용·음수 UPDATE 거부, HWP/HWPX 문서 여정과 RLS 포함.
+- 공유 Supabase에는 migration을 적용하지 않았다. 준비 시 latest ledger가 로컬 0083과
+  일치하고 0084만 pending임을 read-only로 확인했다. 실제 적용 승인이 필요하다.
+- 기존 개발 생성 파일과 병행 중인 workspace 안내·field-repair CLI 변경은 이번 추가 커밋에서
+  제외했다. 이들의 화면 표시를 이번 커밋만의 변경이라고 보고하지 않는다.
+- 실제 모델 응답 품질·적용과 연결 필드 기반 자동 입력 인수는 남아 있다. 일반 오류 안내와
+  문서 명령 gate 통과만으로 그 기능을 완료 처리하지 않는다.
+
+최종 로그는 `pnpm-test-rerun.log`, 소스 결속은 `verification-final.json`에 기록했다.

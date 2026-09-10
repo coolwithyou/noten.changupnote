@@ -5,12 +5,14 @@ import { extractDocumentEditCandidates } from "./documentAgentCandidates";
 import { applyDocumentAgentEdit, undoDocumentAgentEdit } from "./documentAgentTransaction";
 import {
   createStudioCommandDocumentAgentTransaction,
+  readStableStudioDocumentSnapshot,
   StudioDocumentAgentVerificationError,
 } from "./studioCommandDocumentAgentTransaction";
 import type {
   StudioApplyTextCommandV1,
   StudioDocumentAgentProtocol,
   StudioDocumentChangedEventV1,
+  StudioDocumentStateV1,
   StudioRevertTextCommandV1,
   StudioTextCommandReceiptV1,
 } from "./studioDocumentAgentProtocol";
@@ -38,8 +40,11 @@ for (const format of ["hwp", "hwpx"] as const) {
   assert.equal(applied.studioReceipt.commandId, `native-${format}`);
   assert.equal(applied.studioReceipt.operation, "apply");
   assert.equal(applied.afterDocumentSha256, await sha256Hex(fake.currentBytes()));
+  if (format === "hwpx") {
+    assert.notEqual(applied.studioReceipt.afterDocumentSha256, applied.afterDocumentSha256);
+  }
   assert.equal(applied.focus.focused, true);
-  assert.deepEqual(fake.calls.slice(0, 3), ["state", "apply", "focus"]);
+  assert.deepEqual(fake.calls.slice(0, 6), ["state", "state", "apply", "state", "state", "focus"]);
 
   const undone = await transaction.undo({
     bytes: applied.bytes,
@@ -94,6 +99,60 @@ for (const format of ["hwp", "hwpx"] as const) {
   );
 }
 
+{
+  const format = "hwpx" as const;
+  const fixture = createFixtureBytes(rhwp, format);
+  const baseState: StudioDocumentStateV1 = {
+    schemaVersion: 1,
+    format,
+    documentEpoch: 1,
+    changeSeq: 0,
+    dirty: false,
+    pageCount: 1,
+    documentSha256: "a".repeat(64),
+  };
+  let callCount = 0;
+  await assert.rejects(
+    readStableStudioDocumentSnapshot({
+      protocol: {
+        getDocumentState: async () => callCount++ === 0
+          ? baseState
+          : { ...baseState, changeSeq: 1 },
+      },
+      exportCurrentBytes: async () => fixture,
+      format,
+    }),
+    /export 도중 command-state/u,
+  );
+}
+
+{
+  const format = "hwp" as const;
+  const fixture = createFixtureBytes(rhwp, format);
+  const candidate = await firstCandidate(rhwp, fixture, format);
+  const fake = createFakeStudioProtocol({ rhwp, format, bytes: fixture, candidate });
+  const transaction = createStudioCommandDocumentAgentTransaction({
+    rhwp,
+    protocol: fake.protocol,
+    exportCurrentBytes: async () => new Uint8Array([1, 2, 3]),
+    createCommandId: () => "export-byte-mismatch",
+  });
+  await assert.rejects(
+    transaction.apply({
+      bytes: fixture,
+      format,
+      reservedAnchors: [],
+      command: {
+        schemaVersion: "document-agent-v1",
+        candidate,
+        replacement: "export 바이트 불일치를 차단하는 문단입니다.",
+      },
+    }),
+    /요청 기준 바이트/u,
+  );
+  assert.equal(fake.events.length, 0, "export byte mismatch는 Studio command 전에 실패해야 합니다.");
+}
+
 console.log("rhwp Studio native command transaction tests passed");
 
 function createFakeStudioProtocol(input: {
@@ -126,7 +185,9 @@ function createFakeStudioProtocol(input: {
     changeSeq,
     dirty: changeSeq > 0,
     pageCount: pageCount(input.rhwp, currentBytes),
-    documentSha256: await sha256Hex(currentBytes),
+    documentSha256: input.format === "hwpx"
+      ? await sha256Hex(`studio-state:${await sha256Hex(currentBytes)}`)
+      : await sha256Hex(currentBytes),
   });
 
   const protocol: StudioDocumentAgentProtocol = {
@@ -177,7 +238,7 @@ function createFakeStudioProtocol(input: {
         beforeDocumentSha256: beforeState.documentSha256,
         afterDocumentSha256: input.corruptApplyReceiptSha
           ? "f".repeat(64)
-          : await sha256Hex(currentBytes),
+          : (await state()).documentSha256,
         beforeTextSha256: input.candidate.beforeSha256,
         afterTextSha256: await sha256Hex(command.replacement),
         formatSha256: input.candidate.studioCommandEvidence.formatSha256,
@@ -223,7 +284,7 @@ function createFakeStudioProtocol(input: {
         beforeChangeSeq,
         afterChangeSeq: changeSeq,
         beforeDocumentSha256: beforeState.documentSha256,
-        afterDocumentSha256: await sha256Hex(currentBytes),
+        afterDocumentSha256: (await state()).documentSha256,
         beforeTextSha256: applyReceipt.afterTextSha256,
         afterTextSha256: await sha256Hex(afterText),
         formatSha256: input.candidate.studioCommandEvidence.formatSha256,
@@ -253,7 +314,12 @@ function createFakeStudioProtocol(input: {
   };
   const unsubscribe = protocol.onDocumentChanged(() => undefined);
   unsubscribe();
-  return { protocol, currentBytes: () => currentBytes, calls, events };
+  return {
+    protocol,
+    currentBytes: () => currentBytes,
+    calls,
+    events,
+  };
 }
 
 async function firstCandidate(

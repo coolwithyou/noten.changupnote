@@ -1,6 +1,8 @@
 import type {
   CompanyInitialMatchResult,
   CompanyProfile,
+  CompanyProfileEvidenceObservation,
+  CompanyProfileFieldEvidence,
   MatchingProfileAnswerRequest,
   MatchingProfileView,
   OwnedCompanyMatchingResult,
@@ -15,6 +17,7 @@ import {
   evaluateProfileUpdateImpact,
   markProfileQuestionRange,
   markProfileQuestionUnknown,
+  stableCanonicalStringify,
   updateCompanyProfileField,
 } from "@cunote/core";
 import { annotateMatchCardWriteSupport } from "@/lib/server/matches/annotateWriteSupport";
@@ -26,7 +29,6 @@ import {
   loadServiceGrantUniverse,
   resolveProductCompanyProfile,
 } from "@/lib/server/serviceData";
-import { buildMatchingProfileView } from "./resolveProductCompanyProfile";
 import { buildOwnedCompanyMatchingSnapshot } from "./productMatchSnapshot";
 import {
   annotateMatchCardConfirmationQuestions,
@@ -108,17 +110,25 @@ export async function applyCompanyProfileAnswer(
   };
 
   const updatedStoredProfile = applyAnswer(current, answer, asOf);
-  const effectiveProfile = applyAnswer(before.profile, answer, asOf);
-  const profileView = buildMatchingProfileView(effectiveProfile, asOf.toISOString());
-  const matching = buildOwnedCompanyMatchingSnapshot({
-    ...matchContext, companyId: input.companyId,
-    resolution: { profile: effectiveProfile, view: profileView }, grants,
-  });
   await repositories.companies.saveCompanyProfile({
     companyId: input.companyId,
     userId: input.userId,
     profile: updatedStoredProfile,
     expectedProfile: current,
+  });
+  // 공유 원천과 사용자 overlay가 함께 있는 축은 저장 round-trip에서 evidence가 다시 조립된다.
+  // 다음 답변의 optimistic revision이 즉시 유효하도록 응답과 파생 판정도 저장 후 정본을 사용한다.
+  const after = await resolveProductCompanyProfile({
+    context: "owned_read",
+    companyId: input.companyId,
+    userId: input.userId,
+    asOf: asOf.toISOString(),
+  });
+  const effectiveProfile = after.profile;
+  const profileView = after.view;
+  const matching = buildOwnedCompanyMatchingSnapshot({
+    ...matchContext, companyId: input.companyId,
+    resolution: after, grants,
   });
 
   const impact = evaluateProfileUpdateImpact({
@@ -141,7 +151,7 @@ export async function applyCompanyProfileAnswer(
       ...matchContext,
       repositories,
       companyId: input.companyId,
-      stateScope: before.stateScope,
+      stateScope: after.stateScope,
       company: effectiveProfile,
       grants,
       impact,
@@ -227,9 +237,10 @@ function applyAnswer(
   answer: MatchingProfileAnswerRequest,
   asOf: Date,
 ): CompanyProfile {
+  const storageProfile = restoreTargetTypeUserMerge(profile);
   if (answer.unknown === true) {
     return markProfileQuestionUnknown({
-      profile,
+      profile: storageProfile,
       dimension: answer.field,
       answeredAt: asOf,
       rulesetVer: RULESET_VERSION,
@@ -237,23 +248,77 @@ function applyAnswer(
   }
   if (answer.range && (answer.field === "revenue" || answer.field === "employees")) {
     return markProfileQuestionRange({
-      profile,
+      profile: storageProfile,
       dimension: answer.field,
       range: answer.range,
       answeredAt: asOf,
       rulesetVer: RULESET_VERSION,
     });
   }
-  return updateCompanyProfileField(profile, {
-    field: answer.field,
-    value: answer.value,
-    confidence: 0.6,
-    mode: answer.mode ?? "replace",
-    sourceKind: "self_declared",
-    provider: "cunote_profile_question",
-    asOf: asOf.toISOString(),
-    observation: { scope: "user", persistenceClass: "portable_user_answer" },
+  const existingEvidence = answer.mode === "merge" && answer.field === "target_type"
+    ? storageProfile.profile_evidence?.target_type
+    : undefined;
+  return updateCompanyProfileField(
+    existingEvidence ? profileWithoutEvidence(storageProfile, answer.field) : storageProfile,
+    {
+      field: answer.field,
+      value: answer.value,
+      confidence: 0.6,
+      mode: answer.mode ?? "replace",
+      sourceKind: "self_declared",
+      provider: "cunote_profile_question",
+      asOf: asOf.toISOString(),
+      observation: { scope: "user", persistenceClass: "portable_user_answer" },
+      ...(existingEvidence ? { supplementalEvidence: evidenceObservations(existingEvidence) } : {}),
+    },
+  );
+}
+
+function restoreTargetTypeUserMerge(profile: CompanyProfile): CompanyProfile {
+  const evidence = profile.profile_evidence?.target_type;
+  if (!evidence || !profile.target_types?.length) return profile;
+  const canonicalValue = stableCanonicalStringify([...new Set(profile.target_types)].sort());
+  const userMerge = evidence.supplemental?.find((item) =>
+    item.sourceKind === "self_declared" &&
+    item.provider === "cunote_profile_question" &&
+    item.scope === "user" &&
+    item.persistenceClass === "portable_user_answer" &&
+    item.canonicalValue === canonicalValue);
+  if (!userMerge) return profile;
+  // 전체 user row를 다시 직렬화할 때 이미 확인된 target_type 병합값과 원천 provenance를 함께 보존한다.
+  return updateCompanyProfileField(profileWithoutEvidence(profile, "target_type"), {
+    field: "target_type",
+    value: profile.target_types,
+    mode: "merge",
+    sourceKind: userMerge.sourceKind,
+    provider: userMerge.provider,
+    asOf: userMerge.asOf,
+    axisCompleteness: userMerge.axisCompleteness,
+    confidence: userMerge.confidence,
+    observation: {
+      scope: "user",
+      canonicalValue,
+      persistenceClass: "portable_user_answer",
+      ...(userMerge.observationId ? { observationId: userMerge.observationId } : {}),
+      ...(userMerge.observationVersion ? { observationVersion: userMerge.observationVersion } : {}),
+      ...(userMerge.resolverVersion ? { resolverVersion: userMerge.resolverVersion } : {}),
+    },
+    supplementalEvidence: evidenceObservations(evidence).filter((item) => item !== userMerge),
   });
+}
+
+function evidenceObservations(evidence: CompanyProfileFieldEvidence): CompanyProfileEvidenceObservation[] {
+  const { supplemental, ...primary } = evidence;
+  return [primary, ...(supplemental ?? [])];
+}
+
+function profileWithoutEvidence(profile: CompanyProfile, field: MatchingProfileAnswerRequest["field"]): CompanyProfile {
+  const evidence = { ...(profile.profile_evidence ?? {}) };
+  delete evidence[field];
+  if (Object.keys(evidence).length > 0) return { ...profile, profile_evidence: evidence };
+  const withoutEvidence: CompanyProfile = { ...profile };
+  delete withoutEvidence.profile_evidence;
+  return withoutEvidence;
 }
 
 function validRange(

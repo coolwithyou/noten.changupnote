@@ -38,7 +38,7 @@ try {
   const journal = JSON.parse(readFileSync("db/migrations/meta/_journal.json", "utf8")) as {
     entries: Array<{ tag: string }>;
   };
-  assert.equal(journal.entries.length, 84, "UAT fixture가 기대하는 migration 수가 바뀌면 다시 검토한다");
+  assert.equal(journal.entries.length, 85, "UAT fixture가 기대하는 migration 수가 바뀌면 다시 검토한다");
   for (const entry of journal.entries) {
     const statements = readFileSync(`db/migrations/${entry.tag}.sql`, "utf8")
       .split("--> statement-breakpoint");

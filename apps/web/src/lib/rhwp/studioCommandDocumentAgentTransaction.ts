@@ -34,6 +34,12 @@ export interface StudioCommandDocumentAgentTransaction extends DocumentAgentTran
   undo(input: DocumentAgentUndoInput): Promise<StudioCommandResult>;
 }
 
+export interface StableStudioDocumentSnapshot {
+  bytes: Uint8Array;
+  bytesSha256: string;
+  state: Awaited<ReturnType<StudioDocumentAgentProtocol["getDocumentState"]>>;
+}
+
 interface AppliedJournalEntry {
   candidateId: string;
   commandId: string;
@@ -78,8 +84,12 @@ export function createStudioCommandDocumentAgentTransaction(input: {
         throw new Error("AI 문서 치환 기준 전체 문서 SHA가 현재 Studio 바이트와 다릅니다.");
       }
 
-      const state = await input.protocol.getDocumentState();
-      assertStateMatchesInput(state, transactionInput.format, beforeDocumentSha256);
+      const { state } = await readStableStudioDocumentSnapshot({
+        protocol: input.protocol,
+        exportCurrentBytes: input.exportCurrentBytes,
+        format: transactionInput.format,
+        expectedBytesSha256: beforeDocumentSha256,
+      });
       const commandId = createCommandId();
       const command = studioApplyTextCommandSchema.parse({
         schemaVersion: 1,
@@ -105,6 +115,7 @@ export function createStudioCommandDocumentAgentTransaction(input: {
         });
         const verified = await verifyCommittedStudioMutation({
           rhwp: input.rhwp,
+          protocol: input.protocol,
           exportCurrentBytes: input.exportCurrentBytes,
           format: transactionInput.format,
           beforeBytes: transactionInput.bytes,
@@ -154,8 +165,12 @@ export function createStudioCommandDocumentAgentTransaction(input: {
         throw new Error("현재 Studio 세션의 가장 최근 AI 명령만 되돌릴 수 있습니다.");
       }
       const beforeDocumentSha256 = await sha256Hex(transactionInput.bytes);
-      const state = await input.protocol.getDocumentState();
-      assertStateMatchesInput(state, transactionInput.format, beforeDocumentSha256);
+      const { state } = await readStableStudioDocumentSnapshot({
+        protocol: input.protocol,
+        exportCurrentBytes: input.exportCurrentBytes,
+        format: transactionInput.format,
+        expectedBytesSha256: beforeDocumentSha256,
+      });
       if (
         state.documentEpoch !== entry.receipt.documentEpoch
         || state.changeSeq !== entry.receipt.afterChangeSeq
@@ -177,6 +192,7 @@ export function createStudioCommandDocumentAgentTransaction(input: {
         await assertRevertReceipt({ receipt, state, entry, candidate });
         const verified = await verifyCommittedStudioMutation({
           rhwp: input.rhwp,
+          protocol: input.protocol,
           exportCurrentBytes: input.exportCurrentBytes,
           format: transactionInput.format,
           beforeBytes: transactionInput.bytes,
@@ -210,6 +226,7 @@ export function createStudioCommandDocumentAgentTransaction(input: {
 
 async function verifyCommittedStudioMutation(input: {
   rhwp: RhwpModule;
+  protocol: StudioDocumentAgentProtocol;
   exportCurrentBytes(format: "hwp" | "hwpx"): Promise<Uint8Array>;
   format: "hwp" | "hwpx";
   beforeBytes: Uint8Array;
@@ -219,10 +236,18 @@ async function verifyCommittedStudioMutation(input: {
   replacement: string;
   operation: "apply" | "undo";
 }): Promise<VerifiedEditResult> {
-  const bytes = await input.exportCurrentBytes(input.format);
-  const afterDocumentSha256 = await sha256Hex(bytes);
-  if (afterDocumentSha256 !== input.receipt.afterDocumentSha256) {
-    throw new Error("Studio command receipt와 검증 export의 문서 SHA가 다릅니다.");
+  const { bytes, bytesSha256: afterDocumentSha256, state } = await readStableStudioDocumentSnapshot({
+    protocol: input.protocol,
+    exportCurrentBytes: input.exportCurrentBytes,
+    format: input.format,
+  });
+  if (
+    state.documentEpoch !== input.receipt.documentEpoch
+    || state.changeSeq !== input.receipt.afterChangeSeq
+    || state.documentSha256 !== input.receipt.afterDocumentSha256
+    || state.pageCount !== input.receipt.pageCountAfter
+  ) {
+    throw new Error("Studio command receipt와 현재 Studio 문서 상태가 다릅니다.");
   }
   const beforeDocument = new input.rhwp.HwpDocument(input.beforeBytes);
   const afterDocument = new input.rhwp.HwpDocument(bytes);
@@ -253,14 +278,41 @@ async function verifyCommittedStudioMutation(input: {
   }
 }
 
-function assertStateMatchesInput(
-  state: Awaited<ReturnType<StudioDocumentAgentProtocol["getDocumentState"]>>,
-  format: "hwp" | "hwpx",
-  documentSha256: string,
-): void {
-  if (state.format !== format || state.documentSha256 !== documentSha256) {
-    throw new Error("Studio document state가 검증한 현재 바이트와 다릅니다.");
+/**
+ * Studio command fence와 영속화 바이트는 각각의 SHA 결속을 유지한다.
+ * HWPX에서는 Studio의 내부 command-state digest와 host export ZIP digest가 다를 수 있다.
+ */
+export async function readStableStudioDocumentSnapshot(input: {
+  protocol: Pick<StudioDocumentAgentProtocol, "getDocumentState">;
+  exportCurrentBytes(format: "hwp" | "hwpx"): Promise<Uint8Array>;
+  format: "hwp" | "hwpx";
+  expectedBytesSha256?: string;
+}): Promise<StableStudioDocumentSnapshot> {
+  const before = await input.protocol.getDocumentState();
+  if (before.format !== input.format) {
+    throw new Error(
+      `Studio document state 형식(${before.format})이 현재 문서 형식(${input.format})과 다릅니다.`,
+    );
   }
+  const bytes = await input.exportCurrentBytes(input.format);
+  const [bytesSha256, after] = await Promise.all([
+    sha256Hex(bytes),
+    input.protocol.getDocumentState(),
+  ]);
+  if (
+    after.format !== before.format
+    || after.documentEpoch !== before.documentEpoch
+    || after.changeSeq !== before.changeSeq
+    || after.documentSha256 !== before.documentSha256
+    || after.dirty !== before.dirty
+    || after.pageCount !== before.pageCount
+  ) {
+    throw new Error("Studio export 도중 command-state가 변경되었습니다.");
+  }
+  if (input.expectedBytesSha256 && bytesSha256 !== input.expectedBytesSha256) {
+    throw new Error("Studio 검증 export가 요청 기준 바이트와 다릅니다.");
+  }
+  return { bytes, bytesSha256, state: after };
 }
 
 async function assertApplyReceipt(input: {

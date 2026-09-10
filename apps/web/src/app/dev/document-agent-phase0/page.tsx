@@ -25,6 +25,7 @@ import {
 } from "@/lib/rhwp/documentAgentManifest";
 import {
   createStudioCommandDocumentAgentTransaction,
+  readStableStudioDocumentSnapshot,
   type StudioCommandDocumentAgentTransaction,
 } from "@/lib/rhwp/studioCommandDocumentAgentTransaction";
 import {
@@ -163,12 +164,11 @@ export default function DocumentAgentPhase0Page() {
       if (!protocol) {
         throw new Error("현재 @rhwp/editor에 public document-agent command capability가 없어 Phase 0 native gate를 숨깁니다.");
       }
-      const bytes = await exportVerifiedEditorDocument(editor, format);
-      const state = await protocol.getDocumentState();
-      const exportedSha256 = await sha256Hex(bytes);
-      if (state.format !== format || state.documentSha256 !== exportedSha256) {
-        throw new Error("초기 Studio document state와 검증 export SHA가 다릅니다.");
-      }
+      const { bytes, state } = await readStableStudioDocumentSnapshot({
+        protocol,
+        exportCurrentBytes: (currentFormat) => exportVerifiedEditorDocument(editor, currentFormat),
+        format,
+      });
       protocolRef.current = protocol;
       transactionRef.current = createStudioCommandDocumentAgentTransaction({
         rhwp,
@@ -230,6 +230,9 @@ export default function DocumentAgentPhase0Page() {
       setSource(nextSource);
       if (loaded.pageCount !== pageCount) {
         throw new Error(`초기 Studio page count가 core ${pageCount}쪽과 Studio ${loaded.pageCount}쪽으로 다릅니다.`);
+      }
+      if (state.pageCount !== pageCount) {
+        throw new Error(`초기 Studio command state가 core ${pageCount}쪽과 Studio ${state.pageCount}쪽으로 다릅니다.`);
       }
       setStatus("ready");
       setMessage("public command capability와 후보 준비 완료. native apply/revert 게이트를 실행하세요.");
