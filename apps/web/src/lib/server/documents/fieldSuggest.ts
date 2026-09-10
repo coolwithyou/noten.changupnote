@@ -9,7 +9,7 @@
  *   2. basis 없는 제안은 반환·저장하지 않는다.
  *   3. **basis 실재 검증(v2.4)**: 공고문 유래 basis(basisKind="announcement")는 그라운딩 원문에서 실재를
  *      정규화 부분 문자열 매칭으로 검증(ingest:knowledge 의 quoteExists 선례 재사용)하고, 불통과는 폐기.
- *      프로필 유래 basis("사업자 정보" 등 결정론 라벨, basisKind="profile")는 검증 대상 아님.
+ *      프로필 유래 basis(basisKind="profile")도 [회사 확인 정보] 블록의 실제 인용과 대조하고, 불통과는 폐기.
  *   4. **manual류 라벨 제안 금지(v2.4, 마스터 8.7)**: 서명·직인·날인·동의·첨부류 라벨은 생성·저장 대상 제외.
  *   5. 결과는 서버가 `fieldAnswers[label]={status:"suggested", source:"llm", basis, suggestedValue…}` 로
  *      저장 후 **저장된 fieldAnswers 에서 재구성**해 반환한다(컨펌 게이트 — 클라이언트 직접 쓰기 경로 없음).
@@ -84,7 +84,7 @@ const suggestionItemSchema = z.object({
   evidenceQuote: z
     .string()
     .describe(
-      "announcement이면 공고 원문, user이면 이번 사용자 제공 정보에서 근거 문장을 그대로 인용합니다. profile이면 빈 문자열입니다.",
+      "announcement이면 공고 원문, profile이면 [회사 확인 정보], user이면 이번 사용자 제공 정보에서 근거 문장을 그대로 인용합니다.",
     ),
 });
 const assessmentItemSchema = z.object({
@@ -111,13 +111,14 @@ function buildSuggestSystemPrompt(): string {
     "- 값은 해당 항목에 바로 붙여넣을 수 있는 완성된 한국어 표현으로 작성합니다.",
     "- 각 제안에는 반드시 근거(basis)를 함께 제시합니다. 근거를 만들 수 없으면 그 항목은 제안 목록에서 아예 뺍니다.",
     "- 공고 문서에서 나온 사실이 근거이면 basisKind 를 announcement 로 하고, evidenceQuote 에 공고 문서 원문을 변형 없이 그대로 인용합니다(그 문장이 실제 문서에 있어야 합니다).",
-    "- 회사 정보(프로필)에서 나온 근거이면 basisKind 를 profile 로 하고 evidenceQuote 는 빈 문자열로 둡니다.",
+    "- 회사 정보(프로필)에서 나온 근거이면 basisKind 를 profile 로 하고 evidenceQuote 에 [회사 확인 정보]의 실제 문구를 변형 없이 그대로 인용합니다.",
     "- 이번 턴에 사용자가 직접 제공한 사실에서 나온 근거이면 basisKind 를 user 로 하고 evidenceQuote 에 사용자 문장을 그대로 인용합니다.",
     "- 공고 문서에도 회사 정보에도 근거가 없으면 값을 지어내지 말고 그 항목을 제안하지 않습니다.",
     "- 사용자가 작성한 원문이 있으면 그 원문의 사실·수치·고유명사·의미를 그대로 유지합니다.",
     "- 사용자 원문에 없는 회사 실적·고객·인증·수치·사업 현황을 새로 만들거나 추측하지 않습니다.",
     "- 공고에 어울리는 문장 구조, 명료성, 설득력, 연결 표현만 보강합니다.",
     "- 검증된 공고 작성 가이드는 작성 방향을 위한 조언입니다. 회사 사실·수치·실적의 근거로 사용하지 않습니다.",
+    "- 공고의 지원 대상·신청 자격 문구를 회사의 실제 업력·자격·보유 현황처럼 바꾸지 않습니다.",
     "- 정보가 부족한 부분은 임의로 채우지 않습니다.",
     "",
     "[문서 반영 준비도]",
@@ -149,6 +150,7 @@ export function buildSuggestInstruction(input: {
     "요청받은 모든 항목을 assessments에 한 번씩 포함해 현재 문서 반영 준비도와 부족한 정보를 먼저 판단합니다.",
     `${FIELD_ASSIST_APPLY_THRESHOLD}% 미만인 항목은 suggestions에 포함하지 않습니다.`,
     "성명·주소처럼 단순 사실을 묻는 항목에 경험·성과를 요구하지 않습니다.",
+    "공고의 지원 대상·신청 자격은 회사가 실제로 그 자격을 갖췄다는 근거가 아닙니다.",
     "근거가 있는 항목만 suggestions 에 담고, 근거를 만들 수 없는 항목은 생략합니다.",
     "",
     "항목:",
@@ -207,16 +209,24 @@ function decodeGroundingCorpus(documents: readonly GroundingDocumentBlock[]): st
   return normalizeWs(texts.join("\n"));
 }
 
+/** dynamicContext의 마지막 회사 정보 블록만 분리해 profile 인용 검증에 사용한다. */
+export function extractProfileEvidenceCorpus(dynamicContext: string): string {
+  const marker = "[회사 확인 정보]";
+  const start = dynamicContext.lastIndexOf(marker);
+  return start >= 0 ? normalizeWs(dynamicContext.slice(start)) : "";
+}
+
 /**
  * 단일 제안 검증(§7.4 v2.4). 통과 시 저장용 { value, basis }, 폐기 시 null.
  * - value·basis 비면 폐기(basis 없는 제안 미저장).
  * - basisKind=announcement: evidenceQuote 가 그라운딩 코퍼스에 실재해야 통과(정규화 부분 문자열).
- * - basisKind=profile: 검증 대상 아님(Gate 3 — 결정론 라벨). 통과.
+ * - basisKind=profile: evidenceQuote 가 회사 확인 정보 블록에 실재해야 통과.
  */
 export function verifySuggestion(
   raw: RawSuggestion,
   groundingCorpus: string,
   userEvidenceCorpus = "",
+  profileEvidenceCorpus = "",
 ): { value: string; basis: string; basisKind: "announcement" | "profile" | "user" } | null {
   const value = normalizeAnswerValue(raw.value ?? "");
   const basis = (raw.basis ?? "").trim();
@@ -225,6 +235,9 @@ export function verifySuggestion(
     const quote = (raw.evidenceQuote ?? "").trim();
     if (!quote) return null;
     if (!quoteExists(quote, groundingCorpus)) return null; // 실재 불통과 폐기.
+  } else if (raw.basisKind === "profile") {
+    const quote = (raw.evidenceQuote ?? "").trim();
+    if (!quote || !quoteExists(quote, normalizeWs(profileEvidenceCorpus))) return null;
   } else if (raw.basisKind === "user") {
     const quote = (raw.evidenceQuote ?? "").trim();
     if (!quote || !quoteExists(quote, normalizeWs(userEvidenceCorpus))) return null;
@@ -451,6 +464,7 @@ export async function generateFieldSuggestions(input: {
   const authoringGuideSources = deep.sources.filter((source) =>
     source.sourceId.startsWith("deep_analysis:authoring_guide:"));
   const groundingCorpus = decodeGroundingCorpus(grounding.documents);
+  const profileEvidenceCorpus = extractProfileEvidenceCorpus(grounding.dynamicContext);
   const groundingBindingSha256 = createHash("sha256").update(JSON.stringify({
     documents: grounding.documents,
     dynamicContext: grounding.dynamicContext,
@@ -601,7 +615,7 @@ export async function generateFieldSuggestions(input: {
     const alternatives: Array<(typeof verified)[string]> = [];
     const seenValues = new Set<string>();
     for (const raw of rawByLabel.get(label) ?? []) {
-      const ok = verifySuggestion(raw, groundingCorpus, userEvidenceCorpus);
+      const ok = verifySuggestion(raw, groundingCorpus, userEvidenceCorpus, profileEvidenceCorpus);
       if (!ok || seenValues.has(ok.value)) continue;
       const allowedValues = input.allowedValuesByLabel?.[label];
       if (allowedValues?.length && !allowedValues.includes(ok.value)) continue;

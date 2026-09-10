@@ -509,8 +509,14 @@ export async function reassembleLabInputForRun(
     .limit(1);
   const archiveRows = await db
     .select({
+      id: schema.grantAttachmentArchives.id,
       filename: schema.grantAttachmentArchives.filename,
+      sourceUri: schema.grantAttachmentArchives.sourceUri,
+      contentType: schema.grantAttachmentArchives.contentType,
+      bytes: schema.grantAttachmentArchives.bytes,
       storageKey: schema.grantAttachmentArchives.storageKey,
+      sha256: schema.grantAttachmentArchives.sha256,
+      conversionStatus: schema.grantAttachmentArchives.conversionStatus,
       markdownStorageKey: schema.grantAttachmentArchives.markdownStorageKey,
       markdownSha256: schema.grantAttachmentArchives.markdownSha256,
       markdownBytes: schema.grantAttachmentArchives.markdownBytes,
@@ -540,8 +546,14 @@ export async function reassembleLabInputForRun(
       eq(schema.documentArtifacts.kind, "markdown"),
     ));
   const baseArchives: LabInputArchive[] = archiveRows.map((row) => ({
+    id: row.id,
     filename: row.filename,
+    sourceUri: row.sourceUri,
+    contentType: row.contentType ?? null,
+    bytes: row.bytes ?? null,
     storageKey: row.storageKey ?? null,
+    sha256: row.sha256 ?? null,
+    conversionStatus: row.conversionStatus ?? null,
     markdownStorageKey: row.markdownStorageKey ?? null,
     markdownSha256: row.markdownSha256 ?? null,
     markdownBytes: row.markdownBytes ?? null,
@@ -555,7 +567,10 @@ export async function reassembleLabInputForRun(
   }));
   const currentArchives = applyLabVerifiedConversionArtifacts(baseArchives, conversionArtifacts);
 
-  const assemble = (archives: LabInputArchive[]) => assembleLabInput({
+  const assemble = (
+    archives: LabInputArchive[],
+    preserveUnavailableArchiveFilenames?: ReadonlySet<string>,
+  ) => assembleLabInput({
     grant: {
       source: grant.source,
       sourceId: grant.sourceId,
@@ -570,6 +585,10 @@ export async function reassembleLabInputForRun(
     },
     payload: rawRows[0]?.payload ?? null,
     archives,
+  }, {
+    ...(preserveUnavailableArchiveFilenames
+      ? { preserveUnavailableArchiveFilenames }
+      : {}),
   });
   const current = await assemble(currentArchives);
   if (
@@ -583,11 +602,16 @@ export async function reassembleLabInputForRun(
     )
   ) return current;
 
-  return assemble(shapeLabInputArchivesForRun({
+  const shapedArchives = shapeLabInputArchivesForRun({
     inputBlocks: run.inputBlocks,
     archives: baseArchives,
     conversionArtifacts,
+  });
+  const historicalUnavailable = new Set(run.inputBlocks.flatMap((block) => {
+    const match = block.label.match(/^첨부 미투입\([^)]*\): (.+)$/u);
+    return match?.[1] ? [match[1]] : [];
   }));
+  return assemble(shapedArchives, historicalUnavailable);
 }
 
 /**
@@ -617,7 +641,23 @@ export function shapeLabInputArchivesForRun(input: {
 
   return input.archives.flatMap((archive) => {
     const shape = shapeByFilename.get(archive.filename);
-    if (!shape) return [];
+    if (!shape) {
+      const archiveChildren = archive.sourceUri
+        ? input.archives.filter((candidate) => (
+            candidate.sourceUri?.startsWith(`zip:${archive.sourceUri}#`)
+          ))
+        : [];
+      if (
+        /\.zip$/i.test(archive.filename)
+        && archiveChildren.length > 0
+        && archiveChildren.every((candidate) => (
+          shapeByFilename.get(candidate.filename) === "loaded"
+        ))
+      ) {
+        return [archive];
+      }
+      return [];
+    }
     if (shape === "unavailable") {
       return [{
         ...archive,

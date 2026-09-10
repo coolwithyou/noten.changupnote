@@ -785,7 +785,8 @@ assert.equal(
   true,
   "필수 업력 상한 note에 배점 구간을 합쳐 preferred 추출을 생략할 수 없다",
 );
-const separatedBusinessAgeRanking = validateDeepAnalysisResult({
+
+const structuredBusinessAgeRanking = validateDeepAnalysisResult({
   seal: businessAgeScoringSeal,
   result: result([
     criterion({
@@ -822,10 +823,102 @@ const separatedBusinessAgeRanking = validateDeepAnalysisResult({
   ], axes(["biz_age"])),
 });
 assert.equal(
-  separatedBusinessAgeRanking.valid,
+  structuredBusinessAgeRanking.issues.some((issue) => (
+    issue.code === "canonical_contract_invalid"
+    && issue.message.includes("multi-tier score table")
+  )),
   true,
-  `필수 업력과 preferred 배점 구간을 분리하면 통과한다: ${JSON.stringify(separatedBusinessAgeRanking.issues)}`,
+  "구간별 점수와 배타 경계를 표현할 수 없는 숫자 preferred 분해는 차단한다",
 );
+const losslessBusinessAgeRanking = validateDeepAnalysisResult({
+  seal: businessAgeScoringSeal,
+  result: result([
+    criterion({
+      dimension: "biz_age",
+      operator: "lte",
+      kind: "required",
+      value: { max_months: 84 },
+      sourceSpan: businessAgeEligibilitySpan,
+    }),
+    criterion({
+      dimension: "biz_age",
+      operator: "text_only",
+      kind: "preferred",
+      value: { note: businessAgeScoringSpan },
+      sourceSpan: businessAgeScoringSpan,
+    }),
+  ], axes(["biz_age"])),
+});
+assert.equal(
+  losslessBusinessAgeRanking.valid,
+  true,
+  `필수 업력과 배점표 전체를 분리 보존하면 통과한다: ${JSON.stringify(losslessBusinessAgeRanking.issues)}`,
+);
+
+const revenueScoreTableSpan = [
+  "매출 규모",
+  "전년도 기준",
+  "매출 규모",
+  "30점",
+  "1억원 미만",
+  "1~2 억원",
+  "2~5 억원",
+  "5~10 억원",
+  "10억원 이상",
+  "30점",
+  "27점",
+  "26점",
+  "23점",
+  "20점",
+].join("\n");
+const revenueScoreTableSeal = sealDeepAnalysisInput({
+  grantId: "grant-revenue-score-table",
+  sourceRevisionSha256: "a".repeat(64),
+  structuredText: revenueScoreTableSpan,
+  attachments: [],
+});
+const unsafeRevenueScoreTable = validateDeepAnalysisResult({
+  seal: revenueScoreTableSeal,
+  result: result([
+    criterion({
+      dimension: "revenue",
+      operator: "lte",
+      kind: "preferred",
+      value: { max_krw: 100_000_000 },
+      sourceSpan: revenueScoreTableSpan,
+      note: "1억원 미만 30점",
+    }),
+    criterion({
+      dimension: "revenue",
+      operator: "between",
+      kind: "preferred",
+      value: { min_krw: 100_000_000, max_krw: 200_000_000 },
+      sourceSpan: revenueScoreTableSpan,
+      note: "1~2억원 27점",
+    }),
+  ], axes(["revenue"])),
+});
+assert.equal(
+  unsafeRevenueScoreTable.issues.some((issue) => (
+    issue.code === "canonical_contract_invalid"
+    && issue.message.includes("multi-tier score table")
+  )),
+  true,
+  "실측 seq2의 점수표를 inclusive 숫자 구간으로 구조화하는 경계 손실을 차단한다",
+);
+const safeRevenueScoreTable = validateDeepAnalysisResult({
+  seal: revenueScoreTableSeal,
+  result: result([
+    criterion({
+      dimension: "revenue",
+      operator: "text_only",
+      kind: "preferred",
+      value: { note: revenueScoreTableSpan },
+      sourceSpan: revenueScoreTableSpan,
+    }),
+  ], axes(["revenue"])),
+});
+assert.equal(safeRevenueScoreTable.valid, true, JSON.stringify(safeRevenueScoreTable.issues));
 
 const invalidTargetTypeListSemanticsValidation = validateDeepAnalysisResult({
   seal,
@@ -843,6 +936,37 @@ assert.equal(
     && issue.path.endsWith(".value.list_semantics")
   )),
   true,
+);
+
+const protectedTargetTypeNote =
+  "개인사업자·법인사업자를 모두 허용하므로 열린 목록으로 두되, 다만 별도 자격 요건은 원문 확인이 필요하다.";
+const protectedTargetTypeSpan = "☞ 공고일 기준 업력 7년 미만ㆍ전국 소재 창업기업";
+const protectedTargetTypeSeal = sealDeepAnalysisInput({
+  grantId: "grant-protected-target-type-note",
+  sourceRevisionSha256: "b".repeat(64),
+  structuredText: protectedTargetTypeSpan,
+  attachments: [],
+});
+const protectedTargetTypeValidation = validateDeepAnalysisResult({
+  seal: protectedTargetTypeSeal,
+  result: result([criterion({
+    dimension: "target_type",
+    operator: "in",
+    value: {
+      targets: ["창업기업"],
+      list_semantics: "closed",
+      note: protectedTargetTypeNote,
+    },
+    sourceSpan: protectedTargetTypeSpan,
+  })], axes(["target_type"])),
+});
+assert.equal(
+  protectedTargetTypeValidation.issues.some((issue) => (
+    issue.code === "semantic_misattribution"
+    && issue.path.endsWith(".value.list_semantics")
+  )),
+  true,
+  "추가 자격 의미가 섞여 삭제할 수 없는 모순 설명은 validator 검토에 남긴다",
 );
 
 const startupEligibilityPhrase =
@@ -1094,6 +1218,130 @@ assert.equal(validateDeepAnalysisResult({
     }),
   ], axes(["other"])),
 }).valid, true, "역할을 명시한 other/text_only는 안전하게 보존한다");
+
+const crossAxisSizeSpan = [
+  "1. 중소기업이면서 창업7년이내 기업",
+  "2. 중소기업이면서 벤처인증기업(업력무관)",
+].join("\n");
+const crossAxisOrSpan = [
+  "’ 26.09.01 기준 아래 조건을 충족하는 창업기업 혹은 벤처기업",
+  "「 중소기업기본법 」 제2조에 따른 중소기업이면서, 「 중소기업창업 지원법 」 제2조에 따른 창업기업 (창업 7년 이내)",
+  "「 중소기업기본법 」 제2조에 따른 중소기업이면서, 「 벤처기업육성에 관한 특별조치법 」 제2조의2를 만족하는 벤처기업",
+].join("\n");
+const crossAxisOrSeal = sealDeepAnalysisInput({
+  grantId: "grant-cross-axis-or",
+  sourceRevisionSha256: "e".repeat(64),
+  structuredText: `${crossAxisSizeSpan}\n${crossAxisOrSpan}`,
+  attachments: [],
+});
+const crossAxisOr = validateDeepAnalysisResult({
+  seal: crossAxisOrSeal,
+  result: result([
+    criterion({
+      dimension: "size",
+      operator: "in",
+      value: { sizes: ["중소기업"] },
+      sourceSpan: crossAxisSizeSpan,
+    }),
+    criterion({
+      dimension: "other",
+      operator: "text_only",
+      value: {
+        note: crossAxisOrSpan,
+        covered_dimensions: ["biz_age", "certification"],
+      },
+      sourceSpan: crossAxisOrSpan,
+    }),
+  ], axes(["size", "biz_age", "certification", "other"])),
+});
+assert.equal(crossAxisOr.valid, true, JSON.stringify(crossAxisOr.issues));
+assert.equal(crossAxisOr.axisCriterionSemanticHashes.biz_age.length, 1);
+assert.deepEqual(
+  crossAxisOr.axisCriterionSemanticHashes.biz_age,
+  crossAxisOr.axisCriterionSemanticHashes.certification,
+  "복합 OR 한 건이 관련 축에 같은 semantic hash로 명시 결속된다",
+);
+
+const malformedCrossAxis = validateDeepAnalysisResult({
+  seal: crossAxisOrSeal,
+  result: result([
+    criterion({
+      dimension: "other",
+      operator: "text_only",
+      value: { note: crossAxisOrSpan, covered_dimensions: ["biz_age", 123, "other"] },
+      sourceSpan: crossAxisOrSpan,
+    }),
+  ], axes(["other"])),
+});
+assert.equal(
+  malformedCrossAxis.issues.some((issue) => (
+    issue.code === "canonical_contract_invalid"
+    && issue.path.endsWith(".value.covered_dimensions")
+  )),
+  true,
+  "숫자·other가 섞인 축 결속은 fail-closed한다",
+);
+
+const manufacturerApplicantSpan =
+  "영천시 소재 중소 제조기업으로서 생산 현장에서 기술적 애로사항을 보유한 기업";
+const unrelatedRolesSpan = "수행기관, 참여기관, 총괄책임자는 별도 적정성 확인 대상이다.";
+const manufacturerApplicantSeal = sealDeepAnalysisInput({
+  grantId: "grant-manufacturer-applicant",
+  sourceRevisionSha256: "9".repeat(64),
+  structuredText: `${manufacturerApplicantSpan}\n${unrelatedRolesSpan}`,
+  attachments: [],
+});
+const manufacturerApplicant = validateDeepAnalysisResult({
+  seal: manufacturerApplicantSeal,
+  result: result([
+    criterion({
+      dimension: "size",
+      operator: "in",
+      value: { sizes: ["중소기업"] },
+      sourceSpan: manufacturerApplicantSpan,
+      note: "본 공고의 신청자인 제조기업 공통 조건",
+    }),
+    criterion({
+      dimension: "other",
+      operator: "text_only",
+      value: { note: unrelatedRolesSpan },
+      sourceSpan: unrelatedRolesSpan,
+    }),
+  ], axes(["size", "other"])),
+});
+assert.equal(
+  manufacturerApplicant.issues.some((issue) => (
+    issue.code === "semantic_misattribution" && issue.message.includes("actor/track scope")
+  )),
+  false,
+  "제조기업은 신청자 업종 표현이며 별도 역할로 세지 않는다",
+);
+
+const trackRevenueSpan = "노동환경 트랙에 한해 최근 3년 매출액 평균 200억원 이하 기업";
+const trackRevenueSeal = sealDeepAnalysisInput({
+  grantId: "grant-track-revenue",
+  sourceRevisionSha256: "8".repeat(64),
+  structuredText: trackRevenueSpan,
+  attachments: [],
+});
+const trackRevenue = validateDeepAnalysisResult({
+  seal: trackRevenueSeal,
+  result: result([
+    criterion({
+      dimension: "revenue",
+      operator: "lte",
+      value: { max_krw: 20_000_000_000 },
+      sourceSpan: trackRevenueSpan,
+    }),
+  ], axes(["revenue"])),
+});
+assert.equal(
+  trackRevenue.issues.some((issue) => (
+    issue.code === "semantic_misattribution" && issue.message.includes("actor/track scope")
+  )),
+  true,
+  "실제 트랙 한정 매출 조건의 전역 구조화 차단은 유지한다",
+);
 
 const leadApplicantSanctionSpan = "주관기관이 현재 정부지원사업 참여제한 조치 중이면 신청할 수 없다.";
 const mixedApplicantRolesSpan = "주관기관과 참여기관은 공동으로 과제를 수행한다.";

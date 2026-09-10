@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { normalizeWs } from "../knowledge/extraction";
 import {
   buildSuggestInstruction,
+  extractProfileEvidenceCorpus,
   finalizeFieldSuggestReadiness,
   resolveRequestedSuggestionLabel,
   verifySuggestion,
@@ -25,6 +26,7 @@ assert.ok(instruction.includes("억지로 두 개를 만들지 않습니다"));
 assert.ok(instruction.includes("요청받은 모든 항목을 assessments에 한 번씩 포함"));
 assert.ok(instruction.includes("85% 미만인 항목은 suggestions에 포함하지 않습니다"));
 assert.ok(instruction.includes("성명·주소처럼 단순 사실을 묻는 항목에 경험·성과를 요구하지 않습니다"));
+assert.ok(instruction.includes("공고의 지원 대상·신청 자격은 회사가 실제로 그 자격을 갖췄다는 근거가 아닙니다"));
 
 assert.deepEqual(
   finalizeFieldSuggestReadiness({
@@ -87,6 +89,48 @@ const inventedEvidence = verifySuggestion(
   normalizeWs(sourceText),
 );
 assert.equal(inventedEvidence, null, "사용자 원문에 없는 근거를 인용한 보강안은 폐기해야 합니다.");
+
+const dynamicContext = [
+  "[운영팀 검증 작성 지침]",
+  "지원 대상에 맞춰 회사 강점을 설명합니다.",
+  "",
+  "[회사 확인 정보]",
+  "- 업력: years=3",
+  "- 상시근로자 수: count=5",
+].join("\n");
+const profileCorpus = extractProfileEvidenceCorpus(dynamicContext);
+assert.ok(profileCorpus.includes("업력: years=3"));
+assert.equal(profileCorpus.includes("지원 대상에 맞춰"), false, "작성 지침을 회사 정보 근거로 섞으면 안 됩니다.");
+
+const verifiedProfile = verifySuggestion(
+  {
+    label: "회사 현황",
+    value: "당사는 업력 3년의 기업입니다.",
+    basis: "회사 확인 정보의 업력",
+    basisKind: "profile",
+    evidenceQuote: "업력: years=3",
+  },
+  "",
+  "",
+  profileCorpus,
+);
+assert.ok(verifiedProfile, "회사 확인 정보에 실제로 있는 profile 인용은 통과해야 합니다.");
+assert.equal(
+  verifySuggestion(
+    {
+      label: "회사 현황",
+      value: "당사는 업력 7년의 기업입니다.",
+      basis: "회사 확인 정보의 업력",
+      basisKind: "profile",
+      evidenceQuote: "업력: years=7",
+    },
+    "",
+    "",
+    profileCorpus,
+  ),
+  null,
+  "회사 확인 정보에 없는 profile 인용은 폐기해야 합니다.",
+);
 
 assert.equal(
   resolveRequestedSuggestionLabel(["주 고객\n및\n이용 대상"], "주 고객 및 이용 대상"),

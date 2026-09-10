@@ -1,6 +1,6 @@
 // 제품과 실험실이 공유하는 문서 분석 구현. 실행 승인·로컬 artifact 저장은 호출자가 소유한다.
 import { createHash } from "node:crypto";
-import { extractFormSchema, inferFieldType, type FormFieldSchema, type IRBlock, type IRCell } from "kordoc";
+import { extractFormSchema, inferFieldType, type FormFieldSchema, type IRBlock, type IRCell, type IRTable } from "kordoc";
 import type {
   RoundtripDocumentRole,
   RoundtripFieldCandidate,
@@ -20,6 +20,9 @@ const APPLICATION_BODY = /(신청인|신청기업|신청자|대표자\s*(성명|
 const PLAN_BODY = /(사업개요|창업아이템|문제인식|실현가능성|성장전략|시장현황|추진계획|사업화\s*계획|자금조달|수익모델)/gi;
 const ANNOUNCEMENT_BODY = /(공고\s*제\s*\d+호|모집\s*공고|신청기간|지원대상|선정절차|유의사항)/gi;
 const EVIDENCE_BODY = /(개인정보\s*수집|서약합니다|확약합니다|동의합니다|증빙서류)/gi;
+const EMBEDDED_APPLICATION_SECTION = /(?:^|\n)[^\S\r\n]*(?:\*\*)?(?:\[|【|\|\s*)?(?:붙임|별첨|별지)\s*(?:제?\s*\d+\s*호?)?(?:(?:[^\r\n]{0,30})\r?\n){0,3}[^\r\n]{0,100}(?:신청서|지원서|참가신청서|사업계획서)/iu;
+const EXPLICIT_PRIMARY_FORM_FILENAME = /(?:^|[\s_[\](])(?:서식|붙임|별첨|별지)\s*(?:제\s*)?1(?:\s*호)?(?:[^0-9]|$)/iu;
+const APPLICATION_AUTHORING_GUIDANCE_FILENAME = /(?:필독|작성\s*(?:및\s*발급)?\s*방법|발급\s*방법|작성\s*안내)/iu;
 
 export interface RoleClassification {
   role: RoundtripDocumentRole;
@@ -106,6 +109,12 @@ export function classifyRoundtripDocument(input: {
   if (input.formConfidence >= 0.25) {
     scores.applicationForm += Math.min(2, input.formConfidence * 2);
     signals.push(`Kordoc 양식 확신도 ${input.formConfidence.toFixed(2)}`);
+  }
+  if (recommendedCount >= 3 && EMBEDDED_APPLICATION_SECTION.test(body)) {
+    // 파일명은 공고문이어도 뒤에 붙임/별지 신청 양식이 합쳐진 문서가 있다. 추천 개수만으로
+    // 뒤집지 않고, 원문에 명시된 양식 제목과 실제 빈 입력 구조가 함께 있을 때만 보강한다.
+    scores.applicationForm += 4;
+    signals.push("본문에 명시된 붙임·별지 신청 양식과 빈 입력 구조가 함께 존재");
   }
 
   const ranked = [
@@ -282,16 +291,23 @@ export function extractRhwpStructuralFields(
 
   blocks.forEach((block, blockIndex) => {
     if (block.type !== "table" || !block.table) return;
+    const allowImplicitTargets = hasExplicitStructuralFormEvidence(block.table);
     block.table.cells.forEach((row, rowIndex) => {
       row.forEach((cell, colIndex) => {
         const label = cell.text.trim();
         const normalizedLabel = normalizeRoundtripLabel(label);
         if (
           !normalizedLabel
+          || isFixedStructuralContent(label)
           || !isRhwpStructuralInputLabel(label)
           || existing.has(structuralCandidateKey(blockIndex, rowIndex, normalizedLabel))
         ) return;
-        const target = structuralValueEvidence(row, colIndex, cell);
+        const target = structuralValueEvidence(
+          row,
+          colIndex,
+          cell,
+          allowImplicitTargets,
+        );
         if (!target) return;
         const type = inferFieldType(label, target.value);
         const inputAssessment = assessRoundtripInputField({ label, type, row: rowIndex });
@@ -353,6 +369,7 @@ function structuralValueEvidence(
   row: readonly IRCell[],
   colIndex: number,
   labelCell: IRCell,
+  allowImplicitTarget: boolean,
 ): { value: string; implicit: boolean; targetCol: number } | null {
   const targetIndex = colIndex + Math.max(1, labelCell.colSpan);
   const target = row[targetIndex];
@@ -361,8 +378,43 @@ function structuralValueEvidence(
   }
   // 일부 HWPX 병합 표는 오른쪽 값 셀을 logical grid에서 생략하지만 native RHWP 표에는
   // 별도 셀로 남긴다. 행 끝을 넘어가는 라벨만 이 보강을 허용해 일반 머리글 오탐을 줄인다.
-  if (targetIndex >= row.length) return { value: "", implicit: true, targetCol: targetIndex };
+  if (allowImplicitTarget && targetIndex >= row.length) {
+    return { value: "", implicit: true, targetCol: targetIndex };
+  }
   return null;
+}
+
+/**
+ * 병합 HWP 표의 행 끝 값 셀은 KorDoc logical grid에서 생략될 수 있다. 다만 공고 제목·일정·평가표도
+ * 같은 모양으로 보이므로, 같은 표 안에 명시적인 라벨→빈 값 셀이 둘 이상 확인된 양식에서만 복구한다.
+ */
+function hasExplicitStructuralFormEvidence(table: IRTable): boolean {
+  let explicitInputSlots = 0;
+  for (const row of table.cells) {
+    for (let colIndex = 0; colIndex < row.length; colIndex += 1) {
+      const cell = row[colIndex]!;
+      if (!isRhwpStructuralInputLabel(cell.text)) continue;
+      const targetIndex = colIndex + Math.max(1, cell.colSpan);
+      if (targetIndex >= row.length || !isWritableStructuralPlaceholder(row[targetIndex]?.text ?? "")) continue;
+      explicitInputSlots += 1;
+      if (explicitInputSlots >= 2) return true;
+    }
+  }
+  return false;
+}
+
+/** 공고의 흐름도·일정·심사 설명은 오른쪽 빈 셀이 있어도 신청자가 덮어쓸 라벨이 아니다. */
+function isFixedStructuralContent(value: string): boolean {
+  const normalized = value.normalize("NFKC").trim();
+  if (/[→←]/u.test(normalized)) return true;
+  if (
+    normalized.includes("\n")
+    && /\d+\s*(?:회|차)/u.test(normalized)
+    && /(지출|모니터링|제출|점검|진행|실시)/u.test(normalized)
+  ) return true;
+  return /^[◦ㅇ]\s*/u.test(normalized)
+    && /\(\s*\d+\s*\)/u.test(normalized)
+    && /(검토|적정성|가능성|평가)/u.test(normalized);
 }
 
 function isWritableStructuralPlaceholder(value: string): boolean {
@@ -371,6 +423,7 @@ function isWritableStructuralPlaceholder(value: string): boolean {
     || /^(?:[/＿_\-.·ㆍ]|\(\s*\))+$/u.test(normalized)
     || /^\([^)]{2,40}\)$/u.test(normalized)
     || /^금\s*:\s*(?:백\s*만\s*원|만\s*원|원)?$/u.test(normalized)
+    || /^(?:0{2,4}\s*년\s*)?0{1,2}\s*월\s*0{1,2}\s*일(?:\s*[~∼-]\s*(?:0{2,4}\s*년\s*)?0{1,2}\s*월\s*0{1,2}\s*일)?$/u.test(normalized)
     || /^(?:은행\s*)?지점\s*\(\s*담당자[^)]{0,30}\)$/u.test(normalized);
 }
 
@@ -451,6 +504,12 @@ function suppressValueCellDuplicates(fields: RoundtripFieldCandidate[]): void {
         || normalizeRoundtripLabel(other.originalValue) === candidate.normalizedLabel
       ));
     if (!owner) continue;
+    // KorDoc이 한 행의 다음 입력 라벨을 앞 필드의 값으로 묶는 경우가 있다. 실제 빈 메타데이터
+    // 입력칸까지 placeholder 중복으로 지우지 않고, 뒤 단계가 앞의 잘못된 후보만 제거하게 둔다.
+    if (
+      candidate.empty
+      && /^(?:핸드폰|휴대폰|휴대전화|전화번호|연락처|이메일|전자우편)$/u.test(candidate.normalizedLabel)
+    ) continue;
     candidate.recommendedInput = false;
     candidate.inputLikelihood = Math.min(candidate.inputLikelihood, 0.15);
     candidate.inputSignals.push(`앞 라벨 “${owner.label}”의 값 placeholder 가능성`);
@@ -459,7 +518,7 @@ function suppressValueCellDuplicates(fields: RoundtripFieldCandidate[]): void {
 
 const POSITIVE_INPUT_LABEL = /(회사명|기업명|업체명|단체명|상호|법인명|기관명|대표자|성명|이름|신청인|담당자|책임자|사업자|법인번호|주민등록|연락처|전화|휴대|이메일|email|전자우편|주소|소재지|과제명|사업명|아이템명|제품명|서비스명|주생산품|업태|업종|종목|설립|개업|직위|부서|홈페이지|지원금|사업비|예산|금액|계좌|은행|예금주|상담|매출|고용|인원|자본금|기간|일자|날짜|년도|연도)/i;
 const CONTENT_INPUT_LABEL = /((회사|기업|업체|단체|기관|제품|서비스|기술)소개|자기소개|개요|현황|계획|목표|필요성|전략|기대효과|시장|기술|실적|역량|일정|자금|추진|문제|해결|활용|성과|동기|신청사유|운영계획|요약|주요내용|세부내용|주고객|이용대상)/i;
-const NON_INPUT_LABEL = /^(연번|순번|번호|구분|항목|서류명|제출서류|제출형식|형식|비고|배점|평가항목|확인|단위|천원|원|적용법률|법률)$/i;
+const NON_INPUT_LABEL = /^(?:(?:서식|붙임|별첨|별지)\d*.*|연번|순번|번호|구분|항목|서류명|제출서류|제출형식|형식|비고|배점|평가항목|확인|단위|천원|원|적용법률|법률)$/i;
 
 /**
  * HWP 신청서는 빈 장문 셀에 파란 안내문을 미리 넣는 경우가 많다. KorDoc의 `empty=false`를
@@ -473,8 +532,8 @@ export function isNarrativeInstructionPlaceholder(label: string, value: string):
     .split(/\r?\n/u)
     .map((line) => line.trim())
     .filter(Boolean);
-  if (lines.length === 0 || lines.some((line) => !/^(?:※|[·ㆍ•*-]\s+)/u.test(line))) return false;
-  return /(작성|기술|기재|제시|설명|나타나도록|포함|계획|경력|전문성|동기|각오|열정|의지)/u.test(value);
+  if (lines.length === 0 || lines.some((line) => !/^(?:※|[·ㆍ•*▪-]\s*)/u.test(line))) return false;
+  return /(작성|기술|기재|제시|설명|나타나도록|포함|계획|경력|전문성|동기|각오|열정|의지|애로사항|요구내용)/u.test(value);
 }
 
 export function assessRoundtripInputField(input: {
@@ -620,6 +679,20 @@ export function likelyApplicationRole(role: RoundtripDocumentRole): boolean {
 
 export function hasLikelyApplicationFilename(filename: string): boolean {
   return APPLICATION_FILENAME.test(filename) || PLAN_FILENAME.test(filename);
+}
+
+/**
+ * 입력 후보가 있는 문서끼리 고를 때 쓰는 파일명 우선순위다. 명시된 1번 신청 양식을 앞세우고,
+ * 신청서 작성·발급 안내는 실제 입력칸 수가 많더라도 주 작성 문서보다 뒤로 보낸다.
+ */
+export function applicationDocumentRecommendationPriority(filename: string): number {
+  const normalized = filename.normalize("NFKC");
+  if (APPLICATION_AUTHORING_GUIDANCE_FILENAME.test(normalized)) return -200;
+  if (
+    EXPLICIT_PRIMARY_FORM_FILENAME.test(normalized)
+    && (APPLICATION_FILENAME.test(normalized) || PLAN_FILENAME.test(normalized))
+  ) return 200;
+  return 0;
 }
 
 export function declaredRoundtripFormat(filename: string): "hwp" | "hwpx" | null {

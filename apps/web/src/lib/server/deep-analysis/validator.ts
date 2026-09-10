@@ -26,7 +26,7 @@ import {
   isLossyStructuredPriorAward,
 } from "./criterion-semantics";
 
-export const DEEP_ANALYSIS_VALIDATOR_VERSION = "deep-analysis-validator-v15" as const;
+export const DEEP_ANALYSIS_VALIDATOR_VERSION = "deep-analysis-validator-v16" as const;
 
 export type DeepAnalysisValidationIssueCode =
   | "raw_contract_invalid"
@@ -207,12 +207,16 @@ export function validateDeepAnalysisResult(input: {
   validateProceduralEvidenceChecks(validatedCriteria, issues);
   validatePriorAwardLosslessScope(validatedCriteria, issues);
   validateEligibilityRankingSeparation(input.seal, validatedCriteria, issues);
+  validateNumericScoreTableRepresentability(validatedCriteria, issues);
   validateHighRiskConditionCoverage(input.seal, validatedCriteria, issues);
 
   const criteriaByDimension = new Map<CriterionDimension, DeepAnalysisValidatedCriterion[]>();
   for (const dimension of CRITERION_DIMENSIONS) criteriaByDimension.set(dimension, []);
   for (const criterion of validatedCriteria) {
     criteriaByDimension.get(criterion.criterion.dimension)?.push(criterion);
+    for (const coveredDimension of crossAxisCoveredDimensions(criterion.criterion)) {
+      criteriaByDimension.get(coveredDimension)?.push(criterion);
+    }
   }
   const axesByDimension = new Map(
     input.result.axisAssessments.map((axis) => [axis.dimension, axis]),
@@ -510,6 +514,36 @@ function validateEligibilityRankingSeparation(
   }
 }
 
+const NUMERIC_SCORE_DIMENSIONS = new Set<CriterionDimension>([
+  "biz_age",
+  "founder_age",
+  "revenue",
+  "employees",
+]);
+
+function validateNumericScoreTableRepresentability(
+  criteria: DeepAnalysisValidatedCriterion[],
+  issues: DeepAnalysisValidationIssue[],
+): void {
+  for (const item of criteria) {
+    if (
+      item.criterion.kind !== "preferred"
+      || item.criterion.operator === "text_only"
+      || !NUMERIC_SCORE_DIMENSIONS.has(item.criterion.dimension)
+    ) continue;
+    const span = (item.criterion.sourceSpan ?? "").normalize("NFKC").replace(/\s+/g, " ");
+    const scoreCount = span.match(/\d+(?:\.\d+)?\s*점/gu)?.length ?? 0;
+    const boundaryCount = span.match(/(?:\d[\d,.]*\s*(?:억|만원|원|년|개월|명)?\s*(?:미만|이하|초과|이상)|\d[\d,.]*\s*[~∼-]\s*\d[\d,.]*)/gu)?.length ?? 0;
+    if (scoreCount < 2 || boundaryCount < 2) continue;
+    issues.push({
+      code: "canonical_contract_invalid",
+      path: `$.criteria[${item.index}]`,
+      message:
+        "A multi-tier score table cannot be represented as independent inclusive numeric preferred criteria because the current value contract has no score weights or exclusive endpoints. Preserve all tiers and points as one preferred text_only criterion on the same dimension.",
+    });
+  }
+}
+
 function validateHighRiskConditionCoverage(
   seal: DeepAnalysisInputSeal,
   criteria: DeepAnalysisValidatedCriterion[],
@@ -715,7 +749,6 @@ const ROLE_LABELS = [
   "주관기관",
   "수혜기업",
   "도입기업",
-  "제조기업",
   "수행기관",
   "전문기관",
   "공급기업",
@@ -962,6 +995,7 @@ function validateCriterion(
     parser_version: DEEP_ANALYSIS_VALIDATOR_VERSION,
   };
   const canonicalCriterion = canonicalizeGrantCriterion(grantCriterion);
+  validateCrossAxisCoverage(criterion, index, issues);
   validateExceptionCoverage(criterion, index, issues);
   validateMatcherSemanticCompleteness(criterion, index, issues);
   if (criterion.dimension === "target_type") {
@@ -1105,6 +1139,56 @@ function validateCriterion(
     semanticSha256,
     evidenceRefs,
   };
+}
+
+function validateCrossAxisCoverage(
+  criterion: DeepAnalysisCriterion,
+  index: number,
+  issues: DeepAnalysisValidationIssue[],
+): void {
+  const value = isRecord(criterion.value) ? criterion.value : {};
+  if (value.covered_dimensions === undefined) return;
+  const rawDimensions = value.covered_dimensions;
+  const dimensions = stringArray(value.covered_dimensions);
+  const uniqueDimensions = new Set(dimensions);
+  const validDimensions = dimensions.every((dimension) => (
+    dimension !== "other"
+    && (CRITERION_DIMENSIONS as readonly string[]).includes(dimension)
+  ));
+  if (
+    criterion.dimension !== "other"
+    || criterion.operator !== "text_only"
+    || !Array.isArray(rawDimensions)
+    || !rawDimensions.every((dimension) => typeof dimension === "string" && Boolean(dimension.trim()))
+    || dimensions.length === 0
+    || uniqueDimensions.size !== dimensions.length
+    || !validDimensions
+  ) {
+    issues.push({
+      code: "canonical_contract_invalid",
+      path: `$.criteria[${index}].value.covered_dimensions`,
+      message:
+        "covered_dimensions is only valid as a non-empty unique 22-axis list on other/text_only criteria that preserve a cross-axis condition.",
+    });
+  }
+}
+
+function crossAxisCoveredDimensions(criterion: DeepAnalysisCriterion): CriterionDimension[] {
+  if (criterion.dimension !== "other" || criterion.operator !== "text_only") return [];
+  const value = isRecord(criterion.value) ? criterion.value : {};
+  const rawDimensions = value.covered_dimensions;
+  const dimensions = stringArray(value.covered_dimensions);
+  if (
+    !Array.isArray(rawDimensions)
+    || !rawDimensions.every((dimension) => typeof dimension === "string" && Boolean(dimension.trim()))
+    || dimensions.length === 0
+    || new Set(dimensions).size !== dimensions.length
+    || dimensions.some((dimension) => (
+      dimension === "other"
+      || !(CRITERION_DIMENSIONS as readonly string[]).includes(dimension)
+    ))
+  ) return [];
+  return dimensions as CriterionDimension[];
 }
 
 function targetTypeNoteRequiresOpenList(note: string): boolean {

@@ -373,7 +373,7 @@ function validateSubmittedFieldChoices(
     if (optionIds.some((optionId) => !allowed.has(optionId))) {
       throw new ApplicationRoundtripFillError("unknown_field_choice_option", `런에 없는 선택지입니다: ${field.label}`);
     }
-    if (field.inputKind === "single_choice" && optionIds.length !== 1) {
+    if (field.inputKind === "single_choice" && optionIds.length > 1) {
       throw new ApplicationRoundtripFillError("single_field_choice_required", `“${field.label}”은 하나만 선택해야 합니다.`);
     }
   }

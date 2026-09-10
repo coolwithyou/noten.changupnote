@@ -9,7 +9,10 @@ import type { WorkspaceData } from "@/lib/server/documents/workspaceData";
 
 (globalThis as typeof globalThis & { React: typeof React }).React = React;
 
-const { WorkspaceView } = await import("./WorkspaceView");
+const [{ WorkspaceView }, { FieldAgentRail }] = await Promise.all([
+  import("./WorkspaceView"),
+  import("./FieldAgentRail"),
+]);
 
 const DATABASE_GRANT_ID = "00000000-0000-4000-8000-000000000001";
 const DRAFT_ID = "00000000-0000-4000-8000-000000000002";
@@ -182,6 +185,92 @@ assert.ok(
 );
 assert.equal(html.includes('aria-label="문서 작성 방식"'), false, "통합 편집 화면에 quick/studio 주 모드 토글이 있으면 안 됩니다.");
 assert.equal(html.includes("AI 작성 제안"), false, "일반 본문 문단 에이전트가 필드 에이전트 주 CTA로 노출되면 안 됩니다.");
+
+const missingInformationHtml = renderToStaticMarkup(
+  <FieldAgentRail
+    session={{
+      fields: [{
+        fieldId: "field-business-plan",
+        label: "사업 추진 계획",
+        section: "사업계획",
+        required: true,
+        kind: "assisted_longform",
+        state: "empty",
+        value: null,
+        basis: null,
+        guidance: null,
+        bindingStatus: "unique",
+        assistAvailability: "ready",
+        isSelected: true,
+        isSuggesting: false,
+        canRequestSuggestion: true,
+      }],
+      selected: {
+        fieldId: "field-business-plan",
+        label: "사업 추진 계획",
+        section: "사업계획",
+        required: true,
+        kind: "assisted_longform",
+        state: "empty",
+        value: null,
+        basis: null,
+        guidance: null,
+        bindingStatus: "unique",
+        assistAvailability: "ready",
+        isSelected: true,
+        isSuggesting: false,
+        canRequestSuggestion: true,
+      },
+      boundCount: 1,
+      totalCount: 1,
+    }}
+    connectedFields={[{
+      ...ATOMIC_FIELD,
+      fieldId: "field-business-plan",
+      fieldKey: "business.plan",
+      label: "사업 추진 계획",
+      mappedCompanyField: null,
+      fillStrategy: "generate",
+    }]}
+    run={{
+      id: "00000000-0000-4000-8000-000000000010",
+      fieldId: "field-business-plan",
+      fieldLabel: "사업 추진 계획",
+      status: "empty",
+      statusVersion: 1,
+      baseRevisionId: "00000000-0000-4000-8000-000000000011",
+      documentSha256: "a".repeat(64),
+      documentSemanticSha256: "b".repeat(64),
+      fieldBindingSha256: "c".repeat(64),
+      target: { kind: "table_cell_region", section: 0, parentPara: 0, controlIndex: 0, cellIndex: 1 },
+      beforeText: "",
+      beforeAnswer: null,
+      beforeTextSha256: "d".repeat(64),
+      formatSha256: "e".repeat(64),
+      restoreFormat: null,
+      adjacentContextSha256: "f".repeat(64),
+      modelVersion: "test-model",
+      promptVersion: "field-agent-v3",
+      failureCode: null,
+      readiness: {
+        score: 60,
+        threshold: 85,
+        canApply: false,
+        missingInformation: ["시제품 검증 대상과 성공 기준을 알려주세요."],
+      },
+      suggestions: [],
+    }}
+    onSelectField={() => undefined}
+    onRequestSuggestion={() => undefined}
+    onStartConversation={() => undefined}
+    onApplySuggestion={() => undefined}
+    onUndoSuggestion={() => undefined}
+    onDismissSuggestion={() => undefined}
+  />,
+);
+assert.ok(missingInformationHtml.includes("AI가 더 확인해야 할 내용"));
+assert.ok(missingInformationHtml.includes("시제품 검증 대상과 성공 기준을 알려주세요."));
+assert.ok(missingInformationHtml.includes("실제 사실을 적고 제안받기를 다시 눌러 주세요."));
 
 const integratedNoticeHtml = renderToStaticMarkup(
   <AppRouterContext.Provider value={router}>

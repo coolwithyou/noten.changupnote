@@ -197,9 +197,14 @@ export async function prepareLabAnalysis(grantId: string): Promise<PreparedLabAn
     .limit(1);
   const archiveRows = await db
     .select({
+      id: schema.grantAttachmentArchives.id,
       filename: schema.grantAttachmentArchives.filename,
+      sourceUri: schema.grantAttachmentArchives.sourceUri,
+      contentType: schema.grantAttachmentArchives.contentType,
+      bytes: schema.grantAttachmentArchives.bytes,
       storageKey: schema.grantAttachmentArchives.storageKey,
       sha256: schema.grantAttachmentArchives.sha256,
+      conversionStatus: schema.grantAttachmentArchives.conversionStatus,
       markdownStorageKey: schema.grantAttachmentArchives.markdownStorageKey,
       markdownSha256: schema.grantAttachmentArchives.markdownSha256,
       markdownBytes: schema.grantAttachmentArchives.markdownBytes,
@@ -229,8 +234,14 @@ export async function prepareLabAnalysis(grantId: string): Promise<PreparedLabAn
       eq(schema.documentArtifacts.kind, "markdown"),
     ));
   const archives: LabInputArchive[] = applyLabVerifiedConversionArtifacts(archiveRows.map((row) => ({
+    id: row.id,
     filename: row.filename,
+    sourceUri: row.sourceUri,
+    contentType: row.contentType ?? null,
+    bytes: row.bytes ?? null,
     storageKey: row.storageKey ?? null,
+    sha256: row.sha256 ?? null,
+    conversionStatus: row.conversionStatus ?? null,
     markdownStorageKey: row.markdownStorageKey ?? null,
     markdownSha256: row.markdownSha256 ?? null,
     markdownBytes: row.markdownBytes ?? null,

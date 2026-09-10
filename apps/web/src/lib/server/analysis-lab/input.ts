@@ -8,7 +8,12 @@
 import { createHash } from "node:crypto";
 import { htmlToText } from "@cunote/core";
 import { stripYamlFrontmatter } from "@/lib/server/chat/grounding";
-import { createR2ObjectStorageFromEnv } from "@/lib/server/storage/r2ObjectStorage";
+import type { DeepAnalysisInputAttachment } from "@/lib/server/deep-analysis/inputManifest";
+import { applyVerifiedAttachmentWaivers } from "@/lib/server/deep-analysis/prepareInput";
+import {
+  createR2ObjectStorageFromEnv,
+  type R2ObjectStorage,
+} from "@/lib/server/storage/r2ObjectStorage";
 import type { LabInputBlock } from "@/lib/server/analysis-lab/lab-contract";
 
 const DEFAULT_INPUT_CHAR_CAP = 120_000;
@@ -33,8 +38,14 @@ export interface LabInputGrant {
 }
 
 export interface LabInputArchive {
+  id?: string | null;
   filename: string;
+  sourceUri?: string | null;
+  contentType?: string | null;
+  bytes?: number | null;
   storageKey?: string | null;
+  sha256?: string | null;
+  conversionStatus?: string | null;
   markdownStorageKey: string | null;
   markdownSha256?: string | null;
   markdownBytes: number | null;
@@ -72,6 +83,7 @@ export function applyLabVerifiedConversionArtifacts(
     if (!artifact?.sha256) return archive;
     return {
       ...archive,
+      conversionStatus: "converted",
       markdownStorageKey: artifact.storageKey,
       markdownSha256: artifact.sha256,
       markdownBytes: artifact.markdownChars ?? archive.markdownBytes,
@@ -106,9 +118,13 @@ export async function assembleLabInput(
     payload: Record<string, unknown> | null;
     archives: LabInputArchive[];
   },
-  deps: { storage?: LabAttachmentTextStorage | null } = {},
+  deps: {
+    storage?: LabAttachmentTextStorage | null;
+    preserveUnavailableArchiveFilenames?: ReadonlySet<string>;
+  } = {},
 ): Promise<LabAssembledInputWithAttachmentManifest> {
   const cap = labInputCharCap();
+  const storage = deps.storage === undefined ? createR2ObjectStorageFromEnv() : deps.storage;
   const structured: DraftBlock = {
     label: "공고 구조화 필드",
     body: renderStructuredFields(input.grant, input.payload),
@@ -118,7 +134,7 @@ export async function assembleLabInput(
   const attachment = await loadAttachmentBlocks(
     input.archives,
     Math.max(0, cap - structured.body.length),
-    deps.storage,
+    storage,
   );
   const drafts: DraftBlock[] = [structured, ...attachment.blocks];
 
@@ -151,8 +167,30 @@ export async function assembleLabInput(
     if (body.trim()) renderedBlocks.push(`[블록: ${draft.label}]\n${body}`);
   }
 
+  // ZIP 자체에는 markdown이 없더라도, 보관된 parent 바이트의 모든 material member가
+  // exact child 행과 대응하고 각 child 전문이 해시 검증 후 잘리지 않은 입력에 실제로
+  // 남았다면 parent의 "변환 안 됨"은 같은 내용을 중복 경고한다. cap 적용 뒤에 판정해
+  // truncated/cap_exceeded child를 포함 완료로 오인하지 않는다.
+  const coveredZipParents = await findCoveredZipParentIndexes(
+    input.archives,
+    attachment.provenance,
+    attachment.blocks,
+    storage,
+    deps.preserveUnavailableArchiveFilenames,
+  );
+  for (const index of coveredZipParents) {
+    const provenance = attachment.provenance[index];
+    const archive = input.archives[index];
+    if (!provenance || !archive?.sha256) continue;
+    provenance.outcome = "covered_by_children";
+    provenance.unavailableReason = null;
+    provenance.actualContentSha256 = archive.sha256;
+    provenance.inputChars = 0;
+  }
+  const unavailable = attachment.unavailable.filter((item) => !coveredZipParents.has(item.index));
+
   // 로드 실패·캡 초과로 입력에 못 들어간 첨부도 블록 메타에 남긴다(실행 메타 탭에서 보이도록).
-  for (const item of attachment.unavailable) {
+  for (const item of unavailable) {
     blocks.push({
       label: `첨부 미투입(${UNAVAILABLE_REASON_LABELS[item.reason]}): ${item.filename}`,
       chars: 0,
@@ -168,9 +206,9 @@ export async function assembleLabInput(
       `길이 제한(${cap.toLocaleString()}자)으로 다음 블록이 잘리거나 제외되었다: ${cappedLabels.join(", ")}`,
     );
   }
-  if (attachment.unavailable.length > 0) {
+  if (unavailable.length > 0) {
     noticeParts.push(
-      `다음 첨부는 입력에 포함되지 못했다: ${attachment.unavailable
+      `다음 첨부는 입력에 포함되지 못했다: ${unavailable
         .map((item) => `${item.filename}(${UNAVAILABLE_REASON_LABELS[item.reason]})`)
         .join(", ")}`,
     );
@@ -308,7 +346,7 @@ export function announcementScore(filename: string): number {
 export const BODY_MARKDOWN_MIN_BYTES = 2_000;
 
 type UnavailableReason = "markdown_missing" | "r2_unconfigured" | "load_failed" | "cap_exceeded";
-type AttachmentOutcome = "loaded" | "truncated" | "unavailable";
+type AttachmentOutcome = "loaded" | "truncated" | "unavailable" | "covered_by_children";
 
 interface AttachmentProvenance {
   filename: string;
@@ -332,22 +370,24 @@ const UNAVAILABLE_REASON_LABELS: Record<UnavailableReason, string> = {
 /** 첨부 markdown 텍스트 로더 — 테스트에서 R2 없이 주입하기 위한 최소 인터페이스. */
 export interface LabAttachmentTextStorage {
   getObjectText(key: string): Promise<string>;
+  getObjectBytes?(key: string): Promise<{ body: Buffer; contentType: string | null }>;
 }
 
 interface AttachmentLoadResult {
   blocks: DraftBlock[];
   /** 입력에 포함되지 못한 markdown 첨부 — 조용히 버리지 않고 호출자에게 돌려 고지한다(M1). */
-  unavailable: Array<{ filename: string; reason: UnavailableReason }>;
+  unavailable: Array<{ index: number; filename: string; reason: UnavailableReason }>;
   provenance: AttachmentProvenance[];
 }
 
 async function loadAttachmentBlocks(
   archives: LabInputArchive[],
   budget: number,
-  injectedStorage?: LabAttachmentTextStorage | null,
+  storage: LabAttachmentTextStorage | null,
 ): Promise<AttachmentLoadResult> {
-  const candidates = archives.map((archive) => ({
+  const candidates = archives.map((archive, index) => ({
     archive,
+    index,
     provenance: createAttachmentProvenance(archive),
   }));
   // markdown 미생성 첨부(변환 실패·미시도)도 조용히 버리지 않고 고지한다 — 고지가 없으면
@@ -360,7 +400,7 @@ async function loadAttachmentBlocks(
     provenance.unavailableReason = "markdown_missing";
   }
   const markdownMissing: AttachmentLoadResult["unavailable"] = markdownMissingCandidates
-    .map(({ archive }) => ({ filename: archive.filename, reason: "markdown_missing" as const }));
+    .map(({ archive, index }) => ({ index, filename: archive.filename, reason: "markdown_missing" as const }));
   const withMarkdown = candidates
     .filter((candidate): candidate is typeof candidate & {
       archive: LabInputArchive & { markdownStorageKey: string };
@@ -381,7 +421,6 @@ async function loadAttachmentBlocks(
     };
   }
 
-  const storage = injectedStorage === undefined ? createR2ObjectStorageFromEnv() : injectedStorage;
   if (!storage) {
     for (const { provenance } of withMarkdown) {
       provenance.outcome = "unavailable";
@@ -392,7 +431,8 @@ async function loadAttachmentBlocks(
       blocks: [],
       unavailable: [
         ...markdownMissing,
-        ...withMarkdown.map(({ archive }) => ({
+        ...withMarkdown.map(({ archive, index }) => ({
+          index,
           filename: archive.filename,
           reason: "r2_unconfigured" as const,
         })),
@@ -404,12 +444,12 @@ async function loadAttachmentBlocks(
   const blocks: DraftBlock[] = [];
   const unavailable: AttachmentLoadResult["unavailable"] = [...markdownMissing];
   let loadedChars = 0;
-  for (const { archive, provenance } of withMarkdown) {
+  for (const { archive, index, provenance } of withMarkdown) {
     // 캡 예산을 이미 소진했으면 더 읽지 않는다(M2) — 본문성 우선 정렬이라 뒤쪽은 서식류.
     if (loadedChars >= budget) {
       provenance.outcome = "unavailable";
       provenance.unavailableReason = "cap_exceeded";
-      unavailable.push({ filename: archive.filename, reason: "cap_exceeded" });
+      unavailable.push({ index, filename: archive.filename, reason: "cap_exceeded" });
       continue;
     }
     try {
@@ -438,10 +478,60 @@ async function loadAttachmentBlocks(
       provenance.outcome = "unavailable";
       provenance.unavailableReason = "load_failed";
       provenance.inputChars = 0;
-      unavailable.push({ filename: archive.filename, reason: "load_failed" });
+      unavailable.push({ index, filename: archive.filename, reason: "load_failed" });
     }
   }
   return { blocks, unavailable, provenance: candidates.map((item) => item.provenance) };
+}
+
+async function findCoveredZipParentIndexes(
+  archives: LabInputArchive[],
+  provenance: AttachmentProvenance[],
+  blocks: DraftBlock[],
+  storage: LabAttachmentTextStorage | null,
+  preserveUnavailableArchiveFilenames: ReadonlySet<string> | undefined,
+): Promise<Set<number>> {
+  if (!storage?.getObjectBytes) return new Set();
+  const archiveStorage = storage as LabAttachmentTextStorage
+    & Pick<R2ObjectStorage, "getObjectBytes">;
+  const bodyByProvenance = new Map<AttachmentProvenance, string>();
+  for (const block of blocks) {
+    if (block.attachmentProvenance) {
+      bodyByProvenance.set(block.attachmentProvenance, block.body);
+    }
+  }
+  const inventory: DeepAnalysisInputAttachment[] = archives.map((archive, index) => {
+    const currentProvenance = provenance[index];
+    const loaded = currentProvenance?.outcome === "loaded"
+      && currentProvenance.inputChars > 0;
+    return {
+      id: archive.id?.trim() || `lab-archive-${index}`,
+      filename: archive.filename,
+      sourceUri: archive.sourceUri ?? "",
+      contentType: archive.contentType ?? null,
+      bytes: archive.bytes ?? null,
+      storageKey: archive.storageKey ?? null,
+      sha256: archive.sha256 ?? null,
+      conversionStatus: archive.conversionStatus ?? null,
+      markdownStorageKey: archive.markdownStorageKey ?? null,
+      markdownSha256: archive.markdownSha256 ?? null,
+      markdownText: loaded && currentProvenance
+        ? bodyByProvenance.get(currentProvenance) ?? null
+        : null,
+      loadError: loaded
+        ? null
+        : currentProvenance?.unavailableReason ?? currentProvenance?.outcome ?? "unavailable",
+    };
+  });
+  await applyVerifiedAttachmentWaivers(inventory, archiveStorage);
+  return new Set(inventory.flatMap((attachment, index) => (
+    attachment.waiver?.disposition === "waived_non_material"
+    && provenance[index]?.outcome === "unavailable"
+    && provenance[index]?.unavailableReason === "markdown_missing"
+    && !preserveUnavailableArchiveFilenames?.has(attachment.filename)
+      ? [index]
+      : []
+  )));
 }
 
 function createAttachmentProvenance(archive: LabInputArchive): AttachmentProvenance {

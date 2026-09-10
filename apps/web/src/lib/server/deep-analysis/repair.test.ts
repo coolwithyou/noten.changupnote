@@ -88,7 +88,7 @@ const validation = {
     ].map((dimension) => [dimension, []]),
   ) as never,
 };
-assert.equal(DEEP_ANALYSIS_REPAIR_VERSION, "deep-analysis-repair-v6");
+assert.equal(DEEP_ANALYSIS_REPAIR_VERSION, "deep-analysis-repair-v8");
 assert.equal(
   findExactEvidenceSpanCandidates(requestedSpan, execution.evidenceText).length,
   2,

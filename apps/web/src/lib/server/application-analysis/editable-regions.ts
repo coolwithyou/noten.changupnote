@@ -212,7 +212,8 @@ function extractTableContextualFields(
 
       const choiceOptions = parseTextChoiceOptions(text, sourceSha256, blockIndex, rowIndex, colIndex);
       if (choiceOptions.length >= 2) {
-        const label = findRowLabel(table, rowIndex, colIndex)
+        const label = choiceQuestionFromText(text)
+          ?? findRowLabel(table, rowIndex, colIndex)
           ?? findColumnHeader(table, rowIndex, colIndex)
           ?? `선택 항목 ${rowIndex + 1}`;
         const inputKind = inferChoiceInputKind(label, choiceOptions);
@@ -687,9 +688,24 @@ function parseTextChoiceOptions(
 function inferChoiceInputKind(label: string, options: RoundtripFieldOption[]): RoundtripFieldInputKind {
   const normalized = normalizeRoundtripLabel(label);
   const optionLabels = options.map((option) => normalizeRoundtripLabel(option.label)).join("|");
+  if (/(중복체크가능|복수선택|다중선택)/.test(`${normalized}|${optionLabels}`)) return "multiple_choice";
+  if (/(택1|하나만|1개만|단일선택)/.test(normalized)) return "single_choice";
   if (/(구분|형태|여부|경험|대표자참여|상태)/.test(normalized)) return "single_choice";
-  if (/(개인.*법인|있음.*없음|유.*무|예.*아니오)/.test(optionLabels)) return "single_choice";
+  if (/(개인.*법인|있음.*없음|유.*무|예.*아니오|동의함.*동의하지않음|동의.*비동의)/.test(optionLabels)) {
+    return "single_choice";
+  }
   return "multiple_choice";
+}
+
+/** 선택지 셀 안에 실제 질문이 있으면 인접한 개인정보 표 라벨보다 질문을 UI 라벨로 쓴다. */
+function choiceQuestionFromText(text: string): string | null {
+  const firstMarker = text.search(CHOICE_MARKER_PATTERN);
+  if (firstMarker <= 0) return null;
+  const prefix = text.slice(0, firstMarker).replace(/\s+/gu, " ").trim();
+  if (prefix.length < 4 || prefix.length > 120) return null;
+  return /(?:\?|？|하십니까|합니까|선택(?:해|하|하여)|택\s*1)/u.test(prefix)
+    ? prefix.replace(/[:：\s]+$/u, "")
+    : null;
 }
 
 function buildBooleanOptions(
@@ -792,6 +808,16 @@ export function prepareContextualEdits(
     if (field.inputKind === "single_choice" || field.inputKind === "multiple_choice") {
       const selectedOptionIds = fieldChoices[field.fieldInstanceId];
       if (!selectedOptionIds) return [];
+      if (new Set(selectedOptionIds).size !== selectedOptionIds.length) {
+        throw new Error(`중복된 선택값이 있습니다: ${field.label}`);
+      }
+      const allowedOptionIds = new Set(field.options.map((option) => option.optionId));
+      if (selectedOptionIds.some((optionId) => !allowedOptionIds.has(optionId))) {
+        throw new Error(`원문에 없는 선택값입니다: ${field.label}`);
+      }
+      if (field.inputKind === "single_choice" && selectedOptionIds.length > 1) {
+        throw new Error(`“${field.label}”은 하나만 선택해야 합니다.`);
+      }
       const originalIds = field.options.filter((option) => option.selected).map((option) => option.optionId);
       if (sameStringArray(selectedOptionIds, originalIds)) return [];
       return [{

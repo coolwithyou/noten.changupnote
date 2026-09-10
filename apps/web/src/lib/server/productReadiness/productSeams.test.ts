@@ -6,7 +6,7 @@ import { APPLICATION_ROUNDTRIP_VERSION, ROUNDTRIP_FIELD_CANDIDATE_LIMIT, buildAp
 import { APPLICATION_ROUNDTRIP_VERSION as legacyVersion } from "../analysis-lab/application-roundtrip/contract";
 import { buildApplicationPrecomputeAnalysisVersion as legacyIdentity } from "../documents/applicationPrecomputeMaterialization";
 
-assert.equal(APPLICATION_ROUNDTRIP_VERSION, "kordoc-application-roundtrip-v9");
+assert.equal(APPLICATION_ROUNDTRIP_VERSION, "kordoc-application-roundtrip-v10");
 assert.equal(legacyVersion, APPLICATION_ROUNDTRIP_VERSION);
 assert.equal(ROUNDTRIP_FIELD_CANDIDATE_LIMIT, 180);
 assert.equal(legacyIdentity, buildApplicationPrecomputeAnalysisVersion, "역사 manifest identity 함수는 동일 정본을 사용한다");

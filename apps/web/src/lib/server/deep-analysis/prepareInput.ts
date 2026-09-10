@@ -49,7 +49,6 @@ export async function prepareDeepAnalysisInput(input: {
     mergeAttachmentInventory(raw?.attachments ?? [], archives),
     convertedArtifacts,
   );
-  await applyVerifiedAttachmentWaivers(inventory, input.storage);
   const hydrated = await Promise.all(inventory.map(async (attachment) => {
     if (!attachment.markdownStorageKey) return attachment;
     try {
@@ -76,6 +75,9 @@ export async function prepareDeepAnalysisInput(input: {
       };
     }
   }));
+  // ZIP parent 면제는 child 전문의 저장 SHA까지 확인된 뒤에만 판단해야 한다. conversion
+  // metadata만 있는 상태에서 먼저 면제하면 실제 hydration 실패를 input 포함으로 오인한다.
+  await applyVerifiedAttachmentWaivers(hydrated, input.storage);
 
   const grantSourceFields = deepAnalysisGrantSourceFields(grant);
   const sourceRevision = buildDeepAnalysisSourceRevision({
@@ -324,7 +326,7 @@ function applyVerifiedConversionArtifacts(
  */
 export async function applyVerifiedAttachmentWaivers(
   inventory: DeepAnalysisInputAttachment[],
-  storage: R2ObjectStorage,
+  storage: Pick<R2ObjectStorage, "getObjectBytes">,
 ): Promise<void> {
   const textSidecars = inventory.filter((attachment) => (
     /\.txt$/i.test(attachment.filename)
@@ -366,7 +368,11 @@ export async function applyVerifiedAttachmentWaivers(
     if (inventoryChildren.length === 0) continue;
     try {
       const parent = await storage.getObjectBytes(attachment.storageKey);
-      if (sha256Hex(parent.body) !== attachment.sha256) continue;
+      if (
+        attachment.bytes === null
+        || parent.body.byteLength !== attachment.bytes
+        || sha256Hex(parent.body) !== attachment.sha256
+      ) continue;
       const materialEntries = listVerifiedArchiveMaterialEntries(
         attachment.filename,
         parent.body,
@@ -380,21 +386,29 @@ export async function applyVerifiedAttachmentWaivers(
           entry,
           child: candidates.find((candidate) => (
             candidate.storageKey
-            && candidate.sha256
+            && candidate.sha256 === entry.sha256
+            && candidate.bytes === entry.originalSize
             && candidate.conversionStatus === "converted"
             && candidate.markdownStorageKey
             && candidate.markdownSha256
+            && candidate.markdownText !== null
+            && candidate.markdownText.trim().length > 0
+            && !candidate.loadError
           )) ?? candidates[0],
         };
       });
       if (
-        children.some(({ child }) => (
+        children.some(({ entry, child }) => (
           !child
           || !child.storageKey
-          || !child.sha256
+          || child.sha256 !== entry.sha256
+          || child.bytes !== entry.originalSize
           || child.conversionStatus !== "converted"
           || !child.markdownStorageKey
           || !child.markdownSha256
+          || child.markdownText === null
+          || child.markdownText.trim().length === 0
+          || Boolean(child.loadError)
         ))
       ) {
         continue;
@@ -407,6 +421,7 @@ export async function applyVerifiedAttachmentWaivers(
           entries: children.map(({ entry, child }) => ({
             filename: entry.filename,
             originalSize: entry.originalSize,
+            entrySha256: entry.sha256,
             id: child?.id,
             sourceUri: child?.sourceUri,
             sha256: child?.sha256,

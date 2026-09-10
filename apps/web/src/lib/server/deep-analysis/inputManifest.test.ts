@@ -167,14 +167,17 @@ assert.equal(sealDeepAnalysisInput({
   attachments: imageAndOcrSidecar,
 }).sealed, true);
 
+const firstFormBytes = Buffer.from("first form");
+const secondFormBytes = Buffer.from("second form");
 const archiveBytes = Buffer.from(zipSync({
-  "form-1.hwp": new TextEncoder().encode("first form"),
-  "form-2.hwp": new TextEncoder().encode("second form"),
+  "form-1.hwp": firstFormBytes,
+  "form-2.hwp": secondFormBytes,
 }));
 const archiveContainer = attachment({
   id: "forms-zip",
   filename: "신청서식.zip",
   sourceUri: "https://example.com/forms.zip",
+  bytes: archiveBytes.byteLength,
   storageKey: "grant-archive/forms.zip",
   sha256: sha256Hex(archiveBytes),
   conversionStatus: "skipped",
@@ -187,11 +190,15 @@ const archiveChildren = [
     id: "form-1",
     filename: "신청서식__01__신청서.hwp",
     sourceUri: "zip:https://example.com/forms.zip#form-1.hwp",
+    bytes: firstFormBytes.length,
+    sha256: sha256Hex(firstFormBytes),
   }),
   attachment({
     id: "form-2",
     filename: "신청서식__02__확인서.hwp",
     sourceUri: "zip:https://example.com/forms.zip#form-2.hwp",
+    bytes: secondFormBytes.length,
+    sha256: sha256Hex(secondFormBytes),
   }),
 ];
 const expandedArchive = [archiveContainer, ...archiveChildren];
@@ -210,9 +217,38 @@ assert.equal(sealDeepAnalysisInput({
   structuredText: "구조화 공고",
   attachments: expandedArchive,
 }).sealed, true);
+const { waiver: _verifiedArchiveWaiver, ...archiveWithoutWaiver } = archiveContainer;
+
+const archiveWithWrongChildSha = [
+  { ...archiveWithoutWaiver },
+  { ...archiveChildren[0]!, sha256: sha256Hex("different source") },
+  archiveChildren[1]!,
+];
+await applyVerifiedAttachmentWaivers(archiveWithWrongChildSha, archiveStorage);
+assert.equal(
+  archiveWithWrongChildSha[0]?.waiver,
+  undefined,
+  "ZIP entry 실제 SHA와 다른 child archive 행으로 부모를 면제하면 안 된다",
+);
+
+const archiveWithUnloadedChild = [
+  { ...archiveWithoutWaiver },
+  {
+    ...archiveChildren[0]!,
+    markdownText: null,
+    loadError: "markdown SHA-256 mismatch",
+  },
+  archiveChildren[1]!,
+];
+await applyVerifiedAttachmentWaivers(archiveWithUnloadedChild, archiveStorage);
+assert.equal(
+  archiveWithUnloadedChild[0]?.waiver,
+  undefined,
+  "변환 metadata만 있고 전문 hydration이 실패한 child는 실제 입력 포함으로 세면 안 된다",
+);
 
 const expandedArchiveWithStaleDuplicate = [
-  { ...archiveContainer },
+  { ...archiveWithoutWaiver },
   archiveChildren[0]!,
   attachment({
     ...archiveChildren[0]!,
@@ -239,15 +275,7 @@ assert.equal(sealDeepAnalysisInput({
 }).sealed, true);
 
 const incompleteArchive = [
-  attachment({
-    id: "forms-zip-incomplete",
-    filename: "신청서식.zip",
-    sourceUri: "https://example.com/forms.zip",
-    conversionStatus: "skipped",
-    markdownStorageKey: null,
-    markdownSha256: null,
-    markdownText: null,
-  }),
+  { ...archiveWithoutWaiver, id: "forms-zip-incomplete" },
   archiveChildren[0]!,
   attachment({
     ...archiveChildren[1]!,
@@ -265,10 +293,10 @@ const archiveWithHiddenImageBytes = Buffer.from(zipSync({
   "form-2.hwp": new TextEncoder().encode("second form"),
   "poster.jpg": new TextEncoder().encode("material image"),
 }));
-const { waiver: _verifiedArchiveWaiver, ...archiveWithoutWaiver } = archiveContainer;
 const archiveWithHiddenImage = [
   {
     ...archiveWithoutWaiver,
+    bytes: archiveWithHiddenImageBytes.byteLength,
     sha256: sha256Hex(archiveWithHiddenImageBytes),
   },
   ...archiveChildren,
@@ -283,6 +311,30 @@ assert.equal(
   archiveWithHiddenImage[0]?.waiver,
   undefined,
   "inventory에 없는 material image가 든 ZIP은 child 문서만으로 면제하면 안 된다",
+);
+
+const archiveWithNestedZipBytes = Buffer.from(zipSync({
+  "form-1.hwp": firstFormBytes,
+  "nested.zip": Buffer.from(zipSync({ "form-2.hwp": secondFormBytes })),
+}));
+const archiveWithNestedZip = [
+  {
+    ...archiveWithoutWaiver,
+    bytes: archiveWithNestedZipBytes.byteLength,
+    sha256: sha256Hex(archiveWithNestedZipBytes),
+  },
+  archiveChildren[0]!,
+];
+await applyVerifiedAttachmentWaivers(archiveWithNestedZip, {
+  getObjectBytes: async () => ({
+    body: archiveWithNestedZipBytes,
+    contentType: "application/zip",
+  }),
+} as unknown as R2ObjectStorage);
+assert.equal(
+  archiveWithNestedZip[0]?.waiver,
+  undefined,
+  "중첩 ZIP의 내부 material을 직접 입증하지 못하면 부모 경고를 유지해야 한다",
 );
 
 console.log("deep analysis input manifest tests passed");

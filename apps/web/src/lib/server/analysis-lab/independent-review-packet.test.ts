@@ -188,12 +188,69 @@ assert.deepEqual(
     {
       filename: "기존.hwp",
       storageKey: "source/old",
+      conversionStatus: "converted",
       markdownStorageKey: "md/old",
       markdownSha256: "b".repeat(64),
       markdownBytes: null,
     },
   ],
   "run 뒤 생긴 변환문서와 첨부를 제외하고 당시 첨부 입력 형태만 복원한다",
+);
+
+const zipParentSourceUri = "https://example.com/forms.zip";
+const suppressedZipShape = shapeLabInputArchivesForRun({
+  inputBlocks: [
+    { label: "공고 구조화 필드", chars: 20, truncated: false },
+    { label: "첨부 공고문: form-1.hwp", chars: 100, truncated: false },
+    { label: "첨부 공고문: form-2.hwp", chars: 100, truncated: false },
+  ],
+  archives: [
+    {
+      filename: "forms.zip",
+      sourceUri: zipParentSourceUri,
+      storageKey: "source/forms.zip",
+      markdownStorageKey: null,
+      markdownBytes: null,
+    },
+    {
+      filename: "form-1.hwp",
+      sourceUri: `zip:${zipParentSourceUri}#form-1.hwp`,
+      storageKey: "source/form-1.hwp",
+      markdownStorageKey: null,
+      markdownBytes: null,
+    },
+    {
+      filename: "form-2.hwp",
+      sourceUri: `zip:${zipParentSourceUri}#form-2.hwp`,
+      storageKey: "source/form-2.hwp",
+      markdownStorageKey: null,
+      markdownBytes: null,
+    },
+  ],
+  conversionArtifacts: [
+    {
+      sourceAttachment: "source/form-1.hwp",
+      title: "form-1.hwp",
+      storageKey: "md/form-1",
+      sha256: "d".repeat(64),
+    },
+    {
+      sourceAttachment: "source/form-2.hwp",
+      title: "form-2.hwp",
+      storageKey: "md/form-2",
+      sha256: "e".repeat(64),
+    },
+  ],
+});
+assert.equal(
+  suppressedZipShape.some((archive) => archive.filename === "forms.zip"),
+  true,
+  "신규 run에서 중복 경고가 제거된 ZIP parent도 재조립 coverage 검증용으로 보존한다",
+);
+assert.equal(suppressedZipShape.length, 3);
+assert.equal(
+  suppressedZipShape.find((archive) => archive.filename === "form-1.hwp")?.conversionStatus,
+  "converted",
 );
 
 console.log("independent-review-packet tests passed");

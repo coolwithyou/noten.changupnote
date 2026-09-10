@@ -13,6 +13,7 @@ import { getCunoteDb } from "@/lib/server/db/client";
 import * as schema from "@/lib/server/db/schema";
 import { createR2ObjectStorageFromEnv } from "@/lib/server/storage/r2ObjectStorage";
 import {
+  applicationDocumentRecommendationPriority,
   classifyRoundtripDocument,
   declaredRoundtripFormat,
   likelyApplicationRole,
@@ -292,12 +293,15 @@ function normalizeExactSourceSha256s(values: readonly string[] | undefined): Set
 
 function filenamePriority(filename: string): number {
   const classification = classifyRoundtripDocument({ filename, markdown: "", fields: [], formConfidence: 0 });
-  return (likelyApplicationRole(classification.role) ? 100 : 0) + Math.max(...Object.values(classification.scores));
+  return applicationDocumentRecommendationPriority(filename)
+    + (likelyApplicationRole(classification.role) ? 100 : 0)
+    + Math.max(...Object.values(classification.scores));
 }
 
 function recommendationScore(document: RoundtripParsedDocument): number {
   const role = likelyApplicationRole(document.role) ? 100 : document.role === "unknown" ? 0 : -50;
-  return role
+  return applicationDocumentRecommendationPriority(document.filename)
+    + role
     + document.recommendedInputFieldCount * 2
     + document.recommendedChoiceGroupCount * 3
     + document.formConfidence * 10

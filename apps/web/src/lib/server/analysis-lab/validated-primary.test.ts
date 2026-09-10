@@ -323,18 +323,43 @@ const repairedMixed = await runValidatedLabPrimary({
 assert.equal(mixedCalls, 2, "unresolved와 실제 계약 오류가 섞이면 repair");
 assert.equal(repairedMixed.outcome, "publishable");
 
+let sameIssueProgressCalls = 0;
+const sameIssueProgress = await runValidatedLabPrimary({
+  grantId: "grant-lab-same-issue-with-progress",
+  inputText,
+  inputSha256: "6".repeat(64),
+  apiKey: "subscription",
+  model: "claude-opus-5",
+  runModel: async () => {
+    sameIssueProgressCalls += 1;
+    if (sameIssueProgressCalls === 1) return invalidResultWithRegionComment("첫 지역축 검토");
+    if (sameIssueProgressCalls === 2) return invalidResultWithRegionComment("원문 재검토 뒤 지역축 설명 보강");
+    return result(true);
+  },
+});
+assert.equal(sameIssueProgressCalls, 3, "같은 오류라도 축 설명이 바뀌면 기존 repair 상한 안에서 진행");
+assert.equal(sameIssueProgress.repairCount, 2);
+assert.equal(sameIssueProgress.modelPrimaryRepairCount, 2);
+
+const seq35Span = "☞ 공고일 기준 업력 7년 미만ㆍ전국 소재 창업기업";
+const seq35InputText = [
+  seq35Span,
+  "구조화 지원대상 필드는 '창업벤처', 사업요약은 '창업기업'으로 지칭한다.",
+].join("\n");
 let failedCalls = 0;
 let failedError: unknown;
 try {
   await runValidatedLabPrimary({
-    grantId: "grant-lab-repair-failed",
-    inputText,
+    grantId: "grant-lab-seq35-no-progress",
+    inputText: seq35InputText,
     inputSha256: "b".repeat(64),
     apiKey: "subscription",
     model: "claude-opus-5",
     runModel: async () => {
       failedCalls += 1;
-      return result(false);
+      // 실제 seq35 artifact에는 정규화 뒤 criterion은 있으나 repair 전 raw 생성 전체는 없다.
+      // 따라서 raw list_semantics만 바뀌고 같은 정규화 결과가 되는 두 응답은 합성 fixture다.
+      return seq35NoProgressResult(failedCalls === 1 ? "closed" : "open");
     },
   });
 } catch (error) {
@@ -343,15 +368,15 @@ try {
 assert.ok(failedError instanceof ValidatedLabPrimaryError);
 assert.match(
   failedError.message,
-  /validator 교정 2회 뒤에도 실패.*normalization_drop.*axis_criterion_mismatch/,
+  /validator 교정 1회 뒤에도 실패.*semantic_misattribution/,
 );
-assert.equal(failedError.repairCount, 2);
+assert.equal(failedError.repairCount, 1);
 assert.equal(failedError.deterministicPrimaryRepairCount, 0);
-assert.equal(failedError.modelPrimaryRepairCount, 2);
+assert.equal(failedError.modelPrimaryRepairCount, 1);
 assert.equal(failedError.newIssueAfterRepairCount, 0);
-assert.equal(failedError.passes.length, 3, "실패해도 primary+repair 진단 전부 운반");
-assert.equal(failedError.extraction.criteria.length, 0, "마지막 실패 extraction 보존");
-assert.equal(failedCalls, 3, "최초 1회와 교정 최대 2회 뒤 실패");
+assert.equal(failedError.passes.length, 2, "무변경 중단도 primary+repair 진단을 모두 운반");
+assert.equal(failedError.extraction.criteria.length, 1, "마지막 invalid extraction을 자동 valid로 바꾸지 않음");
+assert.equal(failedCalls, 2, "최초 1회와 교정 1회가 완전히 같으면 추가 모델 호출 중단");
 
 console.log("analysis-lab validated primary tests: ok");
 
@@ -404,6 +429,59 @@ function semanticInvalidResult(): DeepAnalysisModelResult {
     axisAssessments: assessments,
     rawToolInput: {
       criteria: [rawCriterion(invalidCriterion)],
+      axis_assessments: assessments.map((axis) => ({ ...axis })),
+    },
+  };
+}
+
+function invalidResultWithRegionComment(comment: string): DeepAnalysisModelResult {
+  const invalid = result(false);
+  const assessments = invalid.axisAssessments.map((axis) => axis.dimension === "region"
+    ? { ...axis, comment }
+    : axis);
+  return {
+    ...invalid,
+    axisAssessments: assessments,
+    rawToolInput: {
+      ...invalid.rawToolInput,
+      axis_assessments: assessments.map((axis) => ({ ...axis })),
+    },
+  };
+}
+
+function seq35NoProgressResult(rawListSemantics: "open" | "closed"): DeepAnalysisModelResult {
+  const valueNote =
+    "개인사업자·법인사업자 구분 배제 문장이 없고 유한 열거가 아니므로 열린 목록으로 두며 목록 밖 유형을 자동 탈락시키지 않는다.";
+  const seq35Criterion: DeepAnalysisCriterion = {
+    dimension: "target_type",
+    kind: "required",
+    operator: "in",
+    value: {
+      targets: ["창업기업"],
+      list_semantics: "closed",
+      note: valueNote,
+    },
+    confidence: 0.58,
+    sourceSpan: seq35Span,
+    spanVerified: true,
+    note: "신청서에 개인·법인 모두 기재하도록 되어 있어 법인 전용으로 볼 근거는 없다.",
+  };
+  const assessments = axes(false).map((axis) => axis.dimension === "target_type"
+    ? { ...axis, status: "condition_found" as const }
+    : axis);
+  return {
+    ...result(true),
+    criteria: [seq35Criterion],
+    axisAssessments: assessments,
+    rawToolInput: {
+      criteria: [{
+        ...rawCriterion(seq35Criterion),
+        value: {
+          targets: ["창업기업"],
+          list_semantics: rawListSemantics,
+          note: valueNote,
+        },
+      }],
       axis_assessments: assessments.map((axis) => ({ ...axis })),
     },
   };

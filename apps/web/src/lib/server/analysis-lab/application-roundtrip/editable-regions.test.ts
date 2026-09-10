@@ -88,6 +88,84 @@ const choiceUnderHeader = extractContextualRoundtripFields(choiceUnderHeaderBloc
 assert.equal(choiceUnderHeader[0]?.label, "동의여부", "같은 행 라벨이 없으면 열 머리글을 선택 필드 라벨로 사용");
 assert.equal(choiceUnderHeader[0]?.inputKind, "single_choice");
 
+const consentChoice = extractContextualRoundtripFields([{
+  type: "table",
+  pageNumber: 1,
+  table: {
+    rows: 1,
+    cols: 2,
+    hasHeader: false,
+    cells: [row(
+      "추가 수집 항목",
+      "개인정보의 수집 및 이용목적에 동의하십니까? □ 동의함 □ 동의하지 않음",
+    )],
+  },
+}], "2".repeat(64))[0]!;
+assert.equal(consentChoice.label, "개인정보의 수집 및 이용목적에 동의하십니까?");
+assert.equal(consentChoice.inputKind, "single_choice");
+assert.throws(
+  () => prepareContextualEdits([consentChoice], {}, {
+    [consentChoice.fieldInstanceId]: consentChoice.options.map((option) => option.optionId),
+  }),
+  /하나만 선택/,
+  "동의와 비동의를 함께 고른 편집 계획은 만들지 않아야 한다",
+);
+const selectedConsentChoice = extractContextualRoundtripFields([{
+  type: "table",
+  pageNumber: 1,
+  table: {
+    rows: 1,
+    cols: 2,
+    hasHeader: false,
+    cells: [row(
+      "추가 수집 항목",
+      "개인정보의 수집 및 이용목적에 동의하십니까? ☑ 동의함 □ 동의하지 않음",
+    )],
+  },
+}], "5".repeat(64))[0]!;
+const clearConsentEdits = prepareContextualEdits([selectedConsentChoice], {}, {
+  [selectedConsentChoice.fieldInstanceId]: [],
+});
+assert.equal(clearConsentEdits.length, 1, "원문 필수성 근거가 없는 단일 선택은 선택 해제를 허용해야 한다");
+assert.match(clearConsentEdits[0]!.documentValue, /□ 동의함 □ 동의하지 않음/);
+
+const exclusiveRequirement = extractContextualRoundtripFields([{
+  type: "table",
+  pageNumber: 1,
+  table: {
+    rows: 1,
+    cols: 2,
+    hasHeader: false,
+    cells: [row("신청 요건 (택1)", "□ 요건1 □ 요건2")],
+  },
+}], "3".repeat(64))[0]!;
+assert.equal(exclusiveRequirement.inputKind, "single_choice");
+assert.throws(
+  () => prepareContextualEdits([exclusiveRequirement], {}, {
+    [exclusiveRequirement.fieldInstanceId]: exclusiveRequirement.options.map((option) => option.optionId),
+  }),
+  /하나만 선택/,
+  "택1 질문은 두 선택을 동시에 문서에 쓰지 않아야 한다",
+);
+
+const genuineMultipleChoice = extractContextualRoundtripFields([{
+  type: "table",
+  pageNumber: 1,
+  table: {
+    rows: 1,
+    cols: 2,
+    hasHeader: false,
+    cells: [row(
+      "기업유형",
+      "□ (예비)사회적기업 □ 협동조합 □ 마을기업\n(※ 해당사항 중복체크 가능)",
+    )],
+  },
+}], "4".repeat(64))[0]!;
+assert.equal(genuineMultipleChoice.inputKind, "multiple_choice", "명시적 중복체크 문항은 복수 선택을 보존");
+assert.doesNotThrow(() => prepareContextualEdits([genuineMultipleChoice], {}, {
+  [genuineMultipleChoice.fieldInstanceId]: genuineMultipleChoice.options.slice(0, 2).map((option) => option.optionId),
+}));
+
 const narrativeTableBlocks: IRBlock[] = [{
   type: "table",
   pageNumber: 3,

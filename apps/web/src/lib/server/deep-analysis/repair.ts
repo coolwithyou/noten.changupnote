@@ -17,6 +17,7 @@ import type {
 import { sumDeepAnalysisActualCosts } from "./costPolicy";
 import {
   DEEP_ANALYSIS_ALTERNATIVE_PATH_SCOPE_RULE,
+  DEEP_ANALYSIS_CROSS_AXIS_TEXT_ONLY_RULE,
   DEEP_ANALYSIS_STRUCTURED_FILTER_METADATA_RULE,
   DEEP_ANALYSIS_TARGET_TYPE_LIST_SEMANTICS_RULE,
   findExactEvidenceSpanCandidates,
@@ -30,7 +31,7 @@ import {
   type DeepAnalysisValidationResult,
 } from "./validator";
 
-export const DEEP_ANALYSIS_REPAIR_VERSION = "deep-analysis-repair-v6" as const;
+export const DEEP_ANALYSIS_REPAIR_VERSION = "deep-analysis-repair-v8" as const;
 export const DEEP_ANALYSIS_AUDIT_RETRY_FEEDBACK_VERSION =
   "deep-analysis-audit-retry-feedback-v1" as const;
 
@@ -222,6 +223,7 @@ export async function repairDeepAnalysisExecution(input: {
       `list_semantics 또는 포털 구조화 필드 관련 semantic_misattribution은 다음 계약으로 고쳐라: ${DEEP_ANALYSIS_TARGET_TYPE_LIST_SEMANTICS_RULE}`,
       DEEP_ANALYSIS_STRUCTURED_FILTER_METADATA_RULE,
       `신청자 대안 경로를 한 조건으로 평탄화하지 마라: ${DEEP_ANALYSIS_ALTERNATIVE_PATH_SCOPE_RULE}`,
+      DEEP_ANALYSIS_CROSS_AXIS_TEXT_ONLY_RULE,
       "직전 결과 일부만 패치하지 말고 완전한 tool 결과 전체를 다시 반환한다.",
     ].join(" "),
   });

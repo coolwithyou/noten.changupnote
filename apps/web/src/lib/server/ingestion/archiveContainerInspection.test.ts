@@ -34,6 +34,17 @@ assert.deepEqual(
   ["eligibility.xlsx", "notice.hwpx"],
 );
 assert.equal(listVerifiedArchiveMaterialEntries("첨부파일.zip", nestedOffice).length, 2);
+assert.throws(
+  () => listVerifiedArchiveMaterialEntries("첨부파일.zip", writeHwpx(
+    Array.from({ length: 101 }, (_, index) => ({
+      name: `form-${index + 1}.hwp`,
+      data: Buffer.from(`form-${index + 1}`),
+      method: 0 as const,
+    })),
+  )),
+  /more than 100 material entries/,
+  "entry cap을 넘겨 일부만 추출될 수 있는 ZIP은 완전한 material 목록으로 승인하지 않는다",
+);
 
 const macroWorkbook = writeHwpx([
   { name: "xl/sharedStrings.xml", data: Buffer.from('<sst><si><t>직접참여인력</t></si></sst>'), method: 0 },

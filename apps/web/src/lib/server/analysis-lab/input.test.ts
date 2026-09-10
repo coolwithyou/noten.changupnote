@@ -2,6 +2,8 @@
 // 핵심: markdown 미생성 첨부(변환 실패·미시도)가 조용히 사라지지 않고
 // blocks 메타(첨부 미투입)와 모델 고지([입력 한계 고지])에 나타나야 한다(178352 실사례 회귀 방지).
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
+import { zipSync } from "fflate";
 import {
   applyLabVerifiedConversionArtifacts,
   assembleLabInput,
@@ -34,6 +36,68 @@ const fakeStorage = (objects: Record<string, string>): LabAttachmentTextStorage 
   },
 });
 
+function sha256(body: string | Buffer): string {
+  return createHash("sha256").update(body).digest("hex");
+}
+
+function zipCoverageFixture(input: {
+  memberCount?: number;
+  markdownBody?: (index: number) => string;
+  nested?: boolean;
+} = {}) {
+  const parentUri = "https://example.com/seq25/붙임파일.zip";
+  const memberCount = input.memberCount ?? 5;
+  const members = Array.from({ length: memberCount }, (_, offset) => {
+    const index = offset + 1;
+    const filename = `신청서-${index}.hwpx`;
+    const body = Buffer.from(`source form ${index}`);
+    const markdown = input.markdownBody?.(index) ?? `신청서 ${index} 전문`;
+    return { index, filename, body, markdown };
+  });
+  const zipEntries = Object.fromEntries(members.map((member) => [member.filename, member.body]));
+  if (input.nested) {
+    zipEntries["nested.zip"] = Buffer.from(zipSync({ "nested.hwp": Buffer.from("nested") }));
+  }
+  const parentBody = Buffer.from(zipSync(zipEntries));
+  const archives: LabInputArchive[] = [
+    archive({
+      id: "zip-parent",
+      filename: "붙임파일.zip",
+      sourceUri: parentUri,
+      bytes: parentBody.byteLength,
+      storageKey: "archive/붙임파일.zip",
+      sha256: sha256(parentBody),
+      conversionStatus: "skipped",
+    }),
+    ...members.map((member) => archive({
+      id: `zip-child-${member.index}`,
+      filename: member.filename,
+      sourceUri: `zip:${parentUri}#${encodeURIComponent(member.filename)}`,
+      bytes: member.body.byteLength,
+      storageKey: `archive/${member.filename}`,
+      sha256: sha256(member.body),
+      conversionStatus: "converted",
+      markdownStorageKey: `markdown/${member.filename}.md`,
+      markdownSha256: sha256(member.markdown),
+      markdownBytes: member.markdown.length,
+    })),
+  ];
+  const textObjects = Object.fromEntries(members.map((member) => [
+    `markdown/${member.filename}.md`,
+    member.markdown,
+  ]));
+  let parentReads = 0;
+  const storage: LabAttachmentTextStorage = {
+    ...fakeStorage(textObjects),
+    async getObjectBytes(key) {
+      if (key !== "archive/붙임파일.zip") throw new Error(`no such key: ${key}`);
+      parentReads += 1;
+      return { body: parentBody, contentType: "application/zip" };
+    },
+  };
+  return { archives, storage, textObjects, parentBody, parentReads: () => parentReads };
+}
+
 async function run() {
   // ⓪ archive 변환 포인터가 비어도 같은 원본의 검증된 surface markdown을 재사용한다.
   {
@@ -49,6 +113,7 @@ async function run() {
     assert.equal(hydrated[0]?.markdownStorageKey, "converted/source.md");
     assert.equal(hydrated[0]?.markdownSha256, "a".repeat(64));
     assert.equal(hydrated[0]?.markdownBytes, 791);
+    assert.equal(hydrated[0]?.conversionStatus, "converted");
 
     const ambiguous = applyLabVerifiedConversionArtifacts([
       archive({ filename: "중복.pdf" }),
@@ -225,7 +290,155 @@ async function run() {
     }
   }
 
-  console.log("input.test.ts: 8개 시나리오 전부 통과");
+  // ⑧ seq25 형태: ZIP parent 실제 바이트와 5개 child 원본·전문이 모두 검증되어
+  // 잘리지 않은 입력에 들어갔을 때만 parent의 중복 미변환 경고를 제거한다.
+  {
+    const fixture = zipCoverageFixture();
+    const result = await assembleLabInput(
+      { grant: GRANT, payload: null, archives: fixture.archives },
+      { storage: fixture.storage },
+    );
+    assert.equal(
+      result.blocks.filter((block) => block.label.startsWith("첨부 공고문: 신청서-")).length,
+      5,
+    );
+    assert.doesNotMatch(result.text, /붙임파일\.zip\(변환 안 됨\)/);
+    assert.equal(
+      result.blocks.some((block) => block.label === "첨부 미투입(변환 안 됨): 붙임파일.zip"),
+      false,
+    );
+    assert.equal(fixture.parentReads(), 1, "ZIP parent는 한 번만 읽어 coverage를 검사한다");
+
+    const historical = await assembleLabInput(
+      { grant: GRANT, payload: null, archives: fixture.archives },
+      {
+        storage: fixture.storage,
+        preserveUnavailableArchiveFilenames: new Set(["붙임파일.zip"]),
+      },
+    );
+    assert.match(historical.text, /붙임파일\.zip\(변환 안 됨\)/);
+    assert.notEqual(historical.inputSha256, result.inputSha256);
+    assert.notEqual(historical.attachmentManifestSha256, result.attachmentManifestSha256);
+    const legacyStorage = fakeStorage(fixture.textObjects);
+    const legacy = await assembleLabInput(
+      { grant: GRANT, payload: null, archives: fixture.archives },
+      { storage: legacyStorage },
+    );
+    assert.equal(
+      historical.inputSha256,
+      legacy.inputSha256,
+      "과거 ZIP 미투입 고지를 보존하면 기존 input SHA가 그대로 재현되어야 한다",
+    );
+    assert.equal(
+      historical.attachmentManifestSha256,
+      legacy.attachmentManifestSha256,
+      "과거 ZIP 미투입 provenance도 기존 attachment manifest SHA와 같아야 한다",
+    );
+  }
+
+  // ⑨ ZIP member 하나가 inventory에서 빠지면 parent 경고를 유지한다.
+  {
+    const fixture = zipCoverageFixture();
+    const result = await assembleLabInput(
+      { grant: GRANT, payload: null, archives: fixture.archives.slice(0, -1) },
+      { storage: fixture.storage },
+    );
+    assert.match(result.text, /붙임파일\.zip\(변환 안 됨\)/);
+  }
+
+  // ⑩ child 전문 load/SHA 검증이 실패하면 parent 경고와 child 실패를 함께 유지한다.
+  {
+    const fixture = zipCoverageFixture();
+    const failedKey = fixture.archives[1]?.markdownStorageKey;
+    assert.ok(failedKey);
+    const storage: LabAttachmentTextStorage = {
+      ...fixture.storage,
+      async getObjectText(key) {
+        if (key === failedKey) return "tampered markdown";
+        const body = fixture.textObjects[key];
+        if (body === undefined) throw new Error(`no such key: ${key}`);
+        return body;
+      },
+    };
+    const result = await assembleLabInput(
+      { grant: GRANT, payload: null, archives: fixture.archives },
+      { storage },
+    );
+    assert.match(result.text, /붙임파일\.zip\(변환 안 됨\)/);
+    assert.match(result.text, /신청서-1\.hwpx\(로드 실패\)/);
+  }
+
+  // ⑪ child가 잘리거나 뒤 child를 cap 때문에 읽지 못하면 parent 경고를 유지한다.
+  {
+    const baseline = await assembleLabInput(
+      { grant: GRANT, payload: null, archives: [] },
+      { storage: fakeStorage({}) },
+    );
+    const fixture = zipCoverageFixture({ markdownBody: (index) => `${index}`.repeat(200) });
+    process.env.ANALYSIS_LAB_INPUT_CHAR_CAP = String(baseline.blocks[0]!.chars + 20);
+    try {
+      const result = await assembleLabInput(
+        { grant: GRANT, payload: null, archives: fixture.archives },
+        { storage: fixture.storage },
+      );
+      assert.match(result.text, /붙임파일\.zip\(변환 안 됨\)/);
+      assert.ok(
+        result.blocks.some((block) => (
+          block.label.startsWith("첨부 공고문: 신청서-") && block.truncated
+        )),
+        "첫 child 전문은 입력 cap에서 잘려야 한다",
+      );
+      assert.ok(
+        result.blocks.some((block) => block.label.includes("첨부 미투입(캡 초과 미로드): 신청서-")),
+        "뒤 child는 cap_exceeded로 남아야 한다",
+      );
+    } finally {
+      delete process.env.ANALYSIS_LAB_INPUT_CHAR_CAP;
+    }
+  }
+
+  // ⑫ 중첩 ZIP은 직접 입증하지 않으므로 일반 child가 모두 있어도 parent 경고를 유지한다.
+  {
+    const fixture = zipCoverageFixture({ nested: true });
+    const result = await assembleLabInput(
+      { grant: GRANT, payload: null, archives: fixture.archives },
+      { storage: fixture.storage },
+    );
+    assert.match(result.text, /붙임파일\.zip\(변환 안 됨\)/);
+  }
+
+  // ⑬ archive 행의 markdown 포인터가 surface artifact로 복구된 child도 같은 검증을 거친다.
+  {
+    const fixture = zipCoverageFixture();
+    const recoveredIndex = 1;
+    const source = fixture.archives[recoveredIndex]!;
+    const recovered = applyLabVerifiedConversionArtifacts(
+      fixture.archives.map((item, index) => index === recoveredIndex
+        ? {
+            ...item,
+            conversionStatus: null,
+            markdownStorageKey: null,
+            markdownSha256: null,
+            markdownBytes: null,
+          }
+        : item),
+      [{
+        sourceAttachment: source.storageKey ?? null,
+        title: source.filename,
+        storageKey: source.markdownStorageKey!,
+        sha256: source.markdownSha256!,
+        markdownChars: source.markdownBytes,
+      }],
+    );
+    assert.equal(recovered[recoveredIndex]?.conversionStatus, "converted");
+    const result = await assembleLabInput(
+      { grant: GRANT, payload: null, archives: recovered },
+      { storage: fixture.storage },
+    );
+    assert.doesNotMatch(result.text, /붙임파일\.zip\(변환 안 됨\)/);
+  }
+
+  console.log("input.test.ts: 14개 시나리오 전부 통과");
 }
 
 run().catch((error) => {

@@ -27,7 +27,7 @@ const manifest: AnalysisLaunchManifest = {
     gitShaAtPreparation: "4".repeat(40),
     withApplicationRoundtrip: true,
     roundtripModel: "claude-opus-5",
-    applicationFieldAnalysisVersion: "kordoc-application-roundtrip-v9",
+    applicationFieldAnalysisVersion: "kordoc-application-roundtrip-v10",
     concurrency: 2,
     existingRunPolicy: "skip_existing",
   },

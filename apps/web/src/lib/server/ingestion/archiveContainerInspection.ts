@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { extname } from "node:path";
 import { unzipSync, type UnzipFileInfo } from "fflate";
 
@@ -27,6 +28,7 @@ export interface ExtractedArchiveEntry {
 export interface VerifiedArchiveMaterialEntry {
   filename: string;
   originalSize: number;
+  sha256: string;
 }
 
 export async function inspectArchiveContainer(
@@ -153,8 +155,23 @@ export function listVerifiedArchiveMaterialEntries(
   if (total > maxTotalBytes) {
     throw new Error(`Archive material entries exceed ${maxTotalBytes} bytes`);
   }
+  if (new Set(material.map((entry) => entry.name)).size !== material.length) {
+    throw new Error("Archive contains duplicate material entry names");
+  }
+  const materialNames = new Set(material.map((entry) => entry.name));
+  const extracted = unzipSync(body, { filter: (entry) => materialNames.has(entry.name) });
   return material
-    .map((entry) => ({ filename: entry.name, originalSize: entry.originalSize }))
+    .map((entry) => {
+      const value = extracted[entry.name];
+      if (!value || value.byteLength !== entry.originalSize) {
+        throw new Error(`Archive material entry extraction mismatch: ${entry.name}`);
+      }
+      return {
+        filename: entry.name,
+        originalSize: entry.originalSize,
+        sha256: createHash("sha256").update(value).digest("hex"),
+      };
+    })
     .sort((left, right) => left.filename.localeCompare(right.filename));
 }
 

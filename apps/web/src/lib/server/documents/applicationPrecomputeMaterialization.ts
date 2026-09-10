@@ -1,6 +1,7 @@
 import { buildApplicationPrecomputeAnalysisVersion } from "./applicationAnalysisContract";
 export { buildApplicationPrecomputeAnalysisVersion } from "./applicationAnalysisContract";
 import { createHash } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 import { and, eq, sql } from "drizzle-orm";
 import type { CandidateKind, CandidateSet, ReconciledField } from "@cunote/core";
 import {
@@ -188,9 +189,11 @@ export async function applyPreparedGrantApplicationPrecompute(input: {
       .select({
         source: schema.grantApplicationSurfaces.source,
         sourceId: schema.grantApplicationSurfaces.sourceId,
+        title: schema.grantApplicationSurfaces.title,
         sourceAttachment: schema.grantApplicationSurfaces.sourceAttachment,
         extractionStatus: schema.grantApplicationSurfaces.extractionStatus,
         extractionVersion: schema.grantApplicationSurfaces.extractionVersion,
+        confidence: schema.grantApplicationSurfaces.confidence,
       })
       .from(schema.grantApplicationSurfaces)
       .where(eq(schema.grantApplicationSurfaces.id, item.surfaceId))
@@ -217,6 +220,20 @@ export async function applyPreparedGrantApplicationPrecompute(input: {
       .select({
         parserVersion: schema.grantDocumentFields.parserVersion,
         fieldKey: schema.grantDocumentFields.fieldKey,
+        label: schema.grantDocumentFields.label,
+        section: schema.grantDocumentFields.section,
+        fieldType: schema.grantDocumentFields.fieldType,
+        required: schema.grantDocumentFields.required,
+        sourceSpan: schema.grantDocumentFields.sourceSpan,
+        mappedCompanyField: schema.grantDocumentFields.mappedCompanyField,
+        fillStrategy: schema.grantDocumentFields.fillStrategy,
+        confidence: schema.grantDocumentFields.confidence,
+        documentCategory: schema.grantDocumentFields.documentCategory,
+        documentName: schema.grantDocumentFields.documentName,
+        position: schema.grantDocumentFields.position,
+        visualEvidence: schema.grantDocumentFields.visualEvidence,
+        textEvidence: schema.grantDocumentFields.textEvidence,
+        reviewRequired: schema.grantDocumentFields.reviewRequired,
       })
       .from(schema.grantDocumentFields)
       .where(eq(schema.grantDocumentFields.surfaceId, item.surfaceId));
@@ -228,14 +245,16 @@ export async function applyPreparedGrantApplicationPrecompute(input: {
     if (
       surface.extractionStatus === "fields_ready"
       && surface.extractionVersion === item.analysisVersion
+      && Math.abs((surface.confidence ?? 0) - (item.status === "complete" ? 1 : 0.75)) < 0.000001
       && mapState === "current_automated"
+      && materializedFieldMapMatchesPlan(mapRows, item.fields, surface.title)
     ) {
       result.reused += 1;
       result.fields += mapRows.length;
       continue;
     }
     if (
-      mapState === "stale_automated"
+      mapState !== "empty"
       && !isAdditiveApplicationFieldMapUpgrade(
         mapRows.map((row) => row.fieldKey),
         item.fields.map((field) => field.fieldKey),
@@ -258,6 +277,65 @@ export async function applyPreparedGrantApplicationPrecompute(input: {
     result.fields += applied.inserted + applied.updated;
   }
   return result;
+}
+
+type MaterializedApplicationField = {
+  parserVersion: string;
+  fieldKey: string;
+  label: string;
+  section: string | null;
+  fieldType: string;
+  required: boolean;
+  sourceSpan: string | null;
+  mappedCompanyField: string | null;
+  fillStrategy: string;
+  confidence: number;
+  documentCategory: string;
+  documentName: string;
+  position: Record<string, unknown> | null;
+  visualEvidence: Record<string, unknown> | null;
+  textEvidence: Record<string, unknown> | null;
+  reviewRequired: boolean;
+};
+
+/** 같은 analysisVersion이어도 실제 projection이 달라졌으면 upsert로 보내 변경을 반영한다. */
+function materializedFieldMapMatchesPlan(
+  rows: readonly MaterializedApplicationField[],
+  fields: readonly ReconciledField[],
+  defaultDocumentName: string,
+): boolean {
+  if (rows.length !== fields.length) return false;
+  const rowsByKey = new Map(rows.map((row) => [row.fieldKey, row]));
+  if (rowsByKey.size !== rows.length) return false;
+  return fields.every((field) => {
+    const row = rowsByKey.get(field.fieldKey);
+    if (!row) return false;
+    return row.parserVersion === APPLICATION_FIELD_PARSER_VERSION
+      && row.label === field.label
+      && row.section === (field.section ?? null)
+      && row.fieldType === field.fieldType
+      && row.required === field.required
+      && row.sourceSpan === (field.sourceSpan ?? null)
+      && row.mappedCompanyField === (field.mappedCompanyField ?? null)
+      && row.fillStrategy === field.fillStrategy
+      && Math.abs(row.confidence - field.confidence) < 0.000001
+      && row.documentCategory === (field.documentCategory ?? "application_form")
+      && row.documentName === (field.documentName ?? defaultDocumentName)
+      && jsonbValuesEqual(row.position, field.position ? { ...field.position } : null)
+      && jsonbValuesEqual(row.visualEvidence, field.visualEvidence ?? null)
+      && jsonbValuesEqual(row.textEvidence, field.textEvidence ?? null)
+      && row.reviewRequired === field.reviewRequired;
+  });
+}
+
+function jsonbValuesEqual(left: unknown, right: unknown): boolean {
+  return isDeepStrictEqual(jsonRoundtrip(left), jsonRoundtrip(right));
+}
+
+function jsonRoundtrip(value: unknown): unknown {
+  return value === null || value === undefined
+    ? null
+    : JSON.parse(JSON.stringify(value));
 }
 
 export function applicationPrecomputeAnalysisVersion(run: ApplicationRoundtripRun): string {

@@ -2,7 +2,7 @@
 // Kordoc 지원서 왕복 분석의 서버 도메인 계약.
 // 운영 DB/R2는 읽기만 하고, 분석·채움 산출물은 spike-out 아래에만 저장한다.
 
-/** v9: 표 밖 단일 문단 입력의 exact prefix/value/suffix 계약을 함께 봉인한다. */
+/** v10: 합본·주양식 판정과 원문 단일·복수 선택 의미를 보정한다. */
 import { APPLICATION_ROUNDTRIP_VERSION } from "../documents/applicationAnalysisContract";
 export { APPLICATION_ROUNDTRIP_VERSION } from "../documents/applicationAnalysisContract";
 /** 관리자 로컬 preview에서만 현재 원본 SHA와 다시 대조해 읽을 수 있는 역사 계약. */

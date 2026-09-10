@@ -127,10 +127,12 @@ function unitChecks(): void {
   assertTrue("[부정] basis 없는 제안 → 폐기", noBasis === null);
 
   const profileOk = verifySuggestion(
-    { label: "상시근로자 수", value: "5명", basis: "회사 프로필(상시근로자)", basisKind: "profile", evidenceQuote: "" },
+    { label: "상시근로자 수", value: "5명", basis: "회사 프로필(상시근로자)", basisKind: "profile", evidenceQuote: "상시근로자 수: count=5" },
     corpus,
+    "",
+    normalizeWs("[회사 확인 정보]\n- 상시근로자 수: count=5"),
   );
-  assertTrue("profile 유래 basis 는 실재 검증 대상 아님 → 통과", profileOk !== null);
+  assertTrue("profile 유래 basis 는 회사 확인 정보에 실재해야 통과", profileOk !== null);
 
   // merge 불변식: 확정/기각 보존 · basis 없는 제안 미저장 · suggested 갱신.
   const current: DraftFieldAnswers = {

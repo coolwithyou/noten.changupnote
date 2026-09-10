@@ -8,6 +8,7 @@ import type {
 import { repairDeepAnalysisExecution } from "@/lib/server/deep-analysis/repair";
 import { runDeepGrantAnalysis } from "@/lib/server/deep-analysis/extractor";
 import { sealDeepAnalysisInput } from "@/lib/server/deep-analysis/inputManifest";
+import { stableJson } from "@/lib/server/deep-analysis/sourceRevision";
 import {
   decideDeepAnalysisValidationRoute,
   type DeepAnalysisValidationRoute,
@@ -188,6 +189,27 @@ function countValidationIssueTransitions(input: {
   };
 }
 
+/** 실행 비용·원문 응답 메타를 제외한 validator 입력과 오류가 완전히 같은지 비교한다. */
+function validationRepairStateSignature(input: {
+  result: DeepAnalysisModelResult;
+  issues: readonly DeepAnalysisValidationIssue[];
+}): string {
+  const validatorRelevantResult = {
+    model: input.result.model,
+    effort: input.result.effort,
+    analysisMarkdown: input.result.analysisMarkdown,
+    programIntent: input.result.programIntent,
+    criteria: input.result.criteria,
+    axisAssessments: input.result.axisAssessments,
+    taxonomyProposals: input.result.taxonomyProposals,
+    stopReason: input.result.stopReason,
+  };
+  const issues = input.issues
+    .map((issue) => ({ code: issue.code, path: issue.path, message: issue.message }))
+    .sort((left, right) => stableJson(left).localeCompare(stableJson(right)));
+  return stableJson({ result: validatorRelevantResult, issues });
+}
+
 /**
  * 로컬 구독 lab도 운영 worker와 같은 validator→repair 계약을 통과해야 성공한다.
  * lab 입력 전체를 하나의 synthetic structured source로 봉인해 기존 원문 substring 계약을
@@ -260,6 +282,10 @@ export async function runValidatedLabPrimary(input: {
     const modelPassCountBeforeRepair = execution.passes.length;
     const validationIssuesBeforeRepair = validation.issues;
     const resultBeforeRepair = execution.result;
+    const stateBeforeRepair = validationRepairStateSignature({
+      result: resultBeforeRepair,
+      issues: validationIssuesBeforeRepair,
+    });
     execution = await repairDeepAnalysisExecution({
       seal,
       apiKey: input.apiKey,
@@ -293,6 +319,13 @@ export async function runValidatedLabPrimary(input: {
       result: execution.result,
     }));
     route = decideDeepAnalysisValidationRoute({ result: execution.result, validation });
+    if (
+      route.route === "repair"
+      && validationRepairStateSignature({
+        result: execution.result,
+        issues: validation.issues,
+      }) === stateBeforeRepair
+    ) break;
   }
   if (route.route === "repair") {
     const issues = validation.issues

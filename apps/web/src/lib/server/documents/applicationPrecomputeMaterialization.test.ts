@@ -6,11 +6,14 @@ import {
 } from "@/lib/server/analysis-lab/application-roundtrip/contract";
 import type { LabRun } from "@/lib/server/analysis-lab/lab-contract";
 import type { RoundtripRunManifest } from "../analysis-lab/application-roundtrip/store";
+import type { CunoteDbSession } from "../db/client";
 import {
+  applyPreparedGrantApplicationPrecompute,
   applicationPrecomputeAnalysisVersion,
   buildApplicationPrecomputeMaterializationPlan,
   buildApplicationPrecomputeSurfacePlan,
 } from "./applicationPrecomputeMaterialization";
+import { APPLICATION_FIELD_PARSER_VERSION } from "./applicationFieldVersion";
 import { mergeLegacyLocalPreviewStructure } from "./localApplicationPrecomputePreview";
 
 const GRANT_ID = "00000000-0000-4000-8000-000000000001";
@@ -50,6 +53,23 @@ const manifest: RoundtripRunManifest = {
   }],
 };
 
+const currentPlan = buildApplicationPrecomputeMaterializationPlan({
+  labRun,
+  roundtripRun: run,
+  manifest,
+  surfaces: [surface(STORAGE_KEY, SOURCE_SHA)],
+})[0]!;
+const prepared = {
+  grantId: GRANT_ID,
+  parentLabRunId: LAB_RUN_ID,
+  roundtripRunId: ROUNDTRIP_RUN_ID,
+  surfaces: [{
+    ...currentPlan,
+    artifactId: "artifact-current",
+    artifactSha256: "f".repeat(64),
+  }],
+};
+
 // 같은 LabRun·원본 SHA에 봉인된 완전 분석만 workspace field projection 계획으로 낮춘다.
 {
   const [planned] = buildApplicationPrecomputeMaterializationPlan({
@@ -67,6 +87,40 @@ const manifest: RoundtripRunManifest = {
   assert.equal(planned.candidateSet.candidates.length, 1);
   assert.ok(planned.analysisVersion.startsWith("kordoc-rhwp-application-precompute-v1:"));
   assert.equal(planned.analysisVersion, applicationPrecomputeAnalysisVersion(run));
+}
+
+// 같은 analysisVersion이어도 실제 저장 projection이 다르면 reuse하지 않고 제자리 갱신한다.
+{
+  const existing = storedField(currentPlan.fields[0]!, { label: "기존 잘못된 라벨" });
+  const fake = materializationDb({ fields: [existing] });
+  const applied = await applyPreparedGrantApplicationPrecompute({ db: fake.db, prepared });
+  assert.equal(applied.reused, 0);
+  assert.equal(applied.materialized, 1);
+  assert.ok(fake.updates.some((values) => values.label === "회사소개"));
+}
+
+// v9 분석이 parser v8로 저장돼 current로 보이더라도, v10 plan에서 사라진 오탐 key는 조용히 남기지 않는다.
+{
+  const existing = storedField(currentPlan.fields[0]!);
+  const obsolete = { ...existing, fieldKey: "사업개요", label: "사업개요" };
+  const fake = materializationDb({
+    fields: [existing, obsolete],
+    extractionVersion: "kordoc-rhwp-application-precompute-v1:v9-analysis",
+  });
+  await assert.rejects(
+    applyPreparedGrantApplicationPrecompute({ db: fake.db, prepared }),
+    /non-additive 자동 필드맵 업그레이드/,
+  );
+  assert.equal(fake.updates.length, 0);
+}
+
+// version과 projection이 모두 같을 때만 기존 필드맵을 재사용한다.
+{
+  const fake = materializationDb({ fields: [storedField(currentPlan.fields[0]!)] });
+  const applied = await applyPreparedGrantApplicationPrecompute({ db: fake.db, prepared });
+  assert.equal(applied.reused, 1);
+  assert.equal(applied.materialized, 0);
+  assert.equal(fake.updates.length, 0);
 }
 
 // deep receipt가 독립 Kordoc canary를 결속한 release는 LabRun 내부 참조 없이도 같은 seam을 쓴다.
@@ -282,6 +336,97 @@ assert.throws(
 }
 
 console.log("application precompute materialization tests: ok");
+
+function storedField(
+  field: (typeof currentPlan.fields)[number],
+  overrides: Record<string, unknown> = {},
+) {
+  return {
+    parserVersion: APPLICATION_FIELD_PARSER_VERSION,
+    fieldKey: field.fieldKey,
+    label: field.label,
+    section: field.section ?? null,
+    fieldType: field.fieldType,
+    required: field.required,
+    sourceSpan: field.sourceSpan ?? null,
+    mappedCompanyField: field.mappedCompanyField ?? null,
+    fillStrategy: field.fillStrategy,
+    confidence: field.confidence,
+    documentCategory: field.documentCategory ?? "application_form",
+    documentName: field.documentName ?? "지원 신청서",
+    position: jsonb(field.position),
+    visualEvidence: jsonb(field.visualEvidence),
+    textEvidence: jsonb(field.textEvidence),
+    reviewRequired: field.reviewRequired,
+    ...overrides,
+  };
+}
+
+function jsonb(value: unknown) {
+  return value === null || value === undefined ? null : JSON.parse(JSON.stringify(value));
+}
+
+function materializationDb(input: {
+  fields: ReturnType<typeof storedField>[];
+  extractionVersion?: string;
+}) {
+  const updates: Array<Record<string, unknown>> = [];
+  const select = (projection: Record<string, unknown>) => {
+    if ("sha256" in projection) return queryRows([{ sha256: SOURCE_SHA }]);
+    if ("extractionStatus" in projection) {
+      return queryRows([{
+        source: "bizinfo",
+        sourceId: "test-source",
+        title: "지원 신청서",
+        sourceAttachment: STORAGE_KEY,
+        extractionStatus: "fields_ready",
+        extractionVersion: input.extractionVersion ?? currentPlan.analysisVersion,
+        confidence: 1,
+      }]);
+    }
+    if ("grantId" in projection) {
+      return queryRows([{
+        grantId: GRANT_ID,
+        source: "bizinfo",
+        sourceId: "test-source",
+        title: "지원 신청서",
+        sourceAttachment: STORAGE_KEY,
+      }]);
+    }
+    if ("id" in projection) {
+      return queryRows(input.fields.map((field, index) => ({
+        id: `00000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
+        fieldKey: field.fieldKey,
+      })));
+    }
+    return queryRows(input.fields);
+  };
+  const db = {
+    execute: async () => undefined,
+    select,
+    update: () => ({
+      set: (values: Record<string, unknown>) => {
+        updates.push(values);
+        return { where: async () => [] };
+      },
+    }),
+    insert: () => ({ values: async () => undefined }),
+  };
+  return { db: db as unknown as CunoteDbSession, updates };
+}
+
+function queryRows(rows: unknown[]) {
+  const query = {
+    from: (_table: unknown) => query,
+    where: (_condition: unknown) => query,
+    limit: async (_count: number) => rows,
+    then: <TResult1 = unknown[], TResult2 = never>(
+      onfulfilled?: ((value: unknown[]) => TResult1 | PromiseLike<TResult1>) | null,
+      onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null,
+    ) => Promise.resolve(rows).then(onfulfilled, onrejected),
+  };
+  return query;
+}
 
 function surface(sourceAttachment: string, sourceSha256: string) {
   return {

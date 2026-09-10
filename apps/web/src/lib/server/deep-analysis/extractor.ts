@@ -902,7 +902,7 @@ export const DEEP_ANALYSIS_BUSINESS_CREDIT_AXIS_RULE =
 export const DEEP_ANALYSIS_SIZE_TARGET_AXIS_RULE =
   "중소기업·중견기업·대기업 같은 법정 기업 규모 분류는 size로만 표현한다. target_type은 개인사업자·법인사업자·협동조합·비영리법인처럼 신청 주체의 법적 형태나 역할 유형에만 사용한다. 동일한 규모 문구를 size와 target_type에 중복 criterion이나 condition_found로 만들지 마라. 독립 검수에서도 '지원대상: 중소기업'처럼 지원대상·신청대상 라벨 아래에 규모만 적힌 문구는 target_type 누락 근거가 아니며, target_type은 confirmed_absent로 판정하고 size의 기존 criterion 또는 axis assessment만 검토한다. 법인인감 날인, 회사명·대표자 기재, 제출서식 같은 작성·제출 방식만으로 법인사업자 전용이라고 추정하지 마라. 개인사업자 배제나 법인만 신청 가능하다는 명시적 자격 문장이 없으면 target_type 조건이 아니다.";
 export const DEEP_ANALYSIS_TARGET_TYPE_LIST_SEMANTICS_RULE =
-  "신청대상 유형 열거에 '등', '예:', '포함하되 이에 한정되지 않음', '주로', '중심으로'처럼 예시임을 나타내는 표현이 있으면 target_type value.list_semantics=\"open\"으로 둔다. '다음 각 호에 한함', '아래 유형만', '이외 신청 불가'처럼 완전 열거가 명시됐거나, 지원대상·신청자격 문장이 신청 가능한 유형을 유한 목록으로 열거하면서 예시 표지가 없으면 list_semantics=\"closed\"로 둔다. open 목록 밖 유형을 자동 탈락시키지 마라.";
+  "신청대상 유형 열거에 '등', '예:', '포함하되 이에 한정되지 않음', '주로', '중심으로'처럼 예시임을 나타내는 표현이 있으면 target_type value.list_semantics=\"open\"으로 둔다. '다음 각 호에 한함', '아래 유형만', '이외 신청 불가'처럼 완전 열거가 명시됐거나, 지원대상·신청자격 문장이 신청 가능한 유형을 유한 목록으로 열거하면서 예시 표지가 없으면 list_semantics=\"closed\"로 둔다. list_semantics는 value.targets에 든 신청대상 분류의 열거 의미다. 예를 들어 targets=[\"창업기업\"]일 때 개인사업자와 법인사업자를 모두 허용한다는 사실은 창업기업 분류 자체를 open으로 바꾸는 근거가 아니다. 개인·법인 구분은 criterion note에 별도로 설명하고 value.note에서 열린 목록이라고 주장하지 마라. open 목록 밖 유형을 자동 탈락시키지 마라.";
 export const DEEP_ANALYSIS_SOURCE_SPAN_CONTIGUITY_RULE =
   "각 criterion의 source_span은 한 입력 블록 안의 연속된 substring 하나를 공백·줄바꿈·문장부호까지 그대로 복사한다. 서로 떨어진 문장, 표의 비인접 행, 본문과 각주를 한 source_span으로 합치지 마라. 여러 문장이 같은 조건을 보충하면 criterion을 충분히 입증하는 가장 짧은 연속 구간 하나만 source_span으로 쓰고 나머지는 note와 analysis_markdown에 설명한다.";
 export const DEEP_ANALYSIS_FINANCIAL_IMPAIRMENT_RULE =
@@ -921,6 +921,8 @@ export const DEEP_ANALYSIS_STRUCTURED_FILTER_METADATA_RULE =
   "K-Startup의 rawPayload.biz_enyy와 biz_trgt_age처럼 포털 검색용 범주를 넓게 열거한 필드는 그 자체를 신청자격 상·하한으로 만들지 마라. 지원 가능한 모든 업력 또는 연령 범주를 사실상 전부 나열하면 비제한 검색 메타데이터이므로 criterion이나 ambiguous 근거가 아니다. rawPayload.aply_trgt(입력의 source_field: aply_trgt)는 포털 신청대상 요약 분류이므로 target_type으로 보존할 때는 list_semantics=open으로 두고, 목록 밖 유형을 자동 탈락시키지 마라. 상세 신청대상·첨부의 명시적 유한 자격 목록만 closed 근거로 사용한다. rawPayload.supt_regin(입력의 source_field: supt_regin)은 사업·운영기관의 서비스 권역 또는 포털 분류일 수 있으므로 그 값만으로 신청기업 소재지 region criterion을 만들지 마라. 신청대상·신청자격 본문에 신청자 주소지·본사·사업장 소재지가 명시된 경우에만 region 자격으로 만들고, 양쪽이 모두 실제 자격 문장인데 충돌할 때만 ambiguous로 남겨라.";
 export const DEEP_ANALYSIS_ALTERNATIVE_PATH_SCOPE_RULE =
   "신청자격이 A 또는 B, 쉼표 열거, 트랙별 경로처럼 대안(OR)으로 열려 있으면 한 경로의 속성을 모든 신청자에게 적용되는 독립 required criterion으로 승격하지 마라. 서로 다른 22축이 섞인 대안은 현재 criterion 계약으로 논리식을 무손실 표현할 수 없으므로 dimension=other, operator=text_only 한 건에 전체 OR 경로와 적용 범위를 보존한다. 예: '입주기업, 졸업기업 및 기타 예비·초기 창업기업'에서 입주 여부와 예비·초기 업력을 별도 전역 필수조건으로 만들면 안 되고, '콘텐츠 제작 사업자 또는 제주 거주 개인 창작자'에서 콘텐츠 업종을 개인 창작자에게까지 적용하면 안 된다.";
+export const DEEP_ANALYSIS_CROSS_AXIS_TEXT_ONLY_RULE =
+  "서로 다른 22축의 OR 조건을 other/text_only로 보존하면 value.covered_dimensions에 그 한 criterion이 실제로 검토·보존한 축 이름만 넣는다. 예: 창업 7년 이내 또는 벤처기업이면 covered_dimensions=[\"biz_age\",\"certification\"]이다. 공통 필수조건이나 원문에 없는 축을 넣지 말고, listed 축의 axis_assessments는 condition_found로 둔다. 이 결속은 축별 독립 required criterion을 새로 만들라는 뜻이 아니다.";
 export const DEEP_ANALYSIS_PROGRAM_THEME_BOUNDARY_RULE =
   "수요기업별 협업 모집분야, 해결과제, 도입기술, 개발대상 품목, 출품작 장르·형식은 신청기업의 KSIC·업태·종목이 아니다. 신청기업이 그 업종을 실제로 영위해야 한다는 문장이 없으면 industry criterion으로 만들지 마라. 제안 아이템·작품이 특정 주제나 유형이어야 해서 신청 가능성에 영향을 주면 other/text_only로 전체 과제 범위를 보존하고, 단순 사업 방향이면 program_intent에만 기록한다.";
 export const DEEP_ANALYSIS_PROCEDURAL_EVIDENCE_CHECK_RULE =
@@ -930,11 +932,11 @@ export const DEEP_ANALYSIS_PRIOR_AWARD_LOSSLESS_RULE =
 export const DEEP_ANALYSIS_ITEM_SCOPE_EXCLUSION_RULE =
   "'본 대회 추진 목적에 부합되지 않는 아이템', 공모분야 밖 과제처럼 신청 아이템의 적합성을 명시적으로 제외하는 문구는 회사 속성이 아니어도 신청 가능성을 바꾸는 조건이다. 포괄적 '기타 부적합' 재량 문구와 구분하여 other/text_only exclusion으로 원문 범위를 보존한다.";
 export const DEEP_ANALYSIS_ELIGIBILITY_RANKING_SEPARATION_RULE =
-  "같은 사실이 자격 상한과 평가 배점에 모두 쓰여도 required 한 건의 note에 합치지 마라. 자격 충족 여부를 바꾸는 required criterion과 순위·점수를 바꾸는 preferred criterion을 별도로 만든다. 예: 업력 7년 이내 필수조건과 3년 이내 20점·3년 초과 5년 이내 10점·5년 초과 7년 이내 5점은 biz_age required 한 건과 구간별 preferred 배점으로 분리한다.";
+  "같은 사실이 자격 상한과 평가 배점에 모두 쓰여도 required 한 건의 note에 합치지 마라. 자격 충족 여부를 바꾸는 required criterion과 순위·점수를 바꾸는 preferred criterion을 별도로 만든다. 예: 업력 7년 이내 필수조건과 3년 이내 20점·3년 초과 5년 이내 10점·5년 초과 7년 이내 5점은 biz_age required 한 건과, 배점·경계 전체를 보존한 biz_age/text_only preferred 한 건으로 분리한다. 현재 value 계약은 구간별 점수와 초과·미만의 배타 경계를 표현하지 못하므로 각 구간을 별도 lte/between/gte preferred로 만들지 마라.";
 export const DEEP_ANALYSIS_HIGH_RISK_EXCLUSION_COMPLETENESS_RULE =
   "출력 직전 신청제한·참여제한·지원제외·자격제한 절을 다시 훑고 부도·금융기관 채무불이행·파산·회생, 부채비율·자본잠식, 세금체납·참여제한 조건이 해당 축 criteria에 모두 있는지 대조한다. 같은 문장의 '또는' 조건과 단서·예외도 빠짐없이 보존하며, 서류 제출 요구만 추출하고 그 서류가 확인하는 명시적 결격을 누락하지 마라.";
 export const DEEP_ANALYSIS_SCORING_TABLE_COMPLETENESS_RULE =
-  "선정평가표·평가기준·배점표는 표 제목만 보지 말고 모든 평가항목, 하위 배점 행, 가점 행을 끝까지 검사한다. 점수를 바꾸는 서로 다른 사실은 각각 preferred criterion으로 보존하고 가장 가까운 22축에 배치한다. 안전한 canonical 값이 없으면 other/text_only와 원문 note로 남긴다. 같은 표의 다른 행을 추출했다는 이유로 외국어 홈페이지, 홍보자료, 인증, 사업장, 수출실적 같은 독립 배점 행을 생략하지 마라.";
+  "선정평가표·평가기준·배점표는 표 제목만 보지 말고 모든 평가항목, 하위 배점 행, 가점 행을 끝까지 검사한다. 점수를 바꾸는 서로 다른 사실은 각각 preferred criterion으로 보존하고 가장 가까운 22축에 배치한다. 한 사실의 여러 점수 구간은 현재 value 계약이 점수와 초과·미만의 배타 경계를 함께 표현하지 못하므로 구간별 숫자 criterion으로 쪼개지 말고, 해당 dimension/text_only preferred 한 건에 구간과 점수를 모두 보존한다. 그 밖에 안전한 canonical 값이 없으면 other/text_only와 원문 note로 남긴다. 같은 표의 다른 행을 추출했다는 이유로 외국어 홈페이지, 홍보자료, 인증, 사업장, 수출실적 같은 독립 배점 행을 생략하지 마라.";
 export const DEEP_ANALYSIS_LOCALITY_PREMISES_RULE =
   "시·군·구 단위 소재지 요건은 region의 시도 코드만으로 의미가 완전히 보존되지 않는다. 예를 들어 '하남시 관내 본사 또는 공장'이면 region에 경기 41을 required로 두는 동시에 premises에 시군구와 본사·공장 조건을 그대로 담은 required/text_only criterion을 별도로 만든다. 다만 본사가 관외여도 대상 공장·사업장이 관내면 신청 가능한 대안이 있으면 현재 회사 본사 region만으로 선차단할 수 없으므로 region/in을 만들지 말고 region/text_only 한 건에 본사·공장 OR 경로를 모두 보존한다. 시도보다 좁은 소재지 요건이나 시설 대안을 시도 코드 하나로만 끝내지 마라.";
 export const DEEP_ANALYSIS_PREMISES_V1_RULE =
@@ -985,6 +987,7 @@ export const DEEP_ANALYSIS_REVIEW_ALIGNMENT_RULES = Object.freeze([
   DEEP_ANALYSIS_STRUCTURED_TARGET_RULE,
   DEEP_ANALYSIS_STRUCTURED_FILTER_METADATA_RULE,
   DEEP_ANALYSIS_ALTERNATIVE_PATH_SCOPE_RULE,
+  DEEP_ANALYSIS_CROSS_AXIS_TEXT_ONLY_RULE,
   DEEP_ANALYSIS_PROGRAM_THEME_BOUNDARY_RULE,
   DEEP_ANALYSIS_PROCEDURAL_EVIDENCE_CHECK_RULE,
   DEEP_ANALYSIS_SCORING_TABLE_COMPLETENESS_RULE,
@@ -1046,6 +1049,7 @@ export const DEEP_ANALYSIS_SYSTEM_PROMPT = [
   DEEP_ANALYSIS_STRUCTURED_TARGET_RULE,
   DEEP_ANALYSIS_STRUCTURED_FILTER_METADATA_RULE,
   DEEP_ANALYSIS_ALTERNATIVE_PATH_SCOPE_RULE,
+  DEEP_ANALYSIS_CROSS_AXIS_TEXT_ONLY_RULE,
   DEEP_ANALYSIS_PROGRAM_THEME_BOUNDARY_RULE,
   DEEP_ANALYSIS_PROCEDURAL_EVIDENCE_CHECK_RULE,
   DEEP_ANALYSIS_SCORING_TABLE_COMPLETENESS_RULE,
@@ -1159,21 +1163,51 @@ function normalizeCriterionValue(input: {
   ) {
     return value;
   }
+  const listSemantics = hasOpenTargetTypeListMarker(normalizedSpan)
+    || hasKStartupOpenTargetSummaryEvidence({
+      sourceSpan: normalizedSpan,
+      inputText: input.inputText,
+    })
+    || hasDelegatedOpenTargetTypeEvidence({
+      sourceSpan: normalizedSpan,
+      note: input.note,
+      inputText: input.inputText,
+    })
+    ? "open"
+    : "closed";
+  const valueNote = cleanString(value.note);
+  const normalizedValueNote = listSemantics === "closed" && valueNote !== null
+    ? removeConflatedBusinessKindListSentences(valueNote, targets)
+    : valueNote;
+  if (valueNote !== normalizedValueNote) {
+    if (normalizedValueNote === null) delete value.note;
+    else value.note = normalizedValueNote;
+  }
   return {
     ...value,
-    list_semantics: hasOpenTargetTypeListMarker(normalizedSpan)
-      || hasKStartupOpenTargetSummaryEvidence({
-        sourceSpan: normalizedSpan,
-        inputText: input.inputText,
-      })
-      || hasDelegatedOpenTargetTypeEvidence({
-        sourceSpan: normalizedSpan,
-        note: input.note,
-        inputText: input.inputText,
-      })
-      ? "open"
-      : "closed",
+    list_semantics: listSemantics,
   };
+}
+
+function removeConflatedBusinessKindListSentences(note: string, targets: string[]): string | null {
+  const targetsAreBusinessKinds = targets.some((target) => (
+    /^(?:개인사업자|법인|법인사업자|법인기업)$/u.test(normalizeEvidence(target))
+  ));
+  if (targetsAreBusinessKinds) return note;
+  const sentences = note.split(/(?<=[.!?。])\s+/u);
+  const retained = sentences.filter((sentence) => {
+    const normalized = normalizeEvidence(sentence);
+    const discussesBusinessKind = /개인(?:사업자|기업)?.{0,32}법인(?:사업자|기업)?|법인(?:사업자|기업)?.{0,32}개인(?:사업자|기업)?/u
+      .test(normalized);
+    const claimsOpenList = /(?:열린|개방형|유한\s*열거가\s*아니).{0,24}목록|목록\s*밖.{0,40}(?:자동\s*)?탈락시키지|열린\s*목록으로\s*두/u
+      .test(normalized);
+    const hasAdditionalMaterialRule = /(?:단|다만|예외|추가\s*(?:자격|요건)|별도\s*(?:자격|요건))/u
+      .test(normalized);
+    return !discussesBusinessKind || !claimsOpenList || hasAdditionalMaterialRule;
+  });
+  if (retained.length === sentences.length) return note;
+  const normalized = retained.join(" ").trim();
+  return normalized || null;
 }
 
 /**

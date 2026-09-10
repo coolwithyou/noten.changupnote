@@ -13,6 +13,7 @@ import {
   DEEP_ANALYSIS_BUSINESS_STATUS_RULE,
   DEEP_ANALYSIS_CERTIFICATION_CONJUNCTION_RULE,
   DEEP_ANALYSIS_COMPOUND_PREDICATE_RULE,
+  DEEP_ANALYSIS_CROSS_AXIS_TEXT_ONLY_RULE,
   DEEP_ANALYSIS_CONDITIONAL_INDUSTRY_RULE,
   DEEP_ANALYSIS_DOCUMENT_ONLY_ELIGIBILITY_RULE,
   DEEP_ANALYSIS_ELIGIBILITY_CALCULATION_RULE,
@@ -60,6 +61,7 @@ assert.equal(
   DEEP_ANALYSIS_SYSTEM_PROMPT.includes(DEEP_ANALYSIS_DOCUMENT_ONLY_ELIGIBILITY_RULE),
   true,
 );
+assert.equal(DEEP_ANALYSIS_SYSTEM_PROMPT.includes(DEEP_ANALYSIS_CROSS_AXIS_TEXT_ONLY_RULE), true);
 assert.match(
   DEEP_ANALYSIS_SYSTEM_PROMPT,
   /필수·제외·우대·배점 효과가 명시되지 않았다면 해당 축은 inspected_no_condition/,
@@ -240,7 +242,7 @@ assert.match(
 );
 assert.match(
   DEEP_ANALYSIS_ELIGIBILITY_RANKING_SEPARATION_RULE,
-  /업력 7년 이내 필수조건.*3년 이내 20점.*구간별 preferred/,
+  /업력 7년 이내 필수조건.*3년 이내 20점.*text_only preferred/,
 );
 assert.match(
   DEEP_ANALYSIS_SYSTEM_PROMPT,
@@ -390,6 +392,75 @@ assert.match(
     "open",
     "등과 같은 예시 표지가 있으면 모델 요청과 무관하게 열린 목록을 보존한다",
   );
+
+  const nexusSpan = "☞ 공고일 기준 업력 7년 미만ㆍ전국 소재 창업기업";
+  const nexusValueNote =
+    "구조화 지원대상 필드는 '창업벤처', 사업요약은 '창업기업'으로 지칭한다. 개인사업자·법인사업자 구분 배제 문장이 없고 상세 지원대상이 시행 공고문에 위임되어 유한 열거가 아니므로 열린 목록으로 두며 목록 밖 유형을 자동 탈락시키지 않는다.";
+  for (const requestedListSemantics of ["open", "closed"] as const) {
+    const [nexusCriterion] = normalizeCriteria([{
+      dimension: "target_type",
+      kind: "required",
+      operator: "in",
+      value: {
+        targets: ["창업기업"],
+        list_semantics: requestedListSemantics,
+        note: nexusValueNote,
+      },
+      confidence: 0.58,
+      source_span: nexusSpan,
+      note: "신청서에 개인·법인 모두 기재하도록 되어 있어 법인 전용으로 볼 근거는 없다.",
+    }], nexusSpan);
+    assert.deepEqual(nexusCriterion?.value, {
+      targets: ["창업기업"],
+      list_semantics: "closed",
+      note: "구조화 지원대상 필드는 '창업벤처', 사업요약은 '창업기업'으로 지칭한다.",
+    }, "창업기업 분류와 개인·법인 형태를 섞은 열린 목록 설명을 정규화 결과에서 제거한다");
+    const [renormalized] = normalizeCriteria([{
+      dimension: nexusCriterion?.dimension,
+      kind: nexusCriterion?.kind,
+      operator: nexusCriterion?.operator,
+      value: nexusCriterion?.value,
+      confidence: nexusCriterion?.confidence,
+      source_span: nexusCriterion?.sourceSpan,
+      note: nexusCriterion?.note,
+    }], nexusSpan);
+    assert.deepEqual(renormalized?.value, nexusCriterion?.value, "대상 목록 정규화는 멱등이다");
+  }
+
+  const protectedMeaningNote =
+    "개인사업자·법인사업자를 모두 허용하므로 열린 목록으로 두되, 다만 별도 자격 요건은 원문 확인이 필요하다.";
+  const [protectedMeaning] = normalizeCriteria([{
+    dimension: "target_type",
+    kind: "required",
+    operator: "in",
+    value: { targets: ["창업기업"], list_semantics: "open", note: protectedMeaningNote },
+    confidence: 0.58,
+    source_span: nexusSpan,
+  }], nexusSpan);
+  assert.equal(
+    (protectedMeaning?.value as { note?: string }).note,
+    protectedMeaningNote,
+    "같은 문장에 추가 자격·예외 의미가 있으면 설명을 삭제하지 않고 validator 검토에 남긴다",
+  );
+
+  const businessKindsSpan = "개인사업자 또는 법인사업자만 신청할 수 있다";
+  const [businessKinds] = normalizeCriteria([{
+    dimension: "target_type",
+    kind: "required",
+    operator: "in",
+    value: {
+      targets: ["개인사업자", "법인사업자"],
+      list_semantics: "open",
+      note: "개인사업자·법인사업자의 완전한 목록이다.",
+    },
+    confidence: 0.9,
+    source_span: businessKindsSpan,
+  }], businessKindsSpan);
+  assert.deepEqual(businessKinds?.value, {
+    targets: ["개인사업자", "법인사업자"],
+    list_semantics: "closed",
+    note: "개인사업자·법인사업자의 완전한 목록이다.",
+  }, "실제 개인·법인 제한의 설명과 폐쇄 목록은 보존한다");
 
   const kstartupSummary = "청소년,대학생,일반인,대학,연구기관,일반기업,1인 창조기업";
   const kstartupSummaryInput = [

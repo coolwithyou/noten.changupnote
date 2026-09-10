@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { VERSION } from "kordoc";
 import type { RoundtripFieldCandidate } from "@/lib/server/analysis-lab/application-roundtrip/contract";
 import {
+  applicationDocumentRecommendationPriority,
   buildRoundtripFillValues,
   classifyRoundtripDocument,
   extractLocatedRoundtripFields,
@@ -14,6 +15,12 @@ import {
 
 assert.equal(VERSION, "4.2.3", "왕복 실험은 검증된 Kordoc 4.2.3을 사용해야 한다");
 
+assert.ok(
+  applicationDocumentRecommendationPriority("[서식1] 기술지원 신청서.hwp")
+    > applicationDocumentRecommendationPriority("★(필독) 신청서류 작성 및 발급방법 안내.hwp"),
+  "명시된 주 신청 양식은 빈 표가 많은 작성 안내보다 우선해야 한다",
+);
+
 const announcement = classifyRoundtripDocument({
   filename: "2026년 창업지원사업 모집공고문.hwp",
   markdown: "모집 공고\n신청기간: 2026. 7. 1. ~ 7. 31.\n지원대상과 선정절차 및 유의사항",
@@ -21,6 +28,36 @@ const announcement = classifyRoundtripDocument({
   formConfidence: 0.1,
 });
 assert.equal(announcement.role, "announcement");
+
+const announcementWithEmbeddedApplication = classifyRoundtripDocument({
+  filename: "2026년 참가기업 모집 공고문.hwpx",
+  markdown: [
+    "모집 공고\n신청기간과 지원대상 및 선정절차",
+    "【별지 제1호 서식】사업신청서",
+    "신청기업 대표자 담당자 연락처 사업자등록번호",
+  ].join("\n"),
+  fields: Array.from({ length: 5 }, (_, index) =>
+    field({ id: `embedded-application-${index}`, label: `신청 항목 ${index}`, occurrence: index })),
+  formConfidence: 0.5,
+});
+assert.equal(
+  announcementWithEmbeddedApplication.role,
+  "application_form",
+  "공고문 뒤에 명시된 별지 신청서와 빈 입력 구조가 함께 있으면 합본 양식으로 분류해야 한다",
+);
+
+const announcementWithSubmissionListOnly = classifyRoundtripDocument({
+  filename: "2026년 참가기업 모집 공고문.hwpx",
+  markdown: "모집 공고\n제출서류: 사업신청서(별지 제1호) 1부\n신청기간과 지원대상 및 선정절차",
+  fields: Array.from({ length: 5 }, (_, index) =>
+    field({ id: `submission-list-${index}`, label: `신청 항목 ${index}`, occurrence: index })),
+  formConfidence: 0.5,
+});
+assert.equal(
+  announcementWithSubmissionListOnly.role,
+  "announcement",
+  "제출서류 목록에서 신청서 이름만 언급한 공고를 합본 양식으로 오인하면 안 된다",
+);
 
 const guidance = classifyRoundtripDocument({
   filename: "2. (관리지침) 온실가스 국제감축사업 관리지침(2026.3.)_수정.hwpx",
@@ -114,6 +151,11 @@ const plan = classifyRoundtripDocument({
 assert.equal(plan.role, "business_plan");
 
 assert.equal(assessRoundtripInputField({ label: "연번", type: "text", row: 0 }).recommended, false);
+assert.equal(
+  assessRoundtripInputField({ label: "[서식2] 기업소개 및 사업계획", type: "text", row: 2 }).recommended,
+  false,
+  "제출서류 목록의 서식명을 작성 필드로 오인하면 안 된다",
+);
 assert.equal(
   assessRoundtripInputField({ label: "경기도 양자-반도체 팹 융합활용 R&D 지원 사업", type: "text", row: 0 }).recommended,
   false,
@@ -223,6 +265,81 @@ assert.deepEqual(
 );
 assert.equal(recoveredMergedFields.every((candidate) => candidate.source === "rhwp-structural"), true);
 assert.equal(recoveredMergedFields.every((candidate) => candidate.writeOperation === "rhwp_field"), true);
+const announcementSectionFields = extractRhwpStructuralFields([{
+  type: "table",
+  table: {
+    rows: 1,
+    cols: 3,
+    hasHeader: false,
+    cells: [[
+      { text: "1", colSpan: 1, rowSpan: 1 },
+      { text: "", colSpan: 1, rowSpan: 1 },
+      { text: "사업개요", colSpan: 1, rowSpan: 1 },
+    ]],
+  },
+}], "d".repeat(64));
+assert.deepEqual(
+  announcementSectionFields,
+  [],
+  "명시적인 입력칸 근거가 없는 공고 절 제목을 병합 표의 숨은 값 셀로 추정하면 안 된다",
+);
+const fixedProcessFields = extractRhwpStructuralFields([{
+  type: "table",
+  table: {
+    rows: 3,
+    cols: 2,
+    hasHeader: false,
+    cells: [
+      [
+        { text: "사업장 → 진주시\n※사전기술지원결과서 첨부", colSpan: 1, rowSpan: 1 },
+        { text: "", colSpan: 1, rowSpan: 1 },
+      ],
+      [
+        { text: "사업비 지출,\n모니터링 2회\n(마케팅 현황 점검 등)", colSpan: 1, rowSpan: 1 },
+        { text: "", colSpan: 1, rowSpan: 1 },
+      ],
+      [
+        { text: "◦ 계획의 타당성\n- 목표시장 및 고객 분석(15)\n- 예산편성의 적정성(15)", colSpan: 1, rowSpan: 1 },
+        { text: "", colSpan: 1, rowSpan: 1 },
+      ],
+    ],
+  },
+}], "e".repeat(64));
+assert.deepEqual(
+  fixedProcessFields,
+  [],
+  "진행 흐름·횟수가 적힌 일정·배점 심사 설명은 빈 이웃 셀이 있어도 입력 필드가 아니다",
+);
+
+const restoredPlaceholderFields = extractLocatedRoundtripFields([{
+  type: "table",
+  table: {
+    rows: 3,
+    cols: 4,
+    hasHeader: false,
+    cells: [
+      [
+        { text: "담당자", colSpan: 1, rowSpan: 1 },
+        { text: "", colSpan: 1, rowSpan: 1 },
+        { text: "핸드폰", colSpan: 1, rowSpan: 1 },
+        { text: "", colSpan: 1, rowSpan: 1 },
+      ],
+      [
+        { text: "희망 지원기간", colSpan: 1, rowSpan: 1 },
+        { text: "00년 00월 00일\n∼ 00월 00일", colSpan: 3, rowSpan: 1 },
+      ],
+      [
+        { text: "기술지원 요구내용", colSpan: 1, rowSpan: 1 },
+        { text: "▪ (애로사항)\n-\n▪ (요구내용)\n-", colSpan: 3, rowSpan: 1 },
+      ],
+    ],
+  },
+}], "f".repeat(64)).fields;
+for (const label of ["핸드폰", "희망 지원기간", "기술지원 요구내용"]) {
+  const restored = restoredPlaceholderFields.find((candidate) => candidate.label === label);
+  assert.equal(restored?.empty, true, `${label} 원문 placeholder는 미작성 상태여야 한다`);
+  assert.equal(restored?.recommendedInput, true, `${label}은 실제 입력으로 복구해야 한다`);
+}
 assert.equal(
   isNarrativeInstructionPlaceholder(
     "자기소개",
@@ -239,6 +356,11 @@ assert.equal(
   isNarrativeInstructionPlaceholder("개인정보 동의", "※ 내용을 확인한 뒤 동의 여부를 선택"),
   false,
   "서술형 라벨이 아닌 고정 안내문은 자동 입력 대상으로 승격하지 않는다",
+);
+assert.equal(
+  isNarrativeInstructionPlaceholder("기술지원 요구내용", "▪ (애로사항)\n-\n▪ (요구내용)\n-"),
+  true,
+  "항목별 글머리표만 남은 서술형 입력 안내를 실제 작성 칸으로 복구해야 한다",
 );
 
 assert.deepEqual(

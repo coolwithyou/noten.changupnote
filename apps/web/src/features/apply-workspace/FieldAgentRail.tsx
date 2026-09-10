@@ -71,6 +71,9 @@ export function FieldAgentRail({
   const suggestions = run?.suggestions
     .filter((suggestion) => suggestion.status !== "dismissed" && suggestion.status !== "stale")
     .slice(0, 2) ?? [];
+  const missingInformation = run?.readiness && !run.readiness.canApply
+    ? run.readiness.missingInformation.map((question) => question.trim()).filter(Boolean).slice(0, 2)
+    : [];
   const visibleFields = useMemo(() => {
     const query = fieldQuery.trim().toLocaleLowerCase("ko-KR");
     return session.fields.filter((field) => {
@@ -204,6 +207,17 @@ export function FieldAgentRail({
                 <p className="text-xs leading-5 text-muted-foreground">
                   {assistDescription(session.selected.assistAvailability)}
                 </p>
+                {missingInformation.length > 0 ? (
+                  <div className="rounded-lg border bg-muted/40 p-3">
+                    <p className="text-sm font-semibold">AI가 더 확인해야 할 내용</p>
+                    <ul className="mt-2 list-disc space-y-1 pl-5 text-sm leading-6" aria-label="추가로 필요한 정보">
+                      {missingInformation.map((question) => <li key={question}>{question}</li>)}
+                    </ul>
+                    <p className="mt-2 text-xs leading-5 text-muted-foreground">
+                      아래에 실제 사실을 적고 제안받기를 다시 눌러 주세요.
+                    </p>
+                  </div>
+                ) : null}
                 {session.selected.assistAvailability === "ready" ? (
                   <Textarea
                     value={sourceText}
