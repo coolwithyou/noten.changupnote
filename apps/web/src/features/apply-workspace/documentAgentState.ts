@@ -35,6 +35,10 @@ export const initialDocumentAgentUiState: DocumentAgentUiState = {
   error: null,
 };
 
+export function documentAgentTargetSelectionEnabled(state: Pick<DocumentAgentUiState, "phase">): boolean {
+  return state.phase === "target_selected";
+}
+
 export type DocumentAgentUiAction =
   | { type: "open"; pageCount: number }
   | { type: "close" }

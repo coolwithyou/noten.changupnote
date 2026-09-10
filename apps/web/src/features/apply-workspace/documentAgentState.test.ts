@@ -1,5 +1,9 @@
 import assert from "node:assert/strict";
-import { initialDocumentAgentUiState, reduceDocumentAgentUiState } from "./documentAgentState";
+import {
+  documentAgentTargetSelectionEnabled,
+  initialDocumentAgentUiState,
+  reduceDocumentAgentUiState,
+} from "./documentAgentState";
 
 const open = reduceDocumentAgentUiState(initialDocumentAgentUiState, { type: "open", pageCount: 3 });
 const scanning = reduceDocumentAgentUiState(open, { type: "scan_started" });
@@ -22,6 +26,7 @@ const candidate = {
 const targeted = reduceDocumentAgentUiState(scanning, { type: "scan_succeeded", candidates: [candidate] });
 assert.equal(targeted.phase, "target_selected");
 assert.equal(targeted.selectedCandidateId, candidate.candidateId);
+assert.equal(documentAgentTargetSelectionEnabled(targeted), true);
 const checkpointing = reduceDocumentAgentUiState(targeted, {
   type: "request_started",
   checkpointRequestId: "00000000-0000-4000-8000-000000000001",
@@ -53,5 +58,17 @@ const history = reduceDocumentAgentUiState(open, {
 });
 assert.equal(history.phase, "reviewing");
 assert.equal(history.selectedCandidateId, candidate.candidateId);
+assert.equal(documentAgentTargetSelectionEnabled(history), false, "검토 중인 과거 후보로 새 요청을 시작하지 않는다");
+assert.throws(() => reduceDocumentAgentUiState(history, {
+  type: "request_started",
+  checkpointRequestId: "00000000-0000-4000-8000-000000000006",
+  clientRequestId: "00000000-0000-4000-8000-000000000007",
+}), /illegal transition/);
+const rescanned = reduceDocumentAgentUiState(
+  reduceDocumentAgentUiState(history, { type: "scan_started" }),
+  { type: "scan_succeeded", candidates: [candidate] },
+);
+assert.equal(rescanned.phase, "target_selected");
+assert.equal(documentAgentTargetSelectionEnabled(rescanned), true, "작성 위치를 다시 찾은 후보만 새 요청에 사용한다");
 
 console.log("document agent UI state tests passed");

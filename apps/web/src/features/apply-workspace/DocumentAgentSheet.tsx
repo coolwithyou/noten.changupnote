@@ -20,7 +20,10 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Spinner } from "@/components/ui/spinner";
-import type { DocumentAgentUiState } from "./documentAgentState";
+import {
+  documentAgentTargetSelectionEnabled,
+  type DocumentAgentUiState,
+} from "./documentAgentState";
 import { DocumentAgentDiff } from "./DocumentAgentDiff";
 import type { RhwpStudioDocumentActionState } from "./RhwpStudioSurface";
 import { StudioSaveIndicator } from "./StudioSaveIndicator";
@@ -53,6 +56,7 @@ export interface DocumentAgentPanelProps extends DocumentAgentActions {
 export function DocumentAgentPanel(props: DocumentAgentPanelProps) {
   const [undoSuggestionId, setUndoSuggestionId] = useState<string | null>(null);
   const busy = documentAgentBusy(props.state);
+  const targetSelectionEnabled = documentAgentTargetSelectionEnabled(props.state);
   const run = props.state.run;
   const selectedCandidate = props.state.candidates.find(
     (candidate) => candidate.candidateId === props.state.selectedCandidateId,
@@ -161,7 +165,7 @@ export function DocumentAgentPanel(props: DocumentAgentPanelProps) {
                             data-selected={candidate.candidateId === props.state.selectedCandidateId}
                             aria-pressed={candidate.candidateId === props.state.selectedCandidateId}
                             onClick={() => props.onSelectCandidate(candidate.candidateId)}
-                            disabled={busy}
+                            disabled={busy || !targetSelectionEnabled}
                           >
                             <span className="min-w-0">
                               <span className="block text-sm font-medium">
@@ -176,7 +180,11 @@ export function DocumentAgentPanel(props: DocumentAgentPanelProps) {
                         <p className="text-xs text-muted-foreground">
                           제안이 실패하거나 비어 있어도 현재 문서를 저장한 checkpoint 이력은 남습니다.
                         </p>
-                        <Button type="button" onClick={props.onRequest} disabled={!selectedCandidate || busy}>
+                        <Button
+                          type="button"
+                          onClick={props.onRequest}
+                          disabled={!selectedCandidate || busy || !targetSelectionEnabled}
+                        >
                           {props.state.phase === "checkpointing" || props.state.phase === "generating"
                             ? <Spinner data-icon="inline-start" />
                             : <Sparkles data-icon="inline-start" />}
