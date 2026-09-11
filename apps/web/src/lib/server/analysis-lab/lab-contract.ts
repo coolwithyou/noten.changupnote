@@ -181,6 +181,8 @@ export type LabUsage = DeepAnalysisUsage;
  * LabRun에는 두 실행의 결속과 빠른 작성 준비 상태만 남긴다.
  */
 export interface LabApplicationRoundtripReference {
+  /** 실행한 application-roundtrip 계약 버전. 이 필드가 없는 역사 런은 현행 계약으로 간주하지 않는다. */
+  version?: string;
   status: "complete" | "partial" | "review_required" | "not_applicable" | "failed";
   runId: string | null;
   transport: "api" | "claude-cli";
