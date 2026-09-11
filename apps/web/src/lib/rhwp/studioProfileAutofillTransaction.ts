@@ -1,4 +1,5 @@
 import type { RhwpDocumentFormat, RhwpModule } from "./client";
+import { sha256Hex } from "./documentAgentContract";
 import { isReplaceableRhwpGuide } from "./guideText";
 import type {
   StudioFieldAgentProtocol,
@@ -12,6 +13,7 @@ import {
   type FieldCommandBindingV1,
   type StudioFieldCommandResult,
 } from "./studioFieldAgentTransaction";
+import { studioFieldDocumentSemanticSha256 } from "./studioFieldDocumentManifest";
 
 export interface StudioProfileAutofillEntry {
   fieldId: string;
@@ -29,10 +31,14 @@ export interface AppliedStudioProfileAutofillEntry {
   commandId: string;
   binding: FieldCommandBindingV1;
   restoreFormat: StudioFieldRestoreFormatV1;
+  beforeSemanticSha256: string;
+  afterSemanticSha256: string;
   result: StudioFieldCommandResult;
 }
 
 export interface StudioProfileAutofillBatchResult {
+  beforeBytes: Uint8Array;
+  beforeSemanticSha256: string;
   bytes: Uint8Array;
   format: RhwpDocumentFormat;
   applied: AppliedStudioProfileAutofillEntry[];
@@ -72,41 +78,41 @@ export function createStudioProfileAutofillTransaction(input: {
       entries: readonly StudioProfileAutofillEntry[];
     }): Promise<StudioProfileAutofillBatchResult> {
       assertUniqueFieldIds(batch.entries);
-      let bytes = batch.bytes;
+      const beforeBytes = batch.bytes.slice();
+      let bytes: Uint8Array = beforeBytes;
+      const beforeSemanticSha256 = await semanticDocumentSha256(input.rhwp, beforeBytes);
       const applied: AppliedStudioProfileAutofillEntry[] = [];
       for (const [index, entry] of batch.entries.entries()) {
-        const evidence = await collectStudioFieldEvidence(input.rhwp, bytes, entry.target);
-        const before = evidence.text.trim();
-        if (before && !isReplaceableRhwpGuide(before, entry.sourceSpan, null)) {
-          throw new StudioProfileAutofillTransactionError(
-            `'${entry.label}' 입력 칸에 현재 값이 있어 일괄 입력을 중단했습니다.`,
-            false,
-            undefined,
-            { bytes, format: batch.format, applied },
-          );
-        }
-        const binding: FieldCommandBindingV1 = {
-          target: entry.target,
-          beforeText: evidence.text,
-          beforeTextSha256: evidence.textSha256,
-          formatSha256: evidence.formatSha256,
-          adjacentContextSha256: evidence.adjacentContextSha256,
-        };
-        const commandId = `profile-autofill:${crypto.randomUUID()}:${index}`;
+        let failureMessage = `'${entry.label}' 입력 결과를 안전하게 확인하지 못했습니다.`;
+        let result: StudioFieldCommandResult | null = null;
         try {
-          const result = await transaction().apply({
+          const evidence = await collectStudioFieldEvidence(input.rhwp, bytes, entry.target);
+          const entryBeforeSemanticSha256 = await semanticDocumentSha256(input.rhwp, bytes);
+          const before = evidence.text.trim();
+          if (before && !isReplaceableRhwpGuide(before, entry.sourceSpan, null)) {
+            failureMessage = `'${entry.label}' 입력 칸에 현재 값이 있어 일괄 입력을 중단했습니다.`;
+            throw new Error(failureMessage);
+          }
+          const binding: FieldCommandBindingV1 = {
+            target: entry.target,
+            beforeText: evidence.text,
+            beforeTextSha256: evidence.textSha256,
+            formatSha256: evidence.formatSha256,
+            adjacentContextSha256: evidence.adjacentContextSha256,
+          };
+          if (!evidence.restoreFormat) {
+            failureMessage = `'${entry.label}'의 원래 서식을 봉인하지 못했습니다.`;
+            throw new Error(failureMessage);
+          }
+          const commandId = `profile-autofill:${crypto.randomUUID()}:${index}`;
+          result = await transaction().apply({
             bytes,
             format: batch.format,
             commandId,
             binding,
             replacement: entry.value,
           });
-          if (!evidence.restoreFormat) {
-            throw new StudioProfileAutofillTransactionError(
-              `'${entry.label}'의 원래 서식을 봉인하지 못했습니다.`,
-              false,
-            );
-          }
+          const entryAfterSemanticSha256 = await semanticDocumentSha256(input.rhwp, result.bytes);
           applied.push({
             fieldId: entry.fieldId,
             label: entry.label,
@@ -115,41 +121,137 @@ export function createStudioProfileAutofillTransaction(input: {
             commandId,
             binding,
             restoreFormat: evidence.restoreFormat,
+            beforeSemanticSha256: entryBeforeSemanticSha256,
+            afterSemanticSha256: entryAfterSemanticSha256,
             result,
           });
           bytes = result.bytes;
         } catch (error) {
           throw new StudioProfileAutofillTransactionError(
-            `'${entry.label}' 입력 결과를 안전하게 확인하지 못했습니다.`,
-            error instanceof StudioFieldAgentMutationVerificationError,
+            failureMessage,
+            result !== null || error instanceof StudioFieldAgentMutationVerificationError,
             error,
-            { bytes, format: batch.format, applied },
+            {
+              beforeBytes,
+              beforeSemanticSha256,
+              bytes,
+              format: batch.format,
+              applied,
+            },
           );
         }
       }
-      return { bytes, format: batch.format, applied };
+      return {
+        beforeBytes,
+        beforeSemanticSha256,
+        bytes,
+        format: batch.format,
+        applied,
+      };
     },
 
     async revert(batch: StudioProfileAutofillBatchResult): Promise<Uint8Array> {
-      let bytes = batch.bytes;
-      for (const entry of [...batch.applied].reverse()) {
+      if (batch.applied.length === 0) return batch.beforeBytes;
+      let bytes = await input.exportCurrentBytes(batch.format);
+      const entries = [...batch.applied].reverse();
+      for (const [reverseIndex, entry] of entries.entries()) {
+        const currentDocumentSha256 = await sha256Hex(bytes);
+        if (reverseIndex === 0 && currentDocumentSha256 !== entry.result.afterDocumentSha256) {
+          throw new Error("회사 정보 자동 입력 뒤 현재 문서가 달라 Undo를 차단했습니다.");
+        }
+        await assertSealedIntermediate({
+          rhwp: input.rhwp,
+          bytes,
+          entry,
+          expectedSemanticSha256: entry.afterSemanticSha256,
+          expectedTextSha256: entry.result.receipt.afterTextSha256,
+          expectedFormatSha256: entry.result.receipt.formatSha256,
+          expectedAdjacentContextSha256: entry.result.receipt.adjacentContextSha256,
+          message: "현재 문서 내용이나 서식이 회사 정보 자동 입력 직후와 달라 Undo를 차단했습니다.",
+        });
         const reverted = await transaction().revert({
           bytes,
           format: batch.format,
           commandId: entry.commandId,
           expectedAfterTextSha256: entry.result.receipt.afterTextSha256,
           recovery: {
-            appliedDocumentSha256: entry.result.afterDocumentSha256,
+            appliedDocumentSha256: currentDocumentSha256,
             appliedText: entry.value,
             binding: entry.binding,
             restoreFormat: entry.restoreFormat,
           },
         });
+        await assertSealedIntermediate({
+          rhwp: input.rhwp,
+          bytes: reverted.bytes,
+          entry,
+          expectedSemanticSha256: entry.beforeSemanticSha256,
+          expectedTextSha256: entry.binding.beforeTextSha256,
+          expectedFormatSha256: entry.binding.formatSha256,
+          expectedAdjacentContextSha256: entry.binding.adjacentContextSha256,
+          message: "회사 정보 자동 입력 역변경 결과가 원래 문서 내용과 서식을 복원하지 못했습니다.",
+        });
         bytes = reverted.bytes;
       }
+      if (await semanticDocumentSha256(input.rhwp, bytes) !== batch.beforeSemanticSha256) {
+        throw new Error("회사 정보 자동 입력 Undo가 원래 문서의 내용과 서식을 복원하지 못했습니다.");
+      }
+      await assertOriginalFieldEvidence(input.rhwp, batch.beforeBytes, bytes, batch.applied);
       return bytes;
     },
   };
+}
+
+async function semanticDocumentSha256(rhwp: RhwpModule, bytes: Uint8Array): Promise<string> {
+  const document = new rhwp.HwpDocument(bytes);
+  try {
+    return await studioFieldDocumentSemanticSha256(document);
+  } finally {
+    document.free();
+  }
+}
+
+async function assertSealedIntermediate(input: {
+  rhwp: RhwpModule;
+  bytes: Uint8Array;
+  entry: AppliedStudioProfileAutofillEntry;
+  expectedSemanticSha256: string;
+  expectedTextSha256: string;
+  expectedFormatSha256: string;
+  expectedAdjacentContextSha256: string;
+  message: string;
+}): Promise<void> {
+  const semanticSha256 = await semanticDocumentSha256(input.rhwp, input.bytes);
+  const evidence = await collectStudioFieldEvidence(input.rhwp, input.bytes, input.entry.target);
+  if (
+    semanticSha256 !== input.expectedSemanticSha256
+    || evidence.textSha256 !== input.expectedTextSha256
+    || evidence.formatSha256 !== input.expectedFormatSha256
+    || evidence.adjacentContextSha256 !== input.expectedAdjacentContextSha256
+  ) {
+    throw new Error(input.message);
+  }
+}
+
+async function assertOriginalFieldEvidence(
+  rhwp: RhwpModule,
+  beforeBytes: Uint8Array,
+  revertedBytes: Uint8Array,
+  entries: readonly AppliedStudioProfileAutofillEntry[],
+): Promise<void> {
+  for (const entry of entries) {
+    const [before, reverted] = await Promise.all([
+      collectStudioFieldEvidence(rhwp, beforeBytes, entry.target),
+      collectStudioFieldEvidence(rhwp, revertedBytes, entry.target),
+    ]);
+    if (
+      reverted.textSha256 !== before.textSha256
+      || reverted.formatSha256 !== before.formatSha256
+      || reverted.adjacentContextSha256 !== before.adjacentContextSha256
+    ) {
+      throw new Error("회사 정보 자동 입력 Undo가 원래 입력 칸의 내용과 서식을 복원하지 못했습니다.");
+    }
+  }
 }
 
 function assertUniqueFieldIds(entries: readonly StudioProfileAutofillEntry[]): void {
