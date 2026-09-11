@@ -4,6 +4,11 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { analysisLabDir } from "./run-store";
 import { assertSafeReleaseId, validatePromotionReleaseManifest, type PromotionReleaseManifest } from "../analysis-serving/promotionReleaseContract";
+import {
+  APPLICATION_FIELD_REPAIR_RELEASE_SCHEMA,
+  validateApplicationFieldRepairReleaseManifest,
+  type ApplicationFieldRepairReleaseManifest,
+} from "../analysis-serving/applicationFieldRepairContract";
 export * from "../analysis-serving/promotionReleaseContract";
 
 export function promotionReleaseDir(releaseId: string): string {
@@ -44,8 +49,44 @@ export async function writeImmutablePromotionArtifact(
 export async function readPromotionReleaseManifest(releaseId: string): Promise<PromotionReleaseManifest> {
   const path = promotionReleaseArtifactPath(releaseId, "manifest.json");
   const parsed = JSON.parse(await readFile(path, "utf8")) as unknown;
+  if (
+    parsed && typeof parsed === "object"
+    && (parsed as { schema?: unknown }).schema === APPLICATION_FIELD_REPAIR_RELEASE_SCHEMA
+  ) {
+    throw new Error("application field repair release는 lab:field-repair:release 명령을 사용해야 합니다.");
+  }
   const manifest = validatePromotionReleaseManifest(parsed);
   if (manifest.releaseId !== releaseId) throw new Error("manifest releaseId와 경로가 일치하지 않습니다.");
+  return manifest;
+}
+
+export type AnalysisLabReleaseManifest =
+  | PromotionReleaseManifest
+  | ApplicationFieldRepairReleaseManifest;
+
+/** releaseKind/schema를 먼저 판정하고 각 계약 validator로 명시 분기한다. */
+export async function readAnalysisLabReleaseManifest(
+  releaseId: string,
+): Promise<AnalysisLabReleaseManifest> {
+  const path = promotionReleaseArtifactPath(releaseId, "manifest.json");
+  const parsed = JSON.parse(await readFile(path, "utf8")) as unknown;
+  const schema = parsed && typeof parsed === "object"
+    ? (parsed as { schema?: unknown }).schema
+    : null;
+  const manifest = schema === "analysis-lab-application-field-repair-release-v1"
+    ? validateApplicationFieldRepairReleaseManifest(parsed)
+    : validatePromotionReleaseManifest(parsed);
+  if (manifest.releaseId !== releaseId) throw new Error("manifest releaseId와 경로가 일치하지 않습니다.");
+  return manifest;
+}
+
+export async function readApplicationFieldRepairReleaseManifest(
+  releaseId: string,
+): Promise<ApplicationFieldRepairReleaseManifest> {
+  const manifest = await readAnalysisLabReleaseManifest(releaseId);
+  if (manifest.schema !== "analysis-lab-application-field-repair-release-v1") {
+    throw new Error("application field repair release manifest가 아닙니다.");
+  }
   return manifest;
 }
 

@@ -4,7 +4,7 @@
  * 검수 확정은 곧 golden_set(kind=field_map) 승격이다.
  * 순환성 가드/승격 upsert 는 공용 모듈(promote-field-map-golden)을 재사용한다.
  */
-import { and, asc, eq, inArray, ne, or } from "drizzle-orm";
+import { and, asc, eq, inArray, ne, or, sql } from "drizzle-orm";
 import type { GrantSource } from "@cunote/contracts";
 import { getCunoteDb, type CunoteDbSession } from "../db/client";
 import * as schema from "../db/schema";
@@ -705,6 +705,7 @@ export async function approveReviewDoc(
     let applied: ApprovalReflection | undefined;
     const surfaceId = surfaceIdFromDocRef(existing.docRef);
     if (surfaceId) {
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${surfaceId}))`);
       const goldFields = (Array.isArray(gold.fields) ? gold.fields : []) as ReviewLabelField[];
       const reconciled = reviewFieldsToReconciled(goldFields);
       const result = await applyReconciledFields({

@@ -1820,6 +1820,42 @@ export const analysisLabPromotionItems = pgTable("analysis_lab_promotion_items",
 }));
 
 /**
+ * 기존 matching promotion item을 바꾸지 않고 검증된 application field projection만 보완하는
+ * 단건 release 원장. 일반 promotion item을 추가하지 않으므로 제품 serving frontier는 하나로 남는다.
+ */
+export const analysisLabApplicationFieldRepairs = pgTable("analysis_lab_application_field_repairs", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  releaseDbId: uuid("release_db_id").notNull()
+    .references(() => analysisLabPromotionReleases.id, { onDelete: "restrict" }),
+  grantId: uuid("grant_id").notNull().references(() => grants.id, { onDelete: "restrict" }),
+  parentPromotionItemId: uuid("parent_promotion_item_id").notNull()
+    .references(() => analysisLabPromotionItems.id, { onDelete: "restrict" }),
+  roundtripRunId: text("roundtrip_run_id").notNull(),
+  applicationFieldAnalysisVersion: text("application_field_analysis_version").notNull(),
+  planSha256: text("plan_sha256").notNull(),
+  beforeSnapshot: jsonb("before_snapshot").$type<Record<string, unknown>>().notNull(),
+  beforeSha256: text("before_sha256").notNull(),
+  afterSnapshot: jsonb("after_snapshot").$type<Record<string, unknown>>(),
+  afterSha256: text("after_sha256"),
+  servingStateSha256: text("serving_state_sha256"),
+  applicationPrecomputeReceipt: jsonb("application_precompute_receipt")
+    .$type<Record<string, unknown>>(),
+  status: text("status").default("prepared").notNull(),
+  error: text("error"),
+  appliedAt: timestamp("applied_at", { withTimezone: true }),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  releaseIdx: uniqueIndex("analysis_lab_application_field_repairs_release_idx")
+    .on(table.releaseDbId),
+  parentIdx: uniqueIndex("analysis_lab_application_field_repairs_parent_idx")
+    .on(table.parentPromotionItemId),
+  grantIdx: index("analysis_lab_application_field_repairs_grant_idx").on(table.grantId),
+  statusCheck: check("analysis_lab_application_field_repairs_status_check", sql`
+    ${table.status} IN ('prepared', 'applying', 'applied', 'failed')
+  `),
+}));
+
+/**
  * 사람 검수 주간 배치 — 파일 기반 감사 프로토콜과 ops 검수 워크스페이스 사이의
  * 재현 가능한 배분 원장. 판정 이력 테이블은 어떤 운영 경로에서도 삭제하지 않는다.
  */

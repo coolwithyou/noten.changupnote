@@ -31,6 +31,16 @@ export interface SaveFieldCandidatesResult {
   created: boolean;
 }
 
+export interface StagedFieldCandidates {
+  surfaceId: string;
+  storageKey: string;
+  url: string | null;
+  engine: string;
+  candidateCount: number;
+  sha256: string;
+  metadata: Record<string, unknown>;
+}
+
 export interface FieldCandidateStore {
   /** CandidateSet 을 R2 + document_artifacts 로 저장한다 (엔진 단위 멱등). */
   saveFieldCandidates(input: {
@@ -53,9 +63,13 @@ function fileSafe(value: string): string {
   return s || "engine";
 }
 
-interface SurfaceRef {
+export function fieldCandidatesStorageKey(input: {
   source: string;
   sourceId: string;
+  set: CandidateSet;
+}): string {
+  const body = JSON.stringify(input.set);
+  return `grant-convert/${input.source}/${input.sourceId}/field_candidates/${shortHash(body)}-${fileSafe(input.set.engine)}.json`;
 }
 
 export function createFieldCandidateStore(deps: {
@@ -64,101 +78,16 @@ export function createFieldCandidateStore(deps: {
 }): FieldCandidateStore {
   const { db, storage } = deps;
 
-  async function surfaceRef(surfaceId: string): Promise<SurfaceRef> {
-    const rows = await db
-      .select({
-        source: schema.grantApplicationSurfaces.source,
-        sourceId: schema.grantApplicationSurfaces.sourceId,
-      })
-      .from(schema.grantApplicationSurfaces)
-      .where(eq(schema.grantApplicationSurfaces.id, surfaceId))
-      .limit(1);
-    const row = rows[0];
-    if (!row) throw new Error(`surface 를 찾을 수 없습니다: ${surfaceId}`);
-    return { source: row.source, sourceId: row.sourceId };
-  }
-
   return {
     async saveFieldCandidates({ surfaceId, set, metadata: extraMetadata }) {
-      const ref = await surfaceRef(surfaceId);
-      const body = JSON.stringify(set);
-      const sha256 = createHash("sha256").update(body).digest("hex");
-      const sha16 = shortHash(body);
-      const storageKey = `grant-convert/${ref.source}/${ref.sourceId}/field_candidates/${sha16}-${fileSafe(set.engine)}.json`;
-
-      const put = await storage.putObject({ key: storageKey, body, contentType: "application/json" });
-
-      const metadata: Record<string, unknown> = {
-        ...extraMetadata,
-        engine: set.engine,
-        engineVersion: set.engineVersion,
-        layer: set.layer,
-        candidateCount: set.candidates.length,
-        extractedAt: set.extractedAt,
-      };
-
-      // 선분석은 원본 SHA/분석 계약이 바뀌면 과거 pointer를 덮지 않고 새 artifact 행을 남긴다.
-      // identity가 없는 기존 호출은 종전의 엔진 단위 upsert 계약을 그대로 유지한다.
-      const analysisVersion = stringMetadata(extraMetadata?.analysisVersion);
-      const sourceSha256 = stringMetadata(extraMetadata?.sourceSha256);
-      const existing = await db
-        .select({ id: schema.documentArtifacts.id, metadata: schema.documentArtifacts.metadata })
-        .from(schema.documentArtifacts)
-        .where(
-          and(
-            eq(schema.documentArtifacts.surfaceId, surfaceId),
-            eq(schema.documentArtifacts.kind, FIELD_CANDIDATES_ARTIFACT_KIND),
-          ),
-        );
-      const match = existing.find(
-        (row) => {
-          const rowMetadata = row.metadata as Record<string, unknown> | null;
-          if (rowMetadata?.engine !== set.engine) return false;
-          if (!analysisVersion || !sourceSha256) return true;
-          return rowMetadata.analysisVersion === analysisVersion
-            && rowMetadata.sourceSha256 === sourceSha256;
-        },
-      );
-
-      const values = {
-        kind: FIELD_CANDIDATES_ARTIFACT_KIND,
-        page: null,
-        storageKey,
-        url: put.url,
-        contentType: "application/json",
-        sha256,
-        metadata,
-      };
-
-      if (match) {
-        await db
-          .update(schema.documentArtifacts)
-          .set(values)
-          .where(eq(schema.documentArtifacts.id, match.id));
-        return {
-          storageKey,
-          url: put.url,
-          artifactId: match.id,
-          engine: set.engine,
-          candidateCount: set.candidates.length,
-          sha256,
-          created: false,
-        };
-      }
-
-      const inserted = await db
-        .insert(schema.documentArtifacts)
-        .values({ surfaceId, ...values })
-        .returning({ id: schema.documentArtifacts.id });
-      return {
-        storageKey,
-        url: put.url,
-        artifactId: inserted[0]!.id,
-        engine: set.engine,
-        candidateCount: set.candidates.length,
-        sha256,
-        created: true,
-      };
+      const staged = await stageFieldCandidates({
+        db,
+        storage,
+        surfaceId,
+        set,
+        ...(extraMetadata ? { metadata: extraMetadata } : {}),
+      });
+      return persistStagedFieldCandidates({ db, staged });
     },
 
     async loadFieldCandidates(surfaceId) {
@@ -181,6 +110,99 @@ export function createFieldCandidateStore(deps: {
       }
       return sets;
     },
+  };
+}
+
+/** content-addressed R2 object만 먼저 둔다. DB artifact pointer는 쓰지 않는다. */
+export async function stageFieldCandidates(input: {
+  db: CunoteDbSession;
+  storage: R2ObjectStorage;
+  surfaceId: string;
+  set: CandidateSet;
+  metadata?: Record<string, unknown>;
+}): Promise<StagedFieldCandidates> {
+  const [ref] = await input.db.select({
+    source: schema.grantApplicationSurfaces.source,
+    sourceId: schema.grantApplicationSurfaces.sourceId,
+  }).from(schema.grantApplicationSurfaces)
+    .where(eq(schema.grantApplicationSurfaces.id, input.surfaceId)).limit(1);
+  if (!ref) throw new Error(`surface 를 찾을 수 없습니다: ${input.surfaceId}`);
+  const body = JSON.stringify(input.set);
+  const sha256 = createHash("sha256").update(body).digest("hex");
+  const storageKey = fieldCandidatesStorageKey({ source: ref.source, sourceId: ref.sourceId, set: input.set });
+  const put = await input.storage.putObject({ key: storageKey, body, contentType: "application/json" });
+  return {
+    surfaceId: input.surfaceId,
+    storageKey,
+    url: put.url,
+    engine: input.set.engine,
+    candidateCount: input.set.candidates.length,
+    sha256,
+    metadata: {
+      ...input.metadata,
+      engine: input.set.engine,
+      engineVersion: input.set.engineVersion,
+      layer: input.set.layer,
+      candidateCount: input.set.candidates.length,
+      extractedAt: input.set.extractedAt,
+    },
+  };
+}
+
+/** 이미 staged된 immutable object의 DB pointer만 현재 transaction에 기록한다. */
+export async function persistStagedFieldCandidates(input: {
+  db: CunoteDbSession;
+  staged: StagedFieldCandidates;
+}): Promise<SaveFieldCandidatesResult> {
+  const { db, staged } = input;
+  const analysisVersion = stringMetadata(staged.metadata.analysisVersion);
+  const sourceSha256 = stringMetadata(staged.metadata.sourceSha256);
+  const existing = await db.select({ id: schema.documentArtifacts.id, metadata: schema.documentArtifacts.metadata })
+    .from(schema.documentArtifacts)
+    .where(and(
+      eq(schema.documentArtifacts.surfaceId, staged.surfaceId),
+      eq(schema.documentArtifacts.kind, FIELD_CANDIDATES_ARTIFACT_KIND),
+    ));
+  const match = existing.find((row) => {
+    const metadata = row.metadata as Record<string, unknown> | null;
+    if (metadata?.engine !== staged.engine) return false;
+    if (!analysisVersion || !sourceSha256) return true;
+    return metadata.analysisVersion === analysisVersion && metadata.sourceSha256 === sourceSha256;
+  });
+  const values = {
+    kind: FIELD_CANDIDATES_ARTIFACT_KIND,
+    page: null,
+    storageKey: staged.storageKey,
+    url: staged.url,
+    contentType: "application/json",
+    sha256: staged.sha256,
+    metadata: staged.metadata,
+  };
+  if (match) {
+    await db.update(schema.documentArtifacts).set(values)
+      .where(eq(schema.documentArtifacts.id, match.id));
+    return {
+      storageKey: staged.storageKey,
+      url: staged.url,
+      artifactId: match.id,
+      engine: staged.engine,
+      candidateCount: staged.candidateCount,
+      sha256: staged.sha256,
+      created: false,
+    };
+  }
+  const [inserted] = await db.insert(schema.documentArtifacts)
+    .values({ surfaceId: staged.surfaceId, ...values })
+    .returning({ id: schema.documentArtifacts.id });
+  if (!inserted) throw new Error("field candidate artifact pointer 생성에 실패했습니다.");
+  return {
+    storageKey: staged.storageKey,
+    url: staged.url,
+    artifactId: inserted.id,
+    engine: staged.engine,
+    candidateCount: staged.candidateCount,
+    sha256: staged.sha256,
+    created: true,
   };
 }
 
