@@ -9,7 +9,7 @@ import type { WorkspaceData } from "@/lib/server/documents/workspaceData";
 
 (globalThis as typeof globalThis & { React: typeof React }).React = React;
 
-const [{ WorkspaceView }, { FieldAgentRail }] = await Promise.all([
+const [{ WorkspaceView, useSourceScopedAsyncRun }, { FieldAgentRail }] = await Promise.all([
   import("./WorkspaceView"),
   import("./FieldAgentRail"),
 ]);
@@ -435,5 +435,199 @@ assert.ok(adminPendingHtml.includes("data-document-guided-editor"));
 assert.ok(adminPendingHtml.includes("문서 직접 편집기"));
 assert.ok(adminPendingHtml.includes("AI 작성 가이드"));
 assert.equal(adminPendingHtml.includes("빠른 작성"), false);
+
+type Deferred = {
+  promise: Promise<void>;
+  resolve: () => void;
+};
+
+function createDeferred(): Deferred {
+  let resolve!: () => void;
+  const promise = new Promise<void>((next) => {
+    resolve = next;
+  });
+  return { promise, resolve };
+}
+
+async function waitForLifecycleCondition(predicate: () => boolean, message: string): Promise<void> {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    if (predicate()) return;
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+  }
+  assert.fail(message);
+}
+
+async function verifySourceScopedAsyncRunLifecycle(): Promise<void> {
+  const globalDom = globalThis as typeof globalThis & {
+    document?: Document;
+    window?: Window & typeof globalThis;
+    IS_REACT_ACT_ENVIRONMENT?: boolean;
+  };
+  const documentDescriptor = Object.getOwnPropertyDescriptor(globalThis, "document");
+  const windowDescriptor = Object.getOwnPropertyDescriptor(globalThis, "window");
+  const actDescriptor = Object.getOwnPropertyDescriptor(globalThis, "IS_REACT_ACT_ENVIRONMENT");
+
+  const makeElement = (tagName: string, ownerDocument: object) => ({
+    nodeType: 1,
+    nodeName: tagName.toUpperCase(),
+    tagName: tagName.toUpperCase(),
+    namespaceURI: "http://www.w3.org/1999/xhtml",
+    ownerDocument,
+    parentNode: null,
+    childNodes: [],
+    style: {},
+    addEventListener() {},
+    removeEventListener() {},
+    setAttribute() {},
+    removeAttribute() {},
+    appendChild<T>(child: T): T {
+      return child;
+    },
+    insertBefore<T>(child: T): T {
+      return child;
+    },
+    removeChild<T>(child: T): T {
+      return child;
+    },
+  });
+  const fakeDocument: Record<string, unknown> = {
+    nodeType: 9,
+    nodeName: "#document",
+    activeElement: null,
+    addEventListener() {},
+    removeEventListener() {},
+  };
+  const fakeWindow = {
+    document: fakeDocument,
+    event: undefined,
+    HTMLIFrameElement: class HTMLIFrameElement {},
+    HTMLElement: class HTMLElement {},
+  };
+  fakeDocument.defaultView = fakeWindow;
+  fakeDocument.documentElement = makeElement("html", fakeDocument);
+  fakeDocument.body = makeElement("body", fakeDocument);
+  fakeDocument.createElement = (tagName: string) => makeElement(tagName, fakeDocument);
+  fakeDocument.createElementNS = (_namespace: string, tagName: string) => makeElement(tagName, fakeDocument);
+  fakeDocument.createTextNode = (value: string) => ({
+    nodeType: 3,
+    nodeName: "#text",
+    nodeValue: value,
+    ownerDocument: fakeDocument,
+    parentNode: null,
+  });
+  const container = makeElement("div", fakeDocument);
+
+  Object.defineProperty(globalThis, "document", { configurable: true, value: fakeDocument });
+  Object.defineProperty(globalThis, "window", { configurable: true, value: fakeWindow });
+  Object.defineProperty(globalThis, "IS_REACT_ACT_ENVIRONMENT", { configurable: true, value: true });
+
+  const gates = new Map<string, Deferred>();
+  const started: string[] = [];
+  const accepted: string[] = [];
+  let refreshSameSource: (() => void) | null = null;
+
+  function Harness({ sourceKey }: { sourceKey: string }) {
+    const [refreshVersion, setRefreshVersion] = React.useState(0);
+    refreshSameSource = () => setRefreshVersion((current) => current + 1);
+    useSourceScopedAsyncRun({
+      sourceKey,
+      runKey: sourceKey,
+      run: async (isCurrent) => {
+        started.push(`${sourceKey}:${refreshVersion}`);
+        await gates.get(sourceKey)?.promise;
+        if (isCurrent()) accepted.push(`${sourceKey}:${refreshVersion}`);
+      },
+    });
+    return null;
+  }
+
+  let root: import("react-dom/client").Root | null = null;
+  try {
+    const { createRoot } = await import("react-dom/client");
+    root = createRoot(container as unknown as Element);
+
+    gates.set("draft-a", createDeferred());
+    await React.act(async () => {
+      root?.render(<Harness sourceKey="draft-a" />);
+    });
+    await waitForLifecycleCondition(
+      () => started.includes("draft-a:0"),
+      "첫 문서의 자동 입력 작업이 시작되어야 합니다.",
+    );
+
+    await React.act(async () => {
+      refreshSameSource?.();
+    });
+    gates.get("draft-a")?.resolve();
+    await waitForLifecycleCondition(
+      () => accepted.includes("draft-a:0"),
+      "같은 문서의 저장 refresh가 진행 중 자동 입력 결과를 폐기하면 안 됩니다.",
+    );
+    assert.deepEqual(started, ["draft-a:0"], "같은 문서 refresh가 자동 입력을 중복 시작하면 안 됩니다.");
+
+    gates.set("draft-b", createDeferred());
+    await React.act(async () => {
+      root?.render(<Harness sourceKey="draft-b" />);
+    });
+    await waitForLifecycleCondition(
+      () => started.some((entry) => entry.startsWith("draft-b:")),
+      "두 번째 문서의 자동 입력 작업이 시작되어야 합니다.",
+    );
+
+    gates.set("draft-c", createDeferred());
+    await React.act(async () => {
+      root?.render(<Harness sourceKey="draft-c" />);
+    });
+    await waitForLifecycleCondition(
+      () => started.some((entry) => entry.startsWith("draft-c:")),
+      "새 문서의 자동 입력 작업이 시작되어야 합니다.",
+    );
+    gates.get("draft-b")?.resolve();
+    gates.get("draft-c")?.resolve();
+    await waitForLifecycleCondition(
+      () => accepted.some((entry) => entry.startsWith("draft-c:")),
+      "현재 문서의 자동 입력 결과는 수락되어야 합니다.",
+    );
+    assert.equal(
+      accepted.some((entry) => entry.startsWith("draft-b:")),
+      false,
+      "문서 전환 뒤 도착한 이전 문서 결과는 폐기해야 합니다.",
+    );
+
+    gates.set("draft-d", createDeferred());
+    await React.act(async () => {
+      root?.render(<Harness sourceKey="draft-d" />);
+    });
+    await waitForLifecycleCondition(
+      () => started.some((entry) => entry.startsWith("draft-d:")),
+      "언마운트 검증용 자동 입력 작업이 시작되어야 합니다.",
+    );
+    await React.act(async () => {
+      root?.unmount();
+    });
+    root = null;
+    gates.get("draft-d")?.resolve();
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    assert.equal(
+      accepted.some((entry) => entry.startsWith("draft-d:")),
+      false,
+      "언마운트 뒤 도착한 자동 입력 결과는 폐기해야 합니다.",
+    );
+  } finally {
+    if (root) {
+      await React.act(async () => {
+        root?.unmount();
+      });
+    }
+    if (documentDescriptor) Object.defineProperty(globalThis, "document", documentDescriptor);
+    else Reflect.deleteProperty(globalDom, "document");
+    if (windowDescriptor) Object.defineProperty(globalThis, "window", windowDescriptor);
+    else Reflect.deleteProperty(globalDom, "window");
+    if (actDescriptor) Object.defineProperty(globalThis, "IS_REACT_ACT_ENVIRONMENT", actDescriptor);
+    else Reflect.deleteProperty(globalDom, "IS_REACT_ACT_ENVIRONMENT");
+  }
+}
+
+await verifySourceScopedAsyncRunLifecycle();
 
 console.log("WorkspaceView grant UUID render regression passed");

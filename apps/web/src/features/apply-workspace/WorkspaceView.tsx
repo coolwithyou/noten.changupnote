@@ -65,6 +65,34 @@ const EMPTY_MATERIALIZED_ANSWERS: Record<string, string> = {};
 const EMPTY_RHWP_ANCHORS: readonly RhwpFieldAnchor[] = [];
 // 구형 quick/studio 완료 상태는 통합 RHWP 작업공간의 렌더 계약에 포함하지 않는다.
 
+/**
+ * 같은 source의 server refresh는 진행 중 작업을 취소하지 않고 최신 callback만 교체한다.
+ * 실제 source 전환이나 unmount만 현재 비동기 결과를 폐기한다.
+ */
+export function useSourceScopedAsyncRun(input: {
+  sourceKey: string | null;
+  runKey: string | null;
+  run: (isCurrent: () => boolean) => Promise<void>;
+}): void {
+  const runRef = useRef(input.run);
+  useEffect(() => {
+    runRef.current = input.run;
+  }, [input.run]);
+
+  useEffect(() => {
+    if (!input.runKey || input.runKey !== input.sourceKey) return;
+    let disposed = false;
+    const startTimer = setTimeout(() => {
+      if (disposed) return;
+      void runRef.current(() => !disposed);
+    }, 0);
+    return () => {
+      disposed = true;
+      clearTimeout(startTimer);
+    };
+  }, [input.runKey, input.sourceKey]);
+}
+
 export function WorkspaceView({
   data,
   greeting,
@@ -295,70 +323,56 @@ export function WorkspaceView({
     studioDocumentActions.canSave,
   ]);
 
-  useEffect(() => {
-    if (!automaticProfileRunKey || automaticProfileRunKey !== currentStudioSourceKey || !data.draftId) return;
-    let disposed = false;
-    // Strict Mode의 첫 effect setup/cleanup에서 비동기 검사를 시작해 Studio mutation lock을
-    // 남기지 않도록 취소 가능한 다음 tick부터 실행한다.
-    const startTimer = setTimeout(() => {
-      if (disposed) return;
+  useSourceScopedAsyncRun({
+    sourceKey: currentStudioSourceKey,
+    runKey: data.draftId ? automaticProfileRunKey : null,
+    run: async (isCurrent) => {
+      if (!isCurrent()) return;
       setAutomaticProfileBusy(true);
-      void inspectProfileAutofillBindings()
-        .then(async (bindings) => {
-          if (disposed) return;
-          const entries = buildAutomaticProfileAutofillEntries({
-            fields: data.connectedFields,
-            answers: answersRef.current,
-            bindings,
-            duplicateLabels: duplicateSet,
-          });
-          if (entries.length === 0) return;
-          const surface = studioSurfaceRef.current;
-          if (!surface || automaticProfileRunKey !== currentStudioSourceKey) return;
-          const result = await surface.applyProfileAutofill(entries, { automatic: true });
-          if (disposed || !result.revisionId || automaticProfileRunKey !== currentStudioSourceKey) return;
-          const nextAnswers = acceptAutomaticProfileAutofillAnswers({
-            current: answersRef.current,
-            entries,
-            revisionId: result.revisionId,
-          });
-          answersRef.current = nextAnswers;
-          setAnswers(nextAnswers);
-          automaticProfileUndoRef.current = {
-            sourceKey: currentStudioSourceKey,
-            revisionId: result.revisionId,
-            entries,
-          };
-          setAutomaticProfileUndoRevisionId(result.revisionId);
-          toast.success(`저장된 회사 정보로 빈 칸 ${result.appliedCount}개를 채웠습니다.`, {
-            action: {
-              label: "되돌리기",
-              onClick: () => void undoAutomaticProfileAutofill(),
-            },
-          });
-        })
-        .catch((caught) => {
-          if (!disposed) {
-            toast.error(caught instanceof Error ? caught.message : "저장된 회사 정보를 문서에 입력하지 못했습니다.");
-          }
-        })
-        .finally(() => {
-          if (!disposed) setAutomaticProfileBusy(false);
+      try {
+        const bindings = await inspectProfileAutofillBindings();
+        if (!isCurrent()) return;
+        const entries = buildAutomaticProfileAutofillEntries({
+          fields: data.connectedFields,
+          answers: answersRef.current,
+          bindings,
+          duplicateLabels: duplicateSet,
         });
-    }, 0);
-    return () => {
-      disposed = true;
-      clearTimeout(startTimer);
-    };
-  }, [
-    automaticProfileRunKey,
-    currentStudioSourceKey,
-    data.connectedFields,
-    data.draftId,
-    duplicateSet,
-    inspectProfileAutofillBindings,
-    undoAutomaticProfileAutofill,
-  ]);
+        if (entries.length === 0) return;
+        const surface = studioSurfaceRef.current;
+        if (!surface || !currentStudioSourceKey) return;
+        const result = await surface.applyProfileAutofill(entries, { automatic: true });
+        if (!isCurrent() || !result.revisionId) return;
+        const nextAnswers = acceptAutomaticProfileAutofillAnswers({
+          current: answersRef.current,
+          entries,
+          revisionId: result.revisionId,
+        });
+        answersRef.current = nextAnswers;
+        setAnswers(nextAnswers);
+        automaticProfileUndoRef.current = {
+          sourceKey: currentStudioSourceKey,
+          revisionId: result.revisionId,
+          entries,
+        };
+        setAutomaticProfileUndoRevisionId(result.revisionId);
+        toast.success(`저장된 회사 정보로 빈 칸 ${result.appliedCount}개를 채웠습니다.`, {
+          action: {
+            label: "되돌리기",
+            onClick: () => void undoAutomaticProfileAutofill(),
+          },
+        });
+      } catch (caught) {
+        if (isCurrent()) {
+          toast.error(caught instanceof Error ? caught.message : "저장된 회사 정보를 문서에 입력하지 못했습니다.");
+        }
+      } finally {
+        if (isCurrent()) {
+          setAutomaticProfileBusy(false);
+        }
+      }
+    },
+  });
 
   const rhwpFields = useMemo<RhwpFieldDescriptor[]>(
     () => data.connectedFields.map((field) => ({
