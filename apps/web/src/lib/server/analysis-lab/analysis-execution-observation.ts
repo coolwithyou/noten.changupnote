@@ -13,6 +13,12 @@ import {
   type AnalysisLaunchReceiptTarget,
 } from "./launch-batch-artifacts";
 import { findMonorepoRoot } from "./run-store";
+import {
+  aggregateAnalysisExecutionSidecarEvents,
+  assertAnalysisExecutionSidecarEvent,
+  type AnalysisExecutionSidecarEvent,
+  type AnalysisRequestObservationAggregate,
+} from "./analysis-request-observation";
 
 const SHA256 = /^[a-f0-9]{64}$/;
 const MAX_RECEIPTS = 100;
@@ -56,6 +62,11 @@ export interface AnalysisExecutionObservation {
     readonly queueWait: {
       readonly status: "unverified";
       readonly reason: "target_started_at_not_sealed_in_terminal_receipt";
+    };
+    readonly requestSidecar: AnalysisRequestObservationAggregate & {
+      readonly authority: "unsealed_local_observation";
+      readonly observedTargetAttemptCount: number;
+      readonly missingTargetAttemptCount: number;
     };
     readonly additiveWarning:
       "primary_and_application_work_can_overlap_and_must_not_be_added_as_wall_time";
@@ -111,6 +122,22 @@ export interface AnalysisExecutionTargetAttempt {
     readonly modelRequestCount: number | null;
     readonly nominalCostUsd: number | null;
   };
+  readonly primaryRepairObservation: null | {
+    readonly authority: "exact_sha_bound_lab_run";
+    readonly terminationReason: NonNullable<LabRun["primaryRepairProvenance"]>["terminationReason"] | null;
+    readonly transitions: readonly {
+      readonly attempt: number;
+      readonly reasonIssueCodes: readonly string[];
+      readonly beforeSemanticFingerprintSha256: string | null;
+      readonly afterSemanticFingerprintSha256: string | null;
+      readonly result: "semantic_change" | "semantic_no_progress" | "unverified_legacy";
+    }[];
+  };
+  readonly requestObservation: null | {
+    readonly authority: "unsealed_local_observation";
+    readonly events: readonly AnalysisExecutionSidecarEvent[];
+    readonly aggregate: AnalysisRequestObservationAggregate;
+  };
 }
 
 export async function observeAnalysisLaunchExecution(input: {
@@ -155,6 +182,7 @@ export async function observeAnalysisLaunchExecution(input: {
     for (const target of receipt.targets) {
       targetAttempts.push(await observeTargetAttempt({
         root,
+        manifestSha256: grant.manifestSha256,
         receiptSha256,
         target,
         manifestTarget: manifestTargets.get(target.sequence)!,
@@ -176,6 +204,10 @@ export async function observeAnalysisLaunchExecution(input: {
     : [];
   const deepAnalysisObservedSubtotalUsd = sum(presentNumbers(deepCosts));
   const applicationRoundtripObservedSubtotalUsd = sum(presentNumbers(applicationCosts));
+  const requestSidecarEvents = targetAttempts.flatMap(
+    (attempt) => attempt.requestObservation?.events ?? [],
+  );
+  const requestSidecarAggregate = aggregateAnalysisExecutionSidecarEvents(requestSidecarEvents);
   return Object.freeze({
     schema: "analysis-launch-execution-observation-v1",
     authority: "derived-from-sealed-launch-and-local-sidecar-observations",
@@ -224,6 +256,16 @@ export async function observeAnalysisLaunchExecution(input: {
         status: "unverified",
         reason: "target_started_at_not_sealed_in_terminal_receipt",
       }),
+      requestSidecar: Object.freeze({
+        authority: "unsealed_local_observation",
+        ...requestSidecarAggregate,
+        observedTargetAttemptCount: targetAttempts.filter(
+          (attempt) => attempt.requestObservation !== null,
+        ).length,
+        missingTargetAttemptCount: targetAttempts.filter(
+          (attempt) => attempt.status !== "skipped" && attempt.requestObservation === null,
+        ).length,
+      }),
       additiveWarning: "primary_and_application_work_can_overlap_and_must_not_be_added_as_wall_time",
     }),
     nominalCost: Object.freeze({
@@ -254,6 +296,7 @@ export async function observeAnalysisLaunchExecution(input: {
 
 async function observeTargetAttempt(input: {
   readonly root: string;
+  readonly manifestSha256: string;
   readonly receiptSha256: string;
   readonly target: AnalysisLaunchReceiptTarget;
   readonly manifestTarget: AnalysisLaunchManifest["targets"][number];
@@ -269,7 +312,13 @@ async function observeTargetAttempt(input: {
     if (input.target.status === "publishable" || input.target.status === "held") {
       throw new Error(`종결 target에 LabRun artifact가 없습니다: ${input.target.grantId}`);
     }
-    return Object.freeze({ ...base, run: null, applicationRoundtrip: null });
+    return Object.freeze({
+      ...base,
+      run: null,
+      applicationRoundtrip: null,
+      primaryRepairObservation: null,
+      requestObservation: null,
+    });
   }
   if (input.seenRunArtifacts.has(input.target.runArtifactSha256)) {
     throw new Error(`같은 LabRun artifact가 여러 target attempt에 중복 결속됐습니다: ${input.target.grantId}`);
@@ -292,6 +341,13 @@ async function observeTargetAttempt(input: {
       nonNegativeNumber(pass.durationMs, `LabRun.primaryPasses[${index}].durationMs`)));
   const deepAnalysisCostUsd = nullableNonNegativeNumber(run.costUsd, "LabRun.costUsd");
   const applicationRoundtrip = await observeApplicationRoundtrip({ root: input.root, run });
+  const primaryRepairObservation = observePrimaryRepair(run);
+  const requestObservation = await observeRequestSidecar({
+    root: input.root,
+    manifestSha256: input.manifestSha256,
+    manifestTarget: input.manifestTarget,
+    run,
+  });
   return Object.freeze({
     ...base,
     run: Object.freeze({
@@ -303,6 +359,36 @@ async function observeTargetAttempt(input: {
       deepAnalysisCostUsd,
     }),
     applicationRoundtrip,
+    primaryRepairObservation,
+    requestObservation,
+  });
+}
+
+function observePrimaryRepair(
+  run: LabRun,
+): AnalysisExecutionTargetAttempt["primaryRepairObservation"] {
+  if (!run.primaryPasses) return null;
+  const transitions = run.primaryPasses.flatMap((pass, index) => {
+    if (pass.kind !== "repair" || index === 0) return [];
+    const before = run.primaryPasses![index - 1]!;
+    const beforeFingerprint = before.semanticFingerprintSha256 ?? null;
+    const afterFingerprint = pass.semanticFingerprintSha256 ?? null;
+    return [Object.freeze({
+      attempt: index,
+      reasonIssueCodes: Object.freeze([...before.issueCodes]),
+      beforeSemanticFingerprintSha256: beforeFingerprint,
+      afterSemanticFingerprintSha256: afterFingerprint,
+      result: beforeFingerprint === null || afterFingerprint === null
+        ? "unverified_legacy" as const
+        : beforeFingerprint === afterFingerprint
+          ? "semantic_no_progress" as const
+          : "semantic_change" as const,
+    })];
+  });
+  return Object.freeze({
+    authority: "exact_sha_bound_lab_run",
+    terminationReason: run.primaryRepairProvenance?.terminationReason ?? null,
+    transitions: Object.freeze(transitions),
   });
 }
 
@@ -366,6 +452,80 @@ async function observeApplicationRoundtrip(input: {
     plannerWorkMs: actualPlannerWork,
     modelRequestCount: actualRequestCount,
     nominalCostUsd,
+  });
+}
+
+async function observeRequestSidecar(input: {
+  readonly root: string;
+  readonly manifestSha256: string;
+  readonly manifestTarget: AnalysisLaunchManifest["targets"][number];
+  readonly run: LabRun;
+}): Promise<AnalysisExecutionTargetAttempt["requestObservation"]> {
+  const relativePath = join(
+    "spike-out",
+    "analysis-lab",
+    "execution-observations",
+    `${input.run.runId}.jsonl`,
+  );
+  let path: string;
+  try {
+    path = await safeExistingPath(input.root, relativePath);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw error;
+  }
+  const lines = (await readFile(path, "utf8")).split(/\r?\n/u).filter(Boolean);
+  if (lines.length === 0) return null;
+  const events = lines.map((line, index): AnalysisExecutionSidecarEvent => {
+    const event = parseJsonObject<AnalysisExecutionSidecarEvent>(
+      Buffer.from(line),
+      `request sidecar[${index}]`,
+    );
+    assertAnalysisExecutionSidecarEvent(event);
+    if (
+      event.authority !== "unsealed_local_observation"
+      || event.manifestSha256 !== input.manifestSha256
+      || event.runId !== input.run.runId
+      || event.grantId !== input.run.grantId
+    ) {
+      throw new Error(`request sidecar 결속이 LabRun/manifest와 다릅니다: ${input.run.grantId}`);
+    }
+    if (event.schema === "analysis-request-observation-v1") {
+      const expectedQueueWait = event.monotonicStartedMs === null
+        ? null
+        : event.monotonicStartedMs - event.monotonicEnqueuedMs;
+      const expectedExecution = event.monotonicStartedMs === null
+        ? null
+        : event.monotonicEndedMs - event.monotonicStartedMs;
+      if (
+        event.monotonicEndedMs < event.monotonicEnqueuedMs
+        || event.queueWaitMs !== expectedQueueWait
+        || event.executionMs !== expectedExecution
+        || (event.completeness === "complete") !== (event.monotonicStartedMs !== null)
+      ) {
+        throw new Error(`request sidecar monotonic timing이 잘못됐습니다: ${input.run.grantId}`);
+      }
+    } else if (event.schema === "analysis-reuse-observation-v1") {
+      const reuse = input.manifestTarget.applicationRoundtripReuse;
+      if (
+        event.mode !== "reused"
+        || event.newModelRequestCount !== 0
+        || !reuse
+        || event.sourceRunId !== reuse.sourceRoundtripRunId
+        || event.sourceAnalysisArtifactSha256 !== reuse.analysisArtifactSha256
+        || event.sourceManifestArtifactSha256 !== reuse.manifestArtifactSha256
+      ) {
+        throw new Error(`reuse sidecar가 manifest exact binding과 다릅니다: ${input.run.grantId}`);
+      }
+    } else {
+      throw new Error(`request sidecar schema가 잘못됐습니다: ${input.run.grantId}`);
+    }
+    return Object.freeze(event);
+  });
+  return Object.freeze({
+    authority: "unsealed_local_observation",
+    events: Object.freeze(events),
+    aggregate: aggregateAnalysisExecutionSidecarEvents(events),
   });
 }
 

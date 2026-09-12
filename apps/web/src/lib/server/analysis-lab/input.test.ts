@@ -438,7 +438,73 @@ async function run() {
     assert.doesNotMatch(result.text, /붙임파일\.zip\(변환 안 됨\)/);
   }
 
-  console.log("input.test.ts: 14개 시나리오 전부 통과");
+  // ⑭ prepare 진단은 skipped PDF의 원문 복구 가능성을 쓰기 없이 보고한다.
+  {
+    const result = await assembleLabInput(
+      {
+        grant: GRANT,
+        payload: null,
+        archives: [archive({
+          filename: "상세 지원대상.pdf",
+          contentType: "application/pdf",
+          storageKey: "archive/상세-지원대상.pdf",
+          sha256: "d".repeat(64),
+          conversionStatus: "skipped",
+        })],
+      },
+      { storage: fakeStorage({}) },
+    );
+    assert.deepEqual(result.attachmentPreparationReport, [{
+      filename: "상세 지원대상.pdf",
+      documentRole: "unknown",
+      roleBasis: "unknown",
+      conversionStatus: "skipped",
+      inputOutcome: "unavailable",
+      missingReason: "markdown_missing",
+      relatedDimensions: ["target_type"],
+      recovery: {
+        possible: true,
+        mode: "pdf_text_or_ocr",
+        requiresSourceWrite: true,
+        reason: "exact PDF 원본은 있으나 markdown이 없어 별도 text/OCR 복구가 필요함",
+      },
+    }]);
+  }
+
+  // ⑮ filename에 명시되지 않은 문서 역할·자격 축은 추정하지 않는다.
+  {
+    const result = await assembleLabInput(
+      {
+        grant: GRANT,
+        payload: null,
+        archives: [archive({
+          filename: "(붙임)2026년 WoW_!메이커스 IR클리닉.pdf",
+          sourceUri: "https://example.com/detail.pdf",
+          conversionStatus: "skipped",
+        })],
+      },
+      { storage: fakeStorage({}) },
+    );
+    const report = result.attachmentPreparationReport;
+    assert.ok(report);
+    assert.deepEqual(report[0], {
+      filename: "(붙임)2026년 WoW_!메이커스 IR클리닉.pdf",
+      documentRole: "unknown",
+      roleBasis: "unknown",
+      conversionStatus: "skipped",
+      inputOutcome: "unavailable",
+      missingReason: "markdown_missing",
+      relatedDimensions: [],
+      recovery: {
+        possible: true,
+        mode: "source_reacquisition",
+        requiresSourceWrite: true,
+        reason: "exact 보관 원본이 없어 source URI 재수집부터 필요함",
+      },
+    });
+  }
+
+  console.log("input.test.ts: 16개 시나리오 전부 통과");
 }
 
 run().catch((error) => {

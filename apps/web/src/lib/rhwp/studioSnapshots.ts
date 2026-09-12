@@ -23,6 +23,8 @@ export interface PersistStudioSnapshotInput {
   fieldAgentSuggestionId?: string;
   agentOperation?: "apply" | "undo";
   operationVersion?: number;
+  profileAutofillOperation?: "apply" | "undo";
+  profileAutofillFieldIds?: readonly string[];
   materializedAnswers: Record<string, string>;
   verification?: Record<string, unknown>;
 }
@@ -59,6 +61,10 @@ export async function persistStudioSnapshot(
   if (input.fieldAgentSuggestionId) form.set("fieldAgentSuggestionId", input.fieldAgentSuggestionId);
   if (input.agentOperation) form.set("agentOperation", input.agentOperation);
   if (input.operationVersion !== undefined) form.set("operationVersion", String(input.operationVersion));
+  if (input.profileAutofillOperation) form.set("profileAutofillOperation", input.profileAutofillOperation);
+  if (input.profileAutofillFieldIds) {
+    form.set("profileAutofillFieldIds", JSON.stringify(input.profileAutofillFieldIds));
+  }
   form.set("materializedAnswers", JSON.stringify(input.materializedAnswers));
   form.set("verification", JSON.stringify(input.verification ?? {}));
 

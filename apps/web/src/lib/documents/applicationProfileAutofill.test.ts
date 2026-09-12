@@ -1,9 +1,12 @@
 import assert from "node:assert/strict";
 import type { ConnectedDocumentField } from "@/lib/server/documents/documentFieldLink";
 import {
+  acceptAutomaticProfileAutofillAnswers,
   applicationProfileValue,
+  buildAutomaticProfileAutofillEntries,
   buildApplicationProfileAutofillPlan,
   resolveApplicationProfileKey,
+  undoAutomaticProfileAutofillAnswers,
   type ApplicationAutofillProfile,
 } from "./applicationProfileAutofill";
 import { selectKakaoPostalAddress } from "@/lib/postcode/kakaoPostcode";
@@ -115,6 +118,72 @@ assert.equal(plan.items.find((item) => item.fieldId === "filled")?.state, "alrea
 assert.deepEqual(plan.missingProfileKeys, ["company_postal_code"]);
 assert.equal(plan.items.find((item) => item.fieldId === "ambiguous")?.state, "blocked");
 assert.equal(plan.items.find((item) => item.fieldId === "sensitive")?.state, "blocked");
+
+const automaticAnswers = {
+  기업명: {
+    value: "창업노트 주식회사",
+    status: "suggested" as const,
+    source: "profile" as const,
+    fieldId: "company",
+    updatedAt: "seeded",
+  },
+  "회사 전화번호": {
+    value: "02-1234-5678",
+    status: "edited" as const,
+    source: "user" as const,
+    fieldId: "guide",
+    updatedAt: "edited",
+  },
+};
+const automaticEntries = buildAutomaticProfileAutofillEntries({
+  fields,
+  answers: automaticAnswers,
+  bindings: [
+    { fieldId: "company", status: "unique", targetKind: "table_cell_text", beforeText: "" },
+    { fieldId: "guide", status: "unique", targetKind: "table_cell_text", beforeText: "" },
+  ],
+});
+assert.deepEqual(automaticEntries, [{ fieldId: "company", label: "기업명", value: "창업노트 주식회사" }]);
+assert.equal(
+  buildAutomaticProfileAutofillEntries({
+    fields,
+    answers: automaticAnswers,
+    bindings: [{ fieldId: "company", status: "unique", targetKind: "table_cell_text", beforeText: "※ 회사명" }],
+  }).length,
+  0,
+  "자동 입력은 안내문도 교체하지 않고 완전히 빈 표 셀만 사용한다",
+);
+assert.equal(
+  buildAutomaticProfileAutofillEntries({
+    fields: [fields[0]!, { ...fields[0]!, fieldId: "company-copy" }],
+    answers: automaticAnswers,
+    bindings: [{ fieldId: "company", status: "unique", targetKind: "table_cell_text", beforeText: "" }],
+  }).length,
+  0,
+  "같은 라벨이 둘 이상이면 한 위치를 임의 선택하지 않는다",
+);
+const acceptedAutomatic = acceptAutomaticProfileAutofillAnswers({
+  current: automaticAnswers,
+  entries: automaticEntries,
+  revisionId: "revision-auto",
+  at: "accepted",
+});
+assert.equal(acceptedAutomatic.기업명?.status, "accepted");
+assert.equal(acceptedAutomatic.기업명?.materializedRevisionId, "revision-auto");
+assert.equal(acceptedAutomatic["회사 전화번호"]?.status, "edited");
+const undoneAutomatic = undoAutomaticProfileAutofillAnswers({
+  current: acceptedAutomatic,
+  entries: automaticEntries,
+  appliedRevisionId: "revision-auto",
+  at: "undone",
+});
+assert.equal(undoneAutomatic.기업명?.status, "dismissed");
+assert.equal(undoneAutomatic.기업명?.materializedRevisionId, undefined);
+assert.equal(buildAutomaticProfileAutofillEntries({
+  fields,
+  answers: undoneAutomatic,
+  bindings: [{ fieldId: "company", status: "unique", targetKind: "table_cell_text", beforeText: "" }],
+}).length, 0, "Undo를 저장한 뒤 새 화면에서 다시 열어도 자동 입력 후보로 돌아오지 않는다");
 
 function field(overrides: Partial<ConnectedDocumentField>): ConnectedDocumentField {
   return {

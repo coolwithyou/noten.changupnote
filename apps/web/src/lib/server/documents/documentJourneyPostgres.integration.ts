@@ -156,6 +156,13 @@ export async function verifyDocumentJourneyPostgres(input: { admin: postgres.Sql
       assert.equal(objects.size, objectCount, "viewer 거절은 객체 업로드 전에 일어난다");
       console.log(`PASS: ${format} real WASM apply -> PostgreSQL save -> exact reload -> Undo; SHA, parent, stale revision and foreign company checks`);
     }
+    await verifyProfileAutofillSnapshotProjectionPostgres({
+      admin: input.admin,
+      access: input.access,
+      storage,
+      rhwp,
+      grantId,
+    });
     if (process.env.CUNOTE_REQUIRE_INSTITUTION_FORM_FIXTURES === "1") {
       await verifyInstitutionFormJourneyPostgres({ admin: input.admin, access: input.access, storage, objects, rhwp });
     } else {
@@ -167,6 +174,182 @@ export async function verifyDocumentJourneyPostgres(input: { admin: postgres.Sql
       if (value === undefined) delete process.env[key]; else process.env[key] = value;
     }
   }
+}
+
+async function verifyProfileAutofillSnapshotProjectionPostgres(input: {
+  admin: postgres.Sql;
+  access: CompanyAccess;
+  storage: R2ObjectStorage;
+  rhwp: Awaited<ReturnType<typeof loadDocumentAgentCore>>;
+  grantId: string;
+}) {
+  const draftId = crypto.randomUUID();
+  const companyFieldId = crypto.randomUUID();
+  const planFieldId = crypto.randomUUID();
+  const companyValue = "격리 검증 회사";
+  const planValue = "사용자가 확정한 기존 계획";
+  const seededAnswers = {
+    "업 체 명": {
+      value: companyValue,
+      status: "suggested",
+      source: "profile",
+      suggestedValue: companyValue,
+      basis: "사업자 정보",
+      fieldId: companyFieldId,
+      updatedAt: "2026-09-10T00:00:00.000Z",
+    },
+    "사업 계획": {
+      value: planValue,
+      status: "edited",
+      source: "user",
+      fieldId: planFieldId,
+      updatedAt: "2026-09-10T00:00:00.000Z",
+    },
+  };
+  await input.admin`insert into grant_document_drafts
+    (id,grant_id,company_id,user_id,document_key,document_category,document_name,draft_markdown,
+     filled_fields,field_answers,missing_fields,used_profile_fields,assumptions,warnings,status,model_ver,prompt_ver,parser_version)
+    values (${draftId},${input.grantId},${input.access.companyId},${input.access.userId},'profile-autofill','application_form',
+      '회사 정보 자동 입력 격리 신청서','',${JSON.stringify({ "사업 계획": planValue })}::jsonb,
+      ${JSON.stringify(seededAnswers)}::jsonb,'[]','[]','[]','[]','draft','fixture','fixture','fixture')`;
+
+  const document = input.rhwp.HwpDocument.createEmpty();
+  document.createBlankDocument();
+  const original = document.exportHwpx();
+  assert.equal(parsedOk(document.insertText(0, 0, 0, companyValue)), true);
+  const appliedBytes = document.exportHwpx();
+  const pageCount = document.pageCount();
+  document.free();
+  const sessionId = crypto.randomUUID();
+  const common = {
+    draftId,
+    access: input.access,
+    format: "hwpx" as const,
+    filename: "profile-autofill-fixture.hwpx",
+    pageCount,
+    sessionId,
+    documentEpoch: 0,
+    origin: "studio_manual" as const,
+    checkpointRequestId: null,
+    verification: { fixtureKind: "profile-autofill-atomic-projection" },
+  };
+  const baseline = await saveStudioSnapshot({
+    ...common,
+    body: Buffer.from(original),
+    baseRevisionId: null,
+    changeSeq: 1,
+    materializedAnswers: { [planFieldId]: planValue },
+  }, { storage: input.storage });
+  const applied = await saveStudioSnapshot({
+    ...common,
+    body: Buffer.from(appliedBytes),
+    baseRevisionId: baseline.revisionId,
+    changeSeq: 2,
+    profileAutofillOperation: "apply",
+    profileAutofillFieldIds: [companyFieldId],
+    materializedAnswers: { [planFieldId]: planValue, [companyFieldId]: companyValue },
+  }, { storage: input.storage });
+
+  const [afterApply] = await input.admin`select d.field_answers,d.filled_fields,h.revision_id,
+      r.field_answers_hash,r.materialized_answers
+    from grant_document_drafts d
+    join grant_document_revision_heads h on h.draft_id=d.id
+    join grant_document_revisions r on r.id=h.revision_id
+    where d.id=${draftId}`;
+  assert.equal(afterApply!.revision_id, applied.revisionId);
+  assert.equal(afterApply!.field_answers["업 체 명"].status, "accepted");
+  assert.equal(afterApply!.field_answers["업 체 명"].materializedRevisionId, applied.revisionId);
+  assert.equal(afterApply!.field_answers["사업 계획"].value, planValue);
+  assert.equal(afterApply!.field_answers["사업 계획"].status, "edited");
+  assert.equal(afterApply!.field_answers_hash, hashJson(afterApply!.field_answers));
+  assert.equal(afterApply!.materialized_answers[companyFieldId], companyValue);
+  assert.equal(afterApply!.materialized_answers[planFieldId], planValue);
+  assert.equal(afterApply!.filled_fields["업 체 명"], companyValue);
+  assert.equal(afterApply!.filled_fields["사업 계획"], planValue);
+
+  const assertApplyStateUnchanged = async (message: string) => {
+    const [state] = await input.admin`select d.field_answers,h.revision_id,count(r.id)::int as revision_count
+      from grant_document_drafts d
+      join grant_document_revision_heads h on h.draft_id=d.id
+      join grant_document_revisions r on r.draft_id=d.id
+      where d.id=${draftId}
+      group by d.field_answers,h.revision_id`;
+    assert.equal(state!.revision_id, applied.revisionId, `${message}: head revision`);
+    assert.deepEqual(state!.field_answers, afterApply!.field_answers, `${message}: draft answers`);
+    assert.equal(state!.revision_count, 2, `${message}: immutable revision count`);
+  };
+  await assert.rejects(() => saveStudioSnapshot({
+    ...common,
+    body: Buffer.from(original),
+    baseRevisionId: baseline.revisionId,
+    changeSeq: 3,
+    profileAutofillOperation: "undo",
+    profileAutofillFieldIds: [companyFieldId],
+    materializedAnswers: { [planFieldId]: planValue },
+  }, { storage: input.storage }), { status: 409 });
+  await assertApplyStateUnchanged("stale profile Undo");
+
+  await assert.rejects(() => saveStudioSnapshot({
+    ...common,
+    body: Buffer.from(original),
+    baseRevisionId: applied.revisionId,
+    changeSeq: 4,
+    profileAutofillOperation: "undo",
+    profileAutofillFieldIds: [companyFieldId],
+    materializedAnswers: { [planFieldId]: "다른 값" },
+  }, { storage: input.storage }), { code: "profile_autofill_materialized_conflict" });
+  await assertApplyStateUnchanged("untargeted answer conflict");
+
+  const undoInput = {
+    ...common,
+    body: Buffer.from(original),
+    baseRevisionId: applied.revisionId,
+    changeSeq: 5,
+    profileAutofillOperation: "undo" as const,
+    profileAutofillFieldIds: [companyFieldId],
+    materializedAnswers: { [planFieldId]: planValue },
+  };
+  const undone = await saveStudioSnapshot(undoInput, { storage: input.storage });
+  const replayedUndo = await saveStudioSnapshot(undoInput, { storage: input.storage });
+  assert.equal(replayedUndo.revisionId, undone.revisionId, "같은 Undo 재시도는 기존 revision을 재사용한다");
+  const [afterUndo] = await input.admin`select d.field_answers,d.filled_fields,h.revision_id,
+      r.field_answers_hash,r.materialized_answers
+    from grant_document_drafts d
+    join grant_document_revision_heads h on h.draft_id=d.id
+    join grant_document_revisions r on r.id=h.revision_id
+    where d.id=${draftId}`;
+  assert.equal(afterUndo!.revision_id, undone.revisionId);
+  assert.equal(afterUndo!.field_answers["업 체 명"].status, "dismissed");
+  assert.equal(afterUndo!.field_answers["업 체 명"].materializedRevisionId, undefined);
+  assert.equal(afterUndo!.filled_fields["업 체 명"], undefined);
+  assert.equal(afterUndo!.filled_fields["사업 계획"], planValue);
+  assert.equal(afterUndo!.field_answers_hash, hashJson(afterUndo!.field_answers));
+  assert.equal(afterUndo!.materialized_answers[companyFieldId], undefined);
+  assert.equal(afterUndo!.materialized_answers[planFieldId], planValue);
+  const reopened = await loadDraftHeadRevisionFile({ draftId }, { storage: input.storage });
+  assert.equal(reopened?.revisionId, undone.revisionId);
+  assert.ok(reopened);
+  assert.equal(hash(reopened.body), hash(original));
+
+  await assert.rejects(() => saveStudioSnapshot({
+    ...common,
+    body: Buffer.from(appliedBytes),
+    baseRevisionId: undone.revisionId,
+    changeSeq: 6,
+    profileAutofillOperation: "apply",
+    profileAutofillFieldIds: [companyFieldId],
+    materializedAnswers: { [planFieldId]: planValue, [companyFieldId]: companyValue },
+  }, { storage: input.storage }), { code: "profile_autofill_answer_conflict" });
+  const [afterRejectedReopen] = await input.admin`select d.field_answers,h.revision_id,count(r.id)::int as revision_count
+    from grant_document_drafts d
+    join grant_document_revision_heads h on h.draft_id=d.id
+    join grant_document_revisions r on r.draft_id=d.id
+    where d.id=${draftId}
+    group by d.field_answers,h.revision_id`;
+  assert.equal(afterRejectedReopen!.revision_id, undone.revisionId);
+  assert.equal(afterRejectedReopen!.field_answers["업 체 명"].status, "dismissed");
+  assert.equal(afterRejectedReopen!.revision_count, 3);
+  console.log("PASS: profile autofill snapshot and answers advance atomically; stale/untargeted conflicts preserve both; Undo persists dismissal and blocks reopen reapply");
 }
 
 async function verifyInstitutionFormJourneyPostgres(input: {
@@ -316,4 +499,19 @@ function parsedOk(value: string): boolean {
 
 function hash(value: Uint8Array): string {
   return createHash("sha256").update(value).digest("hex");
+}
+
+function hashJson(value: unknown): string {
+  return createHash("sha256").update(stableJson(value)).digest("hex");
+}
+
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
+  if (value && typeof value === "object") {
+    return `{${Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, entry]) => `${JSON.stringify(key)}:${stableJson(entry)}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value);
 }

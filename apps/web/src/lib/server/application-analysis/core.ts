@@ -262,7 +262,7 @@ export function extractLocatedRoundtripFields(
       field.location.occurrence = observed.occurrence;
     }
   }
-  suppressValueCellDuplicates(fields);
+  suppressValueCellDuplicates(fields, blocks);
   return { fields, formConfidence };
 }
 
@@ -303,9 +303,11 @@ export function extractRhwpStructuralFields(
           || existing.has(structuralCandidateKey(blockIndex, rowIndex, normalizedLabel))
         ) return;
         const target = structuralValueEvidence(
-          row,
+          block.table!,
+          rowIndex,
           colIndex,
           cell,
+          label,
           allowImplicitTargets,
         );
         if (!target) return;
@@ -330,7 +332,11 @@ export function extractRhwpStructuralFields(
           inputLikelihood: inputAssessment.likelihood,
           inputSignals: [
             ...inputAssessment.signals,
-            target.implicit ? "병합 표 오른쪽 끝의 RHWP 입력칸" : "RHWP 라벨 오른쪽의 빈 값 셀",
+            target.sameCell
+              ? "서술 입력 지시문과 같은 RHWP 장문 입력 셀"
+              : target.implicit
+                ? "병합 표 오른쪽 끝의 RHWP 입력칸"
+                : "RHWP 라벨 오른쪽의 빈 값 셀",
             "KorDoc label-value 후보 누락 보강",
           ],
           sampleValue: sample.value,
@@ -349,6 +355,7 @@ export function extractRhwpStructuralFields(
             col: colIndex,
             occurrence: observed?.occurrence ?? 0,
             pageNumber: block.pageNumber ?? null,
+            ...(target.editableTarget ? { target: target.editableTarget } : {}),
           },
         });
         suppressStructuralPlaceholderCandidate(existingFields, {
@@ -366,22 +373,71 @@ export function extractRhwpStructuralFields(
 }
 
 function structuralValueEvidence(
-  row: readonly IRCell[],
+  table: IRTable,
+  rowIndex: number,
   colIndex: number,
   labelCell: IRCell,
+  label: string,
   allowImplicitTarget: boolean,
-): { value: string; implicit: boolean; targetCol: number } | null {
+): {
+  value: string;
+  implicit: boolean;
+  sameCell: boolean;
+  targetCol: number;
+  editableTarget?: RoundtripFieldCandidate["location"]["target"];
+} | null {
+  const row = table.cells[rowIndex]!;
+  if (isSameCellNarrativeInput(table, rowIndex, colIndex, labelCell, label)) {
+    return {
+      value: "",
+      implicit: false,
+      sameCell: true,
+      targetCol: colIndex,
+      editableTarget: {
+        kind: "table_cell",
+        row: rowIndex,
+        col: colIndex,
+        textStart: 0,
+        textEnd: label.length,
+        expectedText: label,
+        expectedSha256: createHash("sha256").update(label).digest("hex"),
+      },
+    };
+  }
   const targetIndex = colIndex + Math.max(1, labelCell.colSpan);
   const target = row[targetIndex];
   if (target && isWritableStructuralPlaceholder(target.text)) {
-    return { value: target.text.trim(), implicit: false, targetCol: targetIndex };
+    return { value: target.text.trim(), implicit: false, sameCell: false, targetCol: targetIndex };
   }
   // 일부 HWPX 병합 표는 오른쪽 값 셀을 logical grid에서 생략하지만 native RHWP 표에는
   // 별도 셀로 남긴다. 행 끝을 넘어가는 라벨만 이 보강을 허용해 일반 머리글 오탐을 줄인다.
   if (allowImplicitTarget && targetIndex >= row.length) {
-    return { value: "", implicit: true, targetCol: targetIndex };
+    return { value: "", implicit: true, sameCell: false, targetCol: targetIndex };
   }
   return null;
+}
+
+function isSameCellNarrativeInput(
+  table: IRTable,
+  rowIndex: number,
+  colIndex: number,
+  labelCell: IRCell,
+  label: string,
+): boolean {
+  if (
+    colIndex !== 0
+    || labelCell.colSpan < table.cols
+    || !/^※/u.test(label)
+    || !/(?:자유롭게|구체적으로).*(?:기술|기재|작성)/u.test(label)
+  ) return false;
+  const row = table.cells[rowIndex]!;
+  if (row.some((cell, index) => index !== colIndex && cell.text.trim() !== "")) return false;
+  const followingText = table.cells[rowIndex + 1]
+    ?.map((cell) => cell.text.trim())
+    .filter(Boolean)
+    .join("\n") ?? "";
+  return /(?:위와\s*같이|상기와\s*같이).*(?:신청|제출)/su.test(followingText)
+    && /(?:신청인|대표).*(?:서명|날인|\(인\))/su.test(followingText);
 }
 
 /**
@@ -489,7 +545,7 @@ function structuralCandidateKey(blockIndex: number, row: number, normalizedLabel
 }
 
 /** 같은 행의 앞 라벨이 뒤 라벨을 포함하면 뒤 셀은 값 placeholder를 필드로 재인식한 경우가 많다. */
-function suppressValueCellDuplicates(fields: RoundtripFieldCandidate[]): void {
+function suppressValueCellDuplicates(fields: RoundtripFieldCandidate[], blocks: readonly IRBlock[]): void {
   for (const candidate of fields) {
     const owner = fields.find((other) =>
       other !== candidate
@@ -504,6 +560,7 @@ function suppressValueCellDuplicates(fields: RoundtripFieldCandidate[]): void {
         || normalizeRoundtripLabel(other.originalValue) === candidate.normalizedLabel
       ));
     if (!owner) continue;
+    if (isEmptyMetadataSubfieldOfRowSpanningGroup(candidate, owner, blocks)) continue;
     // KorDoc이 한 행의 다음 입력 라벨을 앞 필드의 값으로 묶는 경우가 있다. 실제 빈 메타데이터
     // 입력칸까지 placeholder 중복으로 지우지 않고, 뒤 단계가 앞의 잘못된 후보만 제거하게 둔다.
     if (
@@ -514,6 +571,30 @@ function suppressValueCellDuplicates(fields: RoundtripFieldCandidate[]): void {
     candidate.inputLikelihood = Math.min(candidate.inputLikelihood, 0.15);
     candidate.inputSignals.push(`앞 라벨 “${owner.label}”의 값 placeholder 가능성`);
   }
+}
+
+function isEmptyMetadataSubfieldOfRowSpanningGroup(
+  candidate: RoundtripFieldCandidate,
+  owner: RoundtripFieldCandidate,
+  blocks: readonly IRBlock[],
+): boolean {
+  if (
+    !candidate.empty
+    || !candidate.inputSignals.some((signal) => signal.includes("메타데이터 라벨"))
+  ) return false;
+  const row = blocks[candidate.location.blockIndex]?.table?.cells[candidate.location.row];
+  const ownerCell = row?.[owner.location.col];
+  const labelCell = row?.[candidate.location.col];
+  if (
+    !row
+    || (ownerCell?.rowSpan ?? 1) <= 1
+    || !labelCell
+    || normalizeRoundtripLabel(labelCell.text) !== candidate.normalizedLabel
+  ) return false;
+  const valueCell = row[candidate.location.col + Math.max(1, labelCell.colSpan)];
+  // 실제 하위 라벨 오른쪽에 독립된 빈 값 셀이 있을 때만 그룹 제목의 첫 하위 입력으로 본다.
+  // `총 인원 : 명`처럼 행 끝 값 placeholder 자체를 입력 라벨로 되살리면 안 된다.
+  return valueCell !== undefined && valueCell.text.trim() === "";
 }
 
 const POSITIVE_INPUT_LABEL = /(회사명|기업명|업체명|단체명|상호|법인명|기관명|대표자|성명|이름|신청인|담당자|책임자|사업자|법인번호|주민등록|연락처|전화|휴대|이메일|email|전자우편|주소|소재지|과제명|사업명|아이템명|제품명|서비스명|주생산품|업태|업종|종목|설립|개업|직위|부서|홈페이지|지원금|사업비|예산|금액|계좌|은행|예금주|상담|매출|고용|인원|자본금|기간|일자|날짜|년도|연도)/i;

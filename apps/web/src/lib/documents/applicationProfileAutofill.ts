@@ -1,5 +1,7 @@
 import type { ConnectedDocumentField } from "@/lib/server/documents/documentFieldLink";
+import type { DraftFieldAnswers } from "@/lib/server/documents/fieldAnswers";
 import { isReplaceableRhwpGuide } from "@/lib/rhwp/guideText";
+import type { StudioFieldBindingTargetV1 } from "@/lib/rhwp/studioDocumentAgentProtocol";
 
 export const APPLICATION_PROFILE_KEYS = [
   "applicant_name",
@@ -66,6 +68,13 @@ export interface ApplicationAutofillFieldBinding {
   fieldId: string;
   status: "unique" | "missing" | "ambiguous" | "resolving";
   beforeText?: string;
+  targetKind?: StudioFieldBindingTargetV1["kind"];
+}
+
+export interface AutomaticProfileAutofillEntry {
+  fieldId: string;
+  label: string;
+  value: string;
 }
 
 export type ApplicationAutofillPlanState =
@@ -208,6 +217,100 @@ export function buildApplicationProfileAutofillPlan(input: {
   };
 }
 
+/**
+ * 진입 즉시 자동 입력은 서버가 이미 저장한 profile seed 중 실제 문서의 유일한 빈 표 셀과
+ * exact fieldId로 결속되는 값만 대상으로 한다. 승인/수기/기각/LLM 답변과 안내문은 건드리지 않는다.
+ */
+export function buildAutomaticProfileAutofillEntries(input: {
+  fields: readonly ConnectedDocumentField[];
+  answers: DraftFieldAnswers;
+  bindings: readonly ApplicationAutofillFieldBinding[];
+  duplicateLabels?: ReadonlySet<string>;
+}): AutomaticProfileAutofillEntry[] {
+  const bindings = new Map(input.bindings.map((binding) => [binding.fieldId, binding]));
+  const labelCounts = new Map<string, number>();
+  for (const field of input.fields) {
+    const label = normalizeLabel(field.label);
+    if (label) labelCounts.set(label, (labelCounts.get(label) ?? 0) + 1);
+  }
+
+  const entries: AutomaticProfileAutofillEntry[] = [];
+  for (const field of input.fields) {
+    const answer = input.answers[field.label.trim().slice(0, 160)];
+    const binding = bindings.get(field.fieldId);
+    const normalizedLabel = normalizeLabel(field.label);
+    if (
+      !field.mappedCompanyField
+      || !normalizedLabel
+      || labelCounts.get(normalizedLabel) !== 1
+      || input.duplicateLabels?.has(field.label)
+      || !isAutomaticProfileTextField(field.fieldType)
+      || answer?.status !== "suggested"
+      || answer.source !== "profile"
+      || answer.fieldId !== field.fieldId
+      || !answer.value.trim()
+      || binding?.status !== "unique"
+      || binding.targetKind !== "table_cell_text"
+      || binding.beforeText?.trim() !== ""
+    ) continue;
+    entries.push({ fieldId: field.fieldId, label: field.label, value: answer.value.trim() });
+  }
+  return entries;
+}
+
+/** 자동 snapshot 저장 성공 뒤 서버의 원자적 projection과 같은 상태를 즉시 레일에 반영한다. */
+export function acceptAutomaticProfileAutofillAnswers(input: {
+  current: DraftFieldAnswers;
+  entries: readonly AutomaticProfileAutofillEntry[];
+  revisionId: string;
+  at?: string;
+}): DraftFieldAnswers {
+  const next = { ...input.current };
+  const at = input.at ?? new Date().toISOString();
+  for (const entry of input.entries) {
+    const key = entry.label.trim().slice(0, 160);
+    const answer = next[key];
+    if (
+      answer?.status !== "suggested"
+      || answer.source !== "profile"
+      || answer.fieldId !== entry.fieldId
+      || answer.value.trim() !== entry.value
+    ) continue;
+    next[key] = {
+      ...answer,
+      status: "accepted",
+      materializedRevisionId: input.revisionId,
+      updatedAt: at,
+    };
+  }
+  return next;
+}
+
+/** 같은 세션의 exact 자동 입력 revision만 dismissed/profile로 되돌려 재열기 재주입을 막는다. */
+export function undoAutomaticProfileAutofillAnswers(input: {
+  current: DraftFieldAnswers;
+  entries: readonly AutomaticProfileAutofillEntry[];
+  appliedRevisionId: string;
+  at?: string;
+}): DraftFieldAnswers {
+  const next = { ...input.current };
+  const at = input.at ?? new Date().toISOString();
+  for (const entry of input.entries) {
+    const key = entry.label.trim().slice(0, 160);
+    const answer = next[key];
+    if (
+      answer?.status !== "accepted"
+      || answer.source !== "profile"
+      || answer.fieldId !== entry.fieldId
+      || answer.value.trim() !== entry.value
+      || answer.materializedRevisionId !== input.appliedRevisionId
+    ) continue;
+    const { materializedRevisionId: _revision, valueSha256: _sha256, ...restored } = answer;
+    next[key] = { ...restored, status: "dismissed", updatedAt: at };
+  }
+  return next;
+}
+
 function planItem(
   field: Pick<ConnectedDocumentField, "fieldId" | "fieldKey" | "label">,
   profileKey: ApplicationProfileKey | null,
@@ -220,6 +323,11 @@ function planItem(
 
 function normalizeLabel(value: string): string {
   return value.normalize("NFKC").replace(/\s+/gu, "").trim();
+}
+
+function isAutomaticProfileTextField(value: string): boolean {
+  return ["text", "short_text", "number", "email", "phone", "tel", "address"]
+    .includes(value.trim().toLocaleLowerCase("en-US"));
 }
 
 function normalizeKey(value: string): string {

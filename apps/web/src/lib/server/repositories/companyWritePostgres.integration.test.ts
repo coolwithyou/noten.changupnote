@@ -13,6 +13,7 @@ import { verifyMatchStateInputRevisionPostgres } from "../matches/matchStateInpu
 import { verifyPromotionServingSnapshotPostgres } from "./promotionServingSnapshotPostgres.integration";
 import { verifyPremisesPostgres } from "./premisesPostgres.integration";
 import { verifyServingMonitorPostgres } from "../deep-analysis/servingMonitorPostgres.integration";
+import { verifyApplicationFieldRepairPostgres } from "../analysis-lab/applicationFieldRepairPostgres.integration";
 
 const socket = process.env.CUNOTE_PRODUCT_TEST_SOCKET ?? "";
 assert.match(socket, /^\/tmp\/cunote-product-pg-[a-zA-Z0-9]+$/);
@@ -112,6 +113,13 @@ try {
   await verifyPromotionServingSnapshotPostgres({ admin, socket });
   await verifyServingMonitorPostgres({ admin, socket });
   await verifyPremisesPostgres({ admin, client });
+  await verifyApplicationFieldRepairPostgres({
+    admin,
+    client,
+    socket,
+    companyId: creationId,
+    userId,
+  });
   await admin`delete from user_company where user_id=${userId} and company_id=${creationId}`;
   await assert.rejects(() => repo.createCompany({ userId, creationId, profile }));
   console.log("PASS: non-superuser RLS blocks foreign access, viewer writes and replay after membership removal");

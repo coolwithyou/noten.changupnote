@@ -806,4 +806,62 @@ function successCliJson(overrides: Record<string, unknown> = {}): string {
   console.log("✅ 단일 key work-conserving drain — 전역 4슬롯 활용·상한 보존");
 }
 
+// ---- ⑭ launch request 관측은 queue와 execution을 같은 monotonic clock으로 분리 ----
+{
+  const scheduler = createClaudeCliScheduler(1);
+  const blockerGate = deferred<void>();
+  const blockerStarted = deferred<void>();
+  const blocker = scheduler.run("blocker", async () => {
+    blockerStarted.resolve();
+    await blockerGate.promise;
+  });
+  await blockerStarted.promise;
+  const wallValues = [100, 125, 165];
+  const monotonicValues = [100, 125, 165];
+  const events: Array<import("./analysis-request-observation").AnalysisRequestObservation> = [];
+  const { impl } = makeFakeExecFile(() => ({ stdout: successCliJson() }));
+  const request = buildClaudeCliFetchUnsafeForTest({
+    execFileImpl: impl,
+    scheduler,
+    schedulerKey: "observed-request",
+    requestObservation: {
+      manifestSha256: "a".repeat(64),
+      runId: "run-observed",
+      grantId: "grant-observed",
+      processInstanceId: "process-fixture",
+      wallNow: () => new Date(1_800_000_000_000 + wallValues.shift()!),
+      monotonicNow: () => monotonicValues.shift()!,
+      requestId: () => "request-fixture",
+      onEvent: (event) => { events.push(event); },
+    },
+  })(API_URL, { method: "POST", body: extractorBody("관측") });
+  await delay(1);
+  blockerGate.resolve();
+  await blocker;
+  assert.equal((await request).status, 200);
+  assert.equal(events.length, 1);
+  assert.deepEqual({
+    stage: events[0]!.stage,
+    requestId: events[0]!.requestId,
+    queueWaitMs: events[0]!.queueWaitMs,
+    executionMs: events[0]!.executionMs,
+    modelUsage: events[0]!.modelUsage,
+    outcome: events[0]!.outcome,
+    completeness: events[0]!.completeness,
+  }, {
+    stage: "primary",
+    requestId: "request-fixture",
+    queueWaitMs: 25,
+    executionMs: 40,
+    modelUsage: {
+      inputTokens: 12_715,
+      outputTokens: 7_615,
+      cacheReadInputTokens: 0,
+    },
+    outcome: "fulfilled",
+    completeness: "complete",
+  });
+  console.log("✅ launch request 관측 — deterministic queue/execution 분리");
+}
+
 console.log("\nclaude-cli-transport 테스트 전부 통과");

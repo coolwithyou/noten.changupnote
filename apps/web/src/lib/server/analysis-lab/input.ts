@@ -6,6 +6,7 @@
 // 최종 입력 텍스트 전체의 sha256 을 산출한다. source_span 검증은 이 최종 텍스트 기준으로 이루어진다.
 // 렌더 방식은 grantAnalysisPilotExtractor 의 renderBalancedPilotInput 을 참고했다.
 import { createHash } from "node:crypto";
+import type { CriterionDimension } from "@cunote/contracts";
 import { htmlToText } from "@cunote/core";
 import { stripYamlFrontmatter } from "@/lib/server/chat/grounding";
 import type { DeepAnalysisInputAttachment } from "@/lib/server/deep-analysis/inputManifest";
@@ -99,11 +100,50 @@ export interface LabAssembledInput {
   inputSha256: string;
   /** 주입형 legacy assembler는 생략할 수 있고, assembleLabInput의 구체 반환에서는 필수다. */
   attachmentManifestSha256?: string;
+  /** prepare 시점의 읽기 전용 첨부 상태 진단. 입력·attachment manifest의 material binding은 아니다. */
+  attachmentPreparationReport?: readonly LabAttachmentPreparationDiagnostic[];
 }
 
 export interface LabAssembledInputWithAttachmentManifest extends LabAssembledInput {
   /** 실제 첨부 로드 결과까지 포함한 canonical attachment manifest의 SHA-256. */
   attachmentManifestSha256: string;
+}
+
+export type LabAttachmentDocumentRole =
+  | "announcement"
+  | "application_form"
+  | "business_plan"
+  | "evidence"
+  | "unknown";
+
+export type LabAttachmentRecoveryMode =
+  | "none"
+  | "pdf_text_or_ocr"
+  | "conversion_pipeline"
+  | "configure_storage"
+  | "retry_markdown_load"
+  | "increase_input_cap"
+  | "source_reacquisition";
+
+/**
+ * 모델 호출 전에 보여 주는 읽기 전용 진단이다. filename의 명시적 단서만 사용하며,
+ * role/relatedDimensions를 eligibility 사실로 승격하지 않는다.
+ */
+export interface LabAttachmentPreparationDiagnostic {
+  readonly filename: string;
+  readonly documentRole: LabAttachmentDocumentRole;
+  readonly roleBasis: "explicit_filename_hint" | "unknown";
+  readonly conversionStatus: string | null;
+  readonly inputOutcome: Exclude<AttachmentOutcome, "pending">;
+  readonly missingReason: UnavailableReason | null;
+  readonly relatedDimensions: readonly CriterionDimension[];
+  readonly recovery: {
+    readonly possible: boolean;
+    readonly mode: LabAttachmentRecoveryMode;
+    /** 복구를 실제 수행하면 immutable input/attachment binding이 바뀔 수 있음을 명시한다. */
+    readonly requiresSourceWrite: boolean;
+    readonly reason: string;
+  };
 }
 
 interface DraftBlock {
@@ -233,6 +273,10 @@ export async function assembleLabInput(
     totalChars: text.length,
     inputSha256: createHash("sha256").update(text).digest("hex"),
     attachmentManifestSha256: hashAttachmentManifest(attachment.provenance),
+    attachmentPreparationReport: buildAttachmentPreparationReport(
+      input.archives,
+      attachment.provenance,
+    ),
   };
 }
 
@@ -345,8 +389,8 @@ export function announcementScore(filename: string): number {
 /** 코호트 선정 기준: 이 크기 이상인 본문성 markdown 이 있어야 "딥분석하기 좋은 공고"로 본다. */
 export const BODY_MARKDOWN_MIN_BYTES = 2_000;
 
-type UnavailableReason = "markdown_missing" | "r2_unconfigured" | "load_failed" | "cap_exceeded";
-type AttachmentOutcome = "loaded" | "truncated" | "unavailable" | "covered_by_children";
+export type UnavailableReason = "markdown_missing" | "r2_unconfigured" | "load_failed" | "cap_exceeded";
+export type AttachmentOutcome = "loaded" | "truncated" | "unavailable" | "covered_by_children";
 
 interface AttachmentProvenance {
   filename: string;
@@ -546,6 +590,140 @@ function createAttachmentProvenance(archive: LabInputArchive): AttachmentProvena
     actualContentSha256: null,
     inputChars: 0,
   };
+}
+
+function buildAttachmentPreparationReport(
+  archives: readonly LabInputArchive[],
+  provenance: readonly AttachmentProvenance[],
+): readonly LabAttachmentPreparationDiagnostic[] {
+  if (archives.length !== provenance.length) {
+    throw new Error("attachment preparation provenance length mismatch");
+  }
+  return Object.freeze(archives.map((archive, index) => {
+    const item = provenance[index]!;
+    if (item.outcome === "pending") {
+      throw new Error(`attachment preparation outcome unresolved: ${archive.filename}`);
+    }
+    const role = inferAttachmentDocumentRole(archive.filename);
+    const missingReason = item.outcome === "truncated"
+      ? "cap_exceeded"
+      : item.unavailableReason;
+    return Object.freeze({
+      filename: archive.filename,
+      documentRole: role,
+      roleBasis: role === "unknown" ? "unknown" : "explicit_filename_hint",
+      conversionStatus: archive.conversionStatus ?? null,
+      inputOutcome: item.outcome,
+      missingReason,
+      relatedDimensions: Object.freeze(inferAttachmentRelatedDimensions(archive.filename)),
+      recovery: Object.freeze(resolveAttachmentRecovery({ archive, outcome: item.outcome, missingReason })),
+    });
+  }).sort((left, right) => compareCanonicalText(
+    JSON.stringify([left.filename, left.documentRole, left.conversionStatus]),
+    JSON.stringify([right.filename, right.documentRole, right.conversionStatus]),
+  )));
+}
+
+function inferAttachmentDocumentRole(filename: string): LabAttachmentDocumentRole {
+  const normalized = filename.normalize("NFKC");
+  if (/(사업\s*계획서|수행\s*계획서|제안서)/u.test(normalized)) return "business_plan";
+  if (/(신청서|지원서|참가\s*신청|양식|서식)/u.test(normalized)) return "application_form";
+  if (/(증빙|증명서|확인서|명부|통장|인증서)/u.test(normalized)) return "evidence";
+  if (/(공\s*고문|모집\s*공고|모집\s*요강|사업\s*안내|통합\s*공고)/u.test(normalized)) {
+    return "announcement";
+  }
+  return "unknown";
+}
+
+function inferAttachmentRelatedDimensions(filename: string): CriterionDimension[] {
+  const normalized = filename.normalize("NFKC");
+  const dimensions: CriterionDimension[] = [];
+  const add = (dimension: CriterionDimension, pattern: RegExp) => {
+    if (pattern.test(normalized)) dimensions.push(dimension);
+  };
+  add("region", /(지역|소재지|관할)/u);
+  add("biz_age", /(업력|창업\s*(?:후\s*)?\d+\s*년|창업\s*기간)/u);
+  add("industry", /(업종|산업|사업\s*분야)/u);
+  add("size", /(기업\s*규모|중소기업|소상공인|중견기업)/u);
+  add("revenue", /매출/u);
+  add("employees", /(종업원|근로자|고용\s*인원|임직원)/u);
+  add("founder_age", /((대표자|창업자).*(연령|나이)|(연령|나이).*(대표자|창업자))/u);
+  add("certification", /(인증|벤처기업\s*확인)/u);
+  add("target_type", /(지원\s*대상|신청\s*대상|참가\s*대상|자격|요건)/u);
+  return dimensions;
+}
+
+function resolveAttachmentRecovery(input: {
+  archive: LabInputArchive;
+  outcome: Exclude<AttachmentOutcome, "pending">;
+  missingReason: UnavailableReason | null;
+}): LabAttachmentPreparationDiagnostic["recovery"] {
+  if (input.outcome === "loaded" || input.outcome === "covered_by_children") {
+    return {
+      possible: false,
+      mode: "none",
+      requiresSourceWrite: false,
+      reason: input.outcome === "loaded"
+        ? "검증된 markdown이 현재 입력에 포함됨"
+        : "ZIP parent의 material member가 검증된 child 입력으로 모두 포함됨",
+    };
+  }
+  if (input.missingReason === "cap_exceeded") {
+    return {
+      possible: true,
+      mode: "increase_input_cap",
+      requiresSourceWrite: false,
+      reason: "변환 산출물은 있으나 현재 입력 길이 제한으로 전문이 포함되지 않음",
+    };
+  }
+  if (input.missingReason === "r2_unconfigured") {
+    return {
+      possible: true,
+      mode: "configure_storage",
+      requiresSourceWrite: false,
+      reason: "검증 대상 markdown 포인터는 있으나 현재 prepare 환경에서 R2를 읽을 수 없음",
+    };
+  }
+  if (input.missingReason === "load_failed") {
+    return {
+      possible: true,
+      mode: "retry_markdown_load",
+      requiresSourceWrite: false,
+      reason: "markdown 포인터가 있으나 로드 또는 SHA 검증에 실패함",
+    };
+  }
+
+  const hasExactSource = Boolean(input.archive.storageKey && input.archive.sha256);
+  if (hasExactSource && isPdfArchive(input.archive)) {
+    return {
+      possible: true,
+      mode: "pdf_text_or_ocr",
+      requiresSourceWrite: true,
+      reason: "exact PDF 원본은 있으나 markdown이 없어 별도 text/OCR 복구가 필요함",
+    };
+  }
+  if (hasExactSource) {
+    return {
+      possible: true,
+      mode: "conversion_pipeline",
+      requiresSourceWrite: true,
+      reason: "exact 원본은 있으나 markdown 변환 산출물이 없음",
+    };
+  }
+  const canReacquire = Boolean(input.archive.sourceUri?.trim());
+  return {
+    possible: canReacquire,
+    mode: "source_reacquisition",
+    requiresSourceWrite: true,
+    reason: canReacquire
+      ? "exact 보관 원본이 없어 source URI 재수집부터 필요함"
+      : "exact 보관 원본과 재수집 URI가 모두 없어 자동 복구 경로를 확인할 수 없음",
+  };
+}
+
+function isPdfArchive(archive: LabInputArchive): boolean {
+  return archive.contentType?.toLowerCase().includes("pdf") === true
+    || /\.pdf$/iu.test(archive.filename);
 }
 
 function compareAttachmentIdentity(left: LabInputArchive, right: LabInputArchive): number {

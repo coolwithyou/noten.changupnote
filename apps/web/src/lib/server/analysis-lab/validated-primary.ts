@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { DeepAnalysisModelPass } from "@/lib/server/deep-analysis/analyzer";
 import type { DeepAnalysisEffort, DeepAnalysisModelResult } from "@cunote/contracts";
 import type {
@@ -13,6 +14,7 @@ import {
   decideDeepAnalysisValidationRoute,
   type DeepAnalysisValidationRoute,
   type DeepAnalysisValidationIssue,
+  type DeepAnalysisValidationResult,
   validateDeepAnalysisResult,
 } from "@/lib/server/deep-analysis/validator";
 
@@ -31,6 +33,7 @@ export interface ValidatedLabPrimaryResult extends LabPrimaryRepairProvenance {
   sourceIncompleteIssueAfterRepairCount: number;
   outcome: "publishable" | "held";
   matchingReadiness: "ready" | "conditional" | "deferred";
+  terminationReason: "accepted" | "held";
   /**
    * 패스별 validator 계측(2026-08-11 T4 1단계) — 어떤 issue 가 첫 패스를 떨어뜨리는지 진단용.
    * issueCodes 는 그 패스 결과의 validation 이슈 코드(빈 배열 = 그 패스로 통과).
@@ -49,6 +52,10 @@ export class ValidatedLabPrimaryError extends Error implements LabPrimaryRepairP
     public readonly blockingNewIssueAfterRepairCount: number,
     public readonly sourceIncompleteIssueAfterRepairCount: number,
     public readonly passes: LabPrimaryPassDiagnostic[],
+    public readonly terminationReason:
+      | "repair_limit"
+      | "exact_no_progress"
+      | "semantic_no_progress",
   ) {
     super(message);
     this.name = "ValidatedLabPrimaryError";
@@ -71,6 +78,10 @@ function collectPassDiagnostic(input: {
       snapshotPassIssue(issue, input.result)
     )),
     issuesTruncated: input.issues.length > MAX_PASS_ISSUE_DETAILS,
+    semanticFingerprintSha256: createHash("sha256").update(validationRepairStateSignature({
+      result: input.result,
+      issues: input.issues,
+    })).digest("hex"),
   };
 }
 
@@ -211,6 +222,80 @@ function validationRepairStateSignature(input: {
 }
 
 /**
+ * 현재는 target_type list_semantics 모순 한 종류만 의미 비교한다. 지원하지 않는 issue가
+ * 하나라도 섞이면 null을 반환해 기존 전체-result 비교와 repair 상한을 그대로 사용한다.
+ */
+function comparableListSemanticsIssueState(input: {
+  result: DeepAnalysisModelResult;
+  validation: DeepAnalysisValidationResult;
+}): string | null {
+  if (input.validation.issues.length === 0) return null;
+  const states: Array<Record<string, unknown>> = [];
+  for (const issue of input.validation.issues) {
+    if (issue.code !== "semantic_misattribution") return null;
+    const match = /^\$\.criteria\[(\d+)\]\.value\.list_semantics$/.exec(issue.path);
+    if (!match) return null;
+    const criterionIndex = Number.parseInt(match[1]!, 10);
+    const criterion = input.result.criteria[criterionIndex];
+    if (
+      !criterion
+      || criterion.dimension !== "target_type"
+      || criterion.operator !== "in"
+      || !isRecord(criterion.value)
+    ) return null;
+    const value = { ...criterion.value };
+    const valueNote = typeof value.note === "string" ? value.note : null;
+    delete value.note;
+    const evidenceRefs = input.validation.criteria
+      .find((validated) => validated.index === criterionIndex)
+      ?.evidenceRefs
+      .map((reference) => ({ ...reference }))
+      .sort((left, right) => stableJson(left).localeCompare(stableJson(right))) ?? [];
+    states.push({
+      code: issue.code,
+      path: issue.path,
+      dimension: criterion.dimension,
+      kind: criterion.kind,
+      operator: criterion.operator,
+      value,
+      sourceSpan: criterion.sourceSpan,
+      spanVerified: criterion.spanVerified,
+      evidenceRefs,
+      noteClaims: listSemanticsNoteClaims([criterion.note, valueNote]),
+    });
+  }
+  return stableJson(states.sort((left, right) => (
+    stableJson(left).localeCompare(stableJson(right))
+  )));
+}
+
+function listSemanticsNoteClaims(notes: Array<string | null>): {
+  requiresOpen: boolean;
+  requiresClosed: boolean;
+  materialQualifiers: string[];
+} {
+  const normalized = notes
+    .filter((note): note is string => Boolean(note?.trim()))
+    .map((note) => note.normalize("NFKC").replace(/\s+/gu, " ").trim());
+  const joined = normalized.join(" ");
+  const materialQualifiers = normalized
+    .flatMap((note) => note.split(/(?<=[.!?。])\s+/u))
+    .filter((sentence) => (
+      /(?:단|다만|예외|추가\s*(?:자격|요건)|별도\s*(?:자격|요건)|적용\s*대상)/u.test(sentence)
+    ))
+    .sort();
+  return {
+    requiresOpen: /list_semantics\s*=\s*open/iu.test(joined)
+      || /(?:열린|개방형|완전\s*열거가\s*아닌|예시적).{0,24}(?:목록|열거)/iu.test(joined)
+      || /목록\s*밖.{0,40}(?:자동\s*)?탈락시키지/iu.test(joined),
+    requiresClosed: /list_semantics\s*=\s*closed/iu.test(joined)
+      || /(?:폐쇄|닫힌|완전한|배타적).{0,24}(?:목록|열거)/iu.test(joined)
+      || /목록\s*밖.{0,40}(?:신청\s*불가|탈락)/iu.test(joined),
+    materialQualifiers,
+  };
+}
+
+/**
  * 로컬 구독 lab도 운영 worker와 같은 validator→repair 계약을 통과해야 성공한다.
  * lab 입력 전체를 하나의 synthetic structured source로 봉인해 기존 원문 substring 계약을
  * 그대로 검증하고, 교정 호출에도 최초 transport의 fetch 구현을 관통시킨다.
@@ -275,6 +360,7 @@ export async function runValidatedLabPrimary(input: {
   let newIssueAfterRepairCount = 0;
   let blockingNewIssueAfterRepairCount = 0;
   let sourceIncompleteIssueAfterRepairCount = 0;
+  let noProgressReason: "exact_no_progress" | "semantic_no_progress" | null = null;
   while (route.route === "repair" && repairCount < MAX_LAB_PRIMARY_REPAIRS) {
     input.signal?.throwIfAborted();
     // 결정적 교정만으로 끝나면 수 ms — 그 자체가 "모델 repair 없이 해결" 신호라 그대로 기록한다.
@@ -285,6 +371,10 @@ export async function runValidatedLabPrimary(input: {
     const stateBeforeRepair = validationRepairStateSignature({
       result: resultBeforeRepair,
       issues: validationIssuesBeforeRepair,
+    });
+    const semanticStateBeforeRepair = comparableListSemanticsIssueState({
+      result: resultBeforeRepair,
+      validation,
     });
     execution = await repairDeepAnalysisExecution({
       seal,
@@ -319,13 +409,27 @@ export async function runValidatedLabPrimary(input: {
       result: execution.result,
     }));
     route = decideDeepAnalysisValidationRoute({ result: execution.result, validation });
-    if (
-      route.route === "repair"
-      && validationRepairStateSignature({
+    if (route.route === "repair") {
+      const stateAfterRepair = validationRepairStateSignature({
         result: execution.result,
         issues: validation.issues,
-      }) === stateBeforeRepair
-    ) break;
+      });
+      const semanticStateAfterRepair = comparableListSemanticsIssueState({
+        result: execution.result,
+        validation,
+      });
+      if (stateAfterRepair === stateBeforeRepair) {
+        noProgressReason = "exact_no_progress";
+        break;
+      }
+      if (
+        semanticStateBeforeRepair !== null
+        && semanticStateAfterRepair === semanticStateBeforeRepair
+      ) {
+        noProgressReason = "semantic_no_progress";
+        break;
+      }
+    }
   }
   if (route.route === "repair") {
     const issues = validation.issues
@@ -333,7 +437,8 @@ export async function runValidatedLabPrimary(input: {
       .map((issue) => `${issue.code}:${issue.path}`)
       .join(", ");
     throw new ValidatedLabPrimaryError(
-      `로컬 딥분석이 validator 교정 ${repairCount}회 뒤에도 실패했습니다: ${issues}`,
+      `로컬 딥분석이 validator 교정 ${repairCount}회 뒤에도 실패했습니다` +
+        ` (종료=${noProgressReason ?? "repair_limit"}): ${issues}`,
       execution.result,
       repairCount,
       deterministicPrimaryRepairCount,
@@ -342,6 +447,7 @@ export async function runValidatedLabPrimary(input: {
       blockingNewIssueAfterRepairCount,
       sourceIncompleteIssueAfterRepairCount,
       passes,
+      noProgressReason ?? "repair_limit",
     );
   }
   const matchingReadiness = classifyMatchingReadiness(execution.result, route);
@@ -355,8 +461,13 @@ export async function runValidatedLabPrimary(input: {
     sourceIncompleteIssueAfterRepairCount,
     outcome: matchingReadiness === "deferred" ? "held" : "publishable",
     matchingReadiness,
+    terminationReason: matchingReadiness === "deferred" ? "held" : "accepted",
     passes,
   };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
 function classifyMatchingReadiness(

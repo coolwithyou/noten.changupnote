@@ -10,6 +10,7 @@ import {
 } from "@/lib/server/analysis-lab/application-roundtrip/contract";
 import { buildApplicationRoundtripReference } from "../application-precompute";
 import {
+  assertFailedPrimaryApplicationRoundtripReuseArtifact,
   assertReusableApplicationRoundtrip,
   assertStrictApplicationRoundtripReuseArtifact,
   prepareApplicationRoundtripReuse,
@@ -125,6 +126,101 @@ try {
     }),
     (error: unknown) => hasReuseCode(error, "artifact_incomplete"),
     "strict launch 재사용은 partial application 분석을 성공처럼 재사용하지 않음",
+  );
+  const failedPrimaryPartial = failedPrimaryPartialRun();
+  assert.doesNotThrow(
+    () => assertFailedPrimaryApplicationRoundtripReuseArtifact({
+      run: failedPrimaryPartial,
+      manifest: sourceManifest(),
+      currentSources: [{ filename, storageKey, sha256: sourceSha256 }],
+    }),
+    "미해결 없이 anchor가 준비되고 제외된 구조 경고만 남은 partial application은 v2 재사용",
+  );
+  for (const mutate of [
+    (run: ApplicationRoundtripRun) => {
+      run.documents[0]!.fieldCoverage.unresolvedCandidateCount = 1;
+    },
+    (run: ApplicationRoundtripRun) => {
+      run.documents[0]!.fieldCoverage.anchorUnreadyInputCount = 1;
+    },
+    (run: ApplicationRoundtripRun) => {
+      run.documents[0]!.fieldCoverage.structuralWarningCount = 2;
+    },
+    (run: ApplicationRoundtripRun) => {
+      run.documents[0]!.fieldPlanning.requestCount = 0;
+    },
+    (run: ApplicationRoundtripRun) => {
+      run.documents[0]!.fieldCoverage.structuralWarnings[0]!.location = {
+        ...run.documents[0]!.fields[0]!.location,
+      };
+    },
+  ]) {
+    const unsafe = failedPrimaryPartialRun();
+    mutate(unsafe);
+    assert.throws(
+      () => assertFailedPrimaryApplicationRoundtripReuseArtifact({
+        run: unsafe,
+        manifest: sourceManifest(),
+        currentSources: [{ filename, storageKey, sha256: sourceSha256 }],
+      }),
+      (error: unknown) => hasReuseCode(error, "artifact_incomplete"),
+      "미해결·anchor·warning·요청 provenance가 불완전한 partial은 v2 재사용 거부",
+    );
+  }
+  const evidenceSkippedRun = sourceRun();
+  const evidenceDocument = structuredClone(evidenceSkippedRun.documents[0]!);
+  evidenceDocument.attachmentId = "evidence-attachment";
+  evidenceDocument.filename = "[별첨] 개인정보 동의서.hwp";
+  evidenceDocument.sourceSha256 = "b".repeat(64);
+  evidenceDocument.role = "evidence";
+  evidenceDocument.fieldPlanning.status = "skipped";
+  evidenceSkippedRun.documents.push(evidenceDocument);
+  evidenceSkippedRun.sourceCount = 2;
+  const evidenceSkippedManifest = sourceManifest();
+  evidenceSkippedManifest.attachments.push({
+    attachmentId: evidenceDocument.attachmentId,
+    filename: evidenceDocument.filename,
+    storageKey: "archives/evidence.hwp",
+    sourceSha256: evidenceDocument.sourceSha256,
+    detectedFormat: "hwp",
+  });
+  assert.doesNotThrow(
+    () => assertStrictApplicationRoundtripReuseArtifact({
+      run: evidenceSkippedRun,
+      manifest: evidenceSkippedManifest,
+      currentSources: [
+        { filename, storageKey, sha256: sourceSha256 },
+        {
+          filename: evidenceDocument.filename,
+          storageKey: "archives/evidence.hwp",
+          sha256: evidenceDocument.sourceSha256,
+        },
+      ],
+    }),
+    "증빙 문서는 field planning을 생략해도 신청 양식 분석이 완결되면 exact 재사용",
+  );
+  const skippedApplicationRun = sourceRun();
+  skippedApplicationRun.documents[0]!.fieldPlanning.status = "skipped";
+  assert.throws(
+    () => assertStrictApplicationRoundtripReuseArtifact({
+      run: skippedApplicationRun,
+      manifest: sourceManifest(),
+      currentSources: [{ filename, storageKey, sha256: sourceSha256 }],
+    }),
+    (error: unknown) => hasReuseCode(error, "artifact_incomplete"),
+    "신청 양식 역할은 field planning을 생략한 채 증빙 문서처럼 우회할 수 없음",
+  );
+  const evidenceOnlyRun = sourceRun();
+  evidenceOnlyRun.documents[0]!.role = "evidence";
+  evidenceOnlyRun.documents[0]!.fieldPlanning.status = "skipped";
+  assert.throws(
+    () => assertStrictApplicationRoundtripReuseArtifact({
+      run: evidenceOnlyRun,
+      manifest: sourceManifest(),
+      currentSources: [{ filename, storageKey, sha256: sourceSha256 }],
+    }),
+    (error: unknown) => hasReuseCode(error, "artifact_incomplete"),
+    "신청 양식이 없는 산출물은 role을 evidence로 바꿔 exact 재사용을 우회할 수 없음",
   );
 
   const duplicateGroup = join(
@@ -488,4 +584,71 @@ function sourceManifest(): RoundtripRunManifest {
       detectedFormat: "hwp",
     }],
   };
+}
+
+function failedPrimaryPartialRun(): ApplicationRoundtripRun {
+  const run = sourceRun();
+  const document = run.documents[0]!;
+  document.fields = [{
+    fieldInstanceId: "field-1",
+    label: "업체명",
+    displayLabel: "업체명",
+    normalizedLabel: "업체명",
+    originalValue: "",
+    type: "text",
+    required: true,
+    empty: true,
+    recommendedInput: true,
+    inputLikelihood: 0.99,
+    inputSignals: ["LLM 맥락 판정: 입력 대상"],
+    sampleValue: "주식회사 예시",
+    sampleReason: "업체명 입력 예시",
+    source: "rhwp-structural",
+    inputKind: "text",
+    writeOperation: "rhwp_field",
+    helperText: null,
+    unit: null,
+    options: [],
+    analysisSource: "llm",
+    llmConfidence: 0.99,
+    llmDecision: "input",
+    location: {
+      blockIndex: 1,
+      row: 1,
+      col: 1,
+      occurrence: 0,
+      pageNumber: 1,
+      target: {
+        kind: "table_cell",
+        row: 1,
+        col: 1,
+        textStart: 0,
+        textEnd: 0,
+        expectedText: "",
+        expectedSha256: "0".repeat(64),
+      },
+    },
+  }];
+  document.recommendedInputFieldCount = 1;
+  document.fieldPlanning.acceptedCount = 1;
+  document.fieldPlanning.candidateCount = 1;
+  document.fieldPlanning.processedCandidateCount = 1;
+  document.fieldCoverage = {
+    status: "partial",
+    rawEmptyCandidateCount: 1,
+    acceptedInputCount: 1,
+    unresolvedCandidateCount: 0,
+    structuralWarningCount: 1,
+    unresolvedCandidates: [],
+    structuralWarnings: [{
+      fieldInstanceId: "excluded-warning",
+      label: "□농산물",
+      reason: "exact marker 쓰기 위치 미결속",
+      location: { blockIndex: 2, row: 7, col: 1, occurrence: 0, pageNumber: 1 },
+    }],
+    structuralInputLabelCount: 1,
+    anchorReadyInputCount: 1,
+    anchorUnreadyInputCount: 0,
+  };
+  return run;
 }

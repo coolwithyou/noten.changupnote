@@ -92,6 +92,14 @@ import {
   type PromotionServingRequestSnapshot,
 } from "@/lib/server/analysis-serving/promotionServing";
 import {
+  applyApplicationRepairAuthoringOverlays,
+  resolveApplicationRepairAuthoringOverlays,
+} from "@/lib/server/analysis-serving/applicationRepairReadinessOverlay";
+import {
+  applicationFieldRepairServingStateSha256,
+  loadApplicationFieldRepairSnapshots,
+} from "@/lib/server/analysis-serving/applicationFieldRepairSnapshot";
+import {
   activeGrantApplyEndCutoff,
   isClearlyStaleUndatedGrant,
   isKStartupRecruitmentClosedPayload,
@@ -135,6 +143,7 @@ export async function loadPromotionServingRequestSnapshot(
   }
   const itemRows = await session
     .select({
+      promotionItemId: schema.analysisLabPromotionItems.id,
       releaseDbId: schema.analysisLabPromotionItems.releaseDbId,
       grantId: schema.analysisLabPromotionItems.grantId,
       runId: schema.analysisLabPromotionItems.runId,
@@ -183,10 +192,60 @@ export async function loadPromotionServingRequestSnapshot(
         inArray(schema.analysisLabPromotionReleases.id, localReleaseIds),
         inArray(schema.analysisLabPromotionReleases.status, ["active", "canary_passed"]),
       ));
-  return buildPromotionServingRequestSnapshot({ items: itemRows, releases: releaseRows });
+  const snapshot = buildPromotionServingRequestSnapshot({ items: itemRows, releases: releaseRows });
+  const promotionItemIds = uniqueStrings(snapshot.items.map(({ item }) => item.promotionItemId));
+  if (promotionItemIds.length === 0) return snapshot;
+
+  // Parent item 전체를 한 번에 읽고 status/release/receipt/current drift는 pure resolver가 닫는다.
+  // prepared/failed/rolled_back 행을 SQL에서 숨기면 fallback 회귀를 검증할 수 없으므로 필터하지 않는다.
+  const repairRows = await session
+    .select({
+      repairId: schema.analysisLabApplicationFieldRepairs.id,
+      releaseDbId: schema.analysisLabApplicationFieldRepairs.releaseDbId,
+      releaseId: schema.analysisLabPromotionReleases.releaseId,
+      releaseStatus: schema.analysisLabPromotionReleases.status,
+      releaseManifestSha256: schema.analysisLabPromotionReleases.manifestSha256,
+      releaseManifest: schema.analysisLabPromotionReleases.manifest,
+      grantId: schema.analysisLabApplicationFieldRepairs.grantId,
+      parentPromotionItemId: schema.analysisLabApplicationFieldRepairs.parentPromotionItemId,
+      roundtripRunId: schema.analysisLabApplicationFieldRepairs.roundtripRunId,
+      applicationFieldAnalysisVersion:
+        schema.analysisLabApplicationFieldRepairs.applicationFieldAnalysisVersion,
+      planSha256: schema.analysisLabApplicationFieldRepairs.planSha256,
+      status: schema.analysisLabApplicationFieldRepairs.status,
+      applicationPrecomputeReceipt:
+        schema.analysisLabApplicationFieldRepairs.applicationPrecomputeReceipt,
+      servingStateSha256: schema.analysisLabApplicationFieldRepairs.servingStateSha256,
+      appliedAt: schema.analysisLabApplicationFieldRepairs.appliedAt,
+    })
+    .from(schema.analysisLabApplicationFieldRepairs)
+    .innerJoin(
+      schema.analysisLabPromotionReleases,
+      eq(
+        schema.analysisLabPromotionReleases.id,
+        schema.analysisLabApplicationFieldRepairs.releaseDbId,
+      ),
+    )
+    .where(inArray(
+      schema.analysisLabApplicationFieldRepairs.parentPromotionItemId,
+      promotionItemIds,
+    ));
+  if (repairRows.length === 0) return snapshot;
+  const currentSnapshots = await loadApplicationFieldRepairSnapshots(
+    session,
+    uniqueStrings(repairRows.map((row) => row.grantId)),
+  );
+  const overlays = resolveApplicationRepairAuthoringOverlays(repairRows.map((row) => ({
+    ...row,
+    currentServingStateSha256: currentSnapshots.has(row.grantId)
+      ? applicationFieldRepairServingStateSha256(currentSnapshots.get(row.grantId)!)
+      : null,
+  })));
+  return applyApplicationRepairAuthoringOverlays(snapshot, overlays);
 }
 
 export interface PromotionServingHydrationItem extends PromotionServingItemBinding {
+  promotionItemId: string;
   appliedAt: Date | null;
   promptVersion: string | null;
   modelPolicyVersion: string | null;

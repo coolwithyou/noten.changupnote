@@ -22,7 +22,7 @@ import {
 } from "@/lib/server/analysis-lab/lab-contract";
 import { classifyNoticePeriod } from "@/lib/server/analysis-lab/notice-period";
 import { assertApplicationRoundtripOptIn } from "./application-roundtrip-policy";
-import { classifyApplicationFieldAnalysis } from "./application-precompute";
+import { classifyCurrentApplicationFieldAnalysis } from "./application-precompute";
 import { partitionCohortEntries, type GrantRunState } from "./batch-plan";
 import {
   CLAUDE_CLI_MAX_AUTH_FAILED_MARKER,
@@ -180,19 +180,42 @@ export interface LabBatchRunScan {
   okCostSamples: number[];
 }
 
-export async function scanExistingRuns(): Promise<LabBatchRunScan> {
-  type BatchScannedRun = ScannedLabRunStateRecord & {
-    costUsd?: unknown;
-    applicationRoundtrip?: LabApplicationRoundtripReference;
-  };
-  const records: BatchScannedRun[] = [];
+export type BatchScannedRun = ScannedLabRunStateRecord & {
+  costUsd?: unknown;
+  applicationRoundtrip?: LabApplicationRoundtripReference;
+};
+
+/** 파일 I/O와 분리한 production scanner 상태 해석. scanExistingRuns와 회귀 테스트가 함께 쓴다. */
+export function resolveLabBatchRunScan(records: readonly BatchScannedRun[]): LabBatchRunScan {
+  const resolved = resolveGrantRunStates(records, ANALYSIS_LAB_PROMPT_VERSION);
+  const states = new Map<string, GrantRunState>();
   const okCostSamples: number[] = [];
+  for (const [grantId, item] of resolved) {
+    states.set(grantId, {
+      ...item.state,
+      applicationFieldAnalysisReadyCurrent: item.latestCurrentTerminal
+        ? classifyCurrentApplicationFieldAnalysis(item.latestCurrentTerminal.applicationRoundtrip) !== "held"
+        : false,
+    });
+    const run = item.state.okCurrent ? item.latestCurrentTerminal : null;
+    if (run && typeof run.costUsd === "number") {
+      const roundtripCost = typeof run.applicationRoundtrip?.costUsd === "number"
+        ? run.applicationRoundtrip.costUsd
+        : 0;
+      okCostSamples.push(run.costUsd + roundtripCost);
+    }
+  }
+  return { states, okCostSamples };
+}
+
+export async function scanExistingRuns(): Promise<LabBatchRunScan> {
+  const records: BatchScannedRun[] = [];
   const root = analysisLabDir();
   let entries: string[] = [];
   try {
     entries = await readdir(root);
   } catch {
-    return { states: new Map(), okCostSamples }; // 산출물 디렉토리 자체가 없으면 전원 미분석
+    return { states: new Map(), okCostSamples: [] }; // 산출물 디렉토리 자체가 없으면 전원 미분석
   }
   for (const entry of entries) {
     if (!entry.includes("__")) continue; // cohort.json 등 파일 제외
@@ -235,24 +258,7 @@ export async function scanExistingRuns(): Promise<LabBatchRunScan> {
       });
     }
   }
-  const resolved = resolveGrantRunStates(records, ANALYSIS_LAB_PROMPT_VERSION);
-  const states = new Map<string, GrantRunState>();
-  for (const [grantId, item] of resolved) {
-    states.set(grantId, {
-      ...item.state,
-      applicationFieldAnalysisReadyCurrent: item.latestCurrentTerminal
-        ? classifyApplicationFieldAnalysis(item.latestCurrentTerminal.applicationRoundtrip) !== "held"
-        : false,
-    });
-    const run = item.state.okCurrent ? item.latestCurrentTerminal : null;
-    if (run && typeof run.costUsd === "number") {
-      const roundtripCost = typeof run.applicationRoundtrip?.costUsd === "number"
-        ? run.applicationRoundtrip.costUsd
-        : 0;
-      okCostSamples.push(run.costUsd + roundtripCost);
-    }
-  }
-  return { states, okCostSamples };
+  return resolveLabBatchRunScan(records);
 }
 
 // ---- 모집기간 가드(2026-07-23 정책) ---------------------------------------------

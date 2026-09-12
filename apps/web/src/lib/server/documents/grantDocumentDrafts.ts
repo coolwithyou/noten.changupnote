@@ -362,9 +362,9 @@ export async function patchGrantDocumentDraftFieldAnswers(input: {
  * 를 draft 로드·프로필/회사 식별정보 resolve·멱등 저장에 배선한다. workspace 로더가 draft ensure 직후
  * 매 진입 시 호출한다. 사업자번호는 CompanyProfile 이 아니라 companies 정본에서만 읽는다.
  *
- * 멱등: `seedProfileFieldAnswers` 는 이미 답변이 있는 label 을 불변으로 두고 새 label 만 추가하므로,
- * 병합 결과의 키 개수가 늘었을 때만 실제 DB update 한다(무의미한 write·이벤트 로그 방지). 시드 답변은
- * suggested 라 파생 `filledFields`(accepted|edited)에는 영향이 없다 — 컨펌 게이트 불변식 유지.
+ * 멱등: `seedProfileFieldAnswers` 는 새 label 추가 또는 유일한 미승인 seed의 fieldId 재결속이 있을 때만
+ * 새 객체를 반환하므로 그때만 DB update 한다(무의미한 write·이벤트 로그 방지). 시드 답변은 suggested 라
+ * 파생 `filledFields`(accepted|edited)에는 영향이 없다 — 컨펌 게이트 불변식 유지.
  */
 export async function seedGrantDocumentDraftProfileAnswers(input: {
   draftId: string;
@@ -403,7 +403,7 @@ export async function seedGrantDocumentDraftProfileAnswers(input: {
     identity: { businessNumber },
     current: currentAnswers,
   });
-  const seeded = Object.keys(mergedAnswers).length !== Object.keys(currentAnswers).length;
+  const seeded = mergedAnswers !== currentAnswers;
   const filledFields = deriveFilledFields(mergedAnswers);
   if (!seeded) {
     return { fieldAnswers: currentAnswers, filledFields, seeded: false };
@@ -427,7 +427,7 @@ export async function seedGrantDocumentDraftProfileAnswers(input: {
     event: "profile_seeded",
     payload: {
       documentKey: row.documentKey,
-      seededLabels: Object.keys(mergedAnswers).length - Object.keys(currentAnswers).length,
+      seededLabels: Object.keys(mergedAnswers).filter((label) => mergedAnswers[label] !== currentAnswers[label]).length,
     },
   });
 

@@ -107,8 +107,10 @@ function normalizeBinding(
       applicationRoundtripReuse
       && (
         binding.sourceKind !== "independent_review_repair"
-        || !reviewRepair
-        || applicationRoundtripReuse.sourceLabRunId !== reviewRepair.sourceRunId
+        || (applicationRoundtripReuse.schema === "analysis-launch-application-roundtrip-reuse-v1"
+          ? !reviewRepair
+            || applicationRoundtripReuse.sourceLabRunId !== reviewRepair.sourceRunId
+          : reviewRepair !== undefined)
       )
     ) {
       throw new Error(`launch batch ${grantId}.applicationRoundtripReuse 결속이 잘못됐습니다.`);

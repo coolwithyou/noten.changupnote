@@ -9,7 +9,10 @@ import { buildChoiceCellReplacement, extractFieldOptions } from "@/lib/documents
 import { collectStudioFieldEvidence } from "@/lib/rhwp/studioFieldAgentTransaction";
 import { studioFieldDocumentSemanticSha256 } from "@/lib/rhwp/studioFieldDocumentManifest";
 import { resolveStudioFieldBindings } from "@/lib/rhwp/studioFieldBindings";
-import type { StudioFieldBindingTargetV1 } from "@/lib/rhwp/studioDocumentAgentProtocol";
+import {
+  sameStudioFieldBindingTarget,
+  type StudioFieldBindingTargetV1,
+} from "@/lib/rhwp/studioDocumentAgentProtocol";
 import { isLlmSuggestableLabel } from "./fieldSuggest";
 import { resolveFieldAnswers, type DraftFieldAnswer } from "./fieldAnswers";
 import { loadConnectedDocumentFields, resolveArchiveStorageKey } from "./documentFieldLink";
@@ -98,7 +101,7 @@ export async function rebuildFieldAgentAuthority(input: {
   if (!isSupportedField(field.fieldType, options, target) || !isLlmSuggestableLabel(field.label)) {
     throw new FieldAgentAuthorityError("field_unsupported", "이 필드는 현재 자동 입력 대상이 아닙니다.", 409);
   }
-  if (!sameTarget(target, input.requestedTarget)) {
+  if (!sameStudioFieldBindingTarget(target, input.requestedTarget)) {
     throw new FieldAgentAuthorityError("field_binding_mismatch", "요청한 필드 위치가 서버 binding과 다릅니다.", 409);
   }
   const evidence = await collectStudioFieldEvidence(rhwp, revision.body, target);
@@ -168,31 +171,6 @@ function isSupportedField(
   const normalized = fieldType.trim().toLocaleLowerCase("en-US");
   if (normalized === "long_text") return target.kind === "table_cell_region";
   return !["file", "table", "checkbox", "radio", "select"].includes(normalized);
-}
-
-function sameTarget(left: StudioFieldBindingTargetV1, right: StudioFieldBindingTargetV1): boolean {
-  if (left.kind !== right.kind || left.section !== right.section) return false;
-  if (left.kind === "body_paragraph_text" && right.kind === "body_paragraph_text") {
-    return left.paragraph === right.paragraph
-      && left.length === right.length
-      && left.valueStart === right.valueStart
-      && left.valueEnd === right.valueEnd;
-  }
-  if (left.kind === "form_text" && right.kind === "form_text") {
-    return left.paragraph === right.paragraph && left.fieldId === right.fieldId;
-  }
-  if (left.kind === "table_cell_text" && right.kind === "table_cell_text") {
-    return left.parentPara === right.parentPara
-      && left.controlIndex === right.controlIndex
-      && left.cellIndex === right.cellIndex
-      && left.cellParagraph === right.cellParagraph;
-  }
-  if (left.kind === "table_cell_region" && right.kind === "table_cell_region") {
-    return left.parentPara === right.parentPara
-      && left.controlIndex === right.controlIndex
-      && left.cellIndex === right.cellIndex;
-  }
-  return false;
 }
 
 function sha256(value: string): string {

@@ -68,8 +68,11 @@ export interface ReconciledField {
     normalizedLabel?: string;
     /** 사용자 표시명과 분리해 RHWP 원문 검색에 사용하는 실제 문서 라벨. */
     anchorLabel?: string;
-    /** 표 밖 단일 문단 입력의 native RHWP 재결속 계약. */
-    targetKind?: "body_paragraph_text";
+    /** 표 밖 단일 문단 또는 지시문과 같은 셀의 장문 입력을 위한 native RHWP 재결속 계약. */
+    targetKind?: "body_paragraph_text" | "table_cell_region";
+    targetRow?: number;
+    targetCol?: number;
+    protectedPrefixText?: string;
     valueStart?: number;
     valueEnd?: number;
     paragraphPrefix?: string;

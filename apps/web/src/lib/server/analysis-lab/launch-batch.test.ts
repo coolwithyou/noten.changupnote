@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { ANALYSIS_LAB_PROMPT_VERSION } from "@/lib/server/analysis-lab/lab-contract";
+import {
+  ANALYSIS_LAB_PROMPT_VERSION,
+  type LabApplicationRoundtripReference,
+} from "@/lib/server/analysis-lab/lab-contract";
 import { DEEP_ANALYSIS_VALIDATOR_VERSION } from "@/lib/server/deep-analysis/validator";
 import {
   AnalysisLabExecutionBindingMismatchError,
@@ -43,6 +46,7 @@ import {
   selectIndependentReviewRepairSequences,
 } from "./independent-review-repair-launch";
 import { hasLaunchBatchExecutionViolation } from "./analyze";
+import { resolveLabBatchRunScan } from "./batch-runner";
 import {
   independentReviewFindingsArePrimaryOnly,
   independentReviewFindingsMatchSourceRun,
@@ -102,7 +106,7 @@ test("launch manifest는 inventory drift를 target telemetry로 보존한다", (
   assert.equal(manifest.targets[1]?.changedSinceInventory, true);
   assert.equal(manifest.execution.withApplicationRoundtrip, true);
   assert.equal(manifest.execution.roundtripModel, "claude-opus-5");
-  assert.equal(manifest.execution.applicationFieldAnalysisVersion, "kordoc-application-roundtrip-v10");
+  assert.equal(manifest.execution.applicationFieldAnalysisVersion, "kordoc-application-roundtrip-v11");
   assert.deepEqual(normalizeAnalysisLaunchManifest(JSON.parse(encodeCanonical(manifest).toString("utf8"))), manifest);
 });
 
@@ -155,6 +159,62 @@ test("정식 launch publishable은 필드 분석 준비도까지 통과해야 �
     requireApplicationFieldAnalysis: true,
   });
   assert.deepEqual(fieldReady.skippedOk, [{ grantId: GRANT_0 }], "필드 준비도까지 통과한 현행 결과만 스킵");
+
+  const v10FieldReference = {
+    version: "kordoc-application-roundtrip-v10",
+    status: "partial" as const,
+    runId: "roundtrip-v10",
+    transport: "claude-cli" as const,
+    model: "claude-opus-5",
+    documentCount: 1,
+    sourceCount: 1,
+    applicationDocumentCount: 1,
+    fieldReadyDocumentCount: 1,
+    recognizedFieldCount: 15,
+    errorCode: null,
+    error: null,
+  };
+  const scanRecord = (identity: string, applicationRoundtrip: LabApplicationRoundtripReference) => ({
+    grantId: GRANT_0,
+    promptVersion: ANALYSIS_LAB_PROMPT_VERSION,
+    startedAt: "2026-09-11T00:00:00.000Z",
+    identity,
+    primaryValidationOutcome: "publishable",
+    error: null,
+    applicationRoundtrip,
+  });
+  const v10Scan = resolveLabBatchRunScan([scanRecord("v10.json", v10FieldReference)]);
+  assert.equal(v10Scan.states.get(GRANT_0)?.applicationFieldAnalysisReadyCurrent, false);
+  const v11LaunchAgainstV10 = partitionCohortEntries([{ grantId: GRANT_0 }], v10Scan.states, {
+    retryErrors: false,
+    reanalyzeOutdated: false,
+    requireApplicationFieldAnalysis: true,
+  });
+  assert.deepEqual(
+    v11LaunchAgainstV10.pending,
+    [{ grantId: GRANT_0 }],
+    "v10 필드 준비 이력이 있어도 v11 launch는 다시 실행",
+  );
+
+  const { version: _historicalVersion, ...noVersionFieldReference } = v10FieldReference;
+  const noVersionScan = resolveLabBatchRunScan([scanRecord("legacy.json", noVersionFieldReference)]);
+  assert.equal(
+    noVersionScan.states.get(GRANT_0)?.applicationFieldAnalysisReadyCurrent,
+    false,
+    "version 없는 역사 참조는 현행 필드 준비도로 인정하지 않음",
+  );
+
+  const v11Scan = resolveLabBatchRunScan([scanRecord("v11.json", {
+    ...v10FieldReference,
+    version: "kordoc-application-roundtrip-v11",
+  })]);
+  assert.equal(v11Scan.states.get(GRANT_0)?.applicationFieldAnalysisReadyCurrent, true);
+  const v11LaunchAgainstV11 = partitionCohortEntries([{ grantId: GRANT_0 }], v11Scan.states, {
+    retryErrors: false,
+    reanalyzeOutdated: false,
+    requireApplicationFieldAnalysis: true,
+  });
+  assert.deepEqual(v11LaunchAgainstV11.skippedOk, [{ grantId: GRANT_0 }], "v11 필드 준비 참조는 기존 skip을 보존");
 });
 
 test("과거 launch manifest는 새 source 정책 필드가 없어도 skip_existing으로 읽는다", () => {
@@ -396,7 +456,7 @@ test("독립 검수 합의 결함 재분석은 exact 원본 대상과 RHWP 필�
   assert.equal(repair.execution.existingRunPolicy, "rerun_exact_targets");
   assert.equal(repair.execution.withApplicationRoundtrip, true);
   assert.equal(repair.execution.roundtripModel, "claude-opus-5");
-  assert.equal(repair.execution.applicationFieldAnalysisVersion, "kordoc-application-roundtrip-v10");
+  assert.equal(repair.execution.applicationFieldAnalysisVersion, "kordoc-application-roundtrip-v11");
   assert.match(repair.targets[0]!.stratum, /original-3$/);
   assert.equal(repair.targets[0]!.reviewRepair?.blockingCount, 2);
   assert.match(repair.targets[0]!.reviewRepair?.taskInstruction ?? "", /결함 두 건/);
@@ -795,6 +855,116 @@ test("launch capability는 manifest에 exact 결속된 독립 검수 복구 지�
   });
 });
 
+test("launch capability는 failed primary application v2 재사용을 reviewRepair 없이 exact 결속한다", async () => {
+  const applicationRoundtripReuse = failedPrimaryReuseBinding(2, "run-failed-primary");
+  await withAnalysisLaunchBatchExecution({
+    grantSha256: SHA_D,
+    manifestSha256: SHA_C,
+    sourceKind: "independent_review_repair",
+    model: "claude-opus-5",
+    transport: "claude-cli",
+    promptVersion: ANALYSIS_LAB_PROMPT_VERSION,
+    withApplicationRoundtrip: true,
+    roundtripModel: "claude-opus-5",
+    targets: new Map([[GRANT_0, {
+      grantId: GRANT_0,
+      inputSha256: SHA_A,
+      attachmentManifestSha256: SHA_B,
+      applicationRoundtripReuse,
+    }]]),
+  }, async () => {
+    const binding = currentAnalysisLaunchBatchExecutionBinding();
+    assert.ok(binding);
+    const exact = {
+      transport: "claude-cli" as const,
+      model: "claude-opus-5",
+      withApplicationRoundtrip: true,
+      roundtripModel: "claude-opus-5",
+      exactApplicationRoundtripReuse: applicationRoundtripReuse,
+    };
+    assert.equal(hasLaunchBatchExecutionViolation(GRANT_0, exact, binding), false);
+    assert.equal(hasLaunchBatchExecutionViolation(GRANT_0, {
+      ...exact,
+      exactApplicationRoundtripReuse: {
+        ...applicationRoundtripReuse,
+        applicationFieldRuntimeSha256: SHA_A,
+      },
+    }, binding), true, "field runtime SHA를 live option에서 바꿀 수 없음");
+    assert.equal(hasLaunchBatchExecutionViolation(GRANT_0, {
+      ...exact,
+      taskInstruction: "가짜 검수 지시",
+      reviewRepair: {
+        sourceRunId: "run-failed-primary",
+        reviewModel: "gpt-6-astra",
+        auditModel: null,
+        adjudicationModel: null,
+        blockingCount: 1,
+      },
+    }, binding), true, "failed primary provenance에 가짜 reviewRepair를 주입할 수 없음");
+  });
+});
+
+test("independent review successor manifest는 v1 검수와 v2 failed primary provenance를 구분한다", () => {
+  const applicationRoundtripReuse = failedPrimaryReuseBinding(2, "run-failed-primary");
+  const failedPrimaryManifest = createIndependentReviewRepairAnalysisLaunchManifest({
+    aggregateSha256: SHA_D,
+    targets: [{
+      originalSequence: 2,
+      grantId: GRANT_0,
+      source: "bizinfo",
+      inputSha256: SHA_A,
+      attachmentManifestSha256: SHA_B,
+      applicationRoundtripReuse,
+    }],
+    preparedTargets: [{
+      grantId: GRANT_0,
+      inputSha256: SHA_A,
+      attachmentManifestSha256: SHA_B,
+    }],
+    provenance: {
+      gitSha: GIT_A,
+      packageRuntimeSha256: SHA_C,
+      validatorVersion: DEEP_ANALYSIS_VALIDATOR_VERSION,
+    },
+    concurrency: 1,
+    now: new Date("2026-09-11T00:00:00.000Z"),
+  });
+  assert.equal(
+    failedPrimaryManifest.targets[0]?.applicationRoundtripReuse?.schema,
+    "analysis-launch-application-roundtrip-reuse-v2",
+  );
+  assert.equal(failedPrimaryManifest.targets[0]?.reviewRepair, undefined);
+  assert.throws(() => createIndependentReviewRepairAnalysisLaunchManifest({
+    aggregateSha256: SHA_D,
+    targets: [{
+      originalSequence: 2,
+      grantId: GRANT_0,
+      source: "bizinfo",
+      inputSha256: SHA_A,
+      attachmentManifestSha256: SHA_B,
+      reviewRepair: {
+        sourceRunId: "run-failed-primary",
+        reviewModel: "gpt-6-astra",
+        blockingCount: 1,
+        taskInstruction: "가짜 검수 지시",
+      },
+      applicationRoundtripReuse,
+    }],
+    preparedTargets: [{
+      grantId: GRANT_0,
+      inputSha256: SHA_A,
+      attachmentManifestSha256: SHA_B,
+    }],
+    provenance: {
+      gitSha: GIT_A,
+      packageRuntimeSha256: SHA_C,
+      validatorVersion: DEEP_ANALYSIS_VALIDATOR_VERSION,
+    },
+    concurrency: 1,
+    now: new Date("2026-09-11T00:00:00.000Z"),
+  }), /Kordoc exact 재사용/, "v2에 reviewRepair를 함께 봉인할 수 없음");
+});
+
 test("launch CLI는 prepare/grant/run의 권한 단계를 분리한다", () => {
   assert.deepEqual(parseAnalysisLaunchCliArgs("prepare", [
     "--series=deep-v24",
@@ -950,5 +1120,20 @@ function reuseBinding(
     independentReviewManifestPath: "spike-out/analysis-lab/independent-review/review.manifest.json",
     independentReviewManifestSha256: SHA_C,
     sourceLaunchReceiptSha256: SHA_B,
+  };
+}
+
+function failedPrimaryReuseBinding(
+  sourceSequence: number,
+  sourceLabRunId: string,
+): Extract<AnalysisLaunchApplicationRoundtripReuseBinding, {
+  readonly schema: "analysis-launch-application-roundtrip-reuse-v2";
+}> {
+  const reviewed = reuseBinding(sourceSequence, sourceLabRunId);
+  return {
+    ...reviewed,
+    schema: "analysis-launch-application-roundtrip-reuse-v2",
+    sourceDisposition: "failed_primary_valid_application",
+    applicationFieldRuntimeSha256: SHA_D,
   };
 }

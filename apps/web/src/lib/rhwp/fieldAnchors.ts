@@ -22,6 +22,8 @@ export interface RhwpCellTarget {
   cellParagraph: number;
   /** 입력 셀의 서식을 추정할 때 참고하는 왼쪽 라벨 셀. 직접 지정 앵커에는 없을 수 있다. */
   labelCellIndex?: number;
+  /** 같은 셀 첫 문단을 byte-for-byte 보존해야 하는 장문 host binding 길이(code point). */
+  protectedPrefixChars?: number;
 }
 
 export interface RhwpChoiceAnchor {
@@ -119,6 +121,12 @@ export interface RhwpAnchorDocument {
     cellIndex: number,
     cellParagraph: number,
   ): number;
+  getCellParagraphCount?(
+    section: number,
+    parentPara: number,
+    controlIndex: number,
+    cellIndex: number,
+  ): number;
   getTextInCell?(
     section: number,
     parentPara: number,
@@ -135,6 +143,13 @@ export interface RhwpAnchorDocument {
     cellIndex: number,
     cellParagraph: number,
     charOffset: number,
+  ): string;
+  getCellParaPropertiesAt?(
+    section: number,
+    parentPara: number,
+    controlIndex: number,
+    cellIndex: number,
+    cellParagraph: number,
   ): string;
   getCellOwnProperties?(
     section: number,
@@ -380,13 +395,15 @@ function rowOverlaps(a: CellBox, b: CellBox): boolean {
   return a.row < bEnd && b.row < aEnd;
 }
 
-function targetCellForLabel(labelCell: CellBox, cells: readonly CellBox[]): CellBox | null {
+function rightCellForLabel(labelCell: CellBox, cells: readonly CellBox[]): CellBox | null {
   const labelEnd = labelCell.col + (labelCell.colSpan ?? 1);
-  const right = cells
+  return cells
     .filter((cell) => cell.pageIndex === labelCell.pageIndex && rowOverlaps(labelCell, cell) && cell.col >= labelEnd)
-    .sort((a, b) => a.col - b.col || a.cellIdx - b.cellIdx)[0];
-  if (right) return right;
+    .sort((a, b) => a.col - b.col || a.cellIdx - b.cellIdx)[0] ?? null;
+}
 
+function belowCellForLabel(labelCell: CellBox, cells: readonly CellBox[]): CellBox | null {
+  const labelEnd = labelCell.col + (labelCell.colSpan ?? 1);
   // 일부 사업계획서는 "□ 창업 계획" 제목 행 바로 아래 한 칸 전체를 입력 영역으로 쓴다.
   // 같은 열 범위에서 가장 가까운 아래 셀만 허용해 옆/아래를 임의 추정하지 않는다.
   const labelRowEnd = labelCell.row + (labelCell.rowSpan ?? 1);
@@ -399,6 +416,58 @@ function targetCellForLabel(labelCell: CellBox, cells: readonly CellBox[]): Cell
     .sort((a, b) => a.row - b.row || Math.abs(a.col - labelCell.col) - Math.abs(b.col - labelCell.col)
       || a.cellIdx - b.cellIdx)[0];
   return below ?? null;
+}
+
+function isSafeLongTextValueCell(
+  document: RhwpAnchorDocument,
+  field: RhwpFieldDescriptor,
+  hit: SearchHit,
+  target: CellBox,
+): boolean {
+  if (!document.getCellParagraphCount || !document.getCellParagraphLength || !document.getTextInCell) return false;
+  try {
+    const paragraphCount = document.getCellParagraphCount(
+      hit.sec,
+      hit.cellContext!.parentPara,
+      hit.cellContext!.ctrlIdx,
+      target.cellIdx,
+    );
+    if (paragraphCount !== 1) return false;
+    const length = document.getCellParagraphLength(
+      hit.sec,
+      hit.cellContext!.parentPara,
+      hit.cellContext!.ctrlIdx,
+      target.cellIdx,
+      0,
+    );
+    if (!Number.isSafeInteger(length) || length < 0 || length > 4_000) return false;
+    const text = length === 0 ? "" : textFromCellResult(document.getTextInCell(
+      hit.sec,
+      hit.cellContext!.parentPara,
+      hit.cellContext!.ctrlIdx,
+      target.cellIdx,
+      0,
+      0,
+      length,
+    ));
+    if (text.trim().length === 0) return true;
+    if (!document.getCellCharPropertiesAt) return false;
+    const visibleOffset = Math.max(0, text.search(/\S/u));
+    return isReplaceableRhwpGuide(
+      text.trim(),
+      field.sourceSpan,
+      parseRhwpCellCharProperties(document.getCellCharPropertiesAt(
+        hit.sec,
+        hit.cellContext!.parentPara,
+        hit.cellContext!.ctrlIdx,
+        target.cellIdx,
+        0,
+        visibleOffset,
+      )),
+    );
+  } catch {
+    return false;
+  }
 }
 
 function candidateDistance(box: NormalizedBox, hint: NormalizedBox | null): number {
@@ -485,11 +554,27 @@ function enumerateFieldCandidates(
       const cells = context.tableCache.get(tableKey) ?? [];
       const labelCell = cells.find((cell) => cell.cellIdx === cellContext.cellIdx);
       if (!labelCell) continue;
+      const protectedRegionRequested = isLongTextField(field)
+        && field.position?.targetKind === "table_cell_region";
+      const declaredProtectedPrefix = protectedRegionRequested
+        ? declaredProtectedRegionPrefix(field, labelCell)
+        : null;
+      const protectedPrefixChars = declaredProtectedPrefix === null
+        ? null
+        : protectedSameCellPrefixChars(document, hit, declaredProtectedPrefix);
+      // 명시된 same-cell 계약은 prefix를 완전히 증명한 경우에만 쓴다.
+      if (protectedRegionRequested && protectedPrefixChars === null) continue;
       // `(예정지)※해당시 주소 기재`처럼 값 셀 자체에 placeholder가 들어 있는 경우에는
       // 오른쪽/아래 셀을 추측하지 않고 exact하게 그 셀 자체를 입력 대상으로 삼는다.
-      const targetCell = isSelfTargetingPlaceholder(anchorLabel)
-        ? labelCell
-        : targetCellForLabel(labelCell, cells);
+      let targetCell: CellBox | null;
+      if (protectedPrefixChars !== null || isSelfTargetingPlaceholder(anchorLabel)) {
+        targetCell = labelCell;
+      } else {
+        const right = rightCellForLabel(labelCell, cells);
+        const below = right ? null : belowCellForLabel(labelCell, cells);
+        if (isLongTextField(field) && below && !isSafeLongTextValueCell(document, field, hit, below)) continue;
+        targetCell = right ?? below;
+      }
       if (!targetCell) continue;
       const pageInfo = pageInfoAt(targetCell.pageIndex);
       if (!pageInfo) continue;
@@ -506,6 +591,7 @@ function enumerateFieldCandidates(
         cellIndex: targetCell.cellIdx,
         cellParagraph: 0,
         labelCellIndex: labelCell.cellIdx,
+        ...(protectedPrefixChars === null ? {} : { protectedPrefixChars }),
       };
       const anchor: RhwpFieldAnchor = {
         fieldId: field.fieldId,
@@ -674,6 +760,100 @@ function exactStructuralOccurrence(field: RhwpFieldDescriptor): number | null {
 function isSelfTargetingPlaceholder(label: string): boolean {
   const compact = label.replace(/\s+/g, " ").trim();
   return /^\([^)]{2,40}\).{0,40}(?:기재|작성|입력)$/u.test(compact);
+}
+
+function isLongTextField(field: RhwpFieldDescriptor): boolean {
+  return field.fieldType.normalize("NFKC").trim().toLocaleLowerCase("en-US") === "long_text";
+}
+
+function declaredProtectedRegionPrefix(
+  field: RhwpFieldDescriptor,
+  cell: CellBox,
+): string | null {
+  const position = field.position;
+  if (!position) return null;
+  const row = position.targetRow;
+  const col = position.targetCol;
+  const prefix = position.protectedPrefixText;
+  const anchorLabel = field.anchorLabel?.trim() || field.label.trim();
+  if (!Number.isSafeInteger(row)
+      || !Number.isSafeInteger(col)
+      || row !== cell.row
+      || col !== cell.col
+      || typeof prefix !== "string"
+      || prefix !== anchorLabel
+      || prefix.length < 1
+      || prefix.length > 4_000
+      || prefix.includes("\n")) return null;
+  return prefix;
+}
+
+function protectedSameCellPrefixChars(
+  document: RhwpAnchorDocument,
+  hit: SearchHit,
+  expected: string,
+): number | null {
+  const cell = hit.cellContext;
+  if (!cell
+      || (cell.cellPara ?? 0) !== 0
+      || hit.charOffset !== 0
+      || !document.getCellParagraphCount
+      || !document.getCellParagraphLength
+      || !document.getTextInCell
+      || !document.getCellCharPropertiesAt
+      || !document.getCellParaPropertiesAt) return null;
+  try {
+    const paragraphCount = document.getCellParagraphCount(
+      hit.sec,
+      cell.parentPara,
+      cell.ctrlIdx,
+      cell.cellIdx,
+    );
+    const length = document.getCellParagraphLength(
+      hit.sec,
+      cell.parentPara,
+      cell.ctrlIdx,
+      cell.cellIdx,
+      0,
+    );
+    if (!Number.isSafeInteger(paragraphCount) || paragraphCount < 1
+        || !Number.isSafeInteger(length) || length < 1 || length > 4_000) return null;
+    const text = textFromCellResult(document.getTextInCell(
+      hit.sec,
+      cell.parentPara,
+      cell.ctrlIdx,
+      cell.cellIdx,
+      0,
+      0,
+      length,
+    ));
+    if (text !== expected || Array.from(text).length !== length || text.includes("\n")) return null;
+    let charShapeId: number | null = null;
+    for (let offset = 0; offset < length; offset += 1) {
+      const properties = JSON.parse(document.getCellCharPropertiesAt(
+        hit.sec,
+        cell.parentPara,
+        cell.ctrlIdx,
+        cell.cellIdx,
+        0,
+        offset,
+      )) as { charShapeId?: unknown };
+      if (!Number.isSafeInteger(properties.charShapeId) || (properties.charShapeId as number) < 0) return null;
+      if (charShapeId === null) charShapeId = properties.charShapeId as number;
+      else if (charShapeId !== properties.charShapeId) return null;
+    }
+    const paragraph = JSON.parse(document.getCellParaPropertiesAt(
+      hit.sec,
+      cell.parentPara,
+      cell.ctrlIdx,
+      cell.cellIdx,
+      0,
+    )) as { paraShapeId?: unknown };
+    if (!Number.isSafeInteger(paragraph.paraShapeId) || (paragraph.paraShapeId as number) < 0) return null;
+    return length;
+  } catch {
+    return null;
+  }
 }
 
 /** 사용자가 rhwp 페이지에서 직접 누른 표 셀을 세션용 정확 앵커로 변환한다. */

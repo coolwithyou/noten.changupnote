@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import type { RoundtripFieldCandidate } from "@/lib/server/analysis-lab/application-roundtrip/contract";
-import { finalizeRoundtripFieldCoverage } from "./field-coverage";
+import { detectUnsupportedNativeInputGaps, finalizeRoundtripFieldCoverage } from "./field-coverage";
 
 const accepted = field({ id: "company-intro", label: "회사소개*", required: true, recommendedInput: true });
 const complete = finalizeRoundtripFieldCoverage([accepted]);
@@ -139,6 +139,75 @@ const paragraphCoverage = finalizeRoundtripFieldCoverage([paragraphField]);
 assert.equal(paragraphCoverage.status, "complete");
 assert.equal(paragraphCoverage.anchorReadyInputCount, 1);
 assert.equal(paragraphCoverage.anchorUnreadyInputCount, 0);
+
+const unsupportedBlocks = [{
+  type: "table" as const,
+  table: {
+    rows: 2,
+    cols: 2,
+    hasHeader: false,
+    cells: [
+      [
+        { text: "남성 :    명 / 여성 :     명", colSpan: 1, rowSpan: 1 },
+        { text: "정규직:    명 / 비정규직:   명", colSpan: 1, rowSpan: 1 },
+      ],
+      [
+        { text: "□ 노무관리진단", colSpan: 1, rowSpan: 1 },
+        { text: "□ 임금명세서 발급지원", colSpan: 1, rowSpan: 1 },
+      ],
+    ],
+  },
+}];
+const unsupportedGaps = detectUnsupportedNativeInputGaps({
+  blocks: unsupportedBlocks,
+  fields: [],
+  role: "application_form",
+});
+assert.equal(unsupportedGaps.length, 4, "미결속 복수 숫자 입력과 텍스트 체크박스를 모두 경고해야 한다");
+const unsupportedCoverage = finalizeRoundtripFieldCoverage([], unsupportedGaps);
+assert.equal(unsupportedCoverage.status, "partial");
+assert.equal(unsupportedCoverage.structuralWarningCount, 4);
+assert.equal(unsupportedCoverage.acceptedInputCount, 0, "미지원 gap을 쓰기 후보로 승격하면 안 된다");
+
+assert.deepEqual(
+  detectUnsupportedNativeInputGaps({ blocks: unsupportedBlocks, fields: [], role: "evidence" }),
+  [],
+  "동의·증빙 문서의 고정 표기를 신청서 field coverage로 확대하면 안 된다",
+);
+
+const boundInline = field({
+  id: "bound-inline-counts",
+  label: "성별 인원",
+  recommendedInput: true,
+  source: "contextual-region",
+  writeOperation: "replace_span",
+  targetText: "남성 :    명 / 여성 :     명",
+});
+boundInline.location.blockIndex = 0;
+boundInline.location.row = 0;
+boundInline.location.col = 0;
+boundInline.location.target!.row = 0;
+boundInline.location.target!.col = 0;
+const boundCheckbox = field({
+  id: "bound-checkbox",
+  label: "노무관리진단",
+  recommendedInput: true,
+  source: "contextual-region",
+  writeOperation: "toggle_text_choice",
+  targetText: "□ 노무관리진단",
+});
+boundCheckbox.location.blockIndex = 0;
+boundCheckbox.location.row = 1;
+boundCheckbox.location.col = 0;
+boundCheckbox.location.target!.row = 1;
+boundCheckbox.location.target!.col = 0;
+const remainingGaps = detectUnsupportedNativeInputGaps({
+  blocks: unsupportedBlocks,
+  fields: [boundInline, boundCheckbox],
+  role: "application_form",
+});
+assert.equal(remainingGaps.length, 2, "이미 exact 결속된 셀을 미지원 gap으로 중복 경고하면 안 된다");
+assert.deepEqual(remainingGaps.map((gap) => [gap.location.row, gap.location.col]), [[0, 1], [1, 1]]);
 
 console.log("application-roundtrip field coverage tests: ok");
 

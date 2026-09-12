@@ -4,7 +4,8 @@
  * 규범: docs/plans/2026-07-09-apply-experience-v2.md §4.3(컨펌 규약)·§8 Phase 2 P2-7.
  *
  * `mappedCompanyField` 가 있는 필드에 회사 프로필 값을 `status:"suggested", source:"profile",
- * basis:"사업자 정보"` 로 시드한다(LLM 미경유). **멱등** — 이미 답변이 있는 label 은 불변.
+ * basis:"사업자 정보"` 로 시드한다(LLM 미경유). 기존 사용자 결정은 불변으로 두고, 위치가
+ * 유일하게 확정된 미승인 template/profile 시드만 현재 fieldId에 결속한다.
  *
  * 순수 함수다. 호출 배선(필드 로드·프로필 resolve·저장)은 P2b workspace 로더가 담당한다.
  */
@@ -68,8 +69,9 @@ export function resolveProfileValueForMappedField(
 }
 
 /**
- * 프로필 시드 적용(멱등). 기존 답변이 있는 label 은 절대 덮어쓰지 않는다.
- * 프로필 값이 있는 mapped 필드만 `suggested/profile` 로 추가한다.
+ * 프로필 시드 적용(멱등). 프로필 값이 있는 mapped 필드만 `suggested/profile` 로 추가한다.
+ * 기존 답변은 유일한 label의 미승인 template 값 또는 같은 profile 값에 fieldId를 결속할 때만
+ * 갱신한다. accepted/edited/dismissed 및 user/llm 출처는 그대로 보존한다.
  */
 export function seedProfileFieldAnswers(input: {
   fields: SeedFieldInput[];
@@ -79,12 +81,18 @@ export function seedProfileFieldAnswers(input: {
   at?: string;
 }): DraftFieldAnswers {
   const at = input.at ?? new Date().toISOString();
-  const next: DraftFieldAnswers = { ...input.current };
+  let next = input.current;
+  const normalizedLabelCounts = new Map<string, number>();
+  for (const field of input.fields) {
+    const identity = normalizedSeedLabelIdentity(field.label);
+    if (identity) normalizedLabelCounts.set(identity, (normalizedLabelCounts.get(identity) ?? 0) + 1);
+  }
   for (const field of input.fields) {
     if (!field.mappedCompanyField) continue;
     const label = normalizeAnswerLabel(field.label);
     if (!label) continue;
-    if (next[label]) continue; // 멱등: 기존 답변 label 불변
+    const labelIdentity = normalizedSeedLabelIdentity(label);
+    if (normalizedLabelCounts.get(labelIdentity) !== 1) continue;
     const resolved = resolveProfileValueForMappedField(
       field.mappedCompanyField,
       input.profile,
@@ -93,6 +101,18 @@ export function seedProfileFieldAnswers(input: {
     if (!resolved) continue;
     const value = normalizeAnswerValue(resolved);
     if (!value) continue;
+    const existing = next[label];
+    if (existing) {
+      const canRebindUnapprovedTemplate = existing.status === "suggested"
+        && existing.source === "template"
+        && Boolean(field.fieldId);
+      const canBindMatchingProfileSeed = existing.status === "suggested"
+        && existing.source === "profile"
+        && existing.value === value
+        && !existing.fieldId
+        && Boolean(field.fieldId);
+      if (!canRebindUnapprovedTemplate && !canBindMatchingProfileSeed) continue;
+    }
     const answer: DraftFieldAnswer = {
       value,
       status: "suggested",
@@ -102,9 +122,14 @@ export function seedProfileFieldAnswers(input: {
       updatedAt: at,
     };
     if (field.fieldId) answer.fieldId = field.fieldId;
+    if (next === input.current) next = { ...input.current };
     next[label] = answer;
   }
   return next;
+}
+
+function normalizedSeedLabelIdentity(value: string): string {
+  return normalizeAnswerLabel(value).normalize("NFKC").replace(/\s+/gu, "");
 }
 
 function cleanText(value: string | null | undefined): string | null {

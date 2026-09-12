@@ -1,16 +1,23 @@
 import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, relative, sep } from "node:path";
+import { promisify } from "node:util";
 import { DEEP_ANALYSIS_VALIDATOR_VERSION } from "@/lib/server/deep-analysis/validator";
 import {
   analysisLaunchArtifactPath,
+  createAnalysisLaunchManifest,
   createIndependentReviewRepairAnalysisLaunchManifest,
   writeAnalysisLaunchArtifact,
   type AnalysisLaunchApplicationRoundtripReuseBinding,
   type AnalysisLaunchReceipt,
 } from "./launch-batch-artifacts";
+import {
+  APPLICATION_FIELD_RUNTIME_PATHS,
+  computeApplicationFieldRuntimeSha256,
+} from "./application-field-runtime-provenance";
 import { verifyIndependentReviewApplicationRoundtripReuseBinding } from "./independent-review-repair-launch-production";
 
 const SHA_A = "a".repeat(64);
@@ -20,6 +27,7 @@ const GRANT_ID = "00000000-0000-4000-8000-000000000001";
 const SOURCE_RUN_ID = "run-2026-09-09T000000.000Z-a1b2c3";
 const ROUNDTRIP_RUN_ID = "roundtrip-2026-09-09T000000.000Z-a1b2c3";
 const SOURCE_SEQUENCE = 7;
+const execFileAsync = promisify(execFile);
 const root = await mkdtemp(join(tmpdir(), "cunote-independent-reuse-"));
 
 try {
@@ -204,6 +212,7 @@ try {
     "실행 직전 review packet bytes가 바뀌면 재사용을 거부",
   );
   await writeFile(packetPath, packetBytes);
+  await verifyFailedPrimaryReuseV2();
   await writeFile(sourceRunPath, Buffer.concat([sourceRunBytes, Buffer.from("\n")]));
   await assert.rejects(
     verifyIndependentReviewApplicationRoundtripReuseBinding({ manifest, target, repositoryRoot: root }),
@@ -222,4 +231,212 @@ function sha256(bytes: Uint8Array): string {
 
 function repositoryPath(root: string, path: string): string {
   return relative(root, path).split(sep).join("/");
+}
+
+async function verifyFailedPrimaryReuseV2(): Promise<void> {
+  const repositoryRoot = await mkdtemp(join(tmpdir(), "cunote-failed-primary-reuse-"));
+  const sourceSequence = 0;
+  try {
+    for (const [index, path] of APPLICATION_FIELD_RUNTIME_PATHS.entries()) {
+      const absolutePath = join(repositoryRoot, path);
+      await mkdir(dirname(absolutePath), { recursive: true });
+      await writeFile(absolutePath, `export const fixture${index} = ${index};\n`, "utf8");
+    }
+    await execFileAsync("git", ["init", "-q"], { cwd: repositoryRoot });
+    await execFileAsync("git", ["config", "user.name", "Cunote Test"], { cwd: repositoryRoot });
+    await execFileAsync("git", ["config", "user.email", "test@invalid.local"], { cwd: repositoryRoot });
+    await execFileAsync("git", ["add", "."], { cwd: repositoryRoot });
+    await execFileAsync("git", ["commit", "-q", "-m", "테스트 런타임 봉인"], { cwd: repositoryRoot });
+    const { stdout } = await execFileAsync("git", ["rev-parse", "HEAD"], {
+      cwd: repositoryRoot,
+      encoding: "utf8",
+    });
+    const gitSha = stdout.trim();
+    const fieldRuntimeSha256 = await computeApplicationFieldRuntimeSha256({ repositoryRoot, gitSha });
+    assert.equal(
+      fieldRuntimeSha256,
+      await computeApplicationFieldRuntimeSha256({ repositoryRoot }),
+      "source commit과 현재 field semantic dependency bytes가 같아야 함",
+    );
+
+    const sourceManifest = createAnalysisLaunchManifest({
+      inventory: {
+        seriesId: "failed-primary-source",
+        planSha256: SHA_A,
+        planArtifactSha256: SHA_B,
+        model: "claude-opus-5",
+        targets: [{
+          sequence: sourceSequence,
+          grantId: GRANT_ID,
+          stratum: "bizinfo/medium",
+          inputSha256: SHA_A,
+          attachmentManifestSha256: SHA_B,
+        }],
+      },
+      sequenceFrom: sourceSequence,
+      sequenceTo: sourceSequence,
+      preparedTargets: [{
+        grantId: GRANT_ID,
+        inputSha256: SHA_A,
+        attachmentManifestSha256: SHA_B,
+      }],
+      provenance: {
+        gitSha,
+        packageRuntimeSha256: SHA_C,
+        validatorVersion: DEEP_ANALYSIS_VALIDATOR_VERSION,
+      },
+      withApplicationRoundtrip: true,
+      roundtripModel: "claude-opus-5",
+      concurrency: 1,
+      now: new Date("2026-09-11T00:00:00.000Z"),
+    });
+    const storedSourceManifest = await writeAnalysisLaunchArtifact("manifests", sourceManifest, repositoryRoot);
+    const sourceRunPath = join(repositoryRoot, "spike-out", "analysis-lab", "failed-run.json");
+    await mkdir(dirname(sourceRunPath), { recursive: true });
+    const sourceRunBytes = Buffer.from(JSON.stringify({
+      runId: SOURCE_RUN_ID,
+      grantId: GRANT_ID,
+      source: "bizinfo",
+      sourceId: "fixture-source",
+      inputSha256: SHA_A,
+      attachmentManifestSha256: SHA_B,
+      criteria: [],
+      axisAssessments: [],
+      applicationRoundtrip: {
+        status: "partial",
+        runId: ROUNDTRIP_RUN_ID,
+        transport: "claude-cli",
+        model: "claude-opus-5",
+        documentCount: 1,
+        sourceCount: 1,
+        applicationDocumentCount: 1,
+        fieldReadyDocumentCount: 1,
+        recognizedFieldCount: 1,
+        errorCode: null,
+        error: null,
+        adjudicationStatus: "not_needed",
+        remainingUnresolvedCandidateCount: 0,
+      },
+      error: "primary validator failed",
+    }), "utf8");
+    await writeFile(sourceRunPath, sourceRunBytes);
+    const sourceRunSha256 = sha256(sourceRunBytes);
+    const sourceReceipt: AnalysisLaunchReceipt = {
+      schema: "analysis-launch-receipt-v1",
+      grantSha256: SHA_A,
+      manifestSha256: storedSourceManifest.sha256,
+      startedAt: "2026-09-11T00:00:00.000Z",
+      finishedAt: "2026-09-11T00:01:00.000Z",
+      lifecycle: "finished",
+      stopReason: "completed",
+      systemicFailure: null,
+      summary: { publishable: 0, held: 0, failed: 1, skipped: 0 },
+      targets: [{
+        sequence: sourceSequence,
+        grantId: GRANT_ID,
+        status: "failed",
+        runArtifactPath: repositoryPath(repositoryRoot, sourceRunPath),
+        runArtifactSha256: sourceRunSha256,
+        applicationRoundtripStatus: "partial",
+        applicationDocumentCount: 1,
+        fieldReadyDocumentCount: 1,
+        recognizedFieldCount: 1,
+        error: "primary validator failed",
+      }],
+    };
+    const storedReceipt = await writeAnalysisLaunchArtifact("receipts", sourceReceipt, repositoryRoot);
+    const reviewDir = join(repositoryRoot, "spike-out", "analysis-lab", "independent-review", "failed");
+    await mkdir(reviewDir, { recursive: true });
+    const reviewManifestBytes = Buffer.from(JSON.stringify({
+      schema: "independent-ai-review-manifest-v2",
+      launchReceiptPath: repositoryPath(repositoryRoot, storedReceipt.path),
+      launchReceiptSha256: storedReceipt.sha256,
+      launchManifestSha256: storedSourceManifest.sha256,
+      launchGrantSha256: SHA_A,
+      packets: [],
+    }), "utf8");
+    const reviewManifestSha256 = sha256(reviewManifestBytes);
+    const reviewManifestPath = join(reviewDir, `${reviewManifestSha256}.manifest.json`);
+    await writeFile(reviewManifestPath, reviewManifestBytes);
+    const aggregateBytes = Buffer.from(JSON.stringify({
+      schema: "independent-ai-review-aggregate-v2",
+      manifestSha256: reviewManifestSha256,
+      launchReceiptSha256: storedReceipt.sha256,
+      consensus: {
+        defectCount: 1,
+        unresolvedCount: 0,
+        affectedTargets: [99],
+        defects: [{ sequence: 99, kind: "criterion", key: 0, verdict: "needs_edit", classification: "defect" }],
+        unresolved: [],
+      },
+      admission: { reviewedTargetsStatus: "HOLD", reasons: ["consensus_defects:1"] },
+      reviewerSummaries: { codex: { model: "gpt-6-astra" } },
+      heldAudit: [{
+        sequence: sourceSequence,
+        grantId: GRANT_ID,
+        status: "failed",
+        runArtifactPath: repositoryPath(repositoryRoot, sourceRunPath),
+        runArtifactSha256: sourceRunSha256,
+        verified: true,
+      }],
+      policy: { databaseWrites: false, promotion: false, deployment: false },
+    }), "utf8");
+    const aggregateSha256 = sha256(aggregateBytes);
+    const aggregatePath = join(reviewDir, `${aggregateSha256}.aggregate.json`);
+    await writeFile(aggregatePath, aggregateBytes);
+    const binding: AnalysisLaunchApplicationRoundtripReuseBinding = {
+      schema: "analysis-launch-application-roundtrip-reuse-v2",
+      sourceDisposition: "failed_primary_valid_application",
+      applicationFieldRuntimeSha256: fieldRuntimeSha256,
+      sourceSequence,
+      sourceLabRunId: SOURCE_RUN_ID,
+      sourceLabRunArtifactPath: repositoryPath(repositoryRoot, sourceRunPath),
+      sourceLabRunArtifactSha256: sourceRunSha256,
+      sourceRoundtripRunId: ROUNDTRIP_RUN_ID,
+      analysisArtifactSha256: SHA_A,
+      manifestArtifactSha256: SHA_B,
+      parsedMarkdown: [{ attachmentId: "attachment-1", sha256: SHA_C }],
+      independentReviewAggregatePath: repositoryPath(repositoryRoot, aggregatePath),
+      independentReviewAggregateSha256: aggregateSha256,
+      independentReviewManifestPath: repositoryPath(repositoryRoot, reviewManifestPath),
+      independentReviewManifestSha256: reviewManifestSha256,
+      sourceLaunchReceiptSha256: storedReceipt.sha256,
+    };
+    const successor = createIndependentReviewRepairAnalysisLaunchManifest({
+      aggregateSha256,
+      targets: [{
+        originalSequence: sourceSequence,
+        grantId: GRANT_ID,
+        source: "bizinfo",
+        inputSha256: SHA_A,
+        attachmentManifestSha256: SHA_B,
+        applicationRoundtripReuse: binding,
+      }],
+      preparedTargets: [{
+        grantId: GRANT_ID,
+        inputSha256: SHA_A,
+        attachmentManifestSha256: SHA_B,
+      }],
+      provenance: { gitSha, packageRuntimeSha256: SHA_C, validatorVersion: DEEP_ANALYSIS_VALIDATOR_VERSION },
+      concurrency: 1,
+      now: new Date("2026-09-11T00:02:00.000Z"),
+    });
+    await verifyIndependentReviewApplicationRoundtripReuseBinding({
+      manifest: successor,
+      target: successor.targets[0]!,
+      repositoryRoot,
+    });
+    await writeFile(join(repositoryRoot, APPLICATION_FIELD_RUNTIME_PATHS[0]), "runtime changed\n", "utf8");
+    await assert.rejects(
+      verifyIndependentReviewApplicationRoundtripReuseBinding({
+        manifest: successor,
+        target: successor.targets[0]!,
+        repositoryRoot,
+      }),
+      /field runtime SHA/,
+      "같은 version이어도 field prompt/runtime bytes가 바뀌면 v2 재사용 거부",
+    );
+  } finally {
+    await rm(repositoryRoot, { recursive: true, force: true });
+  }
 }

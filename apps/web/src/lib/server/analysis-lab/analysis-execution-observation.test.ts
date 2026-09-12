@@ -8,6 +8,11 @@ import {
   APPLICATION_ROUNDTRIP_VERSION,
 } from "./application-roundtrip/contract";
 import { observeAnalysisLaunchExecution } from "./analysis-execution-observation";
+import {
+  aggregateAnalysisExecutionSidecarEvents,
+  appendAnalysisExecutionSidecarEvent,
+  type AnalysisExecutionSidecarEvent,
+} from "./analysis-request-observation";
 import { parseAnalysisExecutionObservationCliArgs } from "./analysis-execution-observation-cli";
 import {
   writeAnalysisLaunchArtifact,
@@ -38,6 +43,39 @@ assert.throws(
   ]),
   /인자가 잘못됐습니다/,
 );
+
+const sidecarAggregate = aggregateAnalysisExecutionSidecarEvents([
+  requestObservation({ requestId: "request-primary", stage: "primary", enqueued: 0, started: 10, ended: 40 }),
+  requestObservation({ requestId: "request-application", stage: "application", enqueued: 15, started: 20, ended: 50 }),
+  {
+    schema: "analysis-reuse-observation-v1",
+    authority: "unsealed_local_observation",
+    processInstanceId: "process-fixture",
+    manifestSha256: "a".repeat(64),
+    runId: "run-fixture",
+    grantId: GRANT_ID,
+    stage: "application",
+    mode: "reused",
+    sourceRunId: "roundtrip-source",
+    sourceAnalysisArtifactSha256: "b".repeat(64),
+    sourceManifestArtifactSha256: "c".repeat(64),
+    newModelRequestCount: 0,
+    observedAt: "2026-09-11T00:00:00.050Z",
+  },
+]);
+assert.deepEqual(sidecarAggregate, {
+  requestCount: 2,
+  queueWaitMs: 15,
+  executionWorkMs: 60,
+  executionWallMs: 40,
+  reusedApplicationCount: 1,
+  newApplicationModelRequestCount: 1,
+  modelInputTokens: 30,
+  modelOutputTokens: 12,
+  cacheReadInputTokens: 0,
+  missingModelUsageRequestCount: 0,
+  incompleteEventCount: 0,
+}, "병렬 request의 work는 합산하고 wall은 겹침을 한 번만 세며 reuse를 신규 호출과 분리");
 
 try {
   await writeFile(join(ROOT, "pnpm-workspace.yaml"), "packages: []\n", "utf8");
@@ -103,6 +141,20 @@ try {
     durationMs: 150,
     plannerDurationMs: 110,
     requestCount: 2,
+  });
+  await appendAnalysisExecutionSidecarEvent({
+    repositoryRoot: ROOT,
+    event: {
+      ...requestObservation({
+        requestId: "request-first-primary",
+        stage: "primary",
+        enqueued: 0,
+        started: 10,
+        ended: 130,
+      }),
+      manifestSha256: storedManifest.sha256,
+      runId: firstRun.runId,
+    },
   });
   const secondRun = await writeLabRun({
     runId: "run-2026-09-09T000400.000Z-d4e5f6",
@@ -176,6 +228,22 @@ try {
     status: "unverified",
     reason: "target_started_at_not_sealed_in_terminal_receipt",
   });
+  assert.deepEqual(report.timing.requestSidecar, {
+    authority: "unsealed_local_observation",
+    requestCount: 1,
+    queueWaitMs: 10,
+    executionWorkMs: 120,
+    executionWallMs: 120,
+    reusedApplicationCount: 0,
+    newApplicationModelRequestCount: 0,
+    modelInputTokens: 10,
+    modelOutputTokens: 4,
+    cacheReadInputTokens: 0,
+    missingModelUsageRequestCount: 0,
+    incompleteEventCount: 0,
+    observedTargetAttemptCount: 1,
+    missingTargetAttemptCount: 2,
+  });
   assert.deepEqual(report.nominalCost.deepAnalysis, {
     observedSubtotalUsd: 1.5,
     observedAttemptCount: 1,
@@ -191,6 +259,17 @@ try {
   assert.equal(report.targetAttempts[0]?.applicationRoundtrip?.locallyObservedAnalysisSha256.length, 64);
   assert.equal(report.targetAttempts[0]?.applicationRoundtrip?.locallyObservedManifestSha256.length, 64);
   assert.equal(report.targetAttempts[0]?.applicationRoundtrip?.hashBinding, "unsealed_local_observation");
+  assert.deepEqual(report.targetAttempts[0]?.primaryRepairObservation, {
+    authority: "exact_sha_bound_lab_run",
+    terminationReason: "accepted",
+    transitions: [{
+      attempt: 1,
+      reasonIssueCodes: ["fixture_issue"],
+      beforeSemanticFingerprintSha256: "7".repeat(64),
+      afterSemanticFingerprintSha256: "8".repeat(64),
+      result: "semantic_change",
+    }],
+  });
 
   await assert.rejects(
     observeAnalysisLaunchExecution({
@@ -250,11 +329,18 @@ async function writeLabRun(input: {
     axisAssessments: [],
     taxonomyProposals: [],
     dimensionDiffs: [],
-    primaryPasses: input.primaryPassDurations.map((durationMs) => ({
-      kind: "primary",
+    primaryPasses: input.primaryPassDurations.map((durationMs, index) => ({
+      kind: index === 0 ? "primary" : "repair",
       durationMs,
-      issueCodes: [],
+      issueCodes: index === 0 && input.primaryPassDurations.length > 1 ? ["fixture_issue"] : [],
+      semanticFingerprintSha256: (index === 0 ? "7" : "8").repeat(64),
     })),
+    primaryRepairProvenance: {
+      deterministicPrimaryRepairCount: Math.max(0, input.primaryPassDurations.length - 1),
+      modelPrimaryRepairCount: 0,
+      newIssueAfterRepairCount: 0,
+      terminationReason: "accepted",
+    },
     ...(input.applicationRunId
       ? {
           applicationRoundtrip: {
@@ -282,6 +368,42 @@ async function writeLabRun(input: {
     path: relative(ROOT, absolutePath).split(sep).join("/"),
     absolutePath,
     sha256: sha256(bytes),
+  };
+}
+
+function requestObservation(input: {
+  readonly requestId: string;
+  readonly stage: "primary" | "application";
+  readonly enqueued: number;
+  readonly started: number;
+  readonly ended: number;
+}): Extract<AnalysisExecutionSidecarEvent, { schema: "analysis-request-observation-v1" }> {
+  const base = Date.parse("2026-09-11T00:00:00.000Z");
+  return {
+    schema: "analysis-request-observation-v1",
+    authority: "unsealed_local_observation",
+    processInstanceId: "process-fixture",
+    manifestSha256: "a".repeat(64),
+    runId: "run-fixture",
+    grantId: GRANT_ID,
+    requestId: input.requestId,
+    stage: input.stage,
+    toolName: input.stage === "application" ? "emit_application_field_plan" : "emit_deep_grant_analysis",
+    enqueuedAt: new Date(base + input.enqueued).toISOString(),
+    startedAt: new Date(base + input.started).toISOString(),
+    endedAt: new Date(base + input.ended).toISOString(),
+    monotonicEnqueuedMs: input.enqueued,
+    monotonicStartedMs: input.started,
+    monotonicEndedMs: input.ended,
+    queueWaitMs: input.started - input.enqueued,
+    executionMs: input.ended - input.started,
+    modelUsage: {
+      inputTokens: input.stage === "application" ? 20 : 10,
+      outputTokens: input.stage === "application" ? 8 : 4,
+      cacheReadInputTokens: 0,
+    },
+    outcome: "fulfilled",
+    completeness: "complete",
   };
 }
 

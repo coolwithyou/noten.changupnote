@@ -22,6 +22,9 @@ import {
 } from "./application-roundtrip/reuse";
 import { readExactRoundtripRunArtifacts } from "./application-roundtrip/store";
 import { APPLICATION_ROUNDTRIP_ADOPTED_MODEL } from "./application-roundtrip/contract";
+import { computeApplicationFieldRuntimeSha256 } from "./application-field-runtime-provenance";
+import { classifyLabRunOutcome } from "./run-outcome";
+import type { LabAttachmentPreparationDiagnostic } from "./input";
 import {
   buildIndependentReviewRepairInstruction,
   findDriftedIndependentReviewRepairTargetIndexes,
@@ -81,6 +84,12 @@ export async function prepareIndependentReviewRepairLaunchManifest(input: {
   readonly aggregateSha256: string;
   readonly originalSequences: readonly number[];
   readonly excludedDriftedOriginalSequences: readonly number[];
+  readonly targetPreparation: readonly {
+    readonly originalSequence: number;
+    readonly grantId: string;
+    readonly applicationRoundtrip: "reuse_reviewed_v1" | "reuse_failed_primary_v2" | "new_analysis";
+    readonly attachments: readonly LabAttachmentPreparationDiagnostic[];
+  }[];
 }> {
   const repositoryRoot = input.repositoryRoot ?? findMonorepoRoot();
   const concurrency = normalizeConcurrency(input.concurrency);
@@ -169,6 +178,21 @@ export async function prepareIndependentReviewRepairLaunchManifest(input: {
   }
   const sourceTargetBySequence = new Map(sourceManifest.targets.map((target) => [target.sequence, target]));
   const receiptTargetBySequence = new Map(receipt.targets.map((target) => [target.sequence, target]));
+  let failedPrimaryFieldRuntimeSha256: string | null | undefined;
+  const resolveFailedPrimaryFieldRuntimeSha256 = async (): Promise<string | null> => {
+    if (failedPrimaryFieldRuntimeSha256 !== undefined) return failedPrimaryFieldRuntimeSha256;
+    const [sourceRuntimeSha256, currentRuntimeSha256] = await Promise.all([
+      computeApplicationFieldRuntimeSha256({
+        repositoryRoot,
+        gitSha: sourceManifest.execution.gitShaAtPreparation,
+      }),
+      computeApplicationFieldRuntimeSha256({ repositoryRoot }),
+    ]);
+    failedPrimaryFieldRuntimeSha256 = sourceRuntimeSha256 === currentRuntimeSha256
+      ? sourceRuntimeSha256
+      : null;
+    return failedPrimaryFieldRuntimeSha256;
+  };
   const repairTargets: IndependentReviewRepairTargetPreparation[] = [];
   for (const originalSequence of originalSequences) {
     const packetEntry = packetBySequence.get(originalSequence);
@@ -258,13 +282,17 @@ export async function prepareIndependentReviewRepairLaunchManifest(input: {
           }),
         })
       : null;
-    const roundtripRunId = reviewRepair && independentReviewFindingsMatchSourceRun(
+    const reviewedRoundtripRunId = reviewRepair && independentReviewFindingsMatchSourceRun(
       aggregate,
       originalSequence,
       run,
     )
       ? completeApplicationRoundtripRunId(run)
       : null;
+    const failedPrimaryRoundtripRunId = !reviewRepair && receiptTarget.status === "failed"
+      ? failedPrimaryApplicationRoundtripRunId(run)
+      : null;
+    const roundtripRunId = reviewedRoundtripRunId ?? failedPrimaryRoundtripRunId;
     const roundtripArtifacts = roundtripRunId
       ? await readExactRoundtripRunArtifacts({
           grantId: sourceTarget.grantId,
@@ -272,8 +300,8 @@ export async function prepareIndependentReviewRepairLaunchManifest(input: {
           repositoryRoot,
         })
       : null;
-    const applicationRoundtripReuse = roundtripArtifacts
-      ? Object.freeze({
+    const commonRoundtripReuse = roundtripArtifacts
+      ? {
           schema: "analysis-launch-application-roundtrip-reuse-v1" as const,
           sourceSequence: originalSequence,
           sourceLabRunId: run.runId,
@@ -288,8 +316,23 @@ export async function prepareIndependentReviewRepairLaunchManifest(input: {
           independentReviewManifestPath: relative(repositoryRoot, reviewManifestPath).split(sep).join("/"),
           independentReviewManifestSha256: aggregate.manifestSha256,
           sourceLaunchReceiptSha256: reviewManifest.launchReceiptSha256,
-        }) satisfies AnalysisLaunchApplicationRoundtripReuseBinding
+        }
       : null;
+    const applicationRoundtripReuse: AnalysisLaunchApplicationRoundtripReuseBinding | null =
+      commonRoundtripReuse && reviewedRoundtripRunId
+        ? Object.freeze(commonRoundtripReuse)
+        : commonRoundtripReuse && failedPrimaryRoundtripRunId
+          ? await resolveFailedPrimaryFieldRuntimeSha256().then((fieldRuntimeSha256) => (
+              fieldRuntimeSha256
+                ? Object.freeze({
+                    ...commonRoundtripReuse,
+                    schema: "analysis-launch-application-roundtrip-reuse-v2" as const,
+                    sourceDisposition: "failed_primary_valid_application" as const,
+                    applicationFieldRuntimeSha256: fieldRuntimeSha256,
+                  })
+                : null
+            ))
+          : null;
     repairTargets.push(Object.freeze({
       originalSequence,
       grantId: sourceTarget.grantId,
@@ -311,6 +354,7 @@ export async function prepareIndependentReviewRepairLaunchManifest(input: {
         inputSha256: prepared.input.inputSha256,
         attachmentManifestSha256: prepared.input.attachmentManifestSha256,
         currentSources: prepared.currentSources,
+        attachmentPreparationReport: prepared.input.attachmentPreparationReport,
       });
     },
   );
@@ -342,6 +386,9 @@ export async function prepareIndependentReviewRepairLaunchManifest(input: {
           analysisSha256: candidate.analysisArtifactSha256,
           manifestSha256: candidate.manifestArtifactSha256,
           parsedMarkdown: candidate.parsedMarkdown,
+          admissionPolicy: candidate.schema === "analysis-launch-application-roundtrip-reuse-v2"
+            ? "failed_primary_valid_application"
+            : "strict_complete",
         },
         repositoryRoot,
       });
@@ -367,6 +414,18 @@ export async function prepareIndependentReviewRepairLaunchManifest(input: {
     aggregateSha256,
     originalSequences: Object.freeze(stableRepairTargets.map((target) => target.originalSequence)),
     excludedDriftedOriginalSequences: Object.freeze(excludedDriftedOriginalSequences),
+    targetPreparation: Object.freeze(exactRepairTargets.map((target, index) => Object.freeze({
+      originalSequence: target.originalSequence,
+      grantId: target.grantId,
+      applicationRoundtrip: target.applicationRoundtripReuse?.schema
+        === "analysis-launch-application-roundtrip-reuse-v1"
+        ? "reuse_reviewed_v1" as const
+        : target.applicationRoundtripReuse?.schema
+            === "analysis-launch-application-roundtrip-reuse-v2"
+          ? "reuse_failed_primary_v2" as const
+          : "new_analysis" as const,
+      attachments: stablePreparedTargets[index]!.attachmentPreparationReport ?? Object.freeze([]),
+    }))),
   });
 }
 
@@ -380,11 +439,14 @@ export async function verifyIndependentReviewApplicationRoundtripReuseBinding(in
   if (!binding) return;
   if (
     input.manifest.source.kind !== "independent_review_repair"
-    || !input.target.reviewRepair
-    || input.target.reviewRepair.sourceRunId !== binding.sourceLabRunId
     || input.manifest.source.planSha256 !== binding.independentReviewAggregateSha256
+    || (binding.schema === "analysis-launch-application-roundtrip-reuse-v1"
+      ? !input.target.reviewRepair
+        || input.target.reviewRepair.sourceRunId !== binding.sourceLabRunId
+      : input.target.reviewRepair !== undefined
+        || binding.sourceDisposition !== "failed_primary_valid_application")
   ) {
-    throw new Error("Kordoc exact 재사용이 독립 검수 primary repair와 결속되지 않았습니다.");
+    throw new Error("Kordoc exact 재사용 provenance가 successor target과 결속되지 않았습니다.");
   }
   const aggregateBytes = await readBoundRepositoryFile({
     repositoryRoot: input.repositoryRoot,
@@ -435,14 +497,6 @@ export async function verifyIndependentReviewApplicationRoundtripReuseBinding(in
   const reviewPacket = reviewManifest.packets.find(
     (packet) => packet.sequence === sourceSequence,
   );
-  if (
-    !independentReviewFindingsArePrimaryOnly(aggregate, sourceSequence)
-    || !reviewPacket
-    || reviewPacket.grantId !== input.target.grantId
-    || reviewPacket.runId !== binding.sourceLabRunId
-  ) {
-    throw new Error("Kordoc exact 재사용 대상이 검수된 primary 결함 packet과 다릅니다.");
-  }
   const expectedReviewManifestPath = resolveIndependentReviewManifestPath(
     resolve(input.repositoryRoot, binding.independentReviewAggregatePath),
     binding.independentReviewManifestSha256,
@@ -453,28 +507,52 @@ export async function verifyIndependentReviewApplicationRoundtripReuseBinding(in
   ) {
     throw new Error("Kordoc exact 재사용의 독립 검수 manifest 경로가 정본과 다릅니다.");
   }
-  const packetBytes = await readBoundRepositoryFile({
-    repositoryRoot: input.repositoryRoot,
-    path: reviewPacket.path,
-    expectedSha256: reviewPacket.sha256,
-    label: "독립 검수 packet",
-  });
-  const packet = object(parseJson(packetBytes, "독립 검수 packet"), "독립 검수 packet");
-  if (
-    packet.schema !== (
-      reviewManifest.schema === INDEPENDENT_REVIEW_MANIFEST_SCHEMA
-        ? INDEPENDENT_REVIEW_PACKET_SCHEMA
-        : "independent-ai-review-packet-v1"
-    )
-    || packet.sequence !== sourceSequence
-    || packet.grantId !== input.target.grantId
-    || packet.runId !== binding.sourceLabRunId
-    || packet.launchReceiptSha256 !== binding.sourceLaunchReceiptSha256
-    || packet.runArtifactPath !== binding.sourceLabRunArtifactPath
-    || packet.runArtifactSha256 !== binding.sourceLabRunArtifactSha256
-    || packet.inputSha256 !== input.target.inputSha256
-  ) {
-    throw new Error("Kordoc exact 재사용의 독립 검수 packet 내용 결속이 다릅니다.");
+  if (binding.schema === "analysis-launch-application-roundtrip-reuse-v1") {
+    if (
+      !independentReviewFindingsArePrimaryOnly(aggregate, sourceSequence)
+      || !reviewPacket
+      || reviewPacket.grantId !== input.target.grantId
+      || reviewPacket.runId !== binding.sourceLabRunId
+    ) {
+      throw new Error("Kordoc exact 재사용 대상이 검수된 primary 결함 packet과 다릅니다.");
+    }
+    const packetBytes = await readBoundRepositoryFile({
+      repositoryRoot: input.repositoryRoot,
+      path: reviewPacket.path,
+      expectedSha256: reviewPacket.sha256,
+      label: "독립 검수 packet",
+    });
+    const packet = object(parseJson(packetBytes, "독립 검수 packet"), "독립 검수 packet");
+    if (
+      packet.schema !== (
+        reviewManifest.schema === INDEPENDENT_REVIEW_MANIFEST_SCHEMA
+          ? INDEPENDENT_REVIEW_PACKET_SCHEMA
+          : "independent-ai-review-packet-v1"
+      )
+      || packet.sequence !== sourceSequence
+      || packet.grantId !== input.target.grantId
+      || packet.runId !== binding.sourceLabRunId
+      || packet.launchReceiptSha256 !== binding.sourceLaunchReceiptSha256
+      || packet.runArtifactPath !== binding.sourceLabRunArtifactPath
+      || packet.runArtifactSha256 !== binding.sourceLabRunArtifactSha256
+      || packet.inputSha256 !== input.target.inputSha256
+    ) {
+      throw new Error("Kordoc exact 재사용의 독립 검수 packet 내용 결속이 다릅니다.");
+    }
+  } else {
+    const held = aggregate.heldAudit.find((item) => item.sequence === sourceSequence);
+    if (
+      reviewPacket !== undefined
+      || aggregate.consensus.affectedTargets.includes(sourceSequence)
+      || aggregate.consensus.unresolvedTargets.includes(sourceSequence)
+      || !held
+      || held.grantId !== input.target.grantId
+      || held.status !== "failed"
+      || held.runArtifactPath !== binding.sourceLabRunArtifactPath
+      || held.runArtifactSha256 !== binding.sourceLabRunArtifactSha256
+    ) {
+      throw new Error("failed primary Kordoc 재사용이 non-publishable audit와 다릅니다.");
+    }
   }
   const receipt = normalizeAnalysisLaunchReceipt(await readAnalysisLaunchArtifact(
     "receipts",
@@ -493,11 +571,45 @@ export async function verifyIndependentReviewApplicationRoundtripReuseBinding(in
   if (
     !sourceReceiptTarget
     || sourceReceiptTarget.grantId !== input.target.grantId
-    || sourceReceiptTarget.status !== "publishable"
+    || sourceReceiptTarget.status !== (
+      binding.schema === "analysis-launch-application-roundtrip-reuse-v1"
+        ? "publishable"
+        : "failed"
+    )
     || sourceReceiptTarget.runArtifactPath !== binding.sourceLabRunArtifactPath
     || sourceReceiptTarget.runArtifactSha256 !== binding.sourceLabRunArtifactSha256
   ) {
     throw new Error("Kordoc exact 재사용의 원 LabRun receipt 결속이 다릅니다.");
+  }
+  if (binding.schema === "analysis-launch-application-roundtrip-reuse-v2") {
+    const sourceManifest = normalizeAnalysisLaunchManifest(await readAnalysisLaunchArtifact(
+      "manifests",
+      reviewManifest.launchManifestSha256,
+      input.repositoryRoot,
+    ));
+    const sourceManifestTarget = sourceManifest.targets.find(
+      (target) => target.sequence === sourceSequence,
+    );
+    if (
+      sourceManifestTarget?.grantId !== input.target.grantId
+      || sourceManifestTarget.inputSha256 !== input.target.inputSha256
+      || sourceManifestTarget.attachmentManifestSha256 !== input.target.attachmentManifestSha256
+    ) {
+      throw new Error("failed primary Kordoc 재사용의 원 launch manifest target 결속이 다릅니다.");
+    }
+    const [sourceRuntimeSha256, currentRuntimeSha256] = await Promise.all([
+      computeApplicationFieldRuntimeSha256({
+        repositoryRoot: input.repositoryRoot,
+        gitSha: sourceManifest.execution.gitShaAtPreparation,
+      }),
+      computeApplicationFieldRuntimeSha256({ repositoryRoot: input.repositoryRoot }),
+    ]);
+    if (
+      sourceRuntimeSha256 !== binding.applicationFieldRuntimeSha256
+      || currentRuntimeSha256 !== binding.applicationFieldRuntimeSha256
+    ) {
+      throw new Error("failed primary Kordoc 재사용의 field runtime SHA가 다릅니다.");
+    }
   }
   const runBytes = await readBoundRepositoryFile({
     repositoryRoot: input.repositoryRoot,
@@ -516,8 +628,10 @@ export async function verifyIndependentReviewApplicationRoundtripReuseBinding(in
     throw new Error("Kordoc exact 재사용의 원 LabRun 내용 결속이 다릅니다.");
   }
   if (
-    completeApplicationRoundtripRunId(run) !== binding.sourceRoundtripRunId
-    || !independentReviewFindingsMatchSourceRun(aggregate, sourceSequence, run)
+    (binding.schema === "analysis-launch-application-roundtrip-reuse-v1"
+      ? completeApplicationRoundtripRunId(run) !== binding.sourceRoundtripRunId
+        || !independentReviewFindingsMatchSourceRun(aggregate, sourceSequence, run)
+      : failedPrimaryApplicationRoundtripRunId(run) !== binding.sourceRoundtripRunId)
   ) {
     throw new Error("Kordoc exact 재사용의 primary finding 또는 application 완결성이 다릅니다.");
   }
@@ -581,6 +695,33 @@ function completeApplicationRoundtripRunId(run: LabRun): string | null {
     || (reference.remainingUnresolvedCandidateCount ?? 0) !== 0
     || reference.adjudicationStatus === "partial"
     || reference.adjudicationStatus === "failed"
+  ) {
+    return null;
+  }
+  return reference.runId;
+}
+
+function failedPrimaryApplicationRoundtripRunId(run: LabRun): string | null {
+  const reference = run.applicationRoundtrip;
+  if (
+    classifyLabRunOutcome(run) !== "failed"
+    || typeof run.error !== "string"
+    || run.error.trim() === ""
+    || run.reviewRepair !== undefined
+    || (reference?.status !== "complete" && reference?.status !== "partial")
+    || typeof reference.runId !== "string"
+    || reference.runId.trim() === ""
+    || reference.transport !== "claude-cli"
+    || reference.model !== APPLICATION_ROUNDTRIP_ADOPTED_MODEL
+    || reference.errorCode !== null
+    || reference.error !== null
+    || reference.documentCount < 1
+    || reference.sourceCount < 1
+    || (reference.applicationDocumentCount ?? 0) < 1
+    || (reference.fieldReadyDocumentCount ?? 0) < 1
+    || (reference.recognizedFieldCount ?? 0) < 1
+    || (reference.remainingUnresolvedCandidateCount ?? 0) !== 0
+    || (reference.adjudicationStatus !== "resolved" && reference.adjudicationStatus !== "not_needed")
   ) {
     return null;
   }

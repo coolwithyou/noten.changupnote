@@ -41,6 +41,33 @@ export interface DeepAnalysisDeterministicAxisRepair {
   strategy: "align_axis_with_validated_criteria";
 }
 
+export interface DeepAnalysisDeterministicOptionalMetadataRepair {
+  issuePath: string;
+  criterionIndex: number;
+  key: "covered_dimensions";
+  strategy: "omit_empty_optional_covered_dimensions";
+}
+
+export interface DeepAnalysisDeterministicTargetTypeListRepair {
+  issuePath: string;
+  criterionIndex: number;
+  targets: string[];
+  previousListSemantics: "open" | "closed" | null;
+  sourceSpan: string;
+  reason: "generic_applicant_description";
+  strategy: "preserve_unresolved_target_type_as_text";
+}
+
+export interface DeepAnalysisDeterministicBizAgeBoundaryRepair {
+  issuePath: string;
+  criterionIndex: number;
+  years: number;
+  previousMaxMonths: number;
+  correctedMaxMonths: number;
+  sourceSpan: string;
+  strategy: "align_exclusive_year_upper_bound";
+}
+
 export interface DeepAnalysisExecution {
   result: DeepAnalysisModelResult;
   passes: DeepAnalysisModelPass[];
@@ -48,6 +75,9 @@ export interface DeepAnalysisExecution {
   deterministicEvidenceRepairs?: DeepAnalysisDeterministicEvidenceRepair[];
   deterministicMatchingScopeRepairs?: DeepAnalysisDeterministicMatchingScopeRepair[];
   deterministicAxisRepairs?: DeepAnalysisDeterministicAxisRepair[];
+  deterministicOptionalMetadataRepairs?: DeepAnalysisDeterministicOptionalMetadataRepair[];
+  deterministicTargetTypeListRepairs?: DeepAnalysisDeterministicTargetTypeListRepair[];
+  deterministicBizAgeBoundaryRepairs?: DeepAnalysisDeterministicBizAgeBoundaryRepair[];
 }
 
 type ModelRunner = typeof runDeepGrantAnalysis;

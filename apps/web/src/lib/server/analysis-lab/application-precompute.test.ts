@@ -3,9 +3,11 @@ import type {
   ApplicationRoundtripRun,
   RoundtripParsedDocument,
 } from "@/lib/server/analysis-lab/application-roundtrip/contract";
+import { APPLICATION_ROUNDTRIP_VERSION } from "@/lib/server/analysis-lab/application-roundtrip/contract";
 import {
   buildApplicationRoundtripReference,
   classifyApplicationFieldAnalysis,
+  classifyCurrentApplicationFieldAnalysis,
   runAnalysisPair,
 } from "./application-precompute";
 import {
@@ -97,7 +99,21 @@ function deferred<T>() {
   assert.equal(reference.error, null);
   assert.equal(reference.errorCode, "hwp_attachment_not_found");
   assert.equal(reference.recognizedFieldCount, 0);
+  assert.equal(reference.version, APPLICATION_ROUNDTRIP_VERSION);
   assert.equal(classifyApplicationFieldAnalysis(reference), "not_applicable");
+  assert.equal(classifyCurrentApplicationFieldAnalysis(reference), "not_applicable");
+}
+
+// 실패한 sidecar도 계약 버전은 기록하지만 현행 필드 준비도로 오인하지 않는다.
+{
+  const reference = buildApplicationRoundtripReference({
+    result: { status: "rejected", reason: new Error("Kordoc 실패") },
+    transport: "claude-cli",
+    model: "claude-opus-5",
+  });
+  assert.equal(reference.version, APPLICATION_ROUNDTRIP_VERSION);
+  assert.equal(reference.status, "failed");
+  assert.equal(classifyCurrentApplicationFieldAnalysis(reference), "held");
 }
 
 // complete 문서가 있어도 review_required 문서가 섞이면 전체 target을 보류한다.
@@ -125,6 +141,7 @@ function deferred<T>() {
     costUsd: 0.08,
   };
   const run = {
+    version: APPLICATION_ROUNDTRIP_VERSION,
     runId: "roundtrip-test",
     documents: [complete, review],
     recommendedAttachmentId: complete.attachmentId,
@@ -136,6 +153,7 @@ function deferred<T>() {
     model: "claude-opus-5",
   });
   assert.equal(reference.status, "review_required");
+  assert.equal(reference.version, APPLICATION_ROUNDTRIP_VERSION, "fulfilled run의 exact 계약 버전 보존");
   assert.equal(reference.documentCount, 2);
   assert.equal(reference.applicationDocumentCount, 2);
   assert.equal(reference.fieldReadyDocumentCount, 1);

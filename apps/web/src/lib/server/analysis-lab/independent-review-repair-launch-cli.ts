@@ -69,6 +69,7 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
       source: result.manifest.source,
       execution: result.manifest.execution,
       targetCount: result.manifest.targets.length,
+      targetPreparation: result.targetPreparation,
       changedSinceReviewedLaunch: result.excludedDriftedOriginalSequences.length,
       manifestSha256: result.manifestSha256,
       path: result.path,

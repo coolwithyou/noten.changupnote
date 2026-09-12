@@ -9,29 +9,35 @@ import {
 import type { DeepAnalysisAuditAcceptedFinding } from "./auditAdjudication";
 import type {
   DeepAnalysisDeterministicAxisRepair,
+  DeepAnalysisDeterministicBizAgeBoundaryRepair,
   DeepAnalysisDeterministicEvidenceRepair,
   DeepAnalysisDeterministicMatchingScopeRepair,
+  DeepAnalysisDeterministicOptionalMetadataRepair,
+  DeepAnalysisDeterministicTargetTypeListRepair,
   DeepAnalysisExecution,
   DeepAnalysisModelPass,
 } from "./analyzer";
 import { sumDeepAnalysisActualCosts } from "./costPolicy";
 import {
   DEEP_ANALYSIS_ALTERNATIVE_PATH_SCOPE_RULE,
+  DEEP_ANALYSIS_BIZ_AGE_BOUNDARY_RULE,
   DEEP_ANALYSIS_CROSS_AXIS_TEXT_ONLY_RULE,
   DEEP_ANALYSIS_STRUCTURED_FILTER_METADATA_RULE,
   DEEP_ANALYSIS_TARGET_TYPE_LIST_SEMANTICS_RULE,
   findExactEvidenceSpanCandidates,
   runDeepGrantAnalysis,
 } from "./extractor";
+import { resolveExclusiveBizAgeUpperBound } from "./biz-age-boundary";
 import type { DeepAnalysisInputSeal } from "./inputManifest";
 import { stableJson } from "./sourceRevision";
+import { resolveTargetTypeListSemantics } from "./target-type-list-semantics";
 import {
   decideDeepAnalysisValidationRoute,
   validateDeepAnalysisResult,
   type DeepAnalysisValidationResult,
 } from "./validator";
 
-export const DEEP_ANALYSIS_REPAIR_VERSION = "deep-analysis-repair-v8" as const;
+export const DEEP_ANALYSIS_REPAIR_VERSION = "deep-analysis-repair-v9" as const;
 export const DEEP_ANALYSIS_AUDIT_RETRY_FEEDBACK_VERSION =
   "deep-analysis-audit-retry-feedback-v1" as const;
 
@@ -133,9 +139,54 @@ export async function repairDeepAnalysisExecution(input: {
     result: input.failedExecution.result,
     validation: input.validation,
   });
-  const deterministic = repairDeepAnalysisEvidenceSpansDeterministically({
+  const bizAgeBoundary = repairDeepAnalysisBizAgeBoundariesDeterministically({
     execution: input.failedExecution,
     validation: initialValidationToRepair,
+  });
+  const executionAfterBizAgeBoundary = bizAgeBoundary.execution;
+  const fullValidationAfterBizAgeBoundary = bizAgeBoundary.repairs.length > 0
+    ? validateDeepAnalysisResult({
+      seal: input.seal,
+      result: executionAfterBizAgeBoundary.result,
+    })
+    : input.validation;
+  const validationAfterBizAgeBoundary = selectRepairableValidation({
+    result: executionAfterBizAgeBoundary.result,
+    validation: fullValidationAfterBizAgeBoundary,
+  });
+  const targetTypeList = repairDeepAnalysisTargetTypeListDeterministically({
+    execution: executionAfterBizAgeBoundary,
+    validation: validationAfterBizAgeBoundary,
+  });
+  const executionAfterTargetTypeList = targetTypeList.execution;
+  const fullValidationAfterTargetTypeList = targetTypeList.repairs.length > 0
+    ? validateDeepAnalysisResult({
+      seal: input.seal,
+      result: executionAfterTargetTypeList.result,
+    })
+    : fullValidationAfterBizAgeBoundary;
+  const validationAfterTargetTypeList = selectRepairableValidation({
+    result: executionAfterTargetTypeList.result,
+    validation: fullValidationAfterTargetTypeList,
+  });
+  const optionalMetadata = repairDeepAnalysisOptionalMetadataDeterministically({
+    execution: executionAfterTargetTypeList,
+    validation: validationAfterTargetTypeList,
+  });
+  const executionAfterOptionalMetadata = optionalMetadata.execution;
+  const fullValidationAfterOptionalMetadata = optionalMetadata.repairs.length > 0
+    ? validateDeepAnalysisResult({
+      seal: input.seal,
+      result: executionAfterOptionalMetadata.result,
+    })
+    : fullValidationAfterTargetTypeList;
+  const validationAfterOptionalMetadata = selectRepairableValidation({
+    result: executionAfterOptionalMetadata.result,
+    validation: fullValidationAfterOptionalMetadata,
+  });
+  const deterministic = repairDeepAnalysisEvidenceSpansDeterministically({
+    execution: executionAfterOptionalMetadata,
+    validation: validationAfterOptionalMetadata,
   });
   const executionToRepair = deterministic.execution;
   const fullValidationAfterEvidence = deterministic.repairs.length > 0
@@ -143,7 +194,7 @@ export async function repairDeepAnalysisExecution(input: {
       seal: input.seal,
       result: executionToRepair.result,
     })
-    : input.validation;
+    : fullValidationAfterOptionalMetadata;
   const validationToRepair = selectRepairableValidation({
     result: executionToRepair.result,
     validation: fullValidationAfterEvidence,
@@ -177,6 +228,9 @@ export async function repairDeepAnalysisExecution(input: {
   if (
     (
       deterministic.repairs.length > 0
+      || bizAgeBoundary.repairs.length > 0
+      || targetTypeList.repairs.length > 0
+      || optionalMetadata.repairs.length > 0
       || matchingScope.repairs.length > 0
       || axisStatus.repairs.length > 0
     )
@@ -221,6 +275,7 @@ export async function repairDeepAnalysisExecution(input: {
       "evidenceRepairHints가 있는 source_span 오류는 해당 exactCandidates 중 criterion을 충분히 뒷받침하는 가장 짧은 후보 하나를 한 글자도 바꾸지 말고 사용하며, 서로 다른 후보를 합치거나 다시 쓰지 마라.",
       "axis_criterion_mismatch에서 실제 조건이 있으면 같은 축 criterion을 만들고 condition_found를 유지하며, 실제 조건이 없으면 criterion을 만들지 말고 inspected_no_condition으로 고쳐라.",
       `list_semantics 또는 포털 구조화 필드 관련 semantic_misattribution은 다음 계약으로 고쳐라: ${DEEP_ANALYSIS_TARGET_TYPE_LIST_SEMANTICS_RULE}`,
+      `업력 월 경계 관련 semantic_misattribution은 다음 계약으로 고쳐라: ${DEEP_ANALYSIS_BIZ_AGE_BOUNDARY_RULE}`,
       DEEP_ANALYSIS_STRUCTURED_FILTER_METADATA_RULE,
       `신청자 대안 경로를 한 조건으로 평탄화하지 마라: ${DEEP_ANALYSIS_ALTERNATIVE_PATH_SCOPE_RULE}`,
       DEEP_ANALYSIS_CROSS_AXIS_TEXT_ONLY_RULE,
@@ -252,10 +307,322 @@ export async function repairDeepAnalysisExecution(input: {
     ...(axisExecutionToRepair.deterministicAxisRepairs
       ? { deterministicAxisRepairs: axisExecutionToRepair.deterministicAxisRepairs }
       : {}),
+    ...(axisExecutionToRepair.deterministicOptionalMetadataRepairs
+      ? {
+        deterministicOptionalMetadataRepairs:
+          axisExecutionToRepair.deterministicOptionalMetadataRepairs,
+      }
+      : {}),
+    ...(axisExecutionToRepair.deterministicTargetTypeListRepairs
+      ? {
+        deterministicTargetTypeListRepairs:
+          axisExecutionToRepair.deterministicTargetTypeListRepairs,
+      }
+      : {}),
+    ...(axisExecutionToRepair.deterministicBizAgeBoundaryRepairs
+      ? {
+        deterministicBizAgeBoundaryRepairs:
+          axisExecutionToRepair.deterministicBizAgeBoundaryRepairs,
+      }
+      : {}),
     result: {
       ...repaired,
       usage: sumUsage(passes.map((pass) => pass.result.usage)),
       costUsd: sumDeepAnalysisActualCosts(passes.map((pass) => pass.result.costUsd)),
+    },
+  };
+}
+
+/**
+ * 검증된 단일 `N년 미만` 인용에 모델이 흔한 `N * 12` 포함 상한을 낸 경우만
+ * 정수 월 계약의 직전 달로 고친다. 더 큰 오차나 복합 기간은 모델 repair에 남긴다.
+ */
+export function repairDeepAnalysisBizAgeBoundariesDeterministically(input: {
+  execution: DeepAnalysisExecution;
+  validation: DeepAnalysisValidationResult;
+}): {
+  execution: DeepAnalysisExecution;
+  repairs: DeepAnalysisDeterministicBizAgeBoundaryRepair[];
+} {
+  const issueIndexes = new Map<number, string>();
+  for (const issue of input.validation.issues) {
+    if (issue.code !== "semantic_misattribution") continue;
+    const match = /^\$\.criteria\[(\d+)\]\.value\.max_months$/.exec(issue.path);
+    if (!match) continue;
+    issueIndexes.set(Number.parseInt(match[1]!, 10), issue.path);
+  }
+  if (issueIndexes.size === 0) return { execution: input.execution, repairs: [] };
+
+  const repairs: DeepAnalysisDeterministicBizAgeBoundaryRepair[] = [];
+  const criteria = input.execution.result.criteria.map((criterion, criterionIndex) => {
+    const issuePath = issueIndexes.get(criterionIndex);
+    if (!issuePath || !isRecord(criterion.value)) return criterion;
+    const resolution = resolveExclusiveBizAgeUpperBound({
+      dimension: criterion.dimension,
+      operator: criterion.operator,
+      sourceSpan: criterion.sourceSpan,
+      spanVerified: criterion.spanVerified,
+      maxMonths: criterion.value.max_months,
+    });
+    if (
+      !resolution
+      || resolution.observedMaxMonths !== resolution.expectedMaxMonths + 1
+      || !criterion.sourceSpan
+    ) return criterion;
+    repairs.push({
+      issuePath,
+      criterionIndex,
+      years: resolution.years,
+      previousMaxMonths: resolution.observedMaxMonths,
+      correctedMaxMonths: resolution.expectedMaxMonths,
+      sourceSpan: criterion.sourceSpan,
+      strategy: "align_exclusive_year_upper_bound",
+    });
+    return {
+      ...criterion,
+      value: {
+        ...criterion.value,
+        max_months: resolution.expectedMaxMonths,
+      },
+    };
+  });
+  if (repairs.length === 0) return { execution: input.execution, repairs };
+
+  const repairedIndexes = new Map(repairs.map((repair) => [repair.criterionIndex, repair]));
+  const rawToolInput = { ...input.execution.result.rawToolInput };
+  if (Array.isArray(rawToolInput.criteria)) {
+    rawToolInput.criteria = rawToolInput.criteria.map((rawCriterion, criterionIndex) => {
+      const repair = repairedIndexes.get(criterionIndex);
+      if (!repair || !isRecord(rawCriterion) || !isRecord(rawCriterion.value)) return rawCriterion;
+      if (rawCriterion.value.max_months !== repair.previousMaxMonths) return rawCriterion;
+      return {
+        ...rawCriterion,
+        value: {
+          ...rawCriterion.value,
+          max_months: repair.correctedMaxMonths,
+        },
+      };
+    });
+  }
+  return {
+    repairs,
+    execution: {
+      ...input.execution,
+      deterministicBizAgeBoundaryRepairs: [
+        ...(input.execution.deterministicBizAgeBoundaryRepairs ?? []),
+        ...repairs,
+      ],
+      result: {
+        ...input.execution.result,
+        criteria,
+        rawToolInput,
+      },
+    },
+  };
+}
+
+/**
+ * 업체·농가처럼 법적 신청자 유형인지조차 확정할 수 없는 일반 표현은 open/closed 중
+ * 하나로 꾸며내지 않는다. validator의 정확한 목록 의미 issue, 검증된 source span,
+ * target_type/other 축 상태가 모두 기대한 경우에만 원문 조건을 other/text_only로
+ * 보존하고 target_type을 ambiguous로 돌린다.
+ */
+export function repairDeepAnalysisTargetTypeListDeterministically(input: {
+  execution: DeepAnalysisExecution;
+  validation: DeepAnalysisValidationResult;
+}): {
+  execution: DeepAnalysisExecution;
+  repairs: DeepAnalysisDeterministicTargetTypeListRepair[];
+} {
+  const targetAxis = input.execution.result.axisAssessments.find((axis) => axis.dimension === "target_type");
+  const otherAxis = input.execution.result.axisAssessments.find((axis) => axis.dimension === "other");
+  if (
+    targetAxis?.status !== "condition_found"
+    || otherAxis?.status !== "inspected_no_condition"
+    || input.execution.result.criteria.some((criterion) => criterion.dimension === "other")
+  ) return { execution: input.execution, repairs: [] };
+
+  const issueIndexes = new Map<number, string>();
+  for (const issue of input.validation.issues) {
+    if (issue.code !== "semantic_misattribution") continue;
+    const match = /^\$\.criteria\[(\d+)\]\.value\.list_semantics$/.exec(issue.path);
+    if (!match) continue;
+    issueIndexes.set(Number.parseInt(match[1]!, 10), issue.path);
+  }
+  if (issueIndexes.size === 0) return { execution: input.execution, repairs: [] };
+
+  const repairs: DeepAnalysisDeterministicTargetTypeListRepair[] = [];
+  const criteria = input.execution.result.criteria.map((criterion, criterionIndex) => {
+    const issuePath = issueIndexes.get(criterionIndex);
+    if (
+      !issuePath
+      || criterion.dimension !== "target_type"
+      || criterion.kind !== "required"
+      || criterion.operator !== "in"
+      || !criterion.spanVerified
+      || !criterion.sourceSpan
+      || !isRecord(criterion.value)
+    ) return criterion;
+    const targets = Array.isArray(criterion.value.targets)
+      ? criterion.value.targets.filter((target): target is string => typeof target === "string")
+      : [];
+    const resolution = resolveTargetTypeListSemantics({
+      dimension: criterion.dimension,
+      kind: criterion.kind,
+      operator: criterion.operator,
+      sourceSpan: criterion.sourceSpan,
+      spanVerified: criterion.spanVerified,
+      targets,
+      listSemantics: criterion.value.list_semantics,
+      note: criterion.note,
+      inputText: input.execution.evidenceText,
+    });
+    if (
+      resolution.decision !== "unresolved"
+      || resolution.reason !== "generic_applicant_description"
+      || resolution.previousClaim === null
+    ) {
+      return criterion;
+    }
+    repairs.push({
+      issuePath,
+      criterionIndex,
+      targets,
+      previousListSemantics: resolution.previousClaim,
+      sourceSpan: criterion.sourceSpan,
+      reason: resolution.reason,
+      strategy: "preserve_unresolved_target_type_as_text",
+    });
+    return {
+      ...criterion,
+      dimension: "other" as const,
+      operator: "text_only" as const,
+      value: { note: criterion.sourceSpan },
+      note: "신청 대상 유형의 완전 열거 여부를 확인할 근거가 부족하여 구조화 대상 유형 필터로 사용하지 않는다.",
+    };
+  });
+  if (repairs.length === 0) return { execution: input.execution, repairs };
+
+  const repairedIndexes = new Set(repairs.map((repair) => repair.criterionIndex));
+  const targetComment = "일반 신청자 표현만 있어 법적 대상 유형의 완전 열거 여부를 확인할 수 없음.";
+  const otherComment = "목록 의미를 확정할 수 없는 신청 조건을 원문 text_only로 보존함.";
+  const axisAssessments = input.execution.result.axisAssessments.map((axis) => {
+    if (axis.dimension === "target_type") return { ...axis, status: "ambiguous" as const, comment: targetComment };
+    if (axis.dimension === "other") return { ...axis, status: "condition_found" as const, comment: otherComment };
+    return axis;
+  });
+  const rawToolInput = { ...input.execution.result.rawToolInput };
+  if (Array.isArray(rawToolInput.criteria)) {
+    rawToolInput.criteria = rawToolInput.criteria.map((rawCriterion, criterionIndex) => {
+      const normalized = criteria[criterionIndex];
+      if (!repairedIndexes.has(criterionIndex) || !normalized || !isRecord(rawCriterion)) return rawCriterion;
+      return {
+        ...rawCriterion,
+        dimension: normalized.dimension,
+        operator: normalized.operator,
+        value: normalized.value,
+        note: normalized.note,
+      };
+    });
+  }
+  if (Array.isArray(rawToolInput.axis_assessments)) {
+    rawToolInput.axis_assessments = rawToolInput.axis_assessments.map((rawAxis) => {
+      if (!isRecord(rawAxis)) return rawAxis;
+      if (rawAxis.dimension === "target_type") return { ...rawAxis, status: "ambiguous", comment: targetComment };
+      if (rawAxis.dimension === "other") return { ...rawAxis, status: "condition_found", comment: otherComment };
+      return rawAxis;
+    });
+  }
+  return {
+    repairs,
+    execution: {
+      ...input.execution,
+      deterministicTargetTypeListRepairs: [
+        ...(input.execution.deterministicTargetTypeListRepairs ?? []),
+        ...repairs,
+      ],
+      result: {
+        ...input.execution.result,
+        criteria,
+        axisAssessments,
+        rawToolInput,
+      },
+    },
+  };
+}
+
+/**
+ * 선택 메타데이터가 정확히 빈 배열이면 어떤 축도 주장하지 않는다. validator가 이미
+ * 해당 경로를 지적했고 criterion이 허용된 other/text_only 형태일 때만 키를 생략한다.
+ * null·문자열·잘못된/중복/혼합 축과 비어 있지 않은 배열은 의미 판단이 필요하므로
+ * 기존 모델 repair 또는 held 경로에 그대로 남긴다.
+ */
+export function repairDeepAnalysisOptionalMetadataDeterministically(input: {
+  execution: DeepAnalysisExecution;
+  validation: DeepAnalysisValidationResult;
+}): {
+  execution: DeepAnalysisExecution;
+  repairs: DeepAnalysisDeterministicOptionalMetadataRepair[];
+} {
+  const issueIndexes = new Map<number, string>();
+  for (const issue of input.validation.issues) {
+    if (issue.code !== "canonical_contract_invalid") continue;
+    const match = /^\$\.criteria\[(\d+)\]\.value\.covered_dimensions$/.exec(issue.path);
+    if (!match) continue;
+    issueIndexes.set(Number.parseInt(match[1]!, 10), issue.path);
+  }
+  if (issueIndexes.size === 0) return { execution: input.execution, repairs: [] };
+
+  const repairs: DeepAnalysisDeterministicOptionalMetadataRepair[] = [];
+  const criteria = input.execution.result.criteria.map((criterion, criterionIndex) => {
+    const issuePath = issueIndexes.get(criterionIndex);
+    if (
+      !issuePath
+      || criterion.dimension !== "other"
+      || criterion.operator !== "text_only"
+      || !isRecord(criterion.value)
+      || !Array.isArray(criterion.value.covered_dimensions)
+      || criterion.value.covered_dimensions.length !== 0
+    ) return criterion;
+    const value = { ...criterion.value };
+    delete value.covered_dimensions;
+    repairs.push({
+      issuePath,
+      criterionIndex,
+      key: "covered_dimensions",
+      strategy: "omit_empty_optional_covered_dimensions",
+    });
+    return { ...criterion, value };
+  });
+  if (repairs.length === 0) return { execution: input.execution, repairs };
+
+  const repairedIndexes = new Set(repairs.map((repair) => repair.criterionIndex));
+  const rawToolInput = { ...input.execution.result.rawToolInput };
+  if (Array.isArray(rawToolInput.criteria)) {
+    rawToolInput.criteria = rawToolInput.criteria.map((rawCriterion, criterionIndex) => {
+      if (!repairedIndexes.has(criterionIndex) || !isRecord(rawCriterion)) return rawCriterion;
+      const rawValue = isRecord(rawCriterion.value) ? { ...rawCriterion.value } : null;
+      if (!rawValue || !Array.isArray(rawValue.covered_dimensions) || rawValue.covered_dimensions.length !== 0) {
+        return rawCriterion;
+      }
+      delete rawValue.covered_dimensions;
+      return { ...rawCriterion, value: rawValue };
+    });
+  }
+
+  return {
+    repairs,
+    execution: {
+      ...input.execution,
+      deterministicOptionalMetadataRepairs: [
+        ...(input.execution.deterministicOptionalMetadataRepairs ?? []),
+        ...repairs,
+      ],
+      result: {
+        ...input.execution.result,
+        criteria,
+        rawToolInput,
+      },
     },
   };
 }

@@ -38,6 +38,8 @@ export async function POST(request: Request, context: RouteContext) {
     const agentSuggestionId = optionalUuid(form.get("agentSuggestionId"), "agentSuggestionId");
     const fieldAgentSuggestionId = optionalUuid(form.get("fieldAgentSuggestionId"), "fieldAgentSuggestionId");
     const operationVersion = optionalNonNegativeInteger(form.get("operationVersion"), "operationVersion");
+    const profileAutofillOperation = optionalProfileAutofillOperation(form.get("profileAutofillOperation"));
+    const profileAutofillFieldIds = parseStringArray(form.get("profileAutofillFieldIds"), "profileAutofillFieldIds");
     const materializedAnswers = parseStringMap(form.get("materializedAnswers"), "materializedAnswers");
     const verification = parseVerification(form.get("verification"));
 
@@ -58,6 +60,8 @@ export async function POST(request: Request, context: RouteContext) {
       fieldAgentSuggestionId,
       agentOperation,
       operationVersion,
+      profileAutofillOperation,
+      profileAutofillFieldIds,
       materializedAnswers,
       verification,
     });
@@ -165,6 +169,19 @@ function optionalNonNegativeInteger(
   return requireNonNegativeInteger(value, field);
 }
 
+function optionalProfileAutofillOperation(
+  value: FormDataEntryValue | null,
+): "apply" | "undo" | null {
+  if (value === null || value === "") return null;
+  if (value === "apply" || value === "undo") return value;
+  throw new SnapshotRequestError(
+    "snapshot_profileAutofillOperation_invalid",
+    "profileAutofillOperation 값이 올바르지 않습니다.",
+    400,
+    "profileAutofillOperation",
+  );
+}
+
 function parseVerification(value: FormDataEntryValue | null): Record<string, unknown> {
   if (typeof value !== "string" || value.trim().length === 0) return {};
   try {
@@ -196,6 +213,24 @@ function parseStringMap(value: FormDataEntryValue | null, field: string): Record
       result[key] = entry;
     }
     return result;
+  } catch {
+    throw new SnapshotRequestError(
+      `snapshot_${field}_invalid`,
+      `${field} 값을 해석하지 못했습니다.`,
+      400,
+      field,
+    );
+  }
+}
+
+function parseStringArray(value: FormDataEntryValue | null, field: string): string[] {
+  if (typeof value !== "string" || value.trim().length === 0) return [];
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    if (!Array.isArray(parsed) || parsed.some((entry) => typeof entry !== "string")) {
+      throw new Error(`${field} must be a string array`);
+    }
+    return parsed;
   } catch {
     throw new SnapshotRequestError(
       `snapshot_${field}_invalid`,

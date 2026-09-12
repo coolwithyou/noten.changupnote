@@ -8,6 +8,7 @@
 // - 응답 불신 원칙: shim 은 "모양"만 재조립하고 내용 검증은 기존 하류가 수행한다.
 // - 재시도는 이 모듈의 몫이 아니다 — 합성 HTTP 상태를 본 기존 호출부의 분기가 발화한다.
 import { execFile, type ExecFileException } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -18,12 +19,17 @@ import {
 import {
   assertAnalysisLabReceiptBoundTransportAdmitted,
 } from "./analysis-execution-admission";
+import type {
+  AnalysisRequestObservation,
+  AnalysisRequestStage,
+} from "./analysis-request-observation";
 
 const MAX_BUFFER_BYTES = 64 * 1024 * 1024;
 const AUTH_STATUS_MAX_BUFFER_BYTES = 64 * 1024;
 const AUTH_STATUS_TIMEOUT_MS = 10_000;
 const DEFAULT_MAX_CONCURRENCY = 4;
 const MAX_CONFIGURABLE_CONCURRENCY = 16;
+const PROCESS_INSTANCE_ID = `process-${process.pid}-${randomUUID()}`;
 const CLAUDE_SUBSCRIPTION_FORBIDDEN_ENV_KEYS = [
   "ANTHROPIC_API_KEY",
   "ANTHROPIC_AUTH_TOKEN",
@@ -74,6 +80,19 @@ export interface ClaudeCliFetchConfig {
   schedulerKey?: ClaudeCliSchedulerKey;
   /** receipt lease 상실을 이 fetch 인스턴스의 initial·repair 전체 호출에 관통시키는 신호. */
   externalSignal?: AbortSignal;
+  /** launch 실행의 append-only request 계측. 관측 실패는 분석 결과를 실패시키지 않는다. */
+  requestObservation?: ClaudeCliRequestObservationConfig;
+}
+
+export interface ClaudeCliRequestObservationConfig {
+  readonly manifestSha256: string;
+  readonly runId: string;
+  readonly grantId: string;
+  readonly processInstanceId?: string;
+  readonly wallNow?: () => Date;
+  readonly monotonicNow?: () => number;
+  readonly requestId?: () => string;
+  readonly onEvent: (event: AnalysisRequestObservation) => Promise<void> | void;
 }
 
 export type ClaudeCliSchedulerKey = string | symbol;
@@ -284,7 +303,7 @@ function buildClaudeCliFetchInternal(config?: ClaudeCliFetchConfig): typeof fetc
         signal: linkedSignal.signal,
       });
       await authPreflight;
-      outcome = await scheduler.run(schedulerKey, () => runClaudeCliWithExecutionTimeout({
+      const task = () => runClaudeCliWithExecutionTimeout({
         execFileImpl,
         binary,
         argv: buildArgv(request),
@@ -292,7 +311,17 @@ function buildClaudeCliFetchInternal(config?: ClaudeCliFetchConfig): typeof fetc
         externalSignal: linkedSignal.signal,
         timeoutMs: executionTimeoutMs,
         stdinText: request.content,
-      }), linkedSignal.signal);
+      });
+      outcome = config?.requestObservation
+        ? await runObservedClaudeCliRequest({
+            scheduler,
+            schedulerKey,
+            task,
+            ...(linkedSignal.signal ? { signal: linkedSignal.signal } : {}),
+            request,
+            observation: config.requestObservation,
+          })
+        : await scheduler.run(schedulerKey, task, linkedSignal.signal);
     } finally {
       linkedSignal.cleanup();
     }
@@ -304,6 +333,114 @@ function buildClaudeCliFetchInternal(config?: ClaudeCliFetchConfig): typeof fetc
     return assembleErrorResponse(cliJson, outcome, getVersion);
   };
   return markExecutionScopedTimeoutFetch(claudeCliFetch as typeof fetch);
+}
+
+async function runObservedClaudeCliRequest(input: {
+  readonly scheduler: ClaudeCliScheduler;
+  readonly schedulerKey: ClaudeCliSchedulerKey;
+  readonly task: () => Promise<CliExecOutcome>;
+  readonly signal?: AbortSignal;
+  readonly request: ParsedAnthropicRequest;
+  readonly observation: ClaudeCliRequestObservationConfig;
+}): Promise<CliExecOutcome> {
+  const wallNow = input.observation.wallNow ?? (() => new Date());
+  const monotonicNow = input.observation.monotonicNow ?? (() => performance.now());
+  const enqueuedAt = wallNow();
+  const monotonicEnqueuedMs = monotonicNow();
+  const timing: { startedAt: string | null; monotonicStartedMs: number | null } = {
+    startedAt: null,
+    monotonicStartedMs: null,
+  };
+  let outcome: AnalysisRequestObservation["outcome"] = "rejected";
+  let cliOutcome: CliExecOutcome | null = null;
+  try {
+    const value = await input.scheduler.run(input.schedulerKey, async () => {
+      timing.startedAt = wallNow().toISOString();
+      timing.monotonicStartedMs = monotonicNow();
+      return input.task();
+    }, input.signal);
+    cliOutcome = value;
+    outcome = "fulfilled";
+    return value;
+  } catch (error) {
+    if (timing.startedAt === null && input.signal?.aborted) outcome = "aborted_before_start";
+    throw error;
+  } finally {
+    const endedAt = wallNow();
+    const monotonicEndedMs = monotonicNow();
+    const event: AnalysisRequestObservation = Object.freeze({
+      schema: "analysis-request-observation-v1",
+      authority: "unsealed_local_observation",
+      processInstanceId: input.observation.processInstanceId ?? PROCESS_INSTANCE_ID,
+      manifestSha256: input.observation.manifestSha256,
+      runId: input.observation.runId,
+      grantId: input.observation.grantId,
+      requestId: (input.observation.requestId ?? randomUUID)(),
+      stage: classifyRequestStage(input.request),
+      toolName: input.request.toolName,
+      enqueuedAt: enqueuedAt.toISOString(),
+      startedAt: timing.startedAt,
+      endedAt: endedAt.toISOString(),
+      monotonicEnqueuedMs,
+      monotonicStartedMs: timing.monotonicStartedMs,
+      monotonicEndedMs,
+      queueWaitMs: timing.monotonicStartedMs === null
+        ? null
+        : timing.monotonicStartedMs - monotonicEnqueuedMs,
+      executionMs: timing.monotonicStartedMs === null
+        ? null
+        : monotonicEndedMs - timing.monotonicStartedMs,
+      modelUsage: observedModelUsage(cliOutcome),
+      outcome,
+      completeness: timing.monotonicStartedMs === null ? "missing_start" : "complete",
+    });
+    try {
+      await input.observation.onEvent(event);
+    } catch {
+      // 관측 sidecar 누락은 별도 completeness 문제다. 정상 분석/lease 의미를 바꾸지 않는다.
+    }
+  }
+}
+
+function observedModelUsage(outcome: CliExecOutcome | null): AnalysisRequestObservation["modelUsage"] {
+  if (!outcome) return null;
+  const parsed = parseJsonSafe(outcome.stdout);
+  if (!isRecord(parsed) || !isRecord(parsed.usage)) return null;
+  const inputTokens = observedTokenCount(parsed.usage.input_tokens);
+  const cacheCreationInputTokens = observedTokenCount(parsed.usage.cache_creation_input_tokens);
+  const outputTokens = observedTokenCount(parsed.usage.output_tokens);
+  const cacheReadInputTokens = observedTokenCount(parsed.usage.cache_read_input_tokens);
+  if (
+    inputTokens === null
+    || cacheCreationInputTokens === null
+    || outputTokens === null
+    || cacheReadInputTokens === null
+  ) return null;
+  return Object.freeze({
+    inputTokens: inputTokens + cacheCreationInputTokens,
+    outputTokens,
+    cacheReadInputTokens,
+  });
+}
+
+function observedTokenCount(value: unknown): number | null {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : null;
+}
+
+function classifyRequestStage(request: ParsedAnthropicRequest): AnalysisRequestStage {
+  if (request.toolName === "emit_application_field_plan" || request.toolName === "application_field_plan") {
+    return "application";
+  }
+  if (
+    request.toolName === "emit_deep_analysis_review"
+    || request.toolName === "emit_deep_analysis_audit"
+    || request.toolName === "emit_deep_analysis_confirmation"
+    || request.toolName === "ai_review"
+  ) return "review";
+  if (request.toolName === "emit_deep_grant_analysis" || request.toolName === "deep_grant_analysis") {
+    return request.content.includes("<<<FAILED_RESULT_TO_REPAIR>>>") ? "repair" : "primary";
+  }
+  return "unknown";
 }
 
 function verifyClaudeMaxSubscriptionAuth(options: {

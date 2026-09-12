@@ -15,7 +15,12 @@ import {
   type RhwpFieldAnchor,
   type RhwpFieldDescriptor,
 } from "@/lib/rhwp/fieldAnchors";
-import { downloadBytes, loadRhwp } from "@/lib/rhwp/client";
+import {
+  downloadBytes,
+  loadRhwp,
+  type RhwpDocumentFormat,
+  type RhwpModule,
+} from "@/lib/rhwp/client";
 import {
   extractDocumentEditCandidates,
   reservedAnchorsFromExactResolutions,
@@ -47,6 +52,7 @@ import {
   resolveStudioFieldSelectionProtocol,
   type StudioBodyParagraphTargetV1,
   type StudioDocumentAgentProtocol,
+  type StudioDocumentStateV1,
   type StudioFieldAgentProtocol,
   type StudioFieldBindingTargetV1,
   type StudioFieldNavigationProtocol,
@@ -88,7 +94,11 @@ import {
   reduceStudioSaveState,
   type StudioSaveState,
 } from "@/lib/rhwp/studioSaveState";
-import { resolveRhwpStudioSaveProtocol, type RhwpStudioSaveProtocol } from "@/lib/rhwp/studioSaveProtocol";
+import {
+  resolveRhwpStudioSaveProtocol,
+  type RhwpDocumentChange,
+  type RhwpStudioSaveProtocol,
+} from "@/lib/rhwp/studioSaveProtocol";
 import {
   STUDIO_INITIALIZATION_ATTEMPTS,
   StudioInitializationTimeoutError,
@@ -104,7 +114,11 @@ import {
   type ScheduleTableTarget,
 } from "@/lib/rhwp/scheduleTable";
 import type { ScheduleTablePlan } from "@/lib/rhwp/scheduleTableContract";
-import { commitStudioSnapshot } from "@/lib/rhwp/studioTransport";
+import {
+  commitStudioSnapshot,
+  isStudioMutationScopeCurrent,
+  type StudioMutationScope,
+} from "@/lib/rhwp/studioTransport";
 import { cn } from "@/lib/utils";
 import {
   prepareRhwpWorkingDocument,
@@ -131,6 +145,82 @@ import {
 
 type RhwpEditorInstance = import("@rhwp/editor").RhwpEditor;
 
+type StudioDocumentChangeVersion = Pick<RhwpDocumentChange, "documentEpoch" | "changeSeq">;
+
+/**
+ * 신규 save protocol 이벤트를 우선 사용하고, 그 capability가 없는 Studio에서는 이미 검증된
+ * native field command 이벤트로 sequence와 일회성 Undo를 추적한다.
+ */
+export function subscribeStudioDocumentChanges(input: {
+  saveProtocol: RhwpStudioSaveProtocol;
+  fieldAgentProtocol: Pick<StudioFieldAgentProtocol, "onDocumentChanged"> | null;
+  onDocumentChanged: (change: StudioDocumentChangeVersion) => void;
+}): (() => void) | null {
+  const unsubscribeSave = input.saveProtocol.subscribeDocumentChanged((change) => {
+    if (change.dirty) input.onDocumentChanged(change);
+  });
+  if (unsubscribeSave) return unsubscribeSave;
+  return input.fieldAgentProtocol?.onDocumentChanged(input.onDocumentChanged) ?? null;
+}
+
+/** 파싱된 4xx 응답만 서버 transaction이 commit되지 않은 확정 거절로 취급한다. */
+export function isDefinitiveStudioSnapshotRejection(
+  error: unknown,
+): error is StudioSnapshotPersistenceError {
+  return error instanceof StudioSnapshotPersistenceError
+    && error.status >= 400
+    && error.status < 500;
+}
+
+/** Undo 중간 실패 시 서버에 저장된 적용본을 같은 editor에 다시 올려 partial inverse를 제거한다. */
+export async function restoreProfileAutofillAppliedEditor(input: {
+  format: RhwpDocumentFormat;
+  expectedBytes: Uint8Array;
+  expectedPageCount: number;
+  isCurrent: () => boolean;
+  loadApplied(): Promise<{ pageCount: number }>;
+  exportCurrentBytes(): Promise<Uint8Array>;
+  readDocumentState(): Promise<StudioDocumentStateV1>;
+  semanticSha256(bytes: Uint8Array): Promise<string>;
+  notifySaved(): Promise<void>;
+}): Promise<StudioDocumentStateV1 | null> {
+  if (!input.isCurrent()) return null;
+  const loaded = await input.loadApplied();
+  if (!input.isCurrent()) return null;
+  const currentBytes = await input.exportCurrentBytes();
+  if (!input.isCurrent()) return null;
+  const documentState = await input.readDocumentState();
+  if (!input.isCurrent()) return null;
+  const currentDocumentSha256 = await sha256Hex(currentBytes);
+  if (!input.isCurrent()) return null;
+  if (
+    loaded.pageCount !== input.expectedPageCount
+    || documentState.pageCount !== input.expectedPageCount
+    || documentState.format !== input.format
+    || documentState.documentSha256 !== currentDocumentSha256
+  ) {
+    throw new Error("자동 입력 적용본 복구의 형식·쪽수·현재 문서 SHA가 일치하지 않습니다.");
+  }
+  const expectedSemanticSha256 = await input.semanticSha256(input.expectedBytes);
+  if (!input.isCurrent()) return null;
+  const currentSemanticSha256 = await input.semanticSha256(currentBytes);
+  if (!input.isCurrent()) return null;
+  if (currentSemanticSha256 !== expectedSemanticSha256) {
+    throw new Error("자동 입력 적용본 복구 뒤 문서 내용 또는 서식이 저장된 적용본과 다릅니다.");
+  }
+  await input.notifySaved();
+  return input.isCurrent() ? documentState : null;
+}
+
+async function studioFieldSemanticSha256ForBytes(rhwp: RhwpModule, bytes: Uint8Array): Promise<string> {
+  const document = new rhwp.HwpDocument(bytes);
+  try {
+    return await studioFieldDocumentSemanticSha256(document);
+  } finally {
+    document.free();
+  }
+}
+
 export interface RhwpStudioSurfaceHandle {
   saveAndReturn(): Promise<void>;
   saveCurrent(): Promise<void>;
@@ -145,7 +235,18 @@ export interface RhwpStudioSurfaceHandle {
   applyProfileAutofill(entries: readonly { fieldId: string; value: string }[]): Promise<{
     appliedCount: number;
     fieldIds: string[];
+    revisionId: string | null;
   }>;
+  applyProfileAutofill(
+    entries: readonly { fieldId: string; value: string }[],
+    options: { automatic: true },
+  ): Promise<{ appliedCount: number; fieldIds: string[]; revisionId: string | null }>;
+  undoAutomaticProfileAutofill(): Promise<{
+    fieldIds: string[];
+    appliedRevisionId: string;
+    undoRevisionId: string;
+  }>;
+  canUndoAutomaticProfileAutofill(): boolean;
   inspectScheduleTable(): Promise<ScheduleTableInspection>;
   applyScheduleTable(target: ScheduleTableTarget, plan: ScheduleTablePlan): Promise<{
     afterDocumentSha256: string;
@@ -175,6 +276,17 @@ type StudioState =
   | { status: "ready"; pageCount: number; skipped: RhwpWorkingDocument["skipped"] }
   | { status: "error"; message: string };
 
+export function isStudioEditorInteractionBlocked(input: {
+  status: StudioState["status"];
+  allowEditorInteraction?: boolean | undefined;
+  saving: boolean;
+  documentActionsBlocked: boolean;
+}): boolean {
+  return input.saving
+    || input.documentActionsBlocked
+    || (input.status === "loading" && !input.allowEditorInteraction);
+}
+
 type StudioSaveIntent = "auto" | "stay" | "return";
 
 interface ScheduleTableUndoState {
@@ -183,6 +295,12 @@ interface ScheduleTableUndoState {
   afterDocumentSha256: string;
   appliedRevisionId: string;
   pageCountBefore: number;
+}
+
+interface ProfileAutofillUndoState {
+  batch: StudioProfileAutofillBatchResult;
+  appliedRevisionId: string;
+  beforeMaterializedAnswers: Record<string, string>;
 }
 
 export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
@@ -249,6 +367,7 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
   const latestAppliedSuggestionIdRef = useRef<string | null>(null);
   const documentAgentInitializedRef = useRef(false);
   const scheduleTableUndoRef = useRef<ScheduleTableUndoState | null>(null);
+  const profileAutofillUndoRef = useRef<ProfileAutofillUndoState | null>(null);
   const preparedRef = useRef<RhwpWorkingDocument | null>(null);
   const onSavedRef = useRef(onSaved);
   const onFieldBindingsResolvedRef = useRef(onFieldBindingsResolved);
@@ -493,13 +612,21 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
         savedAt: prepared.serverSavedAt,
         ...(dirtyState ? { changeSeq: dirtyState.changeSeq } : {}),
       });
-      unsubscribeDocumentChanged = saveProtocol.subscribeDocumentChanged((change) => {
-        if (disposed || requestSeq.current !== seq || !change.dirty) return;
-        scheduleTableUndoRef.current = null;
-        documentEpochRef.current = change.documentEpoch;
-        latestChangeSeqRef.current = change.changeSeq;
-        dispatchSave({ type: "changed", changeSeq: change.changeSeq });
-        scheduleAutosaveRef.current(change.changeSeq);
+      unsubscribeDocumentChanged = subscribeStudioDocumentChanges({
+        saveProtocol,
+        fieldAgentProtocol,
+        onDocumentChanged: (change) => {
+          if (disposed || requestSeq.current !== seq) return;
+          scheduleTableUndoRef.current = null;
+          profileAutofillUndoRef.current = null;
+          documentEpochRef.current = change.documentEpoch;
+          latestChangeSeqRef.current = change.changeSeq;
+          if (!saveProtocol.supportsChangeEvents) {
+            legacySaveSeqRef.current = Math.max(legacySaveSeqRef.current, change.changeSeq);
+          }
+          dispatchSave({ type: "changed", changeSeq: change.changeSeq });
+          scheduleAutosaveRef.current(change.changeSeq);
+        },
       });
       setState({ status: "ready", pageCount: result.pageCount, skipped: prepared.skipped });
     };
@@ -526,6 +653,7 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
       agentReservedAnchorsRef.current = [];
       latestAppliedSuggestionIdRef.current = null;
       scheduleTableUndoRef.current = null;
+      profileAutofillUndoRef.current = null;
       setAgentCapabilityReady(false);
       preparedRef.current = null;
     };
@@ -552,7 +680,9 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
     const supportsChangeEvents = saveProtocolRef.current?.supportsChangeEvents ?? false;
     // Legacy host는 dirty/changeSeq 이벤트가 없으므로 성공 ACK 전에는 같은 순번을 재사용한다.
     // 서버가 저장했지만 응답만 유실된 경우 같은 bytes+순번 재시도가 기존 revision을 복구한다.
-    const savedSeq = latestChangeSeqRef.current ?? legacySaveSeqRef.current + 1;
+    const savedSeq = supportsChangeEvents
+      ? latestChangeSeqRef.current ?? legacySaveSeqRef.current + 1
+      : legacySaveSeqRef.current + 1;
     dispatchSave({ type: "save-started", changeSeq: savedSeq, phase: "exporting" });
     try {
       const pageCount = await editor.pageCount();
@@ -791,10 +921,16 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
     savedAt: string;
     changeSeq: number;
     materializedAnswers?: Record<string, string>;
-  }) => {
+    expectedMutationScope?: StudioMutationScope;
+  }): Promise<boolean> => {
     const prepared = preparedRef.current;
     const editor = editorRef.current;
     if (!prepared || !editor) throw new Error("현재 Studio 작업본을 찾지 못했습니다.");
+    if (input.expectedMutationScope && !isStudioMutationScopeCurrent(input.expectedMutationScope, {
+      sourceKey: prepared.sourceKey,
+      sessionId: studioSessionIdRef.current,
+      requestSeq: requestSeq.current,
+    })) return false;
     const snapshot: RhwpWorkingDocument = {
       ...prepared,
       bytes: input.bytes,
@@ -807,6 +943,14 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
     await notifyEditorSaved(editor).catch((error) => {
       console.warn("rhwp Studio AI revision 저장 완료 통지 실패", error);
     });
+    if (input.expectedMutationScope && !isStudioMutationScopeCurrent(input.expectedMutationScope, {
+      sourceKey: preparedRef.current?.sourceKey ?? null,
+      sessionId: studioSessionIdRef.current,
+      requestSeq: requestSeq.current,
+    })) return false;
+    if (!(saveProtocolRef.current?.supportsChangeEvents ?? false)) {
+      legacySaveSeqRef.current = Math.max(legacySaveSeqRef.current, input.changeSeq);
+    }
     try {
       onSavedRef.current(snapshot, activeTaskFieldIdRef.current, false);
     } catch (error) {
@@ -820,6 +964,7 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
       currentSeq: latestChangeSeqRef.current,
       supportsChangeEvents: saveProtocolRef.current?.supportsChangeEvents ?? false,
     });
+    return true;
   }, []);
 
   const readCurrentAgentDocument = useCallback(async () => {
@@ -1644,14 +1789,28 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
   }, [refreshFieldRun, transport]);
 
   const inspectProfileAutofill = useCallback(async (): Promise<ApplicationAutofillFieldBinding[]> => {
+    const prepared = preparedRef.current;
+    if (!prepared) throw new Error("현재 Studio 작업본을 찾지 못했습니다.");
+    const mutationScope: StudioMutationScope = {
+      sourceKey: prepared.sourceKey,
+      sessionId: studioSessionIdRef.current,
+      requestSeq: requestSeq.current,
+    };
+    const mutationIsCurrent = () => isStudioMutationScopeCurrent(mutationScope, {
+      sourceKey: preparedRef.current?.sourceKey ?? null,
+      sessionId: studioSessionIdRef.current,
+      requestSeq: requestSeq.current,
+    });
     let locked = false;
     setFieldAgentBusy(true);
     try {
       beginAgentMutation();
       locked = true;
       const current = await readCurrentFieldDocument();
+      if (!mutationIsCurrent()) throw new Error("문서가 전환되어 회사 정보 입력 위치 확인을 중단했습니다.");
       onFieldBindingsResolvedRef.current?.(current.resolutions);
       const rhwp = await loadRhwp();
+      if (!mutationIsCurrent()) throw new Error("문서가 전환되어 회사 정보 입력 위치 확인을 중단했습니다.");
       const bindings: ApplicationAutofillFieldBinding[] = [];
       const uniqueResolutions = current.resolutions.filter((resolution) => resolution.status === "unique");
       const evidence = await collectStudioFieldEvidenceBatch(
@@ -1659,6 +1818,7 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
         current.bytes,
         uniqueResolutions.map((resolution) => resolution.target),
       );
+      if (!mutationIsCurrent()) throw new Error("문서가 전환되어 회사 정보 입력 위치 확인을 중단했습니다.");
       const evidenceByFieldId = new Map(uniqueResolutions.map((resolution, index) => [
         resolution.fieldId,
         evidence[index] ?? null,
@@ -1674,6 +1834,7 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
             fieldId: resolution.fieldId,
             status: "unique",
             beforeText: fieldEvidence.text,
+            targetKind: resolution.target.kind,
           });
         } else {
           bindings.push({ fieldId: resolution.fieldId, status: "missing" });
@@ -1688,9 +1849,10 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
 
   const applyProfileAutofill = useCallback(async (
     entries: readonly { fieldId: string; value: string }[],
-  ): Promise<{ appliedCount: number; fieldIds: string[] }> => {
+    options?: { automatic?: boolean },
+  ): Promise<{ appliedCount: number; fieldIds: string[]; revisionId: string | null }> => {
     if (transport.mode !== "persistent") throw new Error("서버에 저장되는 문서 초안이 아닙니다.");
-    if (entries.length === 0) return { appliedCount: 0, fieldIds: [] };
+    if (entries.length === 0) return { appliedCount: 0, fieldIds: [], revisionId: null };
     if (entries.length > 100) throw new Error("한 번에 입력할 수 있는 등록정보 필드 수를 초과했습니다.");
     const prepared = preparedRef.current;
     const editor = editorRef.current;
@@ -1698,6 +1860,16 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
     if (!prepared || !editor || !protocol) {
       throw new Error("현재 문서에서 등록정보 일괄 입력을 실행할 수 없습니다.");
     }
+    const mutationScope: StudioMutationScope = {
+      sourceKey: prepared.sourceKey,
+      sessionId: studioSessionIdRef.current,
+      requestSeq: requestSeq.current,
+    };
+    const mutationIsCurrent = () => isStudioMutationScopeCurrent(mutationScope, {
+      sourceKey: preparedRef.current?.sourceKey ?? null,
+      sessionId: studioSessionIdRef.current,
+      requestSeq: requestSeq.current,
+    });
 
     let locked = false;
     let keepLocked = false;
@@ -1707,6 +1879,7 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
       beginAgentMutation();
       locked = true;
       const current = await readCurrentFieldDocument();
+      if (!mutationIsCurrent()) throw new Error("문서가 전환되어 회사 정보 자동 입력을 중단했습니다.");
       const fieldById = new Map(connectedFields.map((field) => [field.fieldId, field]));
       const resolutionById = new Map(current.resolutions.map((resolution) => [resolution.fieldId, resolution]));
       const requestedIds = new Set<string>();
@@ -1731,6 +1904,7 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
       });
 
       const rhwp = await loadRhwp();
+      if (!mutationIsCurrent()) throw new Error("문서가 전환되어 회사 정보 자동 입력을 중단했습니다.");
       const transaction = createStudioProfileAutofillTransaction({
         rhwp,
         protocol,
@@ -1742,6 +1916,9 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
           format: prepared.format,
           entries: batchEntries,
         });
+        if (!mutationIsCurrent()) {
+          throw new Error("문서가 전환되어 회사 정보 자동 입력을 저장하지 않았습니다.");
+        }
       } catch (error) {
         if (error instanceof StudioProfileAutofillTransactionError) {
           if (error.mutationUncertain) {
@@ -1763,12 +1940,14 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
       }
 
       const lastApplied = batchResult.applied.at(-1);
-      if (!lastApplied) return { appliedCount: 0, fieldIds: [] };
+      if (!lastApplied) return { appliedCount: 0, fieldIds: [], revisionId: null };
+      const beforeMaterializedAnswers = { ...prepared.materializedAnswers };
       const materializedAnswers = { ...prepared.materializedAnswers };
       for (const entry of batchResult.applied) materializedAnswers[entry.fieldId] = entry.value;
 
       let persisted: Awaited<ReturnType<typeof persistStudioSnapshot>>;
       try {
+        if (!mutationIsCurrent()) throw new Error("문서가 전환되어 회사 정보 자동 입력을 저장하지 않았습니다.");
         persisted = await persistStudioSnapshot({
           draftId: transport.draftId,
           bytes: batchResult.bytes,
@@ -1781,6 +1960,10 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
           changeSeq: lastApplied.result.receipt.afterChangeSeq,
           origin: "studio_manual",
           materializedAnswers,
+          ...(options?.automatic ? {
+            profileAutofillOperation: "apply" as const,
+            profileAutofillFieldIds: batchResult.applied.map((entry) => entry.fieldId),
+          } : {}),
           verification: {
             client: "rhwp-core-reopen",
             verified: true,
@@ -1795,6 +1978,13 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
           },
         });
       } catch (error) {
+        if (!isDefinitiveStudioSnapshotRejection(error)) {
+          keepLocked = mutationIsCurrent();
+          throw new Error("회사 정보 자동 입력의 서버 저장 성공 여부를 확인하지 못했습니다. 최신 서버 문서를 다시 불러와 주세요.");
+        }
+        if (!mutationIsCurrent()) {
+          throw new Error("문서가 전환되어 이전 문서의 회사 정보 자동 입력 복구를 중단했습니다.");
+        }
         try {
           await transaction.revert(batchResult);
           await notifyEditorSaved(editor);
@@ -1805,26 +1995,56 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
         throw new Error(`${errorMessage(error, "등록정보를 입력한 문서를 저장하지 못했습니다.")} 문서 변경은 원상 복구했습니다.`);
       }
 
+      if (!mutationIsCurrent()) {
+        return {
+          appliedCount: batchResult.applied.length,
+          fieldIds: batchResult.applied.map((entry) => entry.fieldId),
+          revisionId: persisted.revisionId,
+        };
+      }
+
       try {
-        await acceptPersistedAgentSnapshot({
+        const accepted = await acceptPersistedAgentSnapshot({
           bytes: batchResult.bytes,
           revisionId: persisted.revisionId,
           savedAt: persisted.savedAt,
           changeSeq: lastApplied.result.receipt.afterChangeSeq,
           materializedAnswers,
+          expectedMutationScope: mutationScope,
         });
+        if (!accepted) {
+          return {
+            appliedCount: batchResult.applied.length,
+            fieldIds: batchResult.applied.map((entry) => entry.fieldId),
+            revisionId: persisted.revisionId,
+          };
+        }
       } catch (error) {
         keepLocked = true;
         throw new Error(`서버 저장 뒤 현재 편집 상태를 확정하지 못해 편집을 잠갔습니다: ${errorMessage(error, "상태 반영 실패")}`);
       }
       onFieldBindingsResolvedRef.current?.(current.resolutions);
-      await focusField(lastApplied.fieldId);
+      if (options?.automatic) {
+        profileAutofillUndoRef.current = {
+          batch: batchResult,
+          appliedRevisionId: persisted.revisionId,
+          beforeMaterializedAnswers,
+        };
+      } else {
+        await focusField(lastApplied.fieldId);
+      }
       return {
         appliedCount: batchResult.applied.length,
         fieldIds: batchResult.applied.map((entry) => entry.fieldId),
+        revisionId: persisted.revisionId,
       };
+    } catch (error) {
+      if (keepLocked && mutationIsCurrent()) {
+        setAgentHardLock(errorMessage(error, "회사 정보 자동 입력 결과를 확정하지 못해 편집을 잠갔습니다."));
+      }
+      throw error;
     } finally {
-      if (locked) finishAgentMutation(keepLocked);
+      if (locked) finishAgentMutation(keepLocked && mutationIsCurrent());
       setFieldAgentBusy(false);
     }
   }, [
@@ -1836,6 +2056,218 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
     readCurrentFieldDocument,
     transport,
   ]);
+
+  const undoAutomaticProfileAutofill = useCallback(async (): Promise<{
+    fieldIds: string[];
+    appliedRevisionId: string;
+    undoRevisionId: string;
+  }> => {
+    if (transport.mode !== "persistent") throw new Error("서버에 저장되는 문서 초안이 아닙니다.");
+    const undo = profileAutofillUndoRef.current;
+    const prepared = preparedRef.current;
+    const editor = editorRef.current;
+    const protocol = fieldAgentProtocolRef.current;
+    if (!undo || !prepared || !editor || !protocol || prepared.revisionId !== undo.appliedRevisionId) {
+      throw new Error("최근 회사 정보 자동 입력 뒤 문서가 변경되어 되돌릴 수 없습니다.");
+    }
+    const mutationScope: StudioMutationScope = {
+      sourceKey: prepared.sourceKey,
+      sessionId: studioSessionIdRef.current,
+      requestSeq: requestSeq.current,
+    };
+    const mutationIsCurrent = () => isStudioMutationScopeCurrent(mutationScope, {
+      sourceKey: preparedRef.current?.sourceKey ?? null,
+      sessionId: studioSessionIdRef.current,
+      requestSeq: requestSeq.current,
+    });
+
+    let locked = false;
+    let keepLocked = false;
+    let revertedBytes: Uint8Array | null = null;
+    setFieldAgentBusy(true);
+    try {
+      beginAgentMutation();
+      locked = true;
+      const current = await readCurrentFieldDocument();
+      if (!mutationIsCurrent()) throw new Error("문서가 전환되어 회사 정보 자동 입력 되돌리기를 중단했습니다.");
+      const applied = undo.batch.applied.at(-1);
+      if (!applied || current.documentSha256 !== applied.result.afterDocumentSha256) {
+        throw new Error("자동 입력 뒤 문서가 변경되어 되돌리지 않았습니다.");
+      }
+      const rhwp = await loadRhwp();
+      if (!mutationIsCurrent()) throw new Error("문서가 전환되어 회사 정보 자동 입력 되돌리기를 중단했습니다.");
+      const transaction = createStudioProfileAutofillTransaction({
+        rhwp,
+        protocol,
+        exportCurrentBytes: (format) => exportVerifiedEditorDocument(editor, format),
+      });
+      const restoreAppliedSnapshot = async (): Promise<boolean> => {
+        if (!prepared.serverSavedAt) {
+          throw new Error("자동 입력 적용 revision의 저장 시각을 확인하지 못했습니다.");
+        }
+        const restoredState = await restoreProfileAutofillAppliedEditor({
+          format: undo.batch.format,
+          expectedBytes: undo.batch.bytes,
+          expectedPageCount: applied.result.receipt.pageCountAfter,
+          isCurrent: mutationIsCurrent,
+          loadApplied: () => loadEditorFileWithoutDialogs(
+            editor,
+            undo.batch.bytes.slice(),
+            prepared.filename,
+          ),
+          exportCurrentBytes: () => exportVerifiedEditorDocument(editor, undo.batch.format),
+          readDocumentState: () => protocol.getDocumentState(),
+          semanticSha256: (bytes) => studioFieldSemanticSha256ForBytes(rhwp, bytes),
+          notifySaved: () => notifyEditorSaved(editor),
+        });
+        if (!restoredState) return false;
+        documentEpochRef.current = restoredState.documentEpoch;
+        latestChangeSeqRef.current = restoredState.changeSeq;
+        const supportsChangeEvents = saveProtocolRef.current?.supportsChangeEvents ?? false;
+        if (!supportsChangeEvents) {
+          legacySaveSeqRef.current = Math.max(legacySaveSeqRef.current, restoredState.changeSeq);
+        }
+        dispatchSave({
+          type: "save-succeeded",
+          revisionId: undo.appliedRevisionId,
+          savedAt: prepared.serverSavedAt,
+          savedSeq: restoredState.changeSeq,
+          currentSeq: restoredState.changeSeq,
+          supportsChangeEvents,
+        });
+        return true;
+      };
+      try {
+        revertedBytes = await transaction.revert(undo.batch);
+      } catch (error) {
+        try {
+          if (!await restoreAppliedSnapshot()) {
+            revertedBytes = null;
+            throw new Error("문서가 전환되어 이전 문서의 적용본 복구 결과를 반영하지 않았습니다.");
+          }
+        } catch (recoveryError) {
+          if (!mutationIsCurrent()) {
+            revertedBytes = null;
+            throw new Error("문서가 전환되어 회사 정보 자동 입력 되돌리기를 중단했습니다.");
+          }
+          keepLocked = true;
+          throw new Error(`자동 입력 Undo 중간 실패와 적용본 복구를 확정하지 못해 편집을 잠갔습니다: ${errorMessage(recoveryError, "복구 실패")}`);
+        }
+        revertedBytes = null;
+        throw new Error(`${errorMessage(error, "회사 정보 자동 입력을 모두 되돌리지 못했습니다.")} 문서는 적용 상태로 복구했습니다.`);
+      }
+      if (!mutationIsCurrent()) {
+        revertedBytes = null;
+        throw new Error("문서가 전환되어 회사 정보 자동 입력 되돌리기를 저장하지 않았습니다.");
+      }
+      const documentState = await protocol.getDocumentState();
+      if (!mutationIsCurrent()) {
+        revertedBytes = null;
+        throw new Error("문서가 전환되어 회사 정보 자동 입력 되돌리기를 저장하지 않았습니다.");
+      }
+      const fieldIds = undo.batch.applied.map((entry) => entry.fieldId);
+      let persisted: Awaited<ReturnType<typeof persistStudioSnapshot>>;
+      try {
+        persisted = await persistStudioSnapshot({
+          draftId: transport.draftId,
+          bytes: revertedBytes,
+          filename: prepared.filename,
+          format: prepared.format,
+          pageCount: undo.batch.applied[0]?.result.receipt.pageCountBefore ?? current.pageCount,
+          sessionId: studioSessionIdRef.current!,
+          baseRevisionId: prepared.revisionId,
+          documentEpoch: documentState.documentEpoch,
+          changeSeq: documentState.changeSeq,
+          origin: "studio_manual",
+          profileAutofillOperation: "undo",
+          profileAutofillFieldIds: fieldIds,
+          materializedAnswers: undo.beforeMaterializedAnswers,
+          verification: {
+            client: "rhwp-core-reopen",
+            verified: true,
+            purpose: "application_profile_autofill_undo",
+            beforeDocumentSha256: current.documentSha256,
+            afterDocumentSha256: documentState.documentSha256,
+            appliedRevisionId: undo.appliedRevisionId,
+          },
+        });
+      } catch (error) {
+        if (!isDefinitiveStudioSnapshotRejection(error)) {
+          keepLocked = mutationIsCurrent();
+          throw new Error("회사 정보 자동 입력 Undo의 서버 저장 성공 여부를 확인하지 못했습니다. 최신 서버 문서를 다시 불러와 주세요.");
+        }
+        if (!mutationIsCurrent()) {
+          revertedBytes = null;
+          throw new Error("문서가 전환되어 이전 문서의 적용본 복구를 중단했습니다.");
+        }
+        try {
+          if (!await restoreAppliedSnapshot()) {
+            throw new Error("문서가 전환되어 이전 문서의 적용본 복구 결과를 반영하지 않았습니다.");
+          }
+        } catch (rollbackError) {
+          if (!mutationIsCurrent()) {
+            revertedBytes = null;
+            throw new Error("문서가 전환되어 회사 정보 자동 입력 되돌리기를 중단했습니다.");
+          }
+          keepLocked = true;
+          throw new Error(`자동 입력 Undo 저장과 적용본 복구를 확정하지 못해 편집을 잠갔습니다: ${errorMessage(rollbackError, "복구 실패")}`);
+        }
+        revertedBytes = null;
+        throw new Error(`${errorMessage(error, "회사 정보 자동 입력을 되돌린 문서를 저장하지 못했습니다.")} 문서는 적용 상태로 복구했습니다.`);
+      }
+      if (!mutationIsCurrent()) {
+        return {
+          fieldIds,
+          appliedRevisionId: undo.appliedRevisionId,
+          undoRevisionId: persisted.revisionId,
+        };
+      }
+      const accepted = await acceptPersistedAgentSnapshot({
+        bytes: revertedBytes,
+        revisionId: persisted.revisionId,
+        savedAt: persisted.savedAt,
+        changeSeq: documentState.changeSeq,
+        materializedAnswers: undo.beforeMaterializedAnswers,
+        expectedMutationScope: mutationScope,
+      });
+      if (!accepted) {
+        return {
+          fieldIds,
+          appliedRevisionId: undo.appliedRevisionId,
+          undoRevisionId: persisted.revisionId,
+        };
+      }
+      profileAutofillUndoRef.current = null;
+      return {
+        fieldIds,
+        appliedRevisionId: undo.appliedRevisionId,
+        undoRevisionId: persisted.revisionId,
+      };
+    } catch (error) {
+      if (revertedBytes) keepLocked = true;
+      if (keepLocked && mutationIsCurrent()) {
+        setAgentHardLock(errorMessage(error, "회사 정보 자동 입력 Undo 결과를 확정하지 못해 편집을 잠갔습니다."));
+      }
+      throw error;
+    } finally {
+      if (locked) finishAgentMutation(keepLocked && mutationIsCurrent());
+      setFieldAgentBusy(false);
+    }
+  }, [acceptPersistedAgentSnapshot, beginAgentMutation, finishAgentMutation, readCurrentFieldDocument, transport]);
+
+  const canUndoAutomaticProfileAutofill = useCallback(
+    () => {
+      const undo = profileAutofillUndoRef.current;
+      const applied = undo?.batch.applied.at(-1);
+      return Boolean(
+        undo
+        && applied
+        && preparedRef.current?.revisionId === undo.appliedRevisionId
+        && latestChangeSeqRef.current === applied.result.receipt.afterChangeSeq
+      );
+    },
+    [],
+  );
 
   const readCurrentScheduleDocument = useCallback(async () => {
     const editor = editorRef.current;
@@ -1991,7 +2423,6 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
         throw new Error(`${errorMessage(error, "일정표를 반영한 문서를 저장하지 못했습니다.")} 문서 변경은 원상 복구했습니다.`);
       }
 
-      if (!(saveProtocolRef.current?.supportsChangeEvents ?? false)) legacySaveSeqRef.current = loaded.changeSeq;
       await acceptPersistedAgentSnapshot({
         bytes: applied.bytes,
         revisionId: persisted.revisionId,
@@ -2100,7 +2531,6 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
         throw new Error(`${errorMessage(error, "일정표 Undo 문서를 저장하지 못했습니다.")} 문서는 적용 상태로 복구했습니다.`);
       }
 
-      if (!(saveProtocolRef.current?.supportsChangeEvents ?? false)) legacySaveSeqRef.current = loaded.changeSeq;
       await acceptPersistedAgentSnapshot({
         bytes: undo.beforeBytes,
         revisionId: persisted.revisionId,
@@ -2143,12 +2573,16 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
     dismissFieldSuggestion,
     inspectProfileAutofill,
     applyProfileAutofill,
+    undoAutomaticProfileAutofill,
+    canUndoAutomaticProfileAutofill,
     inspectScheduleTable,
     applyScheduleTable,
     undoScheduleTable,
     canUndoScheduleTable,
   }), [
     applyProfileAutofill,
+    undoAutomaticProfileAutofill,
+    canUndoAutomaticProfileAutofill,
     applyScheduleTable,
     applyFieldSuggestion,
     dismissFieldSuggestion,
@@ -2169,6 +2603,12 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
   const agentBusy = fieldAgentBusy
     || ["scanning", "checkpointing", "generating", "applying", "undoing"].includes(agentState.phase);
   const documentActionsBlocked = agentBusy || Boolean(agentHardLock);
+  const editorInteractionBlocked = isStudioEditorInteractionBlocked({
+    status: state.status,
+    allowEditorInteraction: state.status === "loading" ? state.allowEditorInteraction : undefined,
+    saving,
+    documentActionsBlocked,
+  });
 
   useEffect(() => {
     if (presentation !== "field_aware") return;
@@ -2396,7 +2836,12 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
               {state.pageCount.toLocaleString("ko-KR")}쪽 열림
             </div>
           ) : null}
-          <div ref={containerRef} className="h-full min-h-[68dvh] w-full" aria-label="문서 직접 편집기" />
+          <div
+            ref={containerRef}
+            className="h-full min-h-[68dvh] w-full"
+            aria-label="문서 직접 편집기"
+            inert={editorInteractionBlocked}
+          />
         </div>
 
         {presentation === "document_guided" ? (

@@ -6,6 +6,7 @@ import {
   type DeepAnalysisModelResult,
 } from "@cunote/contracts";
 import type { LabRun } from "@/lib/server/analysis-lab/lab-contract";
+import { NEW_ANALYSIS_20260911_FIXTURE } from "@/lib/server/deep-analysis/new-analysis-20260911.fixture";
 import {
   runValidatedLabPrimary,
   ValidatedLabPrimaryError,
@@ -113,6 +114,14 @@ assert.ok(
 assert.equal(repaired.passes[1]?.kind, "repair");
 assert.deepEqual(repaired.passes[1]?.issueCodes, [], "둘째 패스로 통과(빈 배열)");
 assert.ok((repaired.passes[0]?.durationMs ?? -1) >= 0, "패스 durationMs 는 0 이상");
+assert.match(repaired.passes[0]?.semanticFingerprintSha256 ?? "", /^[a-f0-9]{64}$/u);
+assert.match(repaired.passes[1]?.semanticFingerprintSha256 ?? "", /^[a-f0-9]{64}$/u);
+assert.notEqual(
+  repaired.passes[0]?.semanticFingerprintSha256,
+  repaired.passes[1]?.semanticFingerprintSha256,
+  "보정 전후 의미 상태가 바뀌면 fingerprint도 달라야 한다",
+);
+assert.equal(repaired.terminationReason, "accepted");
 
 // 무repair 성공 — primary 패스 1개, issueCodes 빈 배열.
 let cleanCalls = 0;
@@ -137,6 +146,56 @@ assert.equal(clean.passes.length, 1, "무repair 성공은 primary 패스 1개만
 assert.equal(clean.passes[0]?.kind, "primary");
 assert.deepEqual(clean.passes[0]?.issueCodes, [], "통과 패스는 issueCodes 빈 배열");
 assert.ok((clean.passes[0]?.durationMs ?? -1) >= 0, "패스 durationMs 는 0 이상");
+assert.equal(clean.terminationReason, "accepted");
+
+const emptyCoveredDimensionsCriterion: DeepAnalysisCriterion = {
+  dimension: "other",
+  kind: "required",
+  operator: "text_only",
+  value: {
+    note: NEW_ANALYSIS_20260911_FIXTURE.cases.jeongseon.valueNote,
+    covered_dimensions: [],
+  },
+  confidence: 0.9,
+  sourceSpan: NEW_ANALYSIS_20260911_FIXTURE.cases.jeongseon.sourceSpan,
+  spanVerified: true,
+  note: null,
+};
+const emptyCoveredDimensionsAxes = axes(false).map((axis) => axis.dimension === "other"
+  ? { ...axis, status: "condition_found" as const }
+  : axis);
+const emptyCoveredDimensionsResult: DeepAnalysisModelResult = {
+  ...result(true),
+  criteria: [emptyCoveredDimensionsCriterion],
+  axisAssessments: emptyCoveredDimensionsAxes,
+  rawToolInput: {
+    criteria: [rawCriterion(emptyCoveredDimensionsCriterion)],
+    axis_assessments: emptyCoveredDimensionsAxes.map((axis) => ({ ...axis })),
+  },
+};
+let emptyCoveredDimensionsCalls = 0;
+const deterministicMetadataCleanup = await runValidatedLabPrimary({
+  grantId: NEW_ANALYSIS_20260911_FIXTURE.cases.jeongseon.grantId,
+  inputText: `${inputText}\n${NEW_ANALYSIS_20260911_FIXTURE.cases.jeongseon.sourceSpan}`,
+  inputSha256: NEW_ANALYSIS_20260911_FIXTURE.cases.jeongseon.inputSha256,
+  apiKey: "subscription",
+  model: "claude-opus-5",
+  runModel: async () => {
+    emptyCoveredDimensionsCalls += 1;
+    return emptyCoveredDimensionsResult;
+  },
+});
+assert.equal(emptyCoveredDimensionsCalls, 1, "빈 선택 메타데이터는 모델 보정 호출 없이 정리");
+assert.equal(deterministicMetadataCleanup.outcome, "publishable");
+assert.equal(deterministicMetadataCleanup.repairCount, 1);
+assert.equal(deterministicMetadataCleanup.deterministicPrimaryRepairCount, 1);
+assert.equal(deterministicMetadataCleanup.modelPrimaryRepairCount, 0);
+assert.equal(
+  "covered_dimensions" in (
+    deterministicMetadataCleanup.extraction.criteria[0]!.value as Record<string, unknown>
+  ),
+  false,
+);
 
 // model pass가 늘지 않은 repair iteration은 결정적 primary repair로 계수한다.
 let deterministicCalls = 0;
@@ -377,6 +436,62 @@ assert.equal(failedError.newIssueAfterRepairCount, 0);
 assert.equal(failedError.passes.length, 2, "무변경 중단도 primary+repair 진단을 모두 운반");
 assert.equal(failedError.extraction.criteria.length, 1, "마지막 invalid extraction을 자동 valid로 바꾸지 않음");
 assert.equal(failedCalls, 2, "최초 1회와 교정 1회가 완전히 같으면 추가 모델 호출 중단");
+assert.equal(failedError.terminationReason, "exact_no_progress");
+
+const changwonNotes = [
+  "업체와 농가를 함께 지칭하며 예시적·열린 열거로 보아 목록 밖 유형을 자동 탈락시키지 않는다.",
+  "'업체(농가)'는 포괄 표현이고 법적 형태를 한정하지 않으므로 열린 목록으로 두며 목록 밖 유형을 자동 탈락시키지 않는다.",
+] as const;
+let semanticNoProgressCalls = 0;
+let semanticNoProgressError: unknown;
+try {
+  await runValidatedLabPrimary({
+    grantId: "grant-lab-list-semantics-semantic-no-progress",
+    inputText: seq35InputText,
+    inputSha256: "7".repeat(64),
+    apiKey: "subscription",
+    model: "claude-opus-5",
+    runModel: async () => {
+      semanticNoProgressCalls += 1;
+      return seq35NoProgressResult(
+        "closed",
+        changwonNotes[Math.min(semanticNoProgressCalls - 1, changwonNotes.length - 1)],
+      );
+    },
+  });
+} catch (error) {
+  semanticNoProgressError = error;
+}
+assert.ok(semanticNoProgressError instanceof ValidatedLabPrimaryError);
+assert.equal(semanticNoProgressError.terminationReason, "semantic_no_progress");
+assert.equal(semanticNoProgressError.repairCount, 1);
+assert.equal(semanticNoProgressCalls, 2, "목록 모순의 표현만 바뀌면 불필요한 두 번째 repair를 호출하지 않음");
+
+let semanticProgressCalls = 0;
+const semanticProgress = await runValidatedLabPrimary({
+  grantId: "grant-lab-list-semantics-meaningful-progress",
+  inputText: seq35InputText,
+  inputSha256: "8".repeat(64),
+  apiKey: "subscription",
+  model: "claude-opus-5",
+  runModel: async () => {
+    semanticProgressCalls += 1;
+    if (semanticProgressCalls === 1) {
+      return seq35NoProgressResult("closed", changwonNotes[0], ["창업기업"]);
+    }
+    if (semanticProgressCalls === 2) {
+      return seq35NoProgressResult("closed", changwonNotes[1], ["창업벤처"]);
+    }
+    return seq35NoProgressResult(
+      "open",
+      "검증된 원문에 따라 열린 대상 목록으로 정리했다.",
+      ["창업기업"],
+      "open",
+    );
+  },
+});
+assert.equal(semanticProgressCalls, 3, "핵심 대상 값이 바뀌면 기존 상한 안에서 다음 보정을 허용");
+assert.equal(semanticProgress.repairCount, 2);
 
 console.log("analysis-lab validated primary tests: ok");
 
@@ -449,16 +564,19 @@ function invalidResultWithRegionComment(comment: string): DeepAnalysisModelResul
   };
 }
 
-function seq35NoProgressResult(rawListSemantics: "open" | "closed"): DeepAnalysisModelResult {
-  const valueNote =
-    "개인사업자·법인사업자 구분 배제 문장이 없고 유한 열거가 아니므로 열린 목록으로 두며 목록 밖 유형을 자동 탈락시키지 않는다.";
+function seq35NoProgressResult(
+  rawListSemantics: "open" | "closed",
+  valueNote = "개인사업자·법인사업자 구분 배제 문장이 없고 유한 열거가 아니므로 열린 목록으로 두며 목록 밖 유형을 자동 탈락시키지 않는다.",
+  targets = ["창업기업"],
+  normalizedListSemantics: "open" | "closed" = "closed",
+): DeepAnalysisModelResult {
   const seq35Criterion: DeepAnalysisCriterion = {
     dimension: "target_type",
     kind: "required",
     operator: "in",
     value: {
-      targets: ["창업기업"],
-      list_semantics: "closed",
+      targets,
+      list_semantics: normalizedListSemantics,
       note: valueNote,
     },
     confidence: 0.58,
@@ -477,7 +595,7 @@ function seq35NoProgressResult(rawListSemantics: "open" | "closed"): DeepAnalysi
       criteria: [{
         ...rawCriterion(seq35Criterion),
         value: {
-          targets: ["창업기업"],
+          targets,
           list_semantics: rawListSemantics,
           note: valueNote,
         },

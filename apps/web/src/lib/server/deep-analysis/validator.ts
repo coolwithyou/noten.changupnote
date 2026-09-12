@@ -25,8 +25,10 @@ import {
   isConjunctiveCertificationMembership,
   isLossyStructuredPriorAward,
 } from "./criterion-semantics";
+import { resolveExclusiveBizAgeUpperBound } from "./biz-age-boundary";
+import { resolveTargetTypeListSemantics } from "./target-type-list-semantics";
 
-export const DEEP_ANALYSIS_VALIDATOR_VERSION = "deep-analysis-validator-v16" as const;
+export const DEEP_ANALYSIS_VALIDATOR_VERSION = "deep-analysis-validator-v17" as const;
 
 export type DeepAnalysisValidationIssueCode =
   | "raw_contract_invalid"
@@ -998,6 +1000,26 @@ function validateCriterion(
   validateCrossAxisCoverage(criterion, index, issues);
   validateExceptionCoverage(criterion, index, issues);
   validateMatcherSemanticCompleteness(criterion, index, issues);
+  if (criterion.dimension === "biz_age" && isRecord(criterion.value)) {
+    const exclusiveUpperBound = resolveExclusiveBizAgeUpperBound({
+      dimension: criterion.dimension,
+      operator: criterion.operator,
+      sourceSpan: criterion.sourceSpan,
+      spanVerified: criterion.spanVerified,
+      maxMonths: criterion.value.max_months,
+    });
+    if (
+      exclusiveUpperBound
+      && exclusiveUpperBound.observedMaxMonths > exclusiveUpperBound.expectedMaxMonths
+    ) {
+      issues.push({
+        code: "semantic_misattribution",
+        path: `$.criteria[${index}].value.max_months`,
+        message:
+          `The verified source says ${exclusiveUpperBound.years} years exclusive, but max_months is an inclusive matcher bound. Use ${exclusiveUpperBound.expectedMaxMonths}.`,
+      });
+    }
+  }
   if (criterion.dimension === "target_type") {
     const rawValue = isRecord(criterion.value) ? criterion.value : {};
     if (
@@ -1015,7 +1037,27 @@ function validateCriterion(
       criterion.note,
       typeof rawValue.note === "string" ? rawValue.note : null,
     ].filter((value): value is string => Boolean(value)).join(" ");
-    if (
+    const listSemanticsResolution = resolveTargetTypeListSemantics({
+      dimension: criterion.dimension,
+      kind: criterion.kind,
+      operator: criterion.operator,
+      sourceSpan: criterion.sourceSpan,
+      spanVerified: criterion.spanVerified,
+      targets: Array.isArray(rawValue.targets)
+        ? rawValue.targets.filter((target): target is string => typeof target === "string")
+        : [],
+      listSemantics: rawValue.list_semantics,
+      note: criterion.note,
+      inputText: seal.chunks.map((chunk) => chunk.text).join("\n"),
+    });
+    if (listSemanticsResolution.decision === "unresolved") {
+      issues.push({
+        code: "semantic_misattribution",
+        path: `$.criteria[${index}].value.list_semantics`,
+        message:
+          "Generic applicant descriptions do not establish whether target_type is an open or closed legal-type list. Preserve the condition as other/text_only and mark target_type ambiguous.",
+      });
+    } else if (
       rawValue.list_semantics === "closed"
       && targetTypeNoteRequiresOpenList(semanticNote)
     ) {

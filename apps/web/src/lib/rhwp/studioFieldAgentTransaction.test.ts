@@ -421,4 +421,159 @@ assert.equal(mixedRegionEvidence.formatSha256, canonicalRegionEvidence.formatSha
   "혼합 안내문과 적용 본문은 같은 canonical replacement 서식 계약을 공유한다");
 assert.equal(mixedRegionEvidence.adjacentContextSha256, canonicalRegionEvidence.adjacentContextSha256);
 
+const protectedLabel = "※ 기타 현재 상황, 개선하고자 하는 점 등 자유롭게 기술해주세요.";
+const protectedLogicalValue = "검증 가능한 현재 상황과 개선 계획";
+const protectedTarget = { ...regionTarget, protectedPrefixChars: Array.from(protectedLabel).length };
+const protectedOriginal = encoder.encode(JSON.stringify({ cells: [
+  [{ text: "신청 선언·개인정보 확인·2026 년 월 일·신청인 대표 (서명)", charShapeIds: Array(35).fill(31), paraShapeId: 11 }],
+  [{ text: protectedLabel, charShapeIds: Array(37).fill(23), paraShapeId: 2 }],
+] } satisfies RegionFixture));
+let protectedCurrent: Uint8Array = protectedOriginal;
+let protectedChangeSeq = 0;
+let protectedJournal: { before: Uint8Array; after: Uint8Array } | null = null;
+let observedProtectedCommand: StudioApplyFieldCommandV1 | null = null;
+const protectedProtocol: StudioFieldAgentProtocol = {
+  async getDocumentState() {
+    return {
+      schemaVersion: 1,
+      format: "hwp",
+      documentEpoch: 1,
+      changeSeq: protectedChangeSeq,
+      dirty: protectedChangeSeq > 0,
+      pageCount: 1,
+      documentSha256: await sha256Hex(protectedCurrent),
+    };
+  },
+  async applyFieldCommand(command) {
+    observedProtectedCommand = command;
+    assert.deepEqual(command.target, regionTarget, "host prefix metadata는 native target으로 넘기지 않는다");
+    const before = protectedCurrent;
+    const fixture = JSON.parse(decoder.decode(before)) as RegionFixture;
+    const fallbackCharShapeId = fixture.cells[1]![0]!.charShapeIds[0]!;
+    const fallbackParaShapeId = fixture.cells[1]![0]!.paraShapeId;
+    fixture.cells[1] = command.replacement.split("\n").map((text, index) => {
+      const exact = command.replacementFormat?.kind === "table_cell_region"
+        ? command.replacementFormat.paragraphs[index]
+        : undefined;
+      return {
+        text,
+        charShapeIds: exact?.charShapeIds ?? Array(Math.max(Array.from(text).length, 1)).fill(fallbackCharShapeId),
+        paraShapeId: exact?.paraShapeId ?? fallbackParaShapeId,
+      };
+    });
+    protectedCurrent = encoder.encode(JSON.stringify(fixture));
+    protectedJournal = { before, after: protectedCurrent };
+    const beforeEvidence = await collectStudioFieldEvidence(regionRhwp, before, regionTarget);
+    const afterEvidence = await collectStudioFieldEvidence(regionRhwp, protectedCurrent, regionTarget);
+    const beforeChangeSeq = protectedChangeSeq++;
+    return {
+      schemaVersion: 1,
+      commandId: command.commandId,
+      operation: "apply",
+      documentEpoch: 1,
+      beforeChangeSeq,
+      afterChangeSeq: protectedChangeSeq,
+      beforeDocumentSha256: await sha256Hex(before),
+      afterDocumentSha256: await sha256Hex(protectedCurrent),
+      beforeTextSha256: beforeEvidence.textSha256,
+      afterTextSha256: afterEvidence.textSha256,
+      formatSha256: afterEvidence.formatSha256,
+      adjacentContextSha256: afterEvidence.adjacentContextSha256,
+      pageCountBefore: 1,
+      pageCountAfter: 1,
+      target: command.target,
+    };
+  },
+  async revertFieldCommand(command) {
+    assert.ok(protectedJournal);
+    const before = protectedCurrent;
+    protectedCurrent = protectedJournal.before;
+    const beforeEvidence = await collectStudioFieldEvidence(regionRhwp, before, regionTarget);
+    const afterEvidence = await collectStudioFieldEvidence(regionRhwp, protectedCurrent, regionTarget);
+    const beforeChangeSeq = protectedChangeSeq++;
+    return {
+      schemaVersion: 1,
+      commandId: command.commandId,
+      operation: "revert",
+      documentEpoch: 1,
+      beforeChangeSeq,
+      afterChangeSeq: protectedChangeSeq,
+      beforeDocumentSha256: await sha256Hex(before),
+      afterDocumentSha256: await sha256Hex(protectedCurrent),
+      beforeTextSha256: beforeEvidence.textSha256,
+      afterTextSha256: afterEvidence.textSha256,
+      formatSha256: afterEvidence.formatSha256,
+      adjacentContextSha256: afterEvidence.adjacentContextSha256,
+      pageCountBefore: 1,
+      pageCountAfter: 1,
+      target: regionTarget,
+    };
+  },
+  async focusFieldTarget() { return { focused: true, page: 1 }; },
+  onDocumentChanged() { return () => undefined; },
+};
+const protectedBeforeEvidence = await collectStudioFieldEvidence(regionRhwp, protectedOriginal, protectedTarget);
+const protectedBinding = {
+  target: protectedTarget,
+  beforeText: protectedBeforeEvidence.text,
+  beforeTextSha256: protectedBeforeEvidence.textSha256,
+  formatSha256: protectedBeforeEvidence.formatSha256,
+  adjacentContextSha256: protectedBeforeEvidence.adjacentContextSha256,
+};
+const protectedTransaction = createStudioFieldAgentTransaction({
+  rhwp: regionRhwp,
+  protocol: protectedProtocol,
+  exportCurrentBytes: async () => protectedCurrent,
+});
+const protectedApplied = await protectedTransaction.apply({
+  bytes: protectedOriginal,
+  format: "hwp",
+  commandId: "field:protected",
+  binding: protectedBinding,
+  replacement: protectedLogicalValue,
+});
+const appliedProtectedCommand = observedProtectedCommand as StudioApplyFieldCommandV1 | null;
+assert.ok(appliedProtectedCommand);
+assert.equal(appliedProtectedCommand.replacementStyle, "preserve");
+assert.equal(appliedProtectedCommand.replacement, `${protectedLabel}\n${protectedLogicalValue}`);
+assert.equal(
+  (JSON.parse(decoder.decode(protectedApplied.bytes)) as RegionFixture).cells[0]![0]!.text,
+  "신청 선언·개인정보 확인·2026 년 월 일·신청인 대표 (서명)",
+);
+assert.deepEqual(
+  (JSON.parse(decoder.decode(protectedApplied.bytes)) as RegionFixture).cells[1]!.map((paragraph) => paragraph.text),
+  [protectedLabel, protectedLogicalValue],
+);
+const protectedReverted = await protectedTransaction.revert({
+  bytes: protectedApplied.bytes,
+  format: "hwp",
+  commandId: "field:protected",
+  // persist 실패 rollback은 receipt의 native whole-region SHA를 그대로 돌려준다.
+  expectedAfterTextSha256: protectedApplied.receipt.afterTextSha256,
+});
+assert.deepEqual(protectedReverted.bytes, protectedOriginal);
+
+// 새 Studio 세션의 journal이 없어도 logical 값과 서버 binding으로 physical postimage를 재구성한다.
+protectedCurrent = protectedApplied.bytes;
+protectedChangeSeq = 0;
+protectedJournal = null;
+const reloadedProtectedTransaction = createStudioFieldAgentTransaction({
+  rhwp: regionRhwp,
+  protocol: protectedProtocol,
+  exportCurrentBytes: async () => protectedCurrent,
+});
+const recoveredProtected = await reloadedProtectedTransaction.revert({
+  bytes: protectedApplied.bytes,
+  format: "hwp",
+  commandId: "field:protected",
+  expectedAfterTextSha256: await sha256Hex(protectedLogicalValue),
+  recovery: {
+    appliedDocumentSha256: protectedApplied.afterDocumentSha256,
+    appliedText: protectedLogicalValue,
+    binding: protectedBinding,
+    restoreFormat: protectedBeforeEvidence.restoreFormat ?? undefined,
+  },
+});
+assert.deepEqual(recoveredProtected.bytes, protectedOriginal);
+
 console.log("rhwp Studio field command transaction tests passed");

@@ -26,6 +26,7 @@
 
 ## 현재 구현 핸드오프
 
+- [신규 공고 분석시간 단축 구현 계획](./plans/2026-09-11-신규공고-분석시간-단축-구현계획.md) — 3건 실측 기반 정규화·반복 보정·RHWP 재사용·시간 계측 개선, sol-xhigh 구현 및 후속 exact 실행 검증 범위
 - [현재 제품 방향과 순차 개선](./STATUS.md) — 사용자가 사업자 정보를 완성한 뒤 정밀 매칭·작성을 진행하는 현행 방향과 단계별 완료 기준
 - [Kordoc 선분석에서 RHWP 실시간 작성 가이드로 전환](./plans/2026-08-25-kordoc-rhwp-목표구조-전환.md) — 공고 분석의 verified authoring guide 발행과 draft/revision 단위 RHWP 편집을 독립 seam으로 만드는 목표 구조·단계·검증 정본
 - [공고 딥분석과 RHWP 작성 가이드 운영 가이드](./guides/deep-analysis-and-rhwp-authoring-guide-operations.md) — 현재 공고 분석·authoring guide 발행·RHWP 사용자 요청형 LLM 작성·비용/운영 경계

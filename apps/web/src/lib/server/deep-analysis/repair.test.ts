@@ -7,7 +7,9 @@ import {
 import { renderDeepAnalysisChunks, type DeepAnalysisExecution } from "./analyzer";
 import { findExactEvidenceSpanCandidates } from "./extractor";
 import { sealDeepAnalysisInput } from "./inputManifest";
+import { NEW_ANALYSIS_20260911_FIXTURE } from "./new-analysis-20260911.fixture";
 import {
+  decideDeepAnalysisValidationRoute,
   DEEP_ANALYSIS_VALIDATOR_VERSION,
   validateDeepAnalysisResult,
 } from "./validator";
@@ -16,9 +18,12 @@ import {
   buildDeepAnalysisEvidenceRepairHints,
   DEEP_ANALYSIS_AUDIT_RETRY_FEEDBACK_VERSION,
   DEEP_ANALYSIS_REPAIR_VERSION,
+  repairDeepAnalysisBizAgeBoundariesDeterministically,
   repairDeepAnalysisAxisStatusesDeterministically,
   repairDeepAnalysisEvidenceSpansDeterministically,
   repairDeepAnalysisMatchingScopeDeterministically,
+  repairDeepAnalysisOptionalMetadataDeterministically,
+  repairDeepAnalysisTargetTypeListDeterministically,
   repairDeepAnalysisExecution,
 } from "./repair";
 
@@ -88,7 +93,7 @@ const validation = {
     ].map((dimension) => [dimension, []]),
   ) as never,
 };
-assert.equal(DEEP_ANALYSIS_REPAIR_VERSION, "deep-analysis-repair-v8");
+assert.equal(DEEP_ANALYSIS_REPAIR_VERSION, "deep-analysis-repair-v9");
 assert.equal(
   findExactEvidenceSpanCandidates(requestedSpan, execution.evidenceText).length,
   2,
@@ -155,6 +160,395 @@ assert.deepEqual(
   }).evidenceRepairHints,
   buildDeepAnalysisEvidenceRepairHints({ execution, validation }),
 );
+
+const emptyCoverageSpan = NEW_ANALYSIS_20260911_FIXTURE.cases.jeongseon.sourceSpan;
+const emptyCoverageSeal = sealDeepAnalysisInput({
+  grantId: NEW_ANALYSIS_20260911_FIXTURE.cases.jeongseon.grantId,
+  sourceRevisionSha256: "c".repeat(64),
+  structuredText: emptyCoverageSpan,
+  attachments: [],
+});
+const emptyCoverageAxes = CRITERION_DIMENSIONS.map((dimension) => ({
+  dimension,
+  status: dimension === "other"
+    ? "condition_found" as const
+    : "inspected_no_condition" as const,
+  confidence: 0.9,
+  comment: "전문 검사",
+}));
+function emptyCoverageExecution(coveredDimensions: unknown): DeepAnalysisExecution {
+  const criterion = {
+    dimension: "other" as const,
+    kind: "required" as const,
+    operator: "text_only" as const,
+    value: {
+      note: NEW_ANALYSIS_20260911_FIXTURE.cases.jeongseon.valueNote,
+      covered_dimensions: coveredDimensions,
+    },
+    confidence: 0.9,
+    sourceSpan: emptyCoverageSpan,
+    spanVerified: true,
+    spanOffsetRatio: 0,
+    note: "원문의 단일 절차 조건을 보존한다.",
+  };
+  const caseResult: DeepAnalysisModelResult = {
+    ...result,
+    criteria: [criterion],
+    axisAssessments: emptyCoverageAxes,
+    rawToolInput: {
+      criteria: [{
+        dimension: criterion.dimension,
+        kind: criterion.kind,
+        operator: criterion.operator,
+        value: criterion.value,
+        confidence: criterion.confidence,
+        source_span: criterion.sourceSpan,
+        note: criterion.note,
+      }],
+      axis_assessments: emptyCoverageAxes,
+    },
+  };
+  return {
+    evidenceText: renderDeepAnalysisChunks(emptyCoverageSeal.chunks),
+    result: caseResult,
+    passes: [{ kind: "single", chunkId: null, inputChars: emptyCoverageSpan.length, result: caseResult }],
+  };
+}
+
+const exactEmptyCoverageExecution = emptyCoverageExecution([]);
+const exactEmptyCoverageValidation = validateDeepAnalysisResult({
+  seal: emptyCoverageSeal,
+  result: exactEmptyCoverageExecution.result,
+});
+assert.deepEqual(
+  exactEmptyCoverageValidation.issues.map((issue) => `${issue.code}:${issue.path}`),
+  ["canonical_contract_invalid:$.criteria[0].value.covered_dimensions"],
+);
+const deterministicEmptyCoverage = repairDeepAnalysisOptionalMetadataDeterministically({
+  execution: exactEmptyCoverageExecution,
+  validation: exactEmptyCoverageValidation,
+});
+assert.deepEqual(deterministicEmptyCoverage.repairs, [{
+  issuePath: "$.criteria[0].value.covered_dimensions",
+  criterionIndex: 0,
+  key: "covered_dimensions",
+  strategy: "omit_empty_optional_covered_dimensions",
+}]);
+assert.equal(
+  "covered_dimensions" in (
+    deterministicEmptyCoverage.execution.result.criteria[0]!.value as Record<string, unknown>
+  ),
+  false,
+);
+assert.equal(
+  "covered_dimensions" in (
+    deterministicEmptyCoverage.execution.result.rawToolInput.criteria as Array<{
+      value: Record<string, unknown>;
+    }>
+  )[0]!.value,
+  false,
+);
+assert.equal(validateDeepAnalysisResult({
+  seal: emptyCoverageSeal,
+  result: deterministicEmptyCoverage.execution.result,
+}).valid, true);
+
+let emptyCoverageFallbackModelCalled = false;
+const locallyRepairedEmptyCoverage = await repairDeepAnalysisExecution({
+  seal: emptyCoverageSeal,
+  apiKey: "test",
+  model: "claude-opus-4-8",
+  failedExecution: exactEmptyCoverageExecution,
+  validation: exactEmptyCoverageValidation,
+  runModel: async () => {
+    emptyCoverageFallbackModelCalled = true;
+    throw new Error("exact empty optional metadata must not call the model");
+  },
+});
+assert.equal(emptyCoverageFallbackModelCalled, false);
+assert.equal(locallyRepairedEmptyCoverage.passes.length, 1);
+assert.equal(locallyRepairedEmptyCoverage.deterministicOptionalMetadataRepairs?.length, 1);
+
+for (const unsafeCoverage of [null, "", ["biz_age", "biz_age"], ["other"], ["biz_age", 123]]) {
+  const unsafeExecution = emptyCoverageExecution(unsafeCoverage);
+  const unsafeValidation = validateDeepAnalysisResult({
+    seal: emptyCoverageSeal,
+    result: unsafeExecution.result,
+  });
+  const unsafeRepair = repairDeepAnalysisOptionalMetadataDeterministically({
+    execution: unsafeExecution,
+    validation: unsafeValidation,
+  });
+  assert.equal(unsafeRepair.repairs.length, 0, `의미 판단이 필요한 값은 유지: ${JSON.stringify(unsafeCoverage)}`);
+  assert.equal(unsafeRepair.execution, unsafeExecution);
+}
+
+const validCoverageExecution = emptyCoverageExecution(["biz_age", "certification"]);
+const validCoverageValidation = validateDeepAnalysisResult({
+  seal: emptyCoverageSeal,
+  result: validCoverageExecution.result,
+});
+assert.equal(
+  repairDeepAnalysisOptionalMetadataDeterministically({
+    execution: validCoverageExecution,
+    validation: validCoverageValidation,
+  }).repairs.length,
+  0,
+  "유효한 비어 있지 않은 cross-axis 결속은 보존한다",
+);
+
+const changwonTargetSpan = NEW_ANALYSIS_20260911_FIXTURE.cases.changwon.sourceSpan;
+const changwonTargetSeal = sealDeepAnalysisInput({
+  grantId: NEW_ANALYSIS_20260911_FIXTURE.cases.changwon.grantId,
+  sourceRevisionSha256: "d".repeat(64),
+  structuredText: changwonTargetSpan,
+  attachments: [],
+});
+const changwonTargetAxes = CRITERION_DIMENSIONS.map((dimension) => ({
+  dimension,
+  status: dimension === "target_type"
+    ? "condition_found" as const
+    : "inspected_no_condition" as const,
+  confidence: 0.9,
+  comment: "전문 검사",
+}));
+const changwonTargetCriterion = {
+  dimension: "target_type" as const,
+  kind: "required" as const,
+  operator: "in" as const,
+  value: {
+    targets: ["업체", "농가"],
+    list_semantics: "open" as const,
+    note: "열린 목록으로 두고 목록 밖 유형을 자동 탈락시키지 않는다.",
+  },
+  confidence: 0.9,
+  sourceSpan: changwonTargetSpan,
+  spanVerified: true,
+  spanOffsetRatio: 0,
+  note: "일반 신청자 표현이라 열린 목록으로 본다.",
+};
+const changwonTargetResult: DeepAnalysisModelResult = {
+  ...result,
+  criteria: [changwonTargetCriterion],
+  axisAssessments: changwonTargetAxes,
+  rawToolInput: {
+    criteria: [{
+      dimension: changwonTargetCriterion.dimension,
+      kind: changwonTargetCriterion.kind,
+      operator: changwonTargetCriterion.operator,
+      value: changwonTargetCriterion.value,
+      confidence: changwonTargetCriterion.confidence,
+      source_span: changwonTargetCriterion.sourceSpan,
+      note: changwonTargetCriterion.note,
+    }],
+    axis_assessments: changwonTargetAxes,
+  },
+};
+const changwonTargetExecution: DeepAnalysisExecution = {
+  evidenceText: renderDeepAnalysisChunks(changwonTargetSeal.chunks),
+  result: changwonTargetResult,
+  passes: [{
+    kind: "single",
+    chunkId: null,
+    inputChars: changwonTargetSpan.length,
+    result: changwonTargetResult,
+  }],
+};
+const changwonTargetValidation = validateDeepAnalysisResult({
+  seal: changwonTargetSeal,
+  result: changwonTargetExecution.result,
+});
+assert.deepEqual(
+  changwonTargetValidation.issues.map((issue) => `${issue.code}:${issue.path}`),
+  ["semantic_misattribution:$.criteria[0].value.list_semantics"],
+  "업체·농가 표현은 목록 의미를 확정할 수 없는 동일 경로 issue로 재현한다",
+);
+const deterministicChangwonTarget = repairDeepAnalysisTargetTypeListDeterministically({
+  execution: changwonTargetExecution,
+  validation: changwonTargetValidation,
+});
+assert.deepEqual(deterministicChangwonTarget.repairs, [{
+  issuePath: "$.criteria[0].value.list_semantics",
+  criterionIndex: 0,
+  targets: ["업체", "농가"],
+  previousListSemantics: "open",
+  sourceSpan: changwonTargetSpan,
+  reason: "generic_applicant_description",
+  strategy: "preserve_unresolved_target_type_as_text",
+}]);
+assert.equal(deterministicChangwonTarget.execution.result.criteria[0]?.dimension, "other");
+assert.equal(deterministicChangwonTarget.execution.result.criteria[0]?.operator, "text_only");
+assert.equal(
+  deterministicChangwonTarget.execution.result.axisAssessments
+    .find((axis) => axis.dimension === "target_type")?.status,
+  "ambiguous",
+);
+assert.equal(
+  deterministicChangwonTarget.execution.result.axisAssessments
+    .find((axis) => axis.dimension === "other")?.status,
+  "condition_found",
+);
+const deterministicChangwonValidation = validateDeepAnalysisResult({
+  seal: changwonTargetSeal,
+  result: deterministicChangwonTarget.execution.result,
+});
+assert.equal(
+  deterministicChangwonValidation.issues.some((issue) => issue.code === "semantic_misattribution"),
+  false,
+  "일반 표현의 open/closed 모순을 숨기지 않고 unresolved 축으로 변환한다",
+);
+const deterministicChangwonRoute = decideDeepAnalysisValidationRoute({
+  result: deterministicChangwonTarget.execution.result,
+  validation: deterministicChangwonValidation,
+});
+assert.equal(deterministicChangwonRoute.route, "hold");
+assert.deepEqual(
+  deterministicChangwonRoute.route === "hold"
+    ? deterministicChangwonRoute.holdIssues.map((issue) => issue.code)
+    : [],
+  ["unresolved_axis"],
+  "근거가 부족한 일반 표현은 모델 재호출 대신 현행 held 경로로 종결한다",
+);
+assert.equal(
+  changwonTargetExecution.result.criteria[0]?.dimension,
+  "target_type",
+  "최초 패스 진단은 불변으로 보존한다",
+);
+let changwonTargetFallbackModelCalled = false;
+const locallyRepairedChangwonTarget = await repairDeepAnalysisExecution({
+  seal: changwonTargetSeal,
+  apiKey: "test",
+  model: "claude-opus-4-8",
+  failedExecution: changwonTargetExecution,
+  validation: changwonTargetValidation,
+  runModel: async () => {
+    changwonTargetFallbackModelCalled = true;
+    throw new Error("generic applicant description must not call the model");
+  },
+});
+assert.equal(changwonTargetFallbackModelCalled, false);
+assert.equal(locallyRepairedChangwonTarget.deterministicTargetTypeListRepairs?.length, 1);
+
+const invalidClaimExecution: DeepAnalysisExecution = {
+  ...changwonTargetExecution,
+  result: {
+    ...changwonTargetExecution.result,
+    criteria: [{
+      ...changwonTargetCriterion,
+      value: { targets: ["업체", "농가"], list_semantics: "unknown" },
+    }],
+  },
+};
+assert.equal(repairDeepAnalysisTargetTypeListDeterministically({
+  execution: invalidClaimExecution,
+  validation: validateDeepAnalysisResult({
+    seal: changwonTargetSeal,
+    result: invalidClaimExecution.result,
+  }),
+}).repairs.length, 0, "유효한 기존 open/closed 주장도 없는 값은 결정적으로 정리하지 않는다");
+
+const irBizAgeSpan = NEW_ANALYSIS_20260911_FIXTURE.cases.irClinic.sourceSpan;
+const irBizAgeSeal = sealDeepAnalysisInput({
+  grantId: NEW_ANALYSIS_20260911_FIXTURE.cases.irClinic.grantId,
+  sourceRevisionSha256: "e".repeat(64),
+  structuredText: irBizAgeSpan,
+  attachments: [],
+});
+const irBizAgeAxes = CRITERION_DIMENSIONS.map((dimension) => ({
+  dimension,
+  status: dimension === "biz_age"
+    ? "condition_found" as const
+    : "inspected_no_condition" as const,
+  confidence: 0.9,
+  comment: "전문 검사",
+}));
+function irBizAgeExecution(maxMonths: number, sourceSpan = irBizAgeSpan): DeepAnalysisExecution {
+  const criterion = {
+    dimension: "biz_age" as const,
+    kind: "required" as const,
+    operator: "lte" as const,
+    value: { max_months: maxMonths, include_preliminary: false },
+    confidence: 0.93,
+    sourceSpan,
+    spanVerified: true,
+    spanOffsetRatio: 0,
+    note: "업력 상한",
+  };
+  const caseResult: DeepAnalysisModelResult = {
+    ...result,
+    criteria: [criterion],
+    axisAssessments: irBizAgeAxes,
+    rawToolInput: {
+      criteria: [{
+        dimension: criterion.dimension,
+        kind: criterion.kind,
+        operator: criterion.operator,
+        value: criterion.value,
+        confidence: criterion.confidence,
+        source_span: criterion.sourceSpan,
+        note: criterion.note,
+      }],
+      axis_assessments: irBizAgeAxes,
+    },
+  };
+  return {
+    evidenceText: renderDeepAnalysisChunks(irBizAgeSeal.chunks),
+    result: caseResult,
+    passes: [{ kind: "single", chunkId: null, inputChars: sourceSpan.length, result: caseResult }],
+  };
+}
+
+const inclusiveIrBoundary = irBizAgeExecution(84);
+const inclusiveIrValidation = validateDeepAnalysisResult({
+  seal: irBizAgeSeal,
+  result: inclusiveIrBoundary.result,
+});
+assert.deepEqual(
+  inclusiveIrValidation.issues.map((issue) => `${issue.code}:${issue.path}`),
+  ["semantic_misattribution:$.criteria[0].value.max_months"],
+  "실제 IR 7년 미만 인용의 inclusive 84개월 오류를 재현한다",
+);
+const deterministicIrBoundary = repairDeepAnalysisBizAgeBoundariesDeterministically({
+  execution: inclusiveIrBoundary,
+  validation: inclusiveIrValidation,
+});
+assert.deepEqual(deterministicIrBoundary.repairs, [{
+  issuePath: "$.criteria[0].value.max_months",
+  criterionIndex: 0,
+  years: 7,
+  previousMaxMonths: 84,
+  correctedMaxMonths: 83,
+  sourceSpan: irBizAgeSpan,
+  strategy: "align_exclusive_year_upper_bound",
+}]);
+assert.equal(
+  (deterministicIrBoundary.execution.result.criteria[0]?.value as { max_months?: number }).max_months,
+  83,
+);
+assert.equal(validateDeepAnalysisResult({
+  seal: irBizAgeSeal,
+  result: deterministicIrBoundary.execution.result,
+}).valid, true);
+let irBoundaryFallbackModelCalled = false;
+const locallyRepairedIrBoundary = await repairDeepAnalysisExecution({
+  seal: irBizAgeSeal,
+  apiKey: "test",
+  model: "claude-opus-4-8",
+  failedExecution: inclusiveIrBoundary,
+  validation: inclusiveIrValidation,
+  runModel: async () => {
+    irBoundaryFallbackModelCalled = true;
+    throw new Error("exact one-month exclusive boundary must not call the model");
+  },
+});
+assert.equal(irBoundaryFallbackModelCalled, false);
+assert.equal(locallyRepairedIrBoundary.deterministicBizAgeBoundaryRepairs?.length, 1);
+
+const widerIrBoundary = irBizAgeExecution(85);
+assert.equal(repairDeepAnalysisBizAgeBoundariesDeterministically({
+  execution: widerIrBoundary,
+  validation: validateDeepAnalysisResult({ seal: irBizAgeSeal, result: widerIrBoundary.result }),
+}).repairs.length, 0, "한 달 초과가 아닌 더 큰 의미 오류는 결정적으로 덮어쓰지 않는다");
 
 const scoreTableExactSpan =
   "2. 참가 계획                                   20\n" +

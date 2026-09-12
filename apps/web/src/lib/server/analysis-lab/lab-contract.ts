@@ -37,7 +37,8 @@ import type { MatchingConversionReport } from "@/lib/server/analysis-serving/mat
 // v20: 복수 인증의 AND 조건을 certs OR 목록으로 분해하지 않고 text_only로 보존한다.
 // v21: 사업 이력에 유사 분야·동일 책임자 조건이 붙으면 부분 구조화를 막고 무손실 보존한다.
 // v22: 명시적 기준일 현재 등록 사업장의 시도·시설 유형만 premises-v1로 구조화한다.
-export const ANALYSIS_LAB_PROMPT_VERSION = "lab-deep-v22";
+// v23: 목록 의미·빈 선택 메타데이터·업력 exclusive 월 경계 계약을 일치시킨다.
+export const ANALYSIS_LAB_PROMPT_VERSION = "lab-deep-v23";
 export const ANALYSIS_LAB_DEFAULT_MODEL = "claude-opus-4-8";
 
 /**
@@ -181,6 +182,8 @@ export type LabUsage = DeepAnalysisUsage;
  * LabRun에는 두 실행의 결속과 빠른 작성 준비 상태만 남긴다.
  */
 export interface LabApplicationRoundtripReference {
+  /** 실행한 application-roundtrip 계약 버전. 이 필드가 없는 역사 런은 현행 계약으로 간주하지 않는다. */
+  version?: string;
   status: "complete" | "partial" | "review_required" | "not_applicable" | "failed";
   runId: string | null;
   transport: "api" | "claude-cli";
@@ -227,6 +230,8 @@ export interface LabPrimaryPassDiagnostic {
   /** 원인 재현용 bounded snapshot. 최대 64건이며 구 런에는 없다. */
   issues?: LabPrimaryPassIssue[];
   issuesTruncated?: boolean;
+  /** 원문을 남기지 않는 validator/result 의미 상태 해시. repair 전후 진전 관측용이다. */
+  semanticFingerprintSha256?: string;
 }
 
 /**
@@ -242,6 +247,14 @@ export interface LabPrimaryRepairProvenance {
   blockingNewIssueAfterRepairCount?: number;
   /** 잘못 구조화한 criterion을 제거하고 같은 축을 input_missing으로 낮춘 전환. */
   sourceIncompleteIssueAfterRepairCount?: number;
+  /** validator loop의 명시적 종결 이유. 구 LabRun에는 없다. */
+  terminationReason?:
+    | "accepted"
+    | "held"
+    | "repair_limit"
+    | "exact_no_progress"
+    | "semantic_no_progress"
+    | "execution_error";
 }
 
 export const PRIMARY_MATCHING_PROJECTION_SNAPSHOT_SCHEMA =

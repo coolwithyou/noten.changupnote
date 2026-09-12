@@ -48,6 +48,7 @@ import {
   resolveExactEvidenceSpan,
   runDeepGrantAnalysis,
 } from "./extractor";
+import { resolveTargetTypeListSemantics } from "./target-type-list-semantics";
 
 assert.match(
   DEEP_ANALYSIS_SYSTEM_PROMPT,
@@ -62,6 +63,11 @@ assert.equal(
   true,
 );
 assert.equal(DEEP_ANALYSIS_SYSTEM_PROMPT.includes(DEEP_ANALYSIS_CROSS_AXIS_TEXT_ONLY_RULE), true);
+assert.match(DEEP_ANALYSIS_SYSTEM_PROMPT, /'N년 미만'.*max_months=N\*12-1/);
+assert.match(
+  DEEP_ANALYSIS_CROSS_AXIS_TEXT_ONLY_RULE,
+  /적용 축이 하나도 없으면.*covered_dimensions 키 자체를 생략/,
+);
 assert.match(
   DEEP_ANALYSIS_SYSTEM_PROMPT,
   /필수·제외·우대·배점 효과가 명시되지 않았다면 해당 축은 inspected_no_condition/,
@@ -461,6 +467,107 @@ assert.match(
     list_semantics: "closed",
     note: "개인사업자·법인사업자의 완전한 목록이다.",
   }, "실제 개인·법인 제한의 설명과 폐쇄 목록은 보존한다");
+
+  const changwonSpan = "☞ 창원시 농ㆍ축ㆍ수산물 및 가공품, 특산품 생산 업체(농가)";
+  const changwonResolution = resolveTargetTypeListSemantics({
+    dimension: "target_type",
+    kind: "required",
+    operator: "in",
+    sourceSpan: changwonSpan,
+    spanVerified: true,
+    targets: ["업체", "농가"],
+    listSemantics: "open",
+    note: "열린 목록으로 두고 목록 밖 유형을 자동 탈락시키지 않는다.",
+    inputText: changwonSpan,
+  });
+  assert.deepEqual(changwonResolution, {
+    decision: "unresolved",
+    reason: "generic_applicant_description",
+    sourceKind: "detailed_or_unknown",
+    previousClaim: "open",
+  }, "일반 신청자 표현만으로 목록 의미를 추정하지 않는다");
+  const [changwonCriterion] = normalizeCriteria([{
+    dimension: "target_type",
+    kind: "required",
+    operator: "in",
+    value: { targets: ["업체", "농가"], list_semantics: "open" },
+    confidence: 0.9,
+    source_span: changwonSpan,
+    note: "열린 목록으로 두고 목록 밖 유형을 자동 탈락시키지 않는다.",
+  }], changwonSpan);
+  assert.equal(
+    (changwonCriterion?.value as { list_semantics?: string }).list_semantics,
+    "open",
+    "unresolved 일반 표현은 normalizer가 임의 closed로 덮어쓰지 않는다",
+  );
+  const [renormalizedChangwon] = normalizeCriteria([{
+    dimension: changwonCriterion?.dimension,
+    kind: changwonCriterion?.kind,
+    operator: changwonCriterion?.operator,
+    value: changwonCriterion?.value,
+    confidence: changwonCriterion?.confidence,
+    source_span: changwonCriterion?.sourceSpan,
+    note: changwonCriterion?.note,
+  }], changwonSpan);
+  assert.deepEqual(renormalizedChangwon?.value, changwonCriterion?.value, "unresolved 목록 정규화도 멱등이다");
+
+  const bizinfoSummary = "창업벤처";
+  for (const bizinfoInput of [
+    `지원대상: ${bizinfoSummary} (source_field: trgetNm)`,
+    `## 지원대상\nsource_field: trgetNm\n${bizinfoSummary}`,
+  ]) {
+    const [bizinfoSummaryCriterion] = normalizeCriteria([{
+      dimension: "target_type",
+      kind: "required",
+      operator: "in",
+      value: { targets: [bizinfoSummary], list_semantics: "closed" },
+      confidence: 0.9,
+      source_span: bizinfoSummary,
+    }], bizinfoInput);
+    assert.equal(
+      (bizinfoSummaryCriterion?.value as { list_semantics?: string }).list_semantics,
+      "open",
+      "trgetNm 포털 요약은 상세 자격의 배타 목록으로 사용하지 않는다",
+    );
+  }
+
+  const irBizAgeSpan = "☞ 업력 7년 미만의 제조창업기업";
+  const [irBizAgeCriterion] = normalizeCriteria([{
+    dimension: "biz_age",
+    kind: "required",
+    operator: "lte",
+    value: { max_months: 84, include_preliminary: false },
+    confidence: 0.93,
+    source_span: irBizAgeSpan,
+  }], irBizAgeSpan);
+  assert.equal(
+    (irBizAgeCriterion?.value as { max_months?: number }).max_months,
+    83,
+    "검증된 단일 7년 미만 인용은 inclusive 정수 월 상한 83으로 정규화한다",
+  );
+  for (const protectedSpan of [
+    "☞ 업력 7년 이하의 제조창업기업",
+    "☞ 업력 7년 이내의 제조창업기업",
+    "☞ 업력 1.5년 미만의 제조창업기업",
+    "☞ 업력 7년 미만이며 최근 3년 이상 수출실적 보유 기업",
+    "☞ 업력 7년 미만 또는 벤처기업",
+    "☞ 업력 7년 미만, 6개월 이상 사업자",
+    "☞ 업력 7년 미만. 다만 재창업기업은 예외",
+  ]) {
+    const [protectedBizAgeCriterion] = normalizeCriteria([{
+      dimension: "biz_age",
+      kind: "required",
+      operator: "lte",
+      value: { max_months: 84 },
+      confidence: 0.9,
+      source_span: protectedSpan,
+    }], protectedSpan);
+    assert.equal(
+      (protectedBizAgeCriterion?.value as { max_months?: number }).max_months,
+      84,
+      `좁은 exclusive 경계 규칙의 반례는 보존한다: ${protectedSpan}`,
+    );
+  }
 
   const kstartupSummary = "청소년,대학생,일반인,대학,연구기관,일반기업,1인 창조기업";
   const kstartupSummaryInput = [

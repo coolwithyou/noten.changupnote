@@ -42,6 +42,8 @@ import {
   isConjunctiveCertificationMembership,
   isLossyStructuredPriorAward,
 } from "./criterion-semantics";
+import { resolveExclusiveBizAgeUpperBound } from "./biz-age-boundary";
+import { resolveTargetTypeListSemantics } from "./target-type-list-semantics";
 
 export const ANALYSIS_LAB_TOOL_NAME = "emit_deep_grant_analysis";
 
@@ -903,6 +905,8 @@ export const DEEP_ANALYSIS_SIZE_TARGET_AXIS_RULE =
   "중소기업·중견기업·대기업 같은 법정 기업 규모 분류는 size로만 표현한다. target_type은 개인사업자·법인사업자·협동조합·비영리법인처럼 신청 주체의 법적 형태나 역할 유형에만 사용한다. 동일한 규모 문구를 size와 target_type에 중복 criterion이나 condition_found로 만들지 마라. 독립 검수에서도 '지원대상: 중소기업'처럼 지원대상·신청대상 라벨 아래에 규모만 적힌 문구는 target_type 누락 근거가 아니며, target_type은 confirmed_absent로 판정하고 size의 기존 criterion 또는 axis assessment만 검토한다. 법인인감 날인, 회사명·대표자 기재, 제출서식 같은 작성·제출 방식만으로 법인사업자 전용이라고 추정하지 마라. 개인사업자 배제나 법인만 신청 가능하다는 명시적 자격 문장이 없으면 target_type 조건이 아니다.";
 export const DEEP_ANALYSIS_TARGET_TYPE_LIST_SEMANTICS_RULE =
   "신청대상 유형 열거에 '등', '예:', '포함하되 이에 한정되지 않음', '주로', '중심으로'처럼 예시임을 나타내는 표현이 있으면 target_type value.list_semantics=\"open\"으로 둔다. '다음 각 호에 한함', '아래 유형만', '이외 신청 불가'처럼 완전 열거가 명시됐거나, 지원대상·신청자격 문장이 신청 가능한 유형을 유한 목록으로 열거하면서 예시 표지가 없으면 list_semantics=\"closed\"로 둔다. list_semantics는 value.targets에 든 신청대상 분류의 열거 의미다. 예를 들어 targets=[\"창업기업\"]일 때 개인사업자와 법인사업자를 모두 허용한다는 사실은 창업기업 분류 자체를 open으로 바꾸는 근거가 아니다. 개인·법인 구분은 criterion note에 별도로 설명하고 value.note에서 열린 목록이라고 주장하지 마라. open 목록 밖 유형을 자동 탈락시키지 마라.";
+export const DEEP_ANALYSIS_BIZ_AGE_BOUNDARY_RULE =
+  "biz_age의 min_months/max_months는 matcher가 포함 경계인 정수 개월로 비교한다. 원문이 정확히 'N년 미만'이면 N년째 경계 월은 포함하지 않으므로 max_months=N*12-1로 내고, 'N년 이하' 또는 'N년 이내'이면 max_months=N*12로 둔다. 소수 연수, N년차, 기준일·예외·복합 기간을 이 단순 규칙으로 추정하지 마라.";
 export const DEEP_ANALYSIS_SOURCE_SPAN_CONTIGUITY_RULE =
   "각 criterion의 source_span은 한 입력 블록 안의 연속된 substring 하나를 공백·줄바꿈·문장부호까지 그대로 복사한다. 서로 떨어진 문장, 표의 비인접 행, 본문과 각주를 한 source_span으로 합치지 마라. 여러 문장이 같은 조건을 보충하면 criterion을 충분히 입증하는 가장 짧은 연속 구간 하나만 source_span으로 쓰고 나머지는 note와 analysis_markdown에 설명한다.";
 export const DEEP_ANALYSIS_FINANCIAL_IMPAIRMENT_RULE =
@@ -922,7 +926,7 @@ export const DEEP_ANALYSIS_STRUCTURED_FILTER_METADATA_RULE =
 export const DEEP_ANALYSIS_ALTERNATIVE_PATH_SCOPE_RULE =
   "신청자격이 A 또는 B, 쉼표 열거, 트랙별 경로처럼 대안(OR)으로 열려 있으면 한 경로의 속성을 모든 신청자에게 적용되는 독립 required criterion으로 승격하지 마라. 서로 다른 22축이 섞인 대안은 현재 criterion 계약으로 논리식을 무손실 표현할 수 없으므로 dimension=other, operator=text_only 한 건에 전체 OR 경로와 적용 범위를 보존한다. 예: '입주기업, 졸업기업 및 기타 예비·초기 창업기업'에서 입주 여부와 예비·초기 업력을 별도 전역 필수조건으로 만들면 안 되고, '콘텐츠 제작 사업자 또는 제주 거주 개인 창작자'에서 콘텐츠 업종을 개인 창작자에게까지 적용하면 안 된다.";
 export const DEEP_ANALYSIS_CROSS_AXIS_TEXT_ONLY_RULE =
-  "서로 다른 22축의 OR 조건을 other/text_only로 보존하면 value.covered_dimensions에 그 한 criterion이 실제로 검토·보존한 축 이름만 넣는다. 예: 창업 7년 이내 또는 벤처기업이면 covered_dimensions=[\"biz_age\",\"certification\"]이다. 공통 필수조건이나 원문에 없는 축을 넣지 말고, listed 축의 axis_assessments는 condition_found로 둔다. 이 결속은 축별 독립 required criterion을 새로 만들라는 뜻이 아니다.";
+  "서로 다른 22축의 OR 조건을 other/text_only로 보존하면 value.covered_dimensions에 그 한 criterion이 실제로 검토·보존한 축 이름만 넣는다. 예: 창업 7년 이내 또는 벤처기업이면 covered_dimensions=[\"biz_age\",\"certification\"]이다. 적용 축이 하나도 없으면 빈 배열을 만들지 말고 covered_dimensions 키 자체를 생략한다. 공통 필수조건이나 원문에 없는 축을 넣지 말고, listed 축의 axis_assessments는 condition_found로 둔다. 이 결속은 축별 독립 required criterion을 새로 만들라는 뜻이 아니다.";
 export const DEEP_ANALYSIS_PROGRAM_THEME_BOUNDARY_RULE =
   "수요기업별 협업 모집분야, 해결과제, 도입기술, 개발대상 품목, 출품작 장르·형식은 신청기업의 KSIC·업태·종목이 아니다. 신청기업이 그 업종을 실제로 영위해야 한다는 문장이 없으면 industry criterion으로 만들지 마라. 제안 아이템·작품이 특정 주제나 유형이어야 해서 신청 가능성에 영향을 주면 other/text_only로 전체 과제 범위를 보존하고, 단순 사업 방향이면 program_intent에만 기록한다.";
 export const DEEP_ANALYSIS_PROCEDURAL_EVIDENCE_CHECK_RULE =
@@ -1011,6 +1015,7 @@ export const DEEP_ANALYSIS_REVIEW_ALIGNMENT_RULES = Object.freeze([
   DEEP_ANALYSIS_RANKING_ACTOR_RULE,
   DEEP_ANALYSIS_SIZE_TARGET_AXIS_RULE,
   DEEP_ANALYSIS_TARGET_TYPE_LIST_SEMANTICS_RULE,
+  DEEP_ANALYSIS_BIZ_AGE_BOUNDARY_RULE,
   DEEP_ANALYSIS_INDUSTRY_ENUMERATION_RULE,
   DEEP_ANALYSIS_BUSINESS_STATUS_RULE,
   DEEP_ANALYSIS_BUSINESS_CREDIT_AXIS_RULE,
@@ -1073,6 +1078,7 @@ export const DEEP_ANALYSIS_SYSTEM_PROMPT = [
   "규모 값은 예비, 소상공인, 소기업, 중소기업, 중견기업, 대기업 중에서만 사용한다.",
   DEEP_ANALYSIS_SIZE_TARGET_AXIS_RULE,
   DEEP_ANALYSIS_TARGET_TYPE_LIST_SEMANTICS_RULE,
+  DEEP_ANALYSIS_BIZ_AGE_BOUNDARY_RULE,
   "업종은 dimension=industry 의 value.tags 배열에 짧은 한국어 정책 태그로 추출한다. 모호하면 text_only 로 남긴다.",
   DEEP_ANALYSIS_INDUSTRY_ENUMERATION_RULE,
   DEEP_ANALYSIS_BUSINESS_STATUS_RULE,
@@ -1146,6 +1152,19 @@ function normalizeCriterionValue(input: {
   inputText: string;
 }): Record<string, unknown> {
   const value = isRecord(input.rawValue) ? { ...input.rawValue } : {};
+  const exclusiveBizAge = resolveExclusiveBizAgeUpperBound({
+    dimension: input.dimension,
+    operator: input.operator,
+    sourceSpan: input.sourceSpan,
+    spanVerified: input.spanVerified,
+    maxMonths: value.max_months,
+  });
+  if (
+    exclusiveBizAge
+    && exclusiveBizAge.observedMaxMonths === exclusiveBizAge.expectedMaxMonths + 1
+  ) {
+    value.max_months = exclusiveBizAge.expectedMaxMonths;
+  }
   if (
     input.dimension !== "target_type"
     || input.kind !== "required"
@@ -1163,18 +1182,21 @@ function normalizeCriterionValue(input: {
   ) {
     return value;
   }
-  const listSemantics = hasOpenTargetTypeListMarker(normalizedSpan)
-    || hasKStartupOpenTargetSummaryEvidence({
-      sourceSpan: normalizedSpan,
-      inputText: input.inputText,
-    })
-    || hasDelegatedOpenTargetTypeEvidence({
-      sourceSpan: normalizedSpan,
-      note: input.note,
-      inputText: input.inputText,
-    })
-    ? "open"
-    : "closed";
+  const resolution = resolveTargetTypeListSemantics({
+    dimension: input.dimension,
+    kind: input.kind,
+    operator: input.operator,
+    sourceSpan: input.sourceSpan,
+    spanVerified: input.spanVerified,
+    targets,
+    listSemantics: value.list_semantics,
+    note: input.note,
+    inputText: input.inputText,
+  });
+  if (resolution.decision === "unchanged" || resolution.decision === "unresolved") {
+    return value;
+  }
+  const listSemantics = resolution.decision;
   const valueNote = cleanString(value.note);
   const normalizedValueNote = listSemantics === "closed" && valueNote !== null
     ? removeConflatedBusinessKindListSentences(valueNote, targets)
@@ -1208,69 +1230,6 @@ function removeConflatedBusinessKindListSentences(note: string, targets: string[
   if (retained.length === sentences.length) return note;
   const normalized = retained.join(" ").trim();
   return normalized || null;
-}
-
-/**
- * K-Startup aply_trgt는 포털의 신청대상 요약 분류다. 실제 exact source_span은
- * 라벨을 제외한 값만 가리키므로, 봉인 입력의 source_field 결속을 별도로 확인한다.
- * 짧은 단일행과 80자 초과 다중행 렌더 형식을 모두 지원한다.
- */
-function hasKStartupOpenTargetSummaryEvidence(input: {
-  sourceSpan: string;
-  inputText: string;
-}): boolean {
-  const lines = input.inputText.split(/\r?\n/u);
-  for (let index = 0; index < lines.length; index += 1) {
-    const line = normalizeEvidence(lines[index] ?? "");
-    const short = /^신청대상 요약:\s*(.*?)\s*\(source_field:\s*aply_trgt\)$/u.exec(line)?.[1];
-    if (
-      short
-      && (
-        normalizeEvidence(short) === input.sourceSpan
-        || normalizeEvidence(`신청대상 요약: ${short}`) === input.sourceSpan
-      )
-    ) return true;
-    if (line !== "## 신청대상 요약") continue;
-    const sourceField = normalizeEvidence(lines[index + 1] ?? "");
-    if (sourceField !== "source_field: aply_trgt") continue;
-    const body: string[] = [];
-    for (let cursor = index + 2; cursor < lines.length; cursor += 1) {
-      const candidate = lines[cursor] ?? "";
-      if (/^##\s/u.test(candidate) || /^\[블록:/u.test(candidate)) break;
-      body.push(candidate);
-    }
-    if (normalizeEvidence(body.join("\n")).includes(input.sourceSpan)) return true;
-  }
-  return false;
-}
-
-/**
- * K-Startup 통합공고의 신청대상 요약은 표면상 유한 목록이지만, 바로 이어지는
- * 상세 문구가 자격을 각 하위 공고에 위임한다. 모델이 이 위임을 근거로 open이라고
- * 명시한 경우 source_span 한 줄만 보고 closed로 되돌리지 않는다. note만으로는
- * 신뢰하지 않고 봉인 입력의 위임 문구와 요약 source를 함께 요구한다.
- */
-function hasDelegatedOpenTargetTypeEvidence(input: {
-  sourceSpan: string;
-  note: string | null;
-  inputText: string;
-}): boolean {
-  if (!/신청대상\s*요약/.test(input.sourceSpan)) return false;
-  if (
-    !input.note
-    || !/(?:open|열린|개방형|완전열거가\s*아닌)/i.test(input.note)
-    || !/목록/.test(input.note)
-  ) return false;
-  const normalizedInput = normalizeEvidence(input.inputText);
-  return /신청대상\s*상세\s*:\s*각\s*지원사업\s*모집\s*공고문\s*참고/.test(normalizedInput);
-}
-
-function hasOpenTargetTypeListMarker(sourceSpan: string): boolean {
-  return /(?:^|[\s,·/])등(?:은|는|이|가|을|를|의|과|도|으로)?(?:$|[\s,.)])/.test(sourceSpan)
-    || /예\s*:|예시|예컨대|일례/.test(sourceSpan)
-    || /포함하되\s*이에\s*한정되지/.test(sourceSpan)
-    || /포함(?:한|하는|하며|하고)/.test(sourceSpan)
-    || /(?:주로|대표적으로|중심으로)/.test(sourceSpan);
 }
 
 function cleanString(value: unknown): string | null {

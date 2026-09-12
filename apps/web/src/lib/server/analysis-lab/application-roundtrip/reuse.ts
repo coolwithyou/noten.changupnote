@@ -52,6 +52,7 @@ export interface ExactApplicationRoundtripArtifactBinding {
     readonly attachmentId: string;
     readonly sha256: string;
   }[];
+  readonly admissionPolicy?: "strict_complete" | "failed_primary_valid_application";
 }
 
 /**
@@ -117,11 +118,19 @@ export async function prepareApplicationRoundtripReuse(input: {
     currentSources: input.currentSources,
   });
   if (input.exactArtifactBinding) {
-    assertStrictApplicationRoundtripReuseArtifact({
-      run: artifacts.run,
-      manifest: artifacts.manifest,
-      currentSources: input.currentSources,
-    });
+    if (input.exactArtifactBinding.admissionPolicy === "failed_primary_valid_application") {
+      assertFailedPrimaryApplicationRoundtripReuseArtifact({
+        run: artifacts.run,
+        manifest: artifacts.manifest,
+        currentSources: input.currentSources,
+      });
+    } else {
+      assertStrictApplicationRoundtripReuseArtifact({
+        run: artifacts.run,
+        manifest: artifacts.manifest,
+        currentSources: input.currentSources,
+      });
+    }
   }
   const markdownByAttachmentId = exactArtifacts
     ? new Map(exactArtifacts.markdownByAttachmentId)
@@ -157,6 +166,68 @@ export async function prepareApplicationRoundtripReuse(input: {
   };
 }
 
+/**
+ * primary 실패와 무관하게 이미 성공한 application field 분석을 보존하는 v2 전용 gate다.
+ * partial은 미지원 구조 위치를 안전하게 제외한 경우만 허용하고 complete로 승격하지 않는다.
+ */
+export function assertFailedPrimaryApplicationRoundtripReuseArtifact(input: {
+  readonly run: ApplicationRoundtripRun;
+  readonly manifest: RoundtripRunManifest;
+  readonly currentSources: readonly CurrentRoundtripSource[];
+}): void {
+  if (input.manifest.version !== 1) {
+    throw new ApplicationRoundtripReuseError("contract_mismatch", "Kordoc manifest version이 다릅니다.");
+  }
+  const applicationDocuments = input.run.documents.filter((document) => (
+    document.role === "application_form"
+    || document.role === "business_plan"
+    || document.role === "mixed_form"
+  ));
+  if (applicationDocuments.length === 0) {
+    throw new ApplicationRoundtripReuseError(
+      "artifact_incomplete",
+      "failed primary 재사용에는 application 문서가 필요합니다.",
+    );
+  }
+  for (const document of applicationDocuments) {
+    const coverage = document.fieldCoverage;
+    const planning = document.fieldPlanning;
+    const acceptedFields = document.fields.filter((field) => field.recommendedInput);
+    const warningLocations = new Set(coverage.structuralWarnings.map((warning) => (
+      `${warning.location.blockIndex}:${warning.location.row}:${warning.location.col}:${warning.location.occurrence}`
+    )));
+    const acceptedLocationOverlapsWarning = acceptedFields.some((field) => warningLocations.has(
+      `${field.location.blockIndex}:${field.location.row}:${field.location.col}:${field.location.occurrence}`,
+    ));
+    const coverageShapeIsExact = coverage.unresolvedCandidateCount === 0
+      && coverage.unresolvedCandidates.length === 0
+      && coverage.structuralWarningCount === coverage.structuralWarnings.length
+      && coverage.acceptedInputCount > 0
+      && coverage.acceptedInputCount === acceptedFields.length
+      && coverage.acceptedInputCount === document.recommendedInputFieldCount
+      && coverage.anchorReadyInputCount === coverage.acceptedInputCount
+      && coverage.anchorUnreadyInputCount === 0
+      && !acceptedLocationOverlapsWarning
+      && (coverage.status === "complete"
+        ? coverage.structuralWarningCount === 0
+        : coverage.status === "partial" && coverage.structuralWarningCount > 0);
+    const planningShapeIsExact = planning.status === "llm"
+      && (planning.requestCount ?? 0) > 0
+      && (planning.unprocessedCandidateCount ?? 0) === 0
+      && (planning.remainingUnresolvedCandidateCount ?? 0) === 0
+      && planning.failureCode == null
+      && planning.adjudicationFailureCode == null
+      && (planning.adjudicationStatus === "resolved" || planning.adjudicationStatus === "not_needed");
+    if (!coverageShapeIsExact || !planningShapeIsExact) {
+      throw new ApplicationRoundtripReuseError(
+        "artifact_incomplete",
+        "failed primary Kordoc 재사용은 미해결 없이 anchor가 준비되고 구조 경고만 남은 application 분석만 허용합니다.",
+      );
+    }
+  }
+  assertStrictRoundtripSourceIdentity(input);
+}
+
 export function assertStrictApplicationRoundtripReuseArtifact(input: {
   readonly run: ApplicationRoundtripRun;
   readonly manifest: RoundtripRunManifest;
@@ -165,10 +236,16 @@ export function assertStrictApplicationRoundtripReuseArtifact(input: {
   if (input.manifest.version !== 1) {
     throw new ApplicationRoundtripReuseError("contract_mismatch", "Kordoc manifest version이 다릅니다.");
   }
+  const applicationDocuments = input.run.documents.filter((document) => (
+    document.role === "application_form"
+    || document.role === "business_plan"
+    || document.role === "mixed_form"
+  ));
   if (
     input.run.documents.length === 0
     || input.manifest.attachments.length === 0
-    || input.run.documents.some((document) => (
+    || applicationDocuments.length === 0
+    || applicationDocuments.some((document) => (
       document.fieldPlanning.status !== "llm"
       || document.fieldCoverage.status !== "complete"
     ))
@@ -178,6 +255,14 @@ export function assertStrictApplicationRoundtripReuseArtifact(input: {
       "Kordoc exact 재사용은 완결된 application 문서 분석만 허용합니다.",
     );
   }
+  assertStrictRoundtripSourceIdentity(input);
+}
+
+function assertStrictRoundtripSourceIdentity(input: {
+  readonly run: ApplicationRoundtripRun;
+  readonly manifest: RoundtripRunManifest;
+  readonly currentSources: readonly CurrentRoundtripSource[];
+}): void {
   const currentSources = strictEligibleCurrentSources(input.currentSources);
   const attachmentIds = new Set<string>();
   const storageKeys = new Set<string>();

@@ -71,6 +71,10 @@ export function resolveStudioFieldBindings(
     if (table.status === "unique") {
       const target = table.anchor.target;
       const longText = normalizeFieldType(fields[index]?.fieldType) === "long_text";
+      // 같은 셀 장문은 exact 첫 문단 길이까지 증명된 경우에만 host protected binding으로 연다.
+      if (longText && target.cellIndex === target.labelCellIndex && target.protectedPrefixChars === undefined) {
+        return { fieldId: table.fieldId, status: "missing", candidateCount: 0 };
+      }
       return {
         fieldId: table.fieldId,
         status: "unique",
@@ -81,6 +85,9 @@ export function resolveStudioFieldBindings(
               parentPara: target.parentPara,
               controlIndex: target.controlIndex,
               cellIndex: target.cellIndex,
+              ...(target.protectedPrefixChars === undefined
+                ? {}
+                : { protectedPrefixChars: target.protectedPrefixChars }),
             }
           : {
               kind: "table_cell_text",
@@ -122,7 +129,7 @@ export function resolveStudioFieldBindings(
   });
 
   for (let index = 0; index < resolved.length; index += 1) {
-    if (resolved[index]?.status !== "missing") continue;
+    if (resolved[index]?.status !== "missing" || tableResolutions[index]?.status !== "missing") continue;
     resolved[index] = paragraphResolutions[index]!;
   }
 

@@ -40,8 +40,7 @@ export interface AnalysisLaunchManifestTarget {
   readonly applicationRoundtripReuse?: AnalysisLaunchApplicationRoundtripReuseBinding;
 }
 
-export interface AnalysisLaunchApplicationRoundtripReuseBinding {
-  readonly schema: "analysis-launch-application-roundtrip-reuse-v1";
+interface AnalysisLaunchApplicationRoundtripReuseBindingCommon {
   readonly sourceSequence: number;
   readonly sourceLabRunId: string;
   readonly sourceLabRunArtifactPath: string;
@@ -59,6 +58,24 @@ export interface AnalysisLaunchApplicationRoundtripReuseBinding {
   readonly independentReviewManifestSha256: string;
   readonly sourceLaunchReceiptSha256: string;
 }
+
+/** 기존 독립 검수 primary repair에서 완결된 application 분석만 재사용한 역사 계약. */
+export interface AnalysisLaunchReviewedApplicationRoundtripReuseBinding
+  extends AnalysisLaunchApplicationRoundtripReuseBindingCommon {
+  readonly schema: "analysis-launch-application-roundtrip-reuse-v1";
+}
+
+/** primary만 실패했고 application 분석은 조건부 사용 가능한 경우의 별도 provenance. */
+export interface AnalysisLaunchFailedPrimaryApplicationRoundtripReuseBinding
+  extends AnalysisLaunchApplicationRoundtripReuseBindingCommon {
+  readonly schema: "analysis-launch-application-roundtrip-reuse-v2";
+  readonly sourceDisposition: "failed_primary_valid_application";
+  readonly applicationFieldRuntimeSha256: string;
+}
+
+export type AnalysisLaunchApplicationRoundtripReuseBinding =
+  | AnalysisLaunchReviewedApplicationRoundtripReuseBinding
+  | AnalysisLaunchFailedPrimaryApplicationRoundtripReuseBinding;
 
 export interface AnalysisLaunchManifest {
   readonly schema: "analysis-launch-manifest-v1";
@@ -572,13 +589,15 @@ export function normalizeAnalysisLaunchManifest(value: unknown): AnalysisLaunchM
       : targets.some((target) => (
           target.applicationRoundtripReuse
           && (
-            !target.reviewRepair
-            || target.applicationRoundtripReuse.sourceLabRunId !== target.reviewRepair.sourceRunId
+            (target.applicationRoundtripReuse.schema === "analysis-launch-application-roundtrip-reuse-v1"
+              ? !target.reviewRepair
+                || target.applicationRoundtripReuse.sourceLabRunId !== target.reviewRepair.sourceRunId
+              : target.reviewRepair !== undefined)
             || target.applicationRoundtripReuse.independentReviewAggregateSha256 !== planSha256
           )
         ))
   ) {
-    throw new Error("독립 검수 primary repair 외 launch에는 Kordoc exact 재사용을 결속할 수 없습니다.");
+    throw new Error("독립 검수 primary repair 외 launch에는 검증된 failed primary provenance 없이 Kordoc exact 재사용을 결속할 수 없습니다.");
   }
   const reusedRoundtripRunIds = targets.flatMap(
     (target) => target.applicationRoundtripReuse?.sourceRoundtripRunId ?? [],
@@ -1116,7 +1135,10 @@ export function normalizeAnalysisLaunchApplicationRoundtripReuseBinding(
   field: string,
 ): AnalysisLaunchApplicationRoundtripReuseBinding {
   const record = object(value, field);
-  if (record.schema !== "analysis-launch-application-roundtrip-reuse-v1") {
+  if (
+    record.schema !== "analysis-launch-application-roundtrip-reuse-v1"
+    && record.schema !== "analysis-launch-application-roundtrip-reuse-v2"
+  ) {
     throw new Error(`${field}.schema가 잘못됐습니다.`);
   }
   if (!Array.isArray(record.parsedMarkdown)) {
@@ -1139,8 +1161,7 @@ export function normalizeAnalysisLaunchApplicationRoundtripReuseBinding(
   }
   const sourceSequence = integer(record.sourceSequence, `${field}.sourceSequence`);
   if (sourceSequence < 0) throw new Error(`${field}.sourceSequence는 0 이상이어야 합니다.`);
-  return Object.freeze({
-    schema: "analysis-launch-application-roundtrip-reuse-v1",
+  const common = {
     sourceSequence,
     sourceLabRunId: requireNonEmpty(record.sourceLabRunId, `${field}.sourceLabRunId`),
     sourceLabRunArtifactPath: repositoryRelativePath(
@@ -1183,6 +1204,24 @@ export function normalizeAnalysisLaunchApplicationRoundtripReuseBinding(
     sourceLaunchReceiptSha256: exactSha(
       String(record.sourceLaunchReceiptSha256),
       `${field}.sourceLaunchReceiptSha256`,
+    ),
+  } as const;
+  if (record.schema === "analysis-launch-application-roundtrip-reuse-v1") {
+    return Object.freeze({
+      schema: "analysis-launch-application-roundtrip-reuse-v1",
+      ...common,
+    });
+  }
+  if (record.sourceDisposition !== "failed_primary_valid_application") {
+    throw new Error(`${field}.sourceDisposition이 failed primary 재사용 계약과 다릅니다.`);
+  }
+  return Object.freeze({
+    schema: "analysis-launch-application-roundtrip-reuse-v2",
+    ...common,
+    sourceDisposition: "failed_primary_valid_application",
+    applicationFieldRuntimeSha256: exactSha(
+      String(record.applicationFieldRuntimeSha256),
+      `${field}.applicationFieldRuntimeSha256`,
     ),
   });
 }

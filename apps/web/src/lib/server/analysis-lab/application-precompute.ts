@@ -1,8 +1,11 @@
-import type {
-  ApplicationRoundtripRun,
-  RoundtripParsedDocument,
+import {
+  APPLICATION_ROUNDTRIP_VERSION,
+  type ApplicationRoundtripRun,
+  type RoundtripParsedDocument,
 } from "@/lib/server/analysis-lab/application-roundtrip/contract";
-import type { LabApplicationRoundtripReference } from "@/lib/server/analysis-lab/lab-contract";
+import type {
+  LabApplicationRoundtripReference,
+} from "@/lib/server/analysis-lab/lab-contract";
 
 export type SettledTask<T> =
   | { status: "fulfilled"; value: T }
@@ -35,6 +38,17 @@ export function classifyApplicationFieldAnalysis(
 }
 
 /**
+ * 기존 publishable primary를 스킵할 때는 필드 준비도뿐 아니라 현행 roundtrip 계약으로
+ * 생성됐다는 provenance까지 필요하다. version이 없는 역사 참조는 fail-closed한다.
+ */
+export function classifyCurrentApplicationFieldAnalysis(
+  reference: LabApplicationRoundtripReference | null | undefined,
+): ApplicationFieldAnalysisDisposition {
+  if (reference?.version !== APPLICATION_ROUNDTRIP_VERSION) return "held";
+  return classifyApplicationFieldAnalysis(reference);
+}
+
+/**
  * 주 분석과 지원 양식 sidecar를 await 전에 모두 시작한다.
  * sidecar 실패는 값으로 정규화해 주 분석의 성공/실패 계약을 바꾸지 않는다.
  */
@@ -61,6 +75,7 @@ export function buildApplicationRoundtripReference(input: {
     const code = errorCode(input.result.reason);
     const notApplicable = code === "hwp_attachment_not_found";
     return {
+      version: APPLICATION_ROUNDTRIP_VERSION,
       status: notApplicable ? "not_applicable" : "failed",
       runId: null,
       transport: input.transport,
@@ -104,6 +119,7 @@ export function buildApplicationRoundtripReference(input: {
   } as const;
   if (run.error) {
     return {
+      version: run.version,
       status: "failed",
       runId: run.runId,
       transport: input.transport,
@@ -121,6 +137,7 @@ export function buildApplicationRoundtripReference(input: {
   if (applicationDocuments.length === 0 || run.recommendedAttachmentId === null) {
     if (runFailureCode !== null) {
       return {
+        version: run.version,
         status: "review_required",
         runId: run.runId,
         transport: input.transport,
@@ -135,6 +152,7 @@ export function buildApplicationRoundtripReference(input: {
       };
     }
     return {
+      version: run.version,
       status: "not_applicable",
       runId: run.runId,
       transport: input.transport,
@@ -186,6 +204,7 @@ export function buildApplicationRoundtripReference(input: {
         ? "partial"
         : "complete";
   return {
+    version: run.version,
     status,
     runId: run.runId,
     transport: input.transport,

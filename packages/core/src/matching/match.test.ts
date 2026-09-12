@@ -72,6 +72,40 @@ check("조건 1건 이상이면 criteria_extracted true", () => {
   assert.equal(result.rule_trace.length, 1);
 });
 
+check("업력 7년 미만의 정수 월 상한 83은 83/84/85개월 경계를 정확히 나눈다", () => {
+  const criterion: GrantCriterion = {
+    dimension: "biz_age",
+    operator: "lte",
+    kind: "required",
+    confidence: 0.95,
+    source_span: "☞ 업력 7년 미만의 제조창업기업",
+    value: { max_months: 83, include_preliminary: false },
+  };
+  for (const [months, expected] of [[83, "pass"], [84, "fail"], [85, "fail"]] as const) {
+    const result = matchGrantCriteria([criterion], { ...company, biz_age_months: months });
+    assert.equal(result.rule_trace[0]?.result, expected, `${months}개월 경계 판정`);
+  }
+});
+
+check("업력 7년 이하의 포함 상한 84는 84개월을 허용하고 85개월을 제외한다", () => {
+  const criterion: GrantCriterion = {
+    dimension: "biz_age",
+    operator: "lte",
+    kind: "required",
+    confidence: 0.95,
+    source_span: "업력 7년 이하",
+    value: { max_months: 84, include_preliminary: false },
+  };
+  assert.equal(
+    matchGrantCriteria([criterion], { ...company, biz_age_months: 84 }).rule_trace[0]?.result,
+    "pass",
+  );
+  assert.equal(
+    matchGrantCriteria([criterion], { ...company, biz_age_months: 85 }).rule_trace[0]?.result,
+    "fail",
+  );
+});
+
 check("핵심 업종 text_only required가 있으면 확인 필요 게이트로 내린다", () => {
   const criteria: GrantCriterion[] = [
     {

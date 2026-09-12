@@ -16,6 +16,7 @@ import * as schema from "../db/schema";
 import { acquireGrantPublicationLock } from "../ingestion/grantPublicationLock";
 import { expandConfirmedGrantComponentIds } from "../ingestion/grantRevisionInvalidation";
 import { loadMonorepoEnv } from "../loadMonorepoEnv";
+import { assertNoAppliedApplicationFieldRepairForParent } from "./application-field-repair-release";
 
 loadMonorepoEnv();
 
@@ -145,6 +146,7 @@ async function rollbackItem(input: {
       ))
       .limit(1);
     if (!ledgerItem) throw new Error(`release item 원장 누락: ${input.grantId}`);
+    await assertNoAppliedApplicationFieldRepairForParent(tx, ledgerItem.id);
     const current = await loadPromotionGrantSnapshot(tx, input.grantId, input.confirmedLinks);
     const drift = rollbackDriftReason({
       itemStatus: ledgerItem.status,
@@ -226,6 +228,15 @@ async function main(): Promise<number> {
     .where(eq(schema.dedupLinks.confirmed, true));
   const drifted: Array<{ grantId: string; reason: string }> = [];
   for (const item of applied) {
+    try {
+      await assertNoAppliedApplicationFieldRepairForParent(db, item.id);
+    } catch (error) {
+      drifted.push({
+        grantId: item.grantId,
+        reason: error instanceof Error ? error.message : String(error),
+      });
+      continue;
+    }
     const snapshot = await loadPromotionGrantSnapshot(db, item.grantId, confirmedLinks);
     const reason = rollbackDriftReason({
       itemStatus: item.status,

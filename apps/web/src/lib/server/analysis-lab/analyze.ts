@@ -32,6 +32,7 @@ import {
 import { currentAnalysisLaunchBatchExecutionBinding } from "./launch-batch-context";
 import type { AnalysisLaunchApplicationRoundtripReuseBinding } from "./launch-batch-artifacts";
 import { prepareApplicationRoundtripReuse } from "./application-roundtrip/reuse";
+import { appendAnalysisExecutionSidecarEvent } from "./analysis-request-observation";
 import { computeLabDimensionDiffs } from "./diff";
 import { resolveLabModel, type DeepAnalysisResult } from "./extractor";
 import {
@@ -129,6 +130,11 @@ async function resolveLabLlmBindingForTransport(
   transport: "api" | "claude-cli",
   schedulerKey: string,
   signal?: AbortSignal,
+  observation?: {
+    readonly manifestSha256: string;
+    readonly runId: string;
+    readonly grantId: string;
+  },
 ): Promise<LabLlmBinding> {
   if (transport === "claude-cli") {
     return {
@@ -137,6 +143,12 @@ async function resolveLabLlmBindingForTransport(
       fetchImpl: buildClaudeCliFetch({
         schedulerKey,
         ...(signal ? { externalSignal: signal } : {}),
+        ...(observation ? {
+          requestObservation: {
+            ...observation,
+            onEvent: (event) => appendAnalysisExecutionSidecarEvent({ event }),
+          },
+        } : {}),
       }),
     };
   }
@@ -384,6 +396,10 @@ async function executePreparedLabAnalysisInternal(
             analysisSha256: opts.exactApplicationRoundtripReuse.analysisArtifactSha256,
             manifestSha256: opts.exactApplicationRoundtripReuse.manifestArtifactSha256,
             parsedMarkdown: opts.exactApplicationRoundtripReuse.parsedMarkdown,
+            admissionPolicy: opts.exactApplicationRoundtripReuse.schema
+              === "analysis-launch-application-roundtrip-reuse-v2"
+              ? "failed_primary_valid_application"
+              : "strict_complete",
           },
         } : {}),
       })
@@ -395,7 +411,16 @@ async function executePreparedLabAnalysisInternal(
         schedulerKey: runId,
         ...(opts?.signal ? { signal: opts.signal } : {}),
       })
-    : resolveLabLlmBindingForTransport(opts.transport, runId, opts.signal);
+    : resolveLabLlmBindingForTransport(
+        opts.transport,
+        runId,
+        opts.signal,
+        launchBinding ? {
+          manifestSha256: launchBinding.manifestSha256,
+          runId,
+          grantId,
+        } : undefined,
+      );
   const runPrimary = async (): Promise<{
     extraction: DeepAnalysisResult | null;
     error: string | null;
@@ -430,6 +455,7 @@ async function executePreparedLabAnalysisInternal(
           newIssueAfterRepairCount: validated.newIssueAfterRepairCount,
           blockingNewIssueAfterRepairCount: validated.blockingNewIssueAfterRepairCount,
           sourceIncompleteIssueAfterRepairCount: validated.sourceIncompleteIssueAfterRepairCount,
+          terminationReason: validated.terminationReason,
         },
         outcome: validated.outcome,
         matchingReadiness: validated.matchingReadiness,
@@ -446,6 +472,7 @@ async function executePreparedLabAnalysisInternal(
             newIssueAfterRepairCount: caught.newIssueAfterRepairCount,
             blockingNewIssueAfterRepairCount: caught.blockingNewIssueAfterRepairCount,
             sourceIncompleteIssueAfterRepairCount: caught.sourceIncompleteIssueAfterRepairCount,
+            terminationReason: caught.terminationReason,
           },
           passes: caught.passes,
           error: caught.message.slice(0, 2_000),
@@ -460,6 +487,7 @@ async function executePreparedLabAnalysisInternal(
           newIssueAfterRepairCount: 0,
           blockingNewIssueAfterRepairCount: 0,
           sourceIncompleteIssueAfterRepairCount: 0,
+          terminationReason: "execution_error",
         },
         error: caught instanceof Error
           ? caught.message.slice(0, 2_000)
@@ -496,7 +524,34 @@ async function executePreparedLabAnalysisInternal(
     const paired = await runAnalysisPair({
       primary: runPrimaryWithMatchingProjection,
       application: async () => {
-        if (preparedRoundtripReuse) return preparedRoundtripReuse.materialize(runId);
+        if (preparedRoundtripReuse) {
+          const materialized = await preparedRoundtripReuse.materialize(runId);
+          const exactReuse = opts?.exactApplicationRoundtripReuse;
+          if (launchBinding && exactReuse) {
+            try {
+              await appendAnalysisExecutionSidecarEvent({
+                event: Object.freeze({
+                  schema: "analysis-reuse-observation-v1",
+                  authority: "unsealed_local_observation",
+                  processInstanceId: `process-${process.pid}`,
+                  manifestSha256: launchBinding.manifestSha256,
+                  runId,
+                  grantId,
+                  stage: "application",
+                  mode: "reused",
+                  sourceRunId: exactReuse.sourceRoundtripRunId,
+                  sourceAnalysisArtifactSha256: exactReuse.analysisArtifactSha256,
+                  sourceManifestArtifactSha256: exactReuse.manifestArtifactSha256,
+                  newModelRequestCount: 0,
+                  observedAt: new Date().toISOString(),
+                }),
+              });
+            } catch {
+              // append-only 관측 실패는 분석 결과나 exact reuse 결속을 변경하지 않는다.
+            }
+          }
+          return materialized;
+        }
         const [binding, roundtripModule] = await Promise.all([
           bindingPromise,
           import("./application-roundtrip/analyze"),
@@ -628,7 +683,12 @@ function sameExactApplicationRoundtripReuse(
   right: AnalysisLaunchApplicationRoundtripReuseBinding | undefined,
 ): boolean {
   if (left === undefined || right === undefined) return left === right;
-  return left.schema === right.schema
+  const sameVariant = left.schema === right.schema
+    && (left.schema !== "analysis-launch-application-roundtrip-reuse-v2"
+      || (right.schema === "analysis-launch-application-roundtrip-reuse-v2"
+        && left.sourceDisposition === right.sourceDisposition
+        && left.applicationFieldRuntimeSha256 === right.applicationFieldRuntimeSha256));
+  return sameVariant
     && left.sourceSequence === right.sourceSequence
     && left.sourceLabRunId === right.sourceLabRunId
     && left.sourceLabRunArtifactPath === right.sourceLabRunArtifactPath
