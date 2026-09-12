@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { APPLICATION_ROUNDTRIP_VERSION } from "../documents/applicationAnalysisContract";
 import {
   applyApplicationRepairAuthoringOverlays,
   resolveApplicationRepairAuthoringOverlays,
@@ -101,7 +102,7 @@ function validRepairRow(): ApplicationFieldRepairServingRow {
   const runSha256 = "9".repeat(64);
   const analysisSha256 = "a".repeat(64);
   const applicationManifestSha256 = "b".repeat(64);
-  const applicationFieldAnalysisVersion = "kordoc-application-roundtrip-v11";
+  const applicationFieldAnalysisVersion = APPLICATION_ROUNDTRIP_VERSION;
   const readiness = {
     schema: "analysis-launch-promotion-readiness-v1" as const,
     disposition: "conditional" as const,
@@ -303,7 +304,7 @@ function applicationSnapshot(): ApplicationFieldRepairSnapshot {
       sourceAttachment: "application.hwp",
       archiveSha256: "1".repeat(64),
       extractionStatus: "complete",
-      extractionVersion: "kordoc-application-roundtrip-v11",
+      extractionVersion: APPLICATION_ROUNDTRIP_VERSION,
       confidence: 0.99,
       createdAt: "2026-09-11T00:00:00.000Z",
       updatedAt: "2026-09-11T00:00:00.000Z",
@@ -325,7 +326,7 @@ function applicationSnapshot(): ApplicationFieldRepairSnapshot {
       mappedCompanyField: "companyName",
       fillStrategy: "profile",
       confidence: 0.99,
-      parserVersion: "kordoc-application-roundtrip-v11",
+      parserVersion: APPLICATION_ROUNDTRIP_VERSION,
       surfaceId: "surface-1",
       position: { targetKind: "table_cell_text", row: 1, col: 1 },
       visualEvidence: null,

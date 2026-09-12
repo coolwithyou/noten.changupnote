@@ -6,6 +6,7 @@
 import assert from "node:assert/strict";
 import type { RoundtripFieldCandidate } from "@/lib/server/analysis-lab/application-roundtrip/contract";
 import {
+  findSurroundingText,
   planRoundtripFields,
   resolveRoundtripEffort,
   resolveRoundtripFieldPlannerRuntimeConfig,
@@ -14,6 +15,39 @@ import {
 const originalEffortEnv = process.env.APPLICATION_ROUNDTRIP_EFFORT;
 
 try {
+  // PBLN_000000000126414 / e5db1e8c842fd75996e7.parsed.md의 label/Markdown 공백 차이.
+  // 응답 판정은 합성이며 요청 원문만 검증한다.
+  {
+    const field = { ...candidate("spaced-label"), label: "신 청 내 역" };
+    const section = '<tr><td colspan="6">신청내역</td></tr>\n'
+      + '<tr><td colspan="2">구분</td><td colspan="4">발송비용 (총액만 기재, 상세 내역은 추가 서식 제출)</td></tr>\n'
+      + '<tr><td colspan="2">국내운송비</td><td colspan="4">원(VAT제외)</td></tr>';
+    const markdown = "앞".repeat(300) + section + "뒤".repeat(400);
+    const context = findSurroundingText(markdown, field);
+    assert.ok(context.includes(section), "원래 colspan과 인접 금액 행을 함께 전달");
+    assert.ok(markdown.includes(context), "정규화한 텍스트가 아닌 정확한 원문 slice");
+    const bodies: Array<Record<string, unknown>> = [];
+    await planRoundtripFields({ fields: [field], markdown, apiKey: "subscription",
+      transport: "claude-cli", fetchImpl: buildFetch(bodies, [[decision("spaced-label", false, 0.9)]]) });
+    const payload = (bodies[0]?.messages as Array<{ content: string }>)[0]!.content;
+    const candidates = JSON.parse(payload.slice(payload.indexOf("\n") + 1));
+    assert.equal(candidates[0].surrounding_text, context);
+    assert.equal(bodies.length, 1);
+
+    assert.equal(findSurroundingText("앞 회사명 뒤", { ...field, label: "회사명" }), "앞 회사명 뒤");
+    assert.equal(findSurroundingText("신청내역 / 신청 내역", field), "", "정규화 충돌은 임의 선택하지 않음");
+    assert.equal(findSurroundingText("회사명 / 회사명", { ...field, label: "회사명" }), "회사명 / 회사명",
+      "기존 exact 문맥 검색은 보존; 위치 결속 개선은 별도 변경");
+    for (const boundary of ["\n", "\r", "\f", "\v", "\u2028", "\u2029"]) {
+      assert.equal(findSurroundingText(`신청${boundary}내역`, field), "", "행·페이지 경계를 공백으로 합치지 않음");
+    }
+    for (const label of ["신청A B", "신청1 2", "신청-내역"]) {
+      assert.equal(findSurroundingText("신청AB 신청12 신청내역", { ...field, label }), "");
+    }
+    const nested = `<table><tr><td><table>${section}</table></td></tr></table>`;
+    assert.ok(findSurroundingText(nested, field).includes(section), "중첩 표의 위치를 행 번호로 추정하지 않음");
+    assert.equal(findSurroundingText("🚀 신 청 내 역 💡", { ...field, label: "신청내역" }), "🚀 신 청 내 역 💡");
+  }
   // ---- ① effort 해석 -------------------------------------------------------------
   delete process.env.APPLICATION_ROUNDTRIP_EFFORT;
   assert.equal(resolveRoundtripEffort(), null, "env 미설정 → null(현행 = effort 미지정)");

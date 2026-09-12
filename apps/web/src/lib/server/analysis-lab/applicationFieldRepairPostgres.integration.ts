@@ -433,7 +433,7 @@ async function buildRepairFixture(
     candidateCount: 0,
     extractedAt: FIXED_APPLIED_AT,
     analysisVersion,
-    contractVersion: APPLICATION_ROUNDTRIP_VERSION as "kordoc-application-roundtrip-v11",
+    contractVersion: APPLICATION_ROUNDTRIP_VERSION as typeof APPLICATION_ROUNDTRIP_VERSION,
     sourceSha256,
     resultStatus: "complete" as const,
     roundtripRunId,

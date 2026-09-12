@@ -6,6 +6,7 @@ import {
   prepareAnalysisLaunchManifest,
   runApprovedAnalysisLaunchBatch,
 } from "./launch-batch-production";
+import { classifyApplicationFieldAnalysis } from "./application-precompute";
 import {
   ACTIVE_DEEP_REPAIR_SERIES_ID,
   ACTIVE_DEEP_REPAIR_TARGET_COUNT,
@@ -138,8 +139,14 @@ async function main(command: Command, argv: readonly string[]): Promise<void> {
         onEvent(event) {
           if (event.type === "target-started") {
             console.log(`[launch] ${event.index + 1}/${event.total} started ${event.grantId}`);
-          } else if (event.type === "target-ok" || event.type === "target-held" || event.type === "target-error") {
-            console.log(`[launch] ${event.index + 1}/${event.total} ${event.type} ${event.grantId}`);
+          } else if (event.type === "target-ok" || event.type === "target-held") {
+            const primaryOutcome = event.type === "target-ok" ? "publishable" : "held";
+            const fieldAnalysis = event.applicationRoundtrip
+              ? classifyApplicationFieldAnalysis(event.applicationRoundtrip)
+              : "not_observed";
+            console.log(`[launch] ${event.index + 1}/${event.total} primary=${primaryOutcome} application=${fieldAnalysis} ${event.grantId}`);
+          } else if (event.type === "target-error") {
+            console.log(`[launch] ${event.index + 1}/${event.total} target=failed ${event.grantId}`);
           } else if (event.type === "guard-stop") {
             console.error(`[launch] shared guard stop: ${event.reason}`);
           }

@@ -38,7 +38,8 @@ import type { MatchingConversionReport } from "@/lib/server/analysis-serving/mat
 // v21: 사업 이력에 유사 분야·동일 책임자 조건이 붙으면 부분 구조화를 막고 무손실 보존한다.
 // v22: 명시적 기준일 현재 등록 사업장의 시도·시설 유형만 premises-v1로 구조화한다.
 // v23: 목록 의미·빈 선택 메타데이터·업력 exclusive 월 경계 계약을 일치시킨다.
-export const ANALYSIS_LAB_PROMPT_VERSION = "lab-deep-v23";
+// v24: 위임형 업종 조항은 text_only에만 보존하고 평가와 참석 절차를 분리한다.
+export const ANALYSIS_LAB_PROMPT_VERSION = "lab-deep-v24";
 export const ANALYSIS_LAB_DEFAULT_MODEL = "claude-opus-4-8";
 
 /**

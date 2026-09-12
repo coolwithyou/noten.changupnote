@@ -106,7 +106,7 @@ test("launch manifest는 inventory drift를 target telemetry로 보존한다", (
   assert.equal(manifest.targets[1]?.changedSinceInventory, true);
   assert.equal(manifest.execution.withApplicationRoundtrip, true);
   assert.equal(manifest.execution.roundtripModel, "claude-opus-5");
-  assert.equal(manifest.execution.applicationFieldAnalysisVersion, "kordoc-application-roundtrip-v11");
+  assert.equal(manifest.execution.applicationFieldAnalysisVersion, "kordoc-application-roundtrip-v12");
   assert.deepEqual(normalizeAnalysisLaunchManifest(JSON.parse(encodeCanonical(manifest).toString("utf8"))), manifest);
 });
 
@@ -185,15 +185,15 @@ test("정식 launch publishable은 필드 분석 준비도까지 통과해야 �
   });
   const v10Scan = resolveLabBatchRunScan([scanRecord("v10.json", v10FieldReference)]);
   assert.equal(v10Scan.states.get(GRANT_0)?.applicationFieldAnalysisReadyCurrent, false);
-  const v11LaunchAgainstV10 = partitionCohortEntries([{ grantId: GRANT_0 }], v10Scan.states, {
+  const v12LaunchAgainstV10 = partitionCohortEntries([{ grantId: GRANT_0 }], v10Scan.states, {
     retryErrors: false,
     reanalyzeOutdated: false,
     requireApplicationFieldAnalysis: true,
   });
   assert.deepEqual(
-    v11LaunchAgainstV10.pending,
+    v12LaunchAgainstV10.pending,
     [{ grantId: GRANT_0 }],
-    "v10 필드 준비 이력이 있어도 v11 launch는 다시 실행",
+    "v10 필드 준비 이력이 있어도 v12 launch는 다시 실행",
   );
 
   const { version: _historicalVersion, ...noVersionFieldReference } = v10FieldReference;
@@ -204,17 +204,23 @@ test("정식 launch publishable은 필드 분석 준비도까지 통과해야 �
     "version 없는 역사 참조는 현행 필드 준비도로 인정하지 않음",
   );
 
-  const v11Scan = resolveLabBatchRunScan([scanRecord("v11.json", {
-    ...v10FieldReference,
-    version: "kordoc-application-roundtrip-v11",
+  const previousScan = resolveLabBatchRunScan([scanRecord("previous.json", {
+    ...v10FieldReference, version: "kordoc-application-roundtrip-v11",
   })]);
-  assert.equal(v11Scan.states.get(GRANT_0)?.applicationFieldAnalysisReadyCurrent, true);
-  const v11LaunchAgainstV11 = partitionCohortEntries([{ grantId: GRANT_0 }], v11Scan.states, {
+  assert.equal(previousScan.states.get(GRANT_0)?.applicationFieldAnalysisReadyCurrent, false,
+    "문맥 복구 전 v11 결과를 v12 필드 결과로 재사용하지 않음");
+
+  const v12Scan = resolveLabBatchRunScan([scanRecord("v12.json", {
+    ...v10FieldReference,
+    version: "kordoc-application-roundtrip-v12",
+  })]);
+  assert.equal(v12Scan.states.get(GRANT_0)?.applicationFieldAnalysisReadyCurrent, true);
+  const v12LaunchAgainstV12 = partitionCohortEntries([{ grantId: GRANT_0 }], v12Scan.states, {
     retryErrors: false,
     reanalyzeOutdated: false,
     requireApplicationFieldAnalysis: true,
   });
-  assert.deepEqual(v11LaunchAgainstV11.skippedOk, [{ grantId: GRANT_0 }], "v11 필드 준비 참조는 기존 skip을 보존");
+  assert.deepEqual(v12LaunchAgainstV12.skippedOk, [{ grantId: GRANT_0 }], "v12 필드 준비 참조는 기존 skip을 보존");
 });
 
 test("과거 launch manifest는 새 source 정책 필드가 없어도 skip_existing으로 읽는다", () => {
@@ -456,7 +462,7 @@ test("독립 검수 합의 결함 재분석은 exact 원본 대상과 RHWP 필�
   assert.equal(repair.execution.existingRunPolicy, "rerun_exact_targets");
   assert.equal(repair.execution.withApplicationRoundtrip, true);
   assert.equal(repair.execution.roundtripModel, "claude-opus-5");
-  assert.equal(repair.execution.applicationFieldAnalysisVersion, "kordoc-application-roundtrip-v11");
+  assert.equal(repair.execution.applicationFieldAnalysisVersion, "kordoc-application-roundtrip-v12");
   assert.match(repair.targets[0]!.stratum, /original-3$/);
   assert.equal(repair.targets[0]!.reviewRepair?.blockingCount, 2);
   assert.match(repair.targets[0]!.reviewRepair?.taskInstruction ?? "", /결함 두 건/);

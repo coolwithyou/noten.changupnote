@@ -233,6 +233,12 @@ function skippedFieldPlanning(
     candidateCount,
     acceptedCount: 0,
     rejectedCount: candidateCount,
+    // 이 분기는 비신청 문서여서 planner를 호출하지 않았다. 누락 telemetry와 0회를 구분한다.
+    requestCount: 0,
+    inputTokens: 0,
+    outputTokens: 0,
+    cacheReadTokens: 0,
+    costUsd: 0,
     warning: null,
     transport: runtime.transport,
     requestedModel: runtime.requestedModel,

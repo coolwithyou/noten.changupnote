@@ -940,7 +940,7 @@ export const DEEP_ANALYSIS_ELIGIBILITY_RANKING_SEPARATION_RULE =
 export const DEEP_ANALYSIS_HIGH_RISK_EXCLUSION_COMPLETENESS_RULE =
   "출력 직전 신청제한·참여제한·지원제외·자격제한 절을 다시 훑고 부도·금융기관 채무불이행·파산·회생, 부채비율·자본잠식, 세금체납·참여제한 조건이 해당 축 criteria에 모두 있는지 대조한다. 같은 문장의 '또는' 조건과 단서·예외도 빠짐없이 보존하며, 서류 제출 요구만 추출하고 그 서류가 확인하는 명시적 결격을 누락하지 마라.";
 export const DEEP_ANALYSIS_SCORING_TABLE_COMPLETENESS_RULE =
-  "선정평가표·평가기준·배점표는 표 제목만 보지 말고 모든 평가항목, 하위 배점 행, 가점 행을 끝까지 검사한다. 점수를 바꾸는 서로 다른 사실은 각각 preferred criterion으로 보존하고 가장 가까운 22축에 배치한다. 한 사실의 여러 점수 구간은 현재 value 계약이 점수와 초과·미만의 배타 경계를 함께 표현하지 못하므로 구간별 숫자 criterion으로 쪼개지 말고, 해당 dimension/text_only preferred 한 건에 구간과 점수를 모두 보존한다. 그 밖에 안전한 canonical 값이 없으면 other/text_only와 원문 note로 남긴다. 같은 표의 다른 행을 추출했다는 이유로 외국어 홈페이지, 홍보자료, 인증, 사업장, 수출실적 같은 독립 배점 행을 생략하지 마라.";
+  "선정평가표·평가기준·배점표는 표 제목만 보지 말고 모든 평가항목, 하위 배점 행, 가점 행을 끝까지 검사한다. 점수를 바꾸는 서로 다른 사실은 각각 preferred criterion으로 보존하고 가장 가까운 22축에 배치한다. 한 사실의 여러 점수 구간은 현재 value 계약이 점수와 초과·미만의 배타 경계를 함께 표현하지 못하므로 구간별 숫자 criterion으로 쪼개지 말고, 해당 dimension/text_only preferred 한 건에 구간과 점수를 모두 보존한다. 그 밖에 안전한 canonical 값이 없으면 other/text_only와 원문 note로 남긴다. 같은 표의 다른 행을 추출했다는 이유로 외국어 홈페이지, 홍보자료, 인증, 사업장, 수출실적 같은 독립 배점 행을 생략하지 마라. preferred의 value와 note에는 평가·가점·순위를 바꾸는 사실만 담는다. 대표자 본인 발표나 대리 참석자의 소속·증빙 같은 참여 절차는 analysis_markdown 또는 program_intent.caution_notes의 신청 체크사항으로 분리한다. 영어 발표 역량·글로벌 성장 가능성 같은 실질 평가항목은 유지하고, 절차 준수 자체에 명시적인 배점이 있는 경우에는 그 배점 근거를 별도로 보존한다.";
 export const DEEP_ANALYSIS_LOCALITY_PREMISES_RULE =
   "시·군·구 단위 소재지 요건은 region의 시도 코드만으로 의미가 완전히 보존되지 않는다. 예를 들어 '하남시 관내 본사 또는 공장'이면 region에 경기 41을 required로 두는 동시에 premises에 시군구와 본사·공장 조건을 그대로 담은 required/text_only criterion을 별도로 만든다. 다만 본사가 관외여도 대상 공장·사업장이 관내면 신청 가능한 대안이 있으면 현재 회사 본사 region만으로 선차단할 수 없으므로 region/in을 만들지 말고 region/text_only 한 건에 본사·공장 OR 경로를 모두 보존한다. 시도보다 좁은 소재지 요건이나 시설 대안을 시도 코드 하나로만 끝내지 마라.";
 export const DEEP_ANALYSIS_PREMISES_V1_RULE =
@@ -962,7 +962,7 @@ export const DEEP_ANALYSIS_BUSINESS_STATUS_RULE =
 export const DEEP_ANALYSIS_UNRESOLVED_REFUND_RULE =
   "기관에서 발생한 환수금 등의 반환이 종결되지 않았다는 조건은 부정수급 발생을 뜻하지 않는다. 원문이 부정수급을 별도로 명시하지 않으면 sanction/subsidy_fraud로 축약하지 말고 sanction/text_only와 value.note에 반환 미종결 조건과 예외를 함께 보존한다.";
 export const DEEP_ANALYSIS_INDUSTRY_ENUMERATION_RULE =
-  "법령·별표의 제외업종을 구조화할 때는 열거된 모든 행을 끝까지 검사한다. '그 밖에 경제질서 및 미풍양속에 현저히 어긋나는 업종으로서 부령으로 정하는 업종' 같은 마지막 포괄 행을 note에만 남기고 tags에서 누락하지 마라. 안전한 업종 코드나 태그로 판정할 수 없는 행은 별도 industry/text_only로 보존해 부분 열거만으로 자동 pass가 나지 않게 한다.";
+  "법령·별표의 제외업종은 모든 행을 끝까지 검사하되, industry.tags에는 실제 업종명 또는 식별 가능한 업종 분류만 넣는다. '그 밖에 경제질서 및 미풍양속에 현저히 어긋나는 업종으로서 부령으로 정하는 업종'처럼 구체 업종이 특정되지 않은 법률 위임 조항은 같은 kind의 industry/text_only로 별도 보존하고 tags에 중복 포함하지 않는다. 코드가 없다는 이유만으로 명확한 업종명을 제거하지 않는다. 구체 업종 4개와 위임 조항 1개인 표라면 tags 4개와 text_only 1건으로 전체 범위를 보존해 부분 열거만으로 자동 pass가 나지 않게 한다.";
 export const DEEP_ANALYSIS_ELIGIBILITY_CALCULATION_RULE =
   "다수의 사업자등록증 보유 시 창업여부 기준표에 따라 창업일·업력을 계산하라는 문구는 독립 자격조건이 아니라 biz_age 판정 방법이다. other/text_only criterion이나 confirmation을 만들지 말고, 실제 기준표에서 추출한 biz_age criterion의 note와 analysis_markdown에 계산 방법으로 합쳐 보존한다.";
 export const DEEP_ANALYSIS_FUTURE_REGION_ALTERNATIVE_RULE =

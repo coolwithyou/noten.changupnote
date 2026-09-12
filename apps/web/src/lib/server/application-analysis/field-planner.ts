@@ -686,14 +686,41 @@ function compatibleInputKind(
   return requested;
 }
 
-function findSurroundingText(markdown: string, field: RoundtripFieldCandidate): string {
+export function findSurroundingText(markdown: string, field: RoundtripFieldCandidate): string {
+  // 기존 exact 문맥 검색은 보존하고, 문맥을 못 찾았을 때만 아래 fallback을 적용한다.
   const needles = [field.helperText, field.originalValue, field.label].filter((value): value is string => Boolean(value?.trim()));
   for (const needle of needles) {
     const index = markdown.indexOf(needle);
     if (index < 0) continue;
     return markdown.slice(Math.max(0, index - 220), Math.min(markdown.length, index + needle.length + 320));
   }
-  return "";
+  // HWP 필드명 '신 청 내 역'과 Markdown '신청내역'의 차이만 허용한다.
+  // 숫자/영문/기호/개행/HTML 경계는 지우지 않고, 유일한 일치만 원문 offset으로 되돌린다.
+  const normalize = (text: string) => {
+    const offsets: number[] = [];
+    let value = "";
+    let cursor = 0;
+    for (const match of text.matchAll(/(?<=[가-힣])[\p{Zs}\t]+(?=[가-힣])/gu)) {
+      for (; cursor < match.index; cursor += 1) {
+        offsets.push(cursor);
+        value += text[cursor];
+      }
+      cursor += match[0].length;
+    }
+    for (; cursor < text.length; cursor += 1) {
+      offsets.push(cursor);
+      value += text[cursor];
+    }
+    return { value, offsets };
+  };
+  const needle = normalize(field.label).value;
+  if (!/[가-힣]{2}/u.test(needle)) return "";
+  const normalized = normalize(markdown);
+  const index = normalized.value.indexOf(needle);
+  if (index < 0 || normalized.value.indexOf(needle, index + 1) >= 0) return "";
+  const start = normalized.offsets[index]!;
+  const end = normalized.offsets[index + needle.length - 1]! + 1;
+  return markdown.slice(Math.max(0, start - 220), Math.min(markdown.length, end + 320));
 }
 
 function buildSummary(
