@@ -279,14 +279,19 @@ export async function repairDeepAnalysisExecution(input: {
       DEEP_ANALYSIS_STRUCTURED_FILTER_METADATA_RULE,
       `신청자 대안 경로를 한 조건으로 평탄화하지 마라: ${DEEP_ANALYSIS_ALTERNATIVE_PATH_SCOPE_RULE}`,
       DEEP_ANALYSIS_CROSS_AXIS_TEXT_ONLY_RULE,
+      "직전 결과에서 source_ref가 검증된 source_limitations는 이번 validator 지적의 대상이 아닌 한 빠뜨리거나 범위를 바꾸지 마라.",
       "직전 결과 일부만 패치하지 말고 완전한 tool 결과 전체를 다시 반환한다.",
     ].join(" "),
+  });
+  const repairedWithPreservedLimitations = preserveValidatedSourceLimitations({
+    repaired,
+    validated: fullAxisValidation.sourceLimitations,
   });
   const repairPass: DeepAnalysisModelPass = {
     kind: "repair",
     chunkId: null,
     inputChars: repairInput.length,
-    result: repaired,
+    result: repairedWithPreservedLimitations,
   };
   const passes = [...axisExecutionToRepair.passes, repairPass];
   return {
@@ -326,7 +331,7 @@ export async function repairDeepAnalysisExecution(input: {
       }
       : {}),
     result: {
-      ...repaired,
+      ...repairedWithPreservedLimitations,
       usage: sumUsage(passes.map((pass) => pass.result.usage)),
       costUsd: sumDeepAnalysisActualCosts(passes.map((pass) => pass.result.costUsd)),
     },
@@ -972,6 +977,51 @@ function isSafeScoreLayoutToken(value: string): boolean {
 function stripRaw(result: DeepAnalysisModelResult) {
   const { rawResponseText: _response, rawToolInput: _input, ...value } = result;
   return value;
+}
+
+function preserveValidatedSourceLimitations(input: {
+  repaired: DeepAnalysisModelResult;
+  validated: ReadonlyArray<
+    NonNullable<DeepAnalysisModelResult["sourceLimitations"]>[number]
+  >;
+}): DeepAnalysisModelResult {
+  if (input.validated.length === 0) return input.repaired;
+  const sourceLimitations = [...(input.repaired.sourceLimitations ?? [])];
+  const identities = new Set(sourceLimitations.map((item) => stableJson(item)));
+  const missing = input.validated.filter((item) => !identities.has(stableJson(item)));
+  if (missing.length === 0) return input.repaired;
+
+  const rawToolInput = { ...input.repaired.rawToolInput };
+  if (rawToolInput.source_limitations === undefined) {
+    rawToolInput.source_limitations = missing.map(rawSourceLimitation);
+  } else if (Array.isArray(rawToolInput.source_limitations)) {
+    rawToolInput.source_limitations = [
+      ...rawToolInput.source_limitations,
+      ...missing.map(rawSourceLimitation),
+    ];
+  }
+  return {
+    ...input.repaired,
+    sourceLimitations: [...sourceLimitations, ...missing],
+    rawToolInput,
+  };
+}
+
+function rawSourceLimitation(
+  value: NonNullable<DeepAnalysisModelResult["sourceLimitations"]>[number],
+): Record<string, unknown> {
+  return {
+    scope: value.scope,
+    kind: value.kind,
+    source_ref: {
+      source_kind: value.sourceRef.sourceKind,
+      source_id: value.sourceRef.sourceId,
+      source_sha256: value.sourceRef.sourceSha256,
+      source_span: value.sourceRef.sourceSpan,
+    },
+    affected_dimensions: value.affectedDimensions,
+    explanation: value.explanation,
+  };
 }
 
 function parseAcceptedAuditFinding(value: unknown): DeepAnalysisAuditAcceptedFinding | null {

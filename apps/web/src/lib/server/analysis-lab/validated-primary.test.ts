@@ -148,6 +148,101 @@ assert.deepEqual(clean.passes[0]?.issueCodes, [], "통과 패스는 issueCodes �
 assert.ok((clean.passes[0]?.durationMs ?? -1) >= 0, "패스 durationMs 는 0 이상");
 assert.equal(clean.terminationReason, "accepted");
 
+const danyangScopeSpan = "〈사업 대상자 선정평가표〉\n\n붙임 2";
+const danyangInputText = `${inputText}\n${danyangScopeSpan}\n`;
+function sourceLimitedResult(
+  modelInputText: string,
+  scope: "eligibility_details" | "application_procedure",
+  base: DeepAnalysisModelResult = result(true),
+): DeepAnalysisModelResult {
+  const header = /<<<DEEP_ANALYSIS_SOURCE id="([^"]+)" kind="(structured|attachment)" sha256="([0-9a-f]{64})">>>/u
+    .exec(modelInputText);
+  assert.ok(header, "lab 모델 요청은 synthetic current-blob source catalog를 노출한다");
+  const limitation = {
+    scope,
+    kind: "model_disclosure" as const,
+    sourceRef: {
+      sourceKind: header[2] as "structured" | "attachment",
+      sourceId: header[1]!,
+      sourceSha256: header[3]!,
+      sourceSpan: danyangScopeSpan,
+    },
+    affectedDimensions: scope === "eligibility_details" ? ["prior_award" as const] : null,
+    explanation: scope === "eligibility_details"
+      ? "제공된 선정평가표와 요약만으로 상세 신청자격·제외대상의 전체 범위를 확인할 수 없다고 판단함."
+      : "제공된 입력만으로 제출 서식과 접수 절차의 전체 범위를 확인할 수 없다고 판단함.",
+  };
+  return {
+    ...base,
+    sourceLimitations: [limitation],
+    rawToolInput: {
+      ...base.rawToolInput,
+      source_limitations: [{
+        scope: limitation.scope,
+        kind: limitation.kind,
+        source_ref: {
+          source_kind: limitation.sourceRef.sourceKind,
+          source_id: limitation.sourceRef.sourceId,
+          source_sha256: limitation.sourceRef.sourceSha256,
+          source_span: limitation.sourceRef.sourceSpan,
+        },
+        affected_dimensions: limitation.affectedDimensions,
+        explanation: limitation.explanation,
+      }],
+    },
+  };
+}
+
+const danyangLimited = await runValidatedLabPrimary({
+  grantId: "bizinfo:PBLN_000000000126385",
+  inputText: danyangInputText,
+  inputSha256: "d".repeat(64),
+  apiKey: "subscription",
+  model: "claude-opus-5",
+  runModel: async (options) => sourceLimitedResult(options.inputText, "eligibility_details"),
+});
+assert.equal(danyangLimited.outcome, "publishable");
+assert.equal(danyangLimited.matchingReadiness, "conditional");
+assert.equal(danyangLimited.repairCount, 0);
+assert.deepEqual(
+  danyangLimited.extraction.axisAssessments,
+  axes(true),
+  "known affected axis를 기록해도 나머지 축을 input_missing으로 강제하지 않는다",
+);
+assert.equal(danyangLimited.extraction.sourceLimitations?.[0]?.affectedDimensions?.[0], "prior_award");
+
+const procedureOnlyLimited = await runValidatedLabPrimary({
+  grantId: "grant-lab-procedure-limited",
+  inputText: danyangInputText,
+  inputSha256: "e".repeat(64),
+  apiKey: "subscription",
+  model: "claude-opus-5",
+  runModel: async (options) => sourceLimitedResult(options.inputText, "application_procedure"),
+});
+assert.equal(procedureOnlyLimited.matchingReadiness, "ready", "절차 범위 한계만으로 매칭을 낮추지 않는다");
+
+let preservedLimitationCalls = 0;
+const preservedThroughRepair = await runValidatedLabPrimary({
+  grantId: "grant-lab-source-limitation-repair",
+  inputText: danyangInputText,
+  inputSha256: "9".repeat(64),
+  apiKey: "subscription",
+  model: "claude-opus-5",
+  runModel: async (options) => {
+    preservedLimitationCalls += 1;
+    return preservedLimitationCalls === 1
+      ? sourceLimitedResult(options.inputText, "eligibility_details", result(false))
+      : result(true);
+  },
+});
+assert.equal(preservedLimitationCalls, 2, "별도 계약 오류는 모델 repair 한 번으로 해결한다");
+assert.equal(preservedThroughRepair.matchingReadiness, "conditional");
+assert.equal(
+  preservedThroughRepair.extraction.sourceLimitations?.length,
+  1,
+  "이미 exact 검증된 자격 limitation을 unrelated repair 응답 누락으로 ready로 바꾸지 않는다",
+);
+
 const emptyCoveredDimensionsCriterion: DeepAnalysisCriterion = {
   dimension: "other",
   kind: "required",

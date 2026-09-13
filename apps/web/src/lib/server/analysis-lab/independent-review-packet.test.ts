@@ -12,6 +12,7 @@ import {
   isStructuredAgeMetadataEvidence,
   INDEPENDENT_REVIEW_POLICY_VERSION,
   normalizeReviewSequences,
+  renderIndependentReviewSourceLimitations,
 } from "./independent-review-packet";
 
 const findings = deriveIndependentReviewConsensus(7, {
@@ -134,6 +135,27 @@ assert.equal(reviewAxes.includes("region"), false, "input_missing 축을 누락 
 assert.equal(reviewAxes.includes("target_type"), true, "size가 미해결이어도 별개인 target_type의 조건 없음 판정은 검수한다");
 assert.equal(reviewAxes.includes("industry"), true, "실제 조건 없음으로 종결한 축은 전수 검수한다");
 assert.equal(reviewAxes.length, CRITERION_DIMENSIONS.length - 3);
+
+const reviewSourceLimitation = {
+  scope: "eligibility_details" as const,
+  kind: "model_disclosure" as const,
+  sourceRef: {
+    sourceKind: "structured" as const,
+    sourceId: "structured:grant:0",
+    sourceSha256: null,
+    sourceSpan: "〈사업 대상자 선정평가표〉",
+  },
+  affectedDimensions: ["prior_award" as const],
+  explanation: "제공 평가표만으로 상세 자격·제외 범위를 확인할 수 없다고 판단함.",
+};
+const renderedSourceLimitations = renderIndependentReviewSourceLimitations([
+  reviewSourceLimitation,
+]).join("\n");
+assert.match(renderedSourceLimitations, /primary source limitations 1건/);
+assert.match(renderedSourceLimitations, /공고 원문을 대체하거나 원문에 없는 조건의 존재를 증명하지 않는다/);
+assert.match(renderedSourceLimitations, /structured:grant:0/);
+assert.match(renderedSourceLimitations, /prior_award/);
+assert.match(renderedSourceLimitations, /상세 자격·제외 범위를 확인할 수 없다고 판단함/);
 
 assert.throws(
   () => deriveIndependentReviewAxes({

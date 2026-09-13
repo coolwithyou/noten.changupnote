@@ -35,6 +35,18 @@ const output: DeepAnalysisNormalizedOutput = {
       comment: null,
     }],
     taxonomyProposals: [],
+    sourceLimitations: [{
+      scope: "application_procedure",
+      kind: "limited_coverage",
+      sourceRef: {
+        sourceKind: "structured",
+        sourceId: "structured:11111111-1111-4111-8111-111111111111:0",
+        sourceSha256: null,
+        sourceSpan: "서울 소재 기업",
+      },
+      affectedDimensions: null,
+      explanation: "제출 서식은 제공 입력 범위 밖이다.",
+    }],
     usage: null,
     costUsd: 0.2,
     stopReason: "end_turn",
@@ -109,6 +121,11 @@ const result = buildDeepAnalysisPromotionPlan({
   },
 });
 assert.equal(result.plan.criteria.length, 1);
+assert.deepEqual(
+  result.labRun.sourceLimitations,
+  output.result.sourceLimitations,
+  "normalized output의 source limitation 판단 이유를 promotion LabRun까지 보존한다",
+);
 assert.equal(result.plan.criteria[0]?.needs_review, false);
 assert.equal(result.plan.resolutions[0]?.state, "confirmed_correct");
 assert.equal(result.plan.auditState, "ai_audit_concur");

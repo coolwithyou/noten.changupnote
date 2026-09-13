@@ -9,7 +9,7 @@ import { resolveGrantRunStates } from "./run-scan-state";
 
 assert.equal(BIZINFO_NORMALIZER_VERSION, "bizinfo-llm-criteria-v3");
 assert.equal(KSTARTUP_LLM_EXTRACTOR_VERSION, "kstartup-llm-criteria-v1");
-assert.equal(ANALYSIS_LAB_PROMPT_VERSION, "lab-deep-v24");
+assert.equal(ANALYSIS_LAB_PROMPT_VERSION, "lab-deep-v25");
 assert.equal(
   LLM_CRITERIA_NORMALIZATION_CONTRACT_VERSION,
   "grant-llm-criteria-normalization-v2",

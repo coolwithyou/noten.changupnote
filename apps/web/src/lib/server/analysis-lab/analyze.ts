@@ -606,6 +606,9 @@ async function executePreparedLabAnalysisInternal(
     criteria: extraction?.criteria ?? [],
     axisAssessments: extraction?.axisAssessments ?? [],
     taxonomyProposals: extraction?.taxonomyProposals ?? [],
+    ...(extraction?.sourceLimitations
+      ? { sourceLimitations: extraction.sourceLimitations }
+      : {}),
     dimensionDiffs: computeLabDimensionDiffs({
       current: [...currentCriteria],
       proposed: extraction?.criteria ?? [],

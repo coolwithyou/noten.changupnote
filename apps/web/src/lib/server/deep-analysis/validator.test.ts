@@ -87,6 +87,181 @@ const valid = validateDeepAnalysisResult({
 assert.equal(valid.valid, true);
 assert.equal(valid.criteria[0]?.evidenceRefs[0]?.sourceKind, "structured");
 assert.equal(valid.axisCriterionSemanticHashes.region.length, 1);
+assert.deepEqual(valid.sourceLimitations, [], "역사 결과의 optional sourceLimitations 부재를 허용한다");
+
+const currentMissingRawResult: DeepAnalysisModelResult = {
+  ...result([criterion()], axes(["region"])),
+  sourceLimitations: [],
+};
+const currentMissingRaw = validateDeepAnalysisResult({
+  seal,
+  result: currentMissingRawResult,
+});
+assert.equal(currentMissingRaw.valid, false);
+assert.equal(
+  currentMissingRaw.issues.some((issue) => (
+    issue.code === "raw_contract_invalid" && issue.path === "$.source_limitations"
+  )),
+  true,
+  "현행 normalized 필드는 있는데 raw 배열이 빠진 응답을 역사 artifact로 오인하지 않는다",
+);
+assert.equal(decideDeepAnalysisValidationRoute({
+  result: currentMissingRawResult,
+  validation: currentMissingRaw,
+}).route, "repair", "현행 source_limitations 누락은 ready가 아니라 명시적 repair다");
+
+const sourceChunk = seal.chunks[0]!;
+const eligibilityLimitation = {
+  scope: "eligibility_details" as const,
+  kind: "model_disclosure" as const,
+  sourceRef: {
+    sourceKind: sourceChunk.sourceKind,
+    sourceId: sourceChunk.id,
+    sourceSha256: sourceChunk.sha256,
+    sourceSpan,
+  },
+  affectedDimensions: ["prior_award"] as const,
+  explanation: "제공된 요약만으로 과거 수혜 제한의 전체 범위를 확인할 수 없다고 판단함.",
+};
+const rawEligibilityLimitation = {
+  scope: eligibilityLimitation.scope,
+  kind: eligibilityLimitation.kind,
+  source_ref: {
+    source_kind: eligibilityLimitation.sourceRef.sourceKind,
+    source_id: eligibilityLimitation.sourceRef.sourceId,
+    source_sha256: eligibilityLimitation.sourceRef.sourceSha256,
+    source_span: eligibilityLimitation.sourceRef.sourceSpan,
+  },
+  affected_dimensions: [...eligibilityLimitation.affectedDimensions],
+  explanation: eligibilityLimitation.explanation,
+};
+const sourceLimitedResult: DeepAnalysisModelResult = {
+  ...result([criterion()], axes(["region"])),
+  sourceLimitations: [{
+    ...eligibilityLimitation,
+    affectedDimensions: [...eligibilityLimitation.affectedDimensions],
+  }],
+  rawToolInput: {
+    ...result([criterion()], axes(["region"])).rawToolInput,
+    source_limitations: [rawEligibilityLimitation],
+  },
+};
+const sourceLimited = validateDeepAnalysisResult({ seal, result: sourceLimitedResult });
+assert.equal(sourceLimited.valid, false, "자격 범위 limitation은 analysis_complete를 막는다");
+assert.equal(sourceLimited.responseContractValid, true, "검증된 limitation 자체는 응답 계약 오류가 아니다");
+assert.equal(sourceLimited.axisCoverageComplete, true, "known affected axis가 다른 축 상태를 바꾸지 않는다");
+assert.equal(sourceLimited.evidenceGrounded, true);
+assert.equal(decideDeepAnalysisValidationRoute({
+  result: sourceLimitedResult,
+  validation: sourceLimited,
+}).route, "hold", "운영 processor가 쓰는 공용 route는 source-incomplete hold다");
+
+const procedureLimitedResult: DeepAnalysisModelResult = {
+  ...sourceLimitedResult,
+  sourceLimitations: [{
+    ...eligibilityLimitation,
+    scope: "application_procedure",
+    affectedDimensions: null,
+  }],
+  rawToolInput: {
+    ...sourceLimitedResult.rawToolInput,
+    source_limitations: [{
+      ...rawEligibilityLimitation,
+      scope: "application_procedure",
+      affected_dimensions: null,
+    }],
+  },
+};
+assert.equal(validateDeepAnalysisResult({
+  seal,
+  result: procedureLimitedResult,
+}).valid, true, "제출 절차나 서식 부재만으로 매칭 준비도를 막지 않는다");
+
+for (const [label, sourceRef] of [
+  ["unknown chunk", { ...eligibilityLimitation.sourceRef, sourceId: "attachment:invented:0" }],
+  ["wrong hash", { ...eligibilityLimitation.sourceRef, sourceSha256: "0".repeat(64) }],
+  ["missing span", { ...eligibilityLimitation.sourceRef, sourceSpan: "입력에 없는 제한 근거" }],
+] as const) {
+  const invalidRefResult: DeepAnalysisModelResult = {
+    ...sourceLimitedResult,
+    sourceLimitations: [{
+      ...eligibilityLimitation,
+      sourceRef: { ...sourceRef },
+      affectedDimensions: null,
+    }],
+    rawToolInput: {
+      ...sourceLimitedResult.rawToolInput,
+      source_limitations: [{
+        ...rawEligibilityLimitation,
+        source_ref: {
+          source_kind: sourceRef.sourceKind,
+          source_id: sourceRef.sourceId,
+          source_sha256: sourceRef.sourceSha256,
+          source_span: sourceRef.sourceSpan,
+        },
+        affected_dimensions: null,
+      }],
+    },
+  };
+  const invalidRef = validateDeepAnalysisResult({ seal, result: invalidRefResult });
+  assert.equal(invalidRef.evidenceGrounded, false, `${label}: source ref는 exact seal에 결속돼야 한다`);
+  assert.equal(decideDeepAnalysisValidationRoute({
+    result: invalidRefResult,
+    validation: invalidRef,
+  }).route, "repair", `${label}: invalid limitation을 조용히 버리고 ready로 만들지 않는다`);
+}
+
+const nullShaResult: DeepAnalysisModelResult = {
+  ...sourceLimitedResult,
+  sourceLimitations: [{
+    ...eligibilityLimitation,
+    sourceRef: { ...eligibilityLimitation.sourceRef, sourceSha256: null },
+    affectedDimensions: null,
+  }],
+  rawToolInput: {
+    ...sourceLimitedResult.rawToolInput,
+    source_limitations: [{
+      ...rawEligibilityLimitation,
+      source_ref: { ...rawEligibilityLimitation.source_ref, source_sha256: null },
+      affected_dimensions: null,
+    }],
+  },
+};
+const nullShaValidation = validateDeepAnalysisResult({ seal, result: nullShaResult });
+assert.equal(nullShaValidation.evidenceGrounded, true);
+assert.equal(nullShaValidation.axisCoverageComplete, true, "affectedDimensions=null은 전 축 missing이 아니다");
+assert.equal(decideDeepAnalysisValidationRoute({
+  result: nullShaResult,
+  validation: nullShaValidation,
+}).route, "hold", "null SHA도 exact chunk id/span 검증 뒤에만 limitation으로 인정한다");
+
+const invalidLimitationShapeResult: DeepAnalysisModelResult = {
+  ...result([criterion()], axes(["region"])),
+  sourceLimitations: [],
+  rawToolInput: {
+    ...result([criterion()], axes(["region"])).rawToolInput,
+    source_limitations: [{
+      ...rawEligibilityLimitation,
+      scope: "eligibility",
+    }],
+  },
+};
+const invalidLimitationShape = validateDeepAnalysisResult({
+  seal,
+  result: invalidLimitationShapeResult,
+});
+assert.equal(
+  invalidLimitationShape.issues.some((issue) => issue.code === "raw_contract_invalid"),
+  true,
+);
+assert.equal(
+  invalidLimitationShape.issues.some((issue) => issue.code === "normalization_drop"),
+  true,
+);
+assert.equal(decideDeepAnalysisValidationRoute({
+  result: invalidLimitationShapeResult,
+  validation: invalidLimitationShape,
+}).route, "repair", "잘못된 limitation item을 normalizer가 버려도 ready로 조용히 통과하지 않는다");
 
 const reserved = criterion({
   dimension: "premises",

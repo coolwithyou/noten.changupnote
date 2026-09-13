@@ -12,6 +12,7 @@ import type {
   DeepAnalysisCriterionConfirmation,
   DeepAnalysisCriterionKind,
   DeepAnalysisProgramIntent,
+  DeepAnalysisSourceLimitation,
   DeepAnalysisTaxonomyProposal,
   DeepAnalysisUsage,
   GrantBenefitFamily,
@@ -39,7 +40,8 @@ import type { MatchingConversionReport } from "@/lib/server/analysis-serving/mat
 // v22: 명시적 기준일 현재 등록 사업장의 시도·시설 유형만 premises-v1로 구조화한다.
 // v23: 목록 의미·빈 선택 메타데이터·업력 exclusive 월 경계 계약을 일치시킨다.
 // v24: 위임형 업종 조항은 text_only에만 보존하고 평가와 참석 절차를 분리한다.
-export const ANALYSIS_LAB_PROMPT_VERSION = "lab-deep-v24";
+// v25: 제공 chunk에 결속된 source limitation을 보존하고 자격 범위 한계를 conditional로 내린다.
+export const ANALYSIS_LAB_PROMPT_VERSION = "lab-deep-v25";
 export const ANALYSIS_LAB_DEFAULT_MODEL = "claude-opus-4-8";
 
 /**
@@ -321,6 +323,8 @@ export interface LabRun {
   criteria: LabCriterion[];
   axisAssessments: LabAxisAssessment[];
   taxonomyProposals: LabTaxonomyProposal[];
+  /** 제공 source chunk에 결속된 원문 범위 한계. 구 런에는 없다. */
+  sourceLimitations?: DeepAnalysisSourceLimitation[];
   dimensionDiffs: LabDimensionDiff[];
   /** 운영과 같은 validator 교정 루프가 실제로 수행된 횟수. 구런에는 없다. */
   primaryRepairCount?: number;

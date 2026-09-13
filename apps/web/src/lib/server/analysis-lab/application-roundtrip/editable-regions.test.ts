@@ -558,7 +558,7 @@ assert.equal(apiBoundedPlan.summary.remainingUnresolvedCandidateCount, 25);
 const feedbackSerial = feedbackPlannerFetch();
 const feedbackSerialPlan = await planRoundtripFields({
   fields: overLegacyLimit.slice(0, 2),
-  markdown: "최초 누락과 저신뢰 후보를 직렬 재판정",
+  markdown: "입력 후보 0 / 입력 후보 1 — 최초 누락과 저신뢰 후보를 직렬 재판정",
   apiKey: "subscription",
   model: "claude-opus-5",
   transport: "claude-cli",
@@ -568,7 +568,7 @@ const feedbackSerialPlan = await planRoundtripFields({
 const feedback = feedbackPlannerFetch();
 const feedbackPlan = await planRoundtripFields({
   fields: overLegacyLimit.slice(0, 2),
-  markdown: "최초 누락과 저신뢰 후보를 재판정",
+  markdown: "입력 후보 0 / 입력 후보 1 — 최초 누락과 저신뢰 후보를 재판정",
   apiKey: "subscription",
   model: "claude-opus-5",
   transport: "claude-cli",

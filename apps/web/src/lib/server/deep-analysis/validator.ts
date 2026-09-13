@@ -2,12 +2,15 @@ import {
   CRITERION_DIMENSIONS,
   CRITERION_KINDS,
   CRITERION_OPERATORS,
+  DEEP_ANALYSIS_SOURCE_LIMITATION_KINDS,
+  DEEP_ANALYSIS_SOURCE_LIMITATION_SCOPES,
   hasExactDeepAnalysisAxisCoverage,
   type CriterionDimension,
   type CriterionKind,
   type CriterionOperator,
   type DeepAnalysisCriterion,
   type DeepAnalysisModelResult,
+  type DeepAnalysisSourceLimitation,
   type GrantCriterion,
 } from "@cunote/contracts";
 import {
@@ -28,7 +31,7 @@ import {
 import { resolveExclusiveBizAgeUpperBound } from "./biz-age-boundary";
 import { resolveTargetTypeListSemantics } from "./target-type-list-semantics";
 
-export const DEEP_ANALYSIS_VALIDATOR_VERSION = "deep-analysis-validator-v17" as const;
+export const DEEP_ANALYSIS_VALIDATOR_VERSION = "deep-analysis-validator-v18" as const;
 
 export type DeepAnalysisValidationIssueCode =
   | "raw_contract_invalid"
@@ -43,6 +46,7 @@ export type DeepAnalysisValidationIssueCode =
   | "high_risk_condition_gap"
   | "logical_conflict"
   | "non_matching_criterion"
+  | "source_incomplete"
   | "input_not_sealed";
 
 export interface DeepAnalysisValidationIssue {
@@ -73,6 +77,8 @@ export interface DeepAnalysisValidationResult {
   evidenceGrounded: boolean;
   issues: DeepAnalysisValidationIssue[];
   criteria: DeepAnalysisValidatedCriterion[];
+  /** 현재 seal의 exact chunk ref/span에 결속된 limitation만 포함한다. */
+  sourceLimitations: DeepAnalysisSourceLimitation[];
   axisCriterionSemanticHashes: Record<CriterionDimension, string[]>;
 }
 
@@ -116,6 +122,10 @@ export function decideDeepAnalysisValidationRoute(input: {
   const holdIssues: DeepAnalysisValidationIssue[] = [];
   const repairIssues: DeepAnalysisValidationIssue[] = [];
   for (const issue of input.validation.issues) {
+    if (issue.code === "source_incomplete") {
+      holdIssues.push(issue);
+      continue;
+    }
     const unresolvedDimension = issue.code === "unresolved_axis"
       ? criterionDimensionFromIssuePath(issue.path, "axis_assessments")
       : null;
@@ -163,8 +173,14 @@ export function validateDeepAnalysisResult(input: {
 
   const rawCriteria = arrayValue(input.result.rawToolInput.criteria);
   const rawAxes = arrayValue(input.result.rawToolInput.axis_assessments);
+  const rawSourceLimitations = input.result.rawToolInput.source_limitations;
   validateRawCriteria(rawCriteria, issues);
   validateRawAxes(rawAxes, issues);
+  validateRawSourceLimitations(
+    rawSourceLimitations,
+    issues,
+    !Object.hasOwn(input.result, "sourceLimitations"),
+  );
   if (rawCriteria.length !== input.result.criteria.length) {
     issues.push({
       code: "normalization_drop",
@@ -179,6 +195,31 @@ export function validateDeepAnalysisResult(input: {
       message: `raw axes ${rawAxes.length} != normalized axes ${input.result.axisAssessments.length}.`,
     });
   }
+  const normalizedSourceLimitations = input.result.sourceLimitations ?? [];
+  if (
+    Array.isArray(rawSourceLimitations)
+    && rawSourceLimitations.length !== normalizedSourceLimitations.length
+  ) {
+    issues.push({
+      code: "normalization_drop",
+      path: "$.source_limitations",
+      message:
+        `raw source limitations ${rawSourceLimitations.length} != normalized source limitations ${normalizedSourceLimitations.length}.`,
+    });
+  }
+  if (!Array.isArray(rawSourceLimitations) && normalizedSourceLimitations.length > 0) {
+    issues.push({
+      code: "normalization_drop",
+      path: "$.source_limitations",
+      message: "Normalized source limitations require the corresponding raw array.",
+    });
+  }
+
+  const sourceLimitations = validateSourceLimitations(
+    input.seal,
+    normalizedSourceLimitations,
+    issues,
+  );
 
   if (!hasExactDeepAnalysisAxisCoverage(input.result.axisAssessments)) {
     issues.push({
@@ -272,14 +313,16 @@ export function validateDeepAnalysisResult(input: {
   const responseContractValid = !issues.some((issue) => responseIssueCodes.has(issue.code));
   const axisCoverageComplete = !issues.some((issue) => axisIssueCodes.has(issue.code));
   const evidenceGrounded = !issues.some((issue) => evidenceIssueCodes.has(issue.code));
+  const sourceIncomplete = issues.some((issue) => issue.code === "source_incomplete");
   return {
     validatorVersion: DEEP_ANALYSIS_VALIDATOR_VERSION,
-    valid: responseContractValid && axisCoverageComplete && evidenceGrounded,
+    valid: responseContractValid && axisCoverageComplete && evidenceGrounded && !sourceIncomplete,
     responseContractValid,
     axisCoverageComplete,
     evidenceGrounded,
     issues,
     criteria: validatedCriteria,
+    sourceLimitations,
     axisCriterionSemanticHashes: Object.fromEntries(
       CRITERION_DIMENSIONS.map((dimension) => [
         dimension,
@@ -965,6 +1008,139 @@ function validateRawAxes(
       });
     }
   });
+}
+
+function validateRawSourceLimitations(
+  value: unknown,
+  issues: DeepAnalysisValidationIssue[],
+  allowMissing: boolean,
+): void {
+  // 역사 artifact는 normalized 필드도 없으므로 raw 부재를 허용한다.
+  // 현행 extractor가 normalized 배열을 만든 결과라면 tool schema와 같은 raw 배열을 요구한다.
+  if (value === undefined) {
+    if (!allowMissing) {
+      issues.push({
+        code: "raw_contract_invalid",
+        path: "$.source_limitations",
+        message: "Current source-limitations result requires a raw source_limitations array.",
+      });
+    }
+    return;
+  }
+  if (!Array.isArray(value)) {
+    issues.push({
+      code: "raw_contract_invalid",
+      path: "$.source_limitations",
+      message: "source_limitations must be an array.",
+    });
+    return;
+  }
+  value.forEach((row, index) => {
+    if (!isRawSourceLimitation(row)) {
+      issues.push({
+        code: "raw_contract_invalid",
+        path: `$.source_limitations[${index}]`,
+        message: "Source limitation shape or enum value is invalid.",
+      });
+    }
+  });
+}
+
+function validateSourceLimitations(
+  seal: DeepAnalysisInputSeal,
+  values: readonly DeepAnalysisSourceLimitation[],
+  issues: DeepAnalysisValidationIssue[],
+): DeepAnalysisSourceLimitation[] {
+  const grounded: DeepAnalysisSourceLimitation[] = [];
+  values.forEach((value, index) => {
+    const path = `$.source_limitations[${index}]`;
+    if (!isNormalizedSourceLimitation(value)) {
+      issues.push({
+        code: "raw_contract_invalid",
+        path,
+        message: "Normalized source limitation shape or enum value is invalid.",
+      });
+      return;
+    }
+    const chunk = seal.chunks.find((candidate) => candidate.id === value.sourceRef.sourceId);
+    const sourceMatches = chunk?.sourceKind === value.sourceRef.sourceKind;
+    const hashMatches = value.sourceRef.sourceSha256 === null
+      || chunk?.sha256 === value.sourceRef.sourceSha256;
+    const spanMatches = Boolean(chunk?.text.includes(value.sourceRef.sourceSpan));
+    if (!chunk || !sourceMatches || !hashMatches || !spanMatches) {
+      issues.push({
+        code: "evidence_not_grounded",
+        path: `${path}.source_ref`,
+        message:
+          "Source limitation must reference an exposed seal chunk with matching kind/hash and an exact contiguous source_span. A null hash does not waive chunk/span verification.",
+      });
+      return;
+    }
+    grounded.push(value);
+    if (value.scope === "eligibility_details") {
+      issues.push({
+        code: "source_incomplete",
+        path,
+        message:
+          "The grounded source-limitation disclosure says eligibility, exclusion, preference, or scoring coverage is incomplete.",
+      });
+    }
+  });
+  return grounded;
+}
+
+function isRawSourceLimitation(value: unknown): boolean {
+  if (!isRecord(value) || !isRecord(value.source_ref)) return false;
+  return (DEEP_ANALYSIS_SOURCE_LIMITATION_SCOPES as readonly unknown[]).includes(value.scope)
+    && (DEEP_ANALYSIS_SOURCE_LIMITATION_KINDS as readonly unknown[]).includes(value.kind)
+    && (value.source_ref.source_kind === "structured" || value.source_ref.source_kind === "attachment")
+    && typeof value.source_ref.source_id === "string"
+    && value.source_ref.source_id.trim().length > 0
+    && (
+      value.source_ref.source_sha256 === null
+      || (
+        typeof value.source_ref.source_sha256 === "string"
+        && /^[0-9a-f]{64}$/.test(value.source_ref.source_sha256)
+      )
+    )
+    && typeof value.source_ref.source_span === "string"
+    && value.source_ref.source_span.trim().length > 0
+    && isAffectedDimensions(value.affected_dimensions)
+    && typeof value.explanation === "string"
+    && value.explanation.trim().length > 0;
+}
+
+function isNormalizedSourceLimitation(value: unknown): value is DeepAnalysisSourceLimitation {
+  if (!isRecord(value) || !isRecord(value.sourceRef)) return false;
+  return (DEEP_ANALYSIS_SOURCE_LIMITATION_SCOPES as readonly unknown[]).includes(value.scope)
+    && (DEEP_ANALYSIS_SOURCE_LIMITATION_KINDS as readonly unknown[]).includes(value.kind)
+    && (value.sourceRef.sourceKind === "structured" || value.sourceRef.sourceKind === "attachment")
+    && typeof value.sourceRef.sourceId === "string"
+    && value.sourceRef.sourceId.trim().length > 0
+    && (
+      value.sourceRef.sourceSha256 === null
+      || (
+        typeof value.sourceRef.sourceSha256 === "string"
+        && /^[0-9a-f]{64}$/.test(value.sourceRef.sourceSha256)
+      )
+    )
+    && typeof value.sourceRef.sourceSpan === "string"
+    && value.sourceRef.sourceSpan.trim().length > 0
+    && isAffectedDimensions(value.affectedDimensions)
+    && typeof value.explanation === "string"
+    && value.explanation.trim().length > 0;
+}
+
+function isAffectedDimensions(value: unknown): boolean {
+  return value === null || (
+    Array.isArray(value)
+    && value.length > 0
+    && new Set(value).size === value.length
+    && value.every((dimension) => (
+      typeof dimension === "string"
+      && (CRITERION_DIMENSIONS as readonly string[]).includes(dimension)
+    ))
+  );
 }
 
 function validateCriterion(

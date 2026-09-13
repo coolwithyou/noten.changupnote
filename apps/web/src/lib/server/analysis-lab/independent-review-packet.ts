@@ -832,7 +832,23 @@ function buildIndependentReviewUserMessage(
     "",
     `[검수 대상 B — 빈 축 ${emptyAxes.length}축 (각 축의 자격요건이 원문 전체에 없는지 전수 확인)]`,
     ...emptyAxes.map((dimension) => `- ${dimension} (${DIMENSION_LABELS[dimension]})`),
+    ...renderIndependentReviewSourceLimitations(run.sourceLimitations),
   ].join("\n");
+}
+
+/** 검수 출력 schema를 넓히지 않고 primary의 source 범위 판단과 exact ref를 packet에 보존한다. */
+export function renderIndependentReviewSourceLimitations(
+  sourceLimitations: LabRun["sourceLimitations"],
+): string[] {
+  if (!sourceLimitations || sourceLimitations.length === 0) return [];
+  return [
+    "",
+    `[검수 참고 C — primary source limitations ${sourceLimitations.length}건]`,
+    "아래 항목은 primary가 밝힌 입력 범위 판단이다. 공고 원문을 대체하거나 원문에 없는 조건의 존재를 증명하지 않는다. 별도 검수 출력 항목을 만들지 말고 criteria·빈 축 판정의 맥락으로만 사용한다.",
+    ...sourceLimitations.map((limitation, index) => (
+      `- source_limitation_index=${index} ${canonicalJson(limitation)}`
+    )),
+  ];
 }
 
 export function buildIndependentReviewSystemPrompt(rubric: string): string {

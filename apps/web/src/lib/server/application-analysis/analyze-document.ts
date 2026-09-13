@@ -13,6 +13,7 @@ import {
 } from "./core";
 import { extractContextualRoundtripFields } from "./editable-regions";
 import {
+  buildRoundtripFieldSourceContexts,
   planRoundtripFields,
   resolveRoundtripFieldPlannerRuntimeConfig,
   type RoundtripFieldPlannerUsageEvent,
@@ -55,6 +56,7 @@ export async function analyzeRoundtripDocument(
   const located = extractLocatedRoundtripFields(parsed.blocks, input.sourceSha256);
   const contextualFields = extractContextualRoundtripFields(parsed.blocks, input.sourceSha256);
   const allFields = [...located.fields, ...contextualFields];
+  const fieldSourceContexts = buildRoundtripFieldSourceContexts(parsed.blocks, allFields);
   const warnings = (parsed.warnings ?? []).map((warning) => `${warning.code}: ${warning.message}`);
   let choiceGroups: RoundtripParsedDocument["choiceGroups"] = [];
   if (parsed.fileType === "hwp") {
@@ -76,6 +78,7 @@ export async function analyzeRoundtripDocument(
     ? await planRoundtripFields({
         fields: allFields,
         markdown: parsed.markdown,
+        fieldSourceContexts,
         apiKey: input.apiKey,
         model: plannerRuntime.requestedModel,
         timeoutMs: plannerRuntime.timeoutMs,

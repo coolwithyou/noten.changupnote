@@ -16,6 +16,55 @@ assert.equal(unresolved.status, "review_required");
 assert.equal(unresolved.unresolvedCandidateCount, 1);
 assert.equal(unresolved.unresolvedCandidates[0]?.label, "추가 설명");
 
+const unboundHighConfidenceNegative = field({
+  id: "unbound-high-confidence-negative",
+  label: "공동대표",
+  recommendedInput: false,
+  analysisSource: "llm",
+  llmConfidence: 0.95,
+});
+unboundHighConfidenceNegative.llmDecision = "not_input";
+unboundHighConfidenceNegative.inputSignals.push("LLM 맥락 판정: 입력 대상 아님");
+assert.equal(
+  finalizeRoundtripFieldCoverage([unboundHighConfidenceNegative]).status,
+  "review_required",
+  "confidence만 높고 해당 구조 위치의 근거가 없으면 complete로 닫지 않음",
+);
+
+const boundHighConfidenceNegative = field({
+  id: "bound-high-confidence-negative",
+  label: "구획 제목",
+  recommendedInput: false,
+  analysisSource: "llm",
+  llmConfidence: 0.95,
+});
+boundHighConfidenceNegative.llmDecision = "not_input";
+boundHighConfidenceNegative.inputSignals.push(
+  "LLM 맥락 판정: 입력 대상 아님",
+  "LLM 비입력 근거의 구조 위치 결속 확인",
+);
+assert.equal(
+  finalizeRoundtripFieldCoverage([boundHighConfidenceNegative]).status,
+  "complete",
+  "해당 구조 위치와 결속된 고신뢰 negative는 전역 hold 없이 종결",
+);
+
+const mismatchedFixedMarker = field({
+  id: "mismatched-fixed-marker",
+  label: "고정 기호 입력 대상 아님",
+  originalValue: "-",
+  recommendedInput: false,
+  analysisSource: "llm",
+  llmConfidence: 0.95,
+});
+mismatchedFixedMarker.llmDecision = "uncertain";
+mismatchedFixedMarker.inputSignals.push("LLM 비입력 근거 위치 불일치 또는 누락");
+assert.equal(
+  finalizeRoundtripFieldCoverage([mismatchedFixedMarker]).status,
+  "review_required",
+  "고정 마커 설명이 있어도 현재 LLM 위치 근거 불일치를 우회하지 않음",
+);
+
 const header = field({
   id: "header",
   label: "구분",

@@ -6,6 +6,7 @@ import type {
   RoundtripFieldPlanningSummary,
   RoundtripLlmTransport,
 } from "./contract";
+import type { IRBlock } from "kordoc";
 import { priceDeepAnalysisUsage } from "@/lib/server/deep-analysis/costPolicy";
 import {
   EXECUTION_TIMEOUT_HEADER,
@@ -83,6 +84,14 @@ interface FieldDecision {
   suggestedLabel: string;
 }
 
+export interface RoundtripFieldSourceContext {
+  binding: "block_row_col" | "block" | "markdown_unique";
+  blockIndex: number | null;
+  row: number | null;
+  col: number | null;
+  text: string;
+}
+
 export type RoundtripFieldPlannerEffort = "low" | "medium" | "high";
 
 export interface RoundtripFieldPlannerRuntimeConfig {
@@ -149,6 +158,8 @@ export function resolveRoundtripFieldPlannerRuntimeConfig(options?: {
 export async function planRoundtripFields(options: {
   fields: RoundtripFieldCandidate[];
   markdown: string;
+  /** KorDoc IR의 candidate block/row/col에 결속한 원문 문맥. */
+  fieldSourceContexts?: ReadonlyMap<string, RoundtripFieldSourceContext>;
   apiKey: string | null;
   fetchImpl?: typeof fetch;
   model?: string;
@@ -212,6 +223,7 @@ export async function planRoundtripFields(options: {
   const primary = await requestDecisionPass({
     candidates,
     markdown: options.markdown,
+    ...(options.fieldSourceContexts ? { fieldSourceContexts: options.fieldSourceContexts } : {}),
     apiKey: options.apiKey,
     runtime,
     round: 0,
@@ -219,7 +231,15 @@ export async function planRoundtripFields(options: {
     ...(options.onUsage ? { onUsage: options.onUsage } : {}),
   });
   usageItems.push(...primary.usageItems);
-  applyDecisions(fields, primary.decisions, 0, decidedCandidateIds, runtime.effort !== null);
+  applyDecisions(
+    fields,
+    primary.decisions,
+    0,
+    decidedCandidateIds,
+    runtime.effort !== null,
+    options.fieldSourceContexts,
+    options.markdown,
+  );
   recordLikelyInputVotes(primary.decisions, likelyInputVotes);
 
   if (primary.decisions.length === 0) {
@@ -259,6 +279,7 @@ export async function planRoundtripFields(options: {
       const adjudication = await requestDecisionPass({
         candidates: unresolved,
         markdown: options.markdown,
+        ...(options.fieldSourceContexts ? { fieldSourceContexts: options.fieldSourceContexts } : {}),
         apiKey: options.apiKey,
         runtime,
         round,
@@ -267,7 +288,15 @@ export async function planRoundtripFields(options: {
       });
       usageItems.push(...adjudication.usageItems);
       // 재판정 라운드는 항상 기본 effort로 돌므로 저효율 임계(0.85)를 적용하지 않는다.
-      applyDecisions(fields, adjudication.decisions, round, decidedCandidateIds, false);
+      applyDecisions(
+        fields,
+        adjudication.decisions,
+        round,
+        decidedCandidateIds,
+        false,
+        options.fieldSourceContexts,
+        options.markdown,
+      );
       recordLikelyInputVotes(adjudication.decisions, likelyInputVotes);
       preserveRepeatedLikelyInputsForUser(fields, likelyInputVotes, round);
       adjudicationFailureCode = adjudication.failureCode;
@@ -368,6 +397,7 @@ interface DecisionPassResult {
 async function requestDecisionPass(input: {
   candidates: RoundtripFieldCandidate[];
   markdown: string;
+  fieldSourceContexts?: ReadonlyMap<string, RoundtripFieldSourceContext>;
   apiKey: string;
   runtime: RoundtripFieldPlannerRuntimeConfig;
   round: number;
@@ -387,6 +417,7 @@ async function requestDecisionPass(input: {
           effort: input.runtime.effort,
           candidates: batch,
           markdown: input.markdown,
+          ...(input.fieldSourceContexts ? { fieldSourceContexts: input.fieldSourceContexts } : {}),
           adjudicationRound: input.round,
           ...(input.fetchImpl ? { fetchImpl: input.fetchImpl } : {}),
         });
@@ -425,12 +456,20 @@ function applyDecisions(
   round: number,
   decidedCandidateIds: Set<string>,
   lowEffortRound: boolean,
+  fieldSourceContexts: ReadonlyMap<string, RoundtripFieldSourceContext> | undefined,
+  markdown: string,
 ): void {
   const byId = new Map(decisions.map((decision) => [decision.candidateId, decision]));
   for (const field of fields) {
     const decision = byId.get(field.fieldInstanceId);
     if (!decision) continue;
-    applyDecision(field, decision, round, lowEffortRound);
+    applyDecision(
+      field,
+      decision,
+      round,
+      lowEffortRound,
+      resolveFieldSourceContext(field, fieldSourceContexts, markdown),
+    );
     decidedCandidateIds.add(field.fieldInstanceId);
   }
 }
@@ -456,25 +495,38 @@ async function requestFieldDecisions(input: {
   effort: RoundtripFieldPlannerEffort | null;
   candidates: RoundtripFieldCandidate[];
   markdown: string;
+  fieldSourceContexts?: ReadonlyMap<string, RoundtripFieldSourceContext>;
   adjudicationRound: number;
   fetchImpl?: typeof fetch;
 }): Promise<FieldDecisionBatch> {
-  const candidatePayload = input.candidates.map((field) => ({
-    candidate_id: field.fieldInstanceId,
-    proposed_label: field.label,
-    source: field.source,
-    proposed_input_kind: field.inputKind,
-    write_operation: field.writeOperation,
-    original_value: field.originalValue,
-    helper_text: field.helperText,
-    unit: field.unit,
-    options: field.options.map((option) => option.label),
-    empty: field.empty,
-    structural_signals: field.inputSignals,
-    previous_decision: field.llmDecision ?? null,
-    previous_confidence: field.llmConfidence,
-    surrounding_text: findSurroundingText(input.markdown, field),
-  }));
+  const candidatePayload = input.candidates.map((field) => {
+    const sourceContext = resolveFieldSourceContext(field, input.fieldSourceContexts, input.markdown);
+    return {
+      candidate_id: field.fieldInstanceId,
+      proposed_label: field.label,
+      source: field.source,
+      proposed_input_kind: field.inputKind,
+      write_operation: field.writeOperation,
+      original_value: field.originalValue,
+      helper_text: field.helperText,
+      unit: field.unit,
+      options: field.options.map((option) => option.label),
+      empty: field.empty,
+      structural_signals: field.inputSignals,
+      previous_decision: field.llmDecision ?? null,
+      previous_confidence: field.llmConfidence,
+      source_context: sourceContext
+        ? {
+            binding: sourceContext.binding,
+            block_index: sourceContext.blockIndex,
+            row: sourceContext.row,
+            col: sourceContext.col,
+          }
+        : null,
+      // 구 prompt 관측 도구가 읽는 키에 원문을 한 번만 싣는다.
+      surrounding_text: sourceContext?.text ?? "",
+    };
+  });
   // 2단 effort 설계(계획 §2-3-3): 저효율은 round 0(최초 판정)에만 싣는다. 재판정 라운드는
   // 기본 effort로 되돌려 저효율이 uncertain으로 떨어뜨린 경계 후보를 회복한다.
   const effort = input.adjudicationRound === 0 ? input.effort : null;
@@ -492,7 +544,9 @@ async function requestFieldDecisions(input: {
       "반대로 섹션명·표 머리글·포괄 라벨(예: 재무현황, 관련기술현황)과 이미 확정된 고정 문구는 입력 필드로 만들지 않는다.",
       "행 라벨과 열 머리글을 결합해 매출액·연도처럼 구체적인 필드를 선호한다.",
       "값을 작성하거나 추정하지 말고 필드의 의미와 입력 UI만 판정한다.",
-      "candidate_id와 쓰기 위치는 바꾸거나 새로 만들지 않는다. evidence는 제공된 텍스트를 짧게 그대로 인용한다.",
+      "candidate_id와 쓰기 위치는 바꾸거나 새로 만들지 않는다.",
+      "각 후보는 source_context 좌표에 결속된 surrounding_text만 판정한다. 같은 라벨의 다른 위치나 문서의 다른 설명을 근거로 대신하지 않는다.",
+      "evidence는 해당 candidate_id의 surrounding_text 안에서 짧게 그대로 인용한다. 문맥이 없거나 위치에 맞는 근거가 없으면 confidence를 0.75 미만으로 둔다.",
       "모든 candidate_id를 빠짐없이 반환한다. 원문만으로 판단 불가능할 때에만 confidence를 0.75 미만으로 둔다.",
     ].join("\n"),
     messages: [{
@@ -644,6 +698,7 @@ function applyDecision(
   round: number,
   // round 0이면서 effort가 지정된 저효율 판정인지. 재판정(round≥1)과 effort 미지정은 항상 false.
   lowEffortRound: boolean,
+  sourceContext: RoundtripFieldSourceContext | null,
 ): void {
   field.analysisSource = "llm";
   field.llmConfidence = decision.confidence;
@@ -651,7 +706,9 @@ function applyDecision(
   const acceptedInput = decision.isUserInput
     && decision.inputKind !== "none"
     && decision.confidence >= ACCEPT_INPUT_CONFIDENCE;
-  const acceptedRejection = !decision.isUserInput
+  const rejectionEvidenceBound = !decision.isUserInput
+    && evidenceBelongsToContext(decision.evidence, sourceContext);
+  const acceptedRejection = rejectionEvidenceBound
     && decision.confidence
       >= (lowEffortRound ? LOW_EFFORT_ACCEPT_REJECTION_CONFIDENCE : ACCEPT_REJECTION_CONFIDENCE);
   field.llmDecision = acceptedInput ? "input" : acceptedRejection ? "not_input" : "uncertain";
@@ -660,17 +717,28 @@ function applyDecision(
   if (field.recommendedInput && decision.inputKind !== "none") {
     field.inputKind = compatibleInputKind(field, decision.inputKind);
   }
-  if (decision.helpText) field.helperText = decision.helpText;
+  // 확정하지 못한 판정의 설명·표시명으로 후보 원문 의미를 덮지 않는다.
+  if ((acceptedInput || acceptedRejection) && decision.helpText) field.helperText = decision.helpText;
   field.inputSignals.push(field.llmDecision === "input"
     ? `LLM 맥락 판정: 사용자 입력${round > 0 ? ` (${round}차 재판정)` : ""}`
     : field.llmDecision === "not_input"
       ? `LLM 맥락 판정: 입력 대상 아님${round > 0 ? ` (${round}차 재판정)` : ""}`
       : `LLM 맥락 판정 보류${round > 0 ? ` (${round}차 재판정)` : ""}`);
-  if (decision.suggestedLabel && decision.suggestedLabel !== field.label) {
+  if ((acceptedInput || acceptedRejection) && decision.suggestedLabel && decision.suggestedLabel !== field.label) {
     field.displayLabel = decision.suggestedLabel;
     field.inputSignals.push(`LLM 표시명 제안: ${decision.suggestedLabel}`);
   }
-  if (decision.evidence) field.inputSignals.push(`LLM 근거: ${decision.evidence}`);
+  if (decision.evidence && (decision.isUserInput || rejectionEvidenceBound)) {
+    field.inputSignals.push(`LLM 근거: ${decision.evidence}`);
+  }
+  if (acceptedRejection) {
+    field.inputSignals.push(sourceContext?.binding === "block_row_col" || sourceContext?.binding === "block"
+      ? "LLM 비입력 근거의 구조 위치 결속 확인"
+      : "LLM 비입력 근거의 유일 문맥 결속 확인");
+  }
+  if (!decision.isUserInput && !rejectionEvidenceBound) {
+    field.inputSignals.push("LLM 비입력 근거 위치 불일치 또는 누락");
+  }
 }
 
 function compatibleInputKind(
@@ -687,11 +755,13 @@ function compatibleInputKind(
 }
 
 export function findSurroundingText(markdown: string, field: RoundtripFieldCandidate): string {
-  // 기존 exact 문맥 검색은 보존하고, 문맥을 못 찾았을 때만 아래 fallback을 적용한다.
+  // IR 위치 문맥을 주입할 수 없는 구 호출자의 하위 호환 fallback이다. 반복 문자열은
+  // 첫 위치를 임의 선택하지 않고 구조 문맥이 없다는 뜻의 빈 문자열로 남긴다.
   const needles = [field.helperText, field.originalValue, field.label].filter((value): value is string => Boolean(value?.trim()));
   for (const needle of needles) {
     const index = markdown.indexOf(needle);
     if (index < 0) continue;
+    if (markdown.indexOf(needle, index + needle.length) >= 0) continue;
     return markdown.slice(Math.max(0, index - 220), Math.min(markdown.length, index + needle.length + 320));
   }
   // HWP 필드명 '신 청 내 역'과 Markdown '신청내역'의 차이만 허용한다.
@@ -721,6 +791,107 @@ export function findSurroundingText(markdown: string, field: RoundtripFieldCandi
   const start = normalized.offsets[index]!;
   const end = normalized.offsets[index + needle.length - 1]! + 1;
   return markdown.slice(Math.max(0, start - 220), Math.min(markdown.length, end + 320));
+}
+
+/**
+ * KorDoc IR 위치를 후보 판정의 공용 seam으로 낮춘다. 표 후보는 target row와 인접 3/2개
+ * 행만, 문단 후보는 현재 block과 앞뒤 block만 전달해 다른 동일 라벨 위치가 섞이지 않게 한다.
+ */
+export function buildRoundtripFieldSourceContexts(
+  blocks: readonly IRBlock[],
+  fields: readonly RoundtripFieldCandidate[],
+): ReadonlyMap<string, RoundtripFieldSourceContext> {
+  const contexts = new Map<string, RoundtripFieldSourceContext>();
+  for (const field of fields) {
+    const block = blocks[field.location.blockIndex];
+    if (!block) continue;
+    if (block.type === "table" && block.table) {
+      const row = field.location.row;
+      const col = field.location.col;
+      if (!Number.isSafeInteger(row) || row < 0 || row >= block.table.cells.length) continue;
+      const targetRow = block.table.cells[row];
+      if (!targetRow || !Number.isSafeInteger(col) || col < 0 || col >= targetRow.length) continue;
+      const startRow = Math.max(0, row - 3);
+      const endRow = Math.min(block.table.cells.length - 1, row + 2);
+      const lines = [
+        `block=${field.location.blockIndex} type=table target=row${row},col${col}`,
+        `target_cell=[row${row},col${col};span=${targetRow[col]!.rowSpan}x${targetRow[col]!.colSpan}] ${clipSourceText(targetRow[col]!.text, 1_200)}`,
+        ...(block.table.caption ? [`caption=${clipSourceText(block.table.caption, 240)}`] : []),
+      ];
+      for (let rowIndex = startRow; rowIndex <= endRow; rowIndex += 1) {
+        const cells = block.table.cells[rowIndex] ?? [];
+        lines.push(`row${rowIndex}: ${cells.slice(0, 32).map((cell, colIndex) => {
+          const marker = rowIndex === row && colIndex === col ? " TARGET" : "";
+          return `[col${colIndex}${marker};span=${cell.rowSpan}x${cell.colSpan}] ${clipSourceText(cell.text, 600)}`;
+        }).join(" | ")}`);
+      }
+      contexts.set(field.fieldInstanceId, {
+        binding: "block_row_col",
+        blockIndex: field.location.blockIndex,
+        row,
+        col,
+        text: clipSourceText(lines.join("\n"), 4_800),
+      });
+      continue;
+    }
+    if (field.location.row >= 0 || field.location.col >= 0) continue;
+    const neighboringBlocks = blocks.slice(
+      Math.max(0, field.location.blockIndex - 1),
+      Math.min(blocks.length, field.location.blockIndex + 2),
+    );
+    const text = neighboringBlocks
+      .map((candidate, offset) => {
+        const index = Math.max(0, field.location.blockIndex - 1) + offset;
+        return `block${index}${index === field.location.blockIndex ? " TARGET" : ""}: ${clipSourceText(blockText(candidate), 1_200)}`;
+      })
+      .join("\n");
+    if (!text.trim()) continue;
+    contexts.set(field.fieldInstanceId, {
+      binding: "block",
+      blockIndex: field.location.blockIndex,
+      row: null,
+      col: null,
+      text: clipSourceText(text, 3_600),
+    });
+  }
+  return contexts;
+}
+
+function resolveFieldSourceContext(
+  field: RoundtripFieldCandidate,
+  fieldSourceContexts: ReadonlyMap<string, RoundtripFieldSourceContext> | undefined,
+  markdown: string,
+): RoundtripFieldSourceContext | null {
+  if (fieldSourceContexts) return fieldSourceContexts.get(field.fieldInstanceId) ?? null;
+  const text = findSurroundingText(markdown, field);
+  return text
+    ? { binding: "markdown_unique", blockIndex: null, row: null, col: null, text }
+    : null;
+}
+
+function evidenceBelongsToContext(
+  evidence: string,
+  sourceContext: RoundtripFieldSourceContext | null,
+): boolean {
+  const needle = normalizeEvidenceText(evidence);
+  const haystack = normalizeEvidenceText(sourceContext?.text ?? "");
+  return needle.length >= 2 && haystack.includes(needle);
+}
+
+function normalizeEvidenceText(value: string): string {
+  return value.normalize("NFKC").replace(/\s+/gu, " ").trim();
+}
+
+function blockText(block: IRBlock): string {
+  if (block.type === "table" && block.table) {
+    return block.table.cells.flat().map((cell) => cell.text).filter(Boolean).join(" | ");
+  }
+  return block.text ?? "";
+}
+
+function clipSourceText(value: string, maxLength: number): string {
+  const normalized = value.normalize("NFKC").replace(/\r\n?/gu, "\n").trim();
+  return normalized.length <= maxLength ? normalized : `${normalized.slice(0, maxLength)}…`;
 }
 
 function buildSummary(

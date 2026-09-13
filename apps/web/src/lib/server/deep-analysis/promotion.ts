@@ -370,6 +370,9 @@ export function buildDeepAnalysisPromotionPlan(input: {
     criteria: result.criteria,
     axisAssessments: result.axisAssessments,
     taxonomyProposals: result.taxonomyProposals,
+    ...(result.sourceLimitations
+      ? { sourceLimitations: result.sourceLimitations }
+      : {}),
     dimensionDiffs: computeLabDimensionDiffs({
       current: input.currentCriteria,
       proposed: result.criteria,

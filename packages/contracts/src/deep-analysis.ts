@@ -4,7 +4,7 @@ type DeepAnalysisCriterionDimension = (typeof CRITERION_DIMENSIONS)[number];
 
 export const DEEP_ANALYSIS_ACTIVE_POLICY_VERSION = "deep-analysis-active-kst-v2" as const;
 export const DEEP_ANALYSIS_ACTIVE_TIME_ZONE = "Asia/Seoul" as const;
-export const DEEP_ANALYSIS_PROMPT_VERSION = "deep-analysis-v29" as const;
+export const DEEP_ANALYSIS_PROMPT_VERSION = "deep-analysis-v30" as const;
 export const DEEP_ANALYSIS_MODEL_POLICY_VERSION = "deep-analysis-model-policy-v25" as const;
 export const DEEP_ANALYSIS_COST_QUALITY_EXPERIMENT_POLICY_VERSION =
   "deep-analysis-model-policy-cq2-v8" as const;
@@ -291,6 +291,41 @@ export interface DeepAnalysisTaxonomyProposal {
   exampleSpan: string;
 }
 
+export const DEEP_ANALYSIS_SOURCE_LIMITATION_SCOPES = [
+  "eligibility_details",
+  "application_procedure",
+  "other",
+] as const;
+
+export const DEEP_ANALYSIS_SOURCE_LIMITATION_KINDS = [
+  "explicit_reference",
+  "limited_coverage",
+  "model_disclosure",
+] as const;
+
+export type DeepAnalysisSourceLimitationScope =
+  (typeof DEEP_ANALYSIS_SOURCE_LIMITATION_SCOPES)[number];
+export type DeepAnalysisSourceLimitationKind =
+  (typeof DEEP_ANALYSIS_SOURCE_LIMITATION_KINDS)[number];
+
+export interface DeepAnalysisSourceLimitation {
+  /** eligibility_details만 매칭 준비도를 제한한다. 절차·서식 한계는 자격 미확정과 다르다. */
+  scope: DeepAnalysisSourceLimitationScope;
+  kind: DeepAnalysisSourceLimitationKind;
+  sourceRef: {
+    sourceKind: "structured" | "attachment";
+    /** 모델 입력에 노출된 DeepAnalysisInputChunk.id. 누락됐다고 추정한 파일의 ID가 아니다. */
+    sourceId: string;
+    /** 해당 chunk의 SHA-256. null이어도 sourceId와 sourceSpan의 exact 검증은 생략하지 않는다. */
+    sourceSha256: string | null;
+    /** 판단의 입력 근거가 된 제공 chunk의 연속 원문. 모델의 자체 설명을 넣지 않는다. */
+    sourceSpan: string;
+  };
+  /** null은 영향을 특정하지 못했다는 뜻이며 전 축 누락을 뜻하지 않는다. */
+  affectedDimensions: DeepAnalysisCriterionDimension[] | null;
+  explanation: string;
+}
+
 export interface DeepAnalysisUsage {
   inputTokens: number;
   outputTokens: number;
@@ -305,6 +340,8 @@ export interface DeepAnalysisModelResult {
   criteria: DeepAnalysisCriterion[];
   axisAssessments: DeepAnalysisAxisAssessment[];
   taxonomyProposals: DeepAnalysisTaxonomyProposal[];
+  /** 현행 tool 응답에는 항상 배열이지만 역사 artifact 호환을 위해 optional로 읽는다. */
+  sourceLimitations?: DeepAnalysisSourceLimitation[];
   usage: DeepAnalysisUsage | null;
   costUsd: number | null;
   rawToolInput: Record<string, unknown>;

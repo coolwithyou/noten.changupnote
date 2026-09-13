@@ -35,7 +35,9 @@ import {
   DEEP_ANALYSIS_RANKING_ACTOR_RULE,
   DEEP_ANALYSIS_PROCEDURAL_EVIDENCE_CHECK_RULE,
   DEEP_ANALYSIS_PROGRAM_THEME_BOUNDARY_RULE,
+  DEEP_ANALYSIS_OUTPUT_CONCISION_RULE,
   DEEP_ANALYSIS_SCORING_TABLE_COMPLETENESS_RULE,
+  DEEP_ANALYSIS_SOURCE_LIMITATION_RULE,
   DEEP_ANALYSIS_SOURCE_SPAN_CONTIGUITY_RULE,
   DEEP_ANALYSIS_SIZE_TARGET_AXIS_RULE,
   DEEP_ANALYSIS_STRUCTURED_FILTER_METADATA_RULE,
@@ -306,6 +308,22 @@ assert.match(
   DEEP_ANALYSIS_PRIOR_AWARD_SCOPE_RULE,
   /참여자\(사\).*participating과 completed.*수혜 이력.*current_similar가 아니다/,
 );
+assert.equal(DEEP_ANALYSIS_SYSTEM_PROMPT.includes(DEEP_ANALYSIS_PRIOR_AWARD_LOSSLESS_RULE), true);
+assert.match(
+  DEEP_ANALYSIS_PRIOR_AWARD_LOSSLESS_RULE,
+  /동일 집합 또는 포함 관계.*추정하지 마라.*삭제하거나 횟수를 합산하거나 한 confirmation 답변을 다른 조건에 공용하지 말고/,
+  "서로 다른 수혜 이력 조건의 기간·횟수·범위와 답변을 합치지 않는다",
+);
+assert.equal(DEEP_ANALYSIS_SYSTEM_PROMPT.includes(DEEP_ANALYSIS_OUTPUT_CONCISION_RULE), true);
+assert.match(
+  DEEP_ANALYSIS_OUTPUT_CONCISION_RULE,
+  /적용 범위·기간·횟수·예외·source_span.*삭제하거나 축약하지 마라/,
+  "출력 중복을 줄여도 고유한 판정 의미와 근거는 보존한다",
+);
+assert.equal(DEEP_ANALYSIS_SYSTEM_PROMPT.includes(DEEP_ANALYSIS_SOURCE_LIMITATION_RULE), true);
+assert.match(DEEP_ANALYSIS_SOURCE_LIMITATION_RULE, /model_disclosure.*source_span으로 꾸며내지 마라/);
+assert.match(DEEP_ANALYSIS_SOURCE_LIMITATION_RULE, /'붙임2'.*붙임1.*확정하지 마라/);
+assert.match(DEEP_ANALYSIS_SOURCE_LIMITATION_RULE, /affected_dimensions=null.*모든 축을 input_missing.*아니다/);
 assert.match(
   DEEP_ANALYSIS_SYSTEM_PROMPT,
   /rawPayload\.trgetNm.*공식 신청대상.*첨부 본문에 같은 문장이 반복되지 않아도.*유효한 근거/,
@@ -348,6 +366,20 @@ assert.deepEqual(
   ["criteria", "axis_assessments"],
   "max_tokens 직전에도 matching 핵심 구조가 먼저 생성돼야 한다",
 );
+{
+  const schema = buildDeepAnalysisToolSchema().input_schema;
+  assert.equal(schema.required.includes("source_limitations"), true);
+  const sourceLimitations = schema.properties.source_limitations as {
+    items: { properties: Record<string, unknown>; required: string[] };
+  };
+  assert.deepEqual(sourceLimitations.items.required, [
+    "scope",
+    "kind",
+    "source_ref",
+    "affected_dimensions",
+    "explanation",
+  ]);
+}
 assert.match(
   DEEP_ANALYSIS_SYSTEM_PROMPT,
   /선정 후의 협약 이행.*지원 취소·중단·환수 사유는 criterion으로 만들지 말고/,
@@ -885,6 +917,59 @@ assert.equal(reduced.result.usage?.outputTokens, 20);
 assert.equal(reduced.result.costUsd, 1);
 assert.equal(calls.at(-1)?.evidenceText, reduced.evidenceText);
 assert.match(calls.at(-1)?.taskInstruction ?? "", /최종 22축/);
+assert.match(
+  calls.at(-1)?.taskInstruction ?? "",
+  /다른 chunk가 실제로 보완.*분할 때문에 한 chunk에만 내용이 없었던 한계는 제거/,
+  "map 조각의 일시적 한계를 전체 공고의 제한으로 고정하지 않는다",
+);
+assert.match(
+  calls.at(-1)?.inputText ?? "",
+  /"sourceLimitations":\[\]/,
+  "synthesis 입력은 각 map 결과의 source limitation 필드를 손실 없이 전달한다",
+);
+
+// Synthetic map/synthesis fixture: 첫 조각만 본 모델의 제한 판단은 합성 입력까지 전달되지만,
+// 뒤 조각이 실제로 보완하면 최종 결과에서 제거할 수 있다.
+const mapLimitationCalls: Array<Parameters<typeof runDeepGrantAnalysis>[0]> = [];
+const mapLimitation = {
+  scope: "eligibility_details" as const,
+  kind: "limited_coverage" as const,
+  sourceRef: {
+    sourceKind: longSeal.chunks[0]!.sourceKind,
+    sourceId: longSeal.chunks[0]!.id,
+    sourceSha256: longSeal.chunks[0]!.sha256,
+    sourceSpan: longSeal.chunks[0]!.text.slice(0, 20),
+  },
+  affectedDimensions: null,
+  explanation: "첫 조각만으로는 자격 상세 범위를 확인할 수 없음.",
+};
+const resolvedAcrossChunks = await analyzeSealedDeepAnalysisInput({
+  seal: longSeal,
+  apiKey: "test",
+  model: "claude-opus-4-8",
+  effort: "medium",
+  singlePromptChars: 1_100,
+  runModel: async (options) => {
+    mapLimitationCalls.push(options);
+    if (mapLimitationCalls.length === 1) {
+      return {
+        ...modelResult(options.model ?? "unknown"),
+        sourceLimitations: [mapLimitation],
+      };
+    }
+    return modelResult(options.model ?? "unknown");
+  },
+});
+assert.match(
+  mapLimitationCalls.at(-1)?.inputText ?? "",
+  /첫 조각만으로는 자격 상세 범위를 확인할 수 없음/,
+  "map limitation의 판단 이유와 ref를 synthesis에 전달한다",
+);
+assert.deepEqual(
+  resolvedAcrossChunks.result.sourceLimitations ?? [],
+  [],
+  "다른 chunk가 보완한 조각 한계는 synthetic synthesis 결과에서 최종 limitation으로 굳지 않는다",
+);
 
 calls.length = 0;
 await analyzeSealedDeepAnalysisInput({

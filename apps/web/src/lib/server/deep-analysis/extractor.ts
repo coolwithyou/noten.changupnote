@@ -17,6 +17,8 @@ import {
   CRITERION_KINDS,
   CRITERION_OPERATORS,
   DEEP_ANALYSIS_PRIMARY_MODELS,
+  DEEP_ANALYSIS_SOURCE_LIMITATION_KINDS,
+  DEEP_ANALYSIS_SOURCE_LIMITATION_SCOPES,
   assertDeepAnalysisModelEffort,
   supportsDeepAnalysisEffort,
   type CriterionDimension,
@@ -30,6 +32,7 @@ import {
   type DeepAnalysisEffort,
   type DeepAnalysisModelResult,
   type DeepAnalysisProgramIntent,
+  type DeepAnalysisSourceLimitation,
   type DeepAnalysisTaxonomyProposal,
   type DeepAnalysisUsage,
 } from "@cunote/contracts";
@@ -208,6 +211,7 @@ export async function runDeepGrantAnalysis(options: {
     criteria: normalizeCriteria(input.criteria, evidenceText),
     axisAssessments: normalizeAxisAssessments(input.axis_assessments),
     taxonomyProposals: normalizeTaxonomyProposals(input.taxonomy_proposals),
+    sourceLimitations: normalizeSourceLimitations(input.source_limitations),
     usage,
     costUsd: usage ? priceDeepAnalysisUsage({ model, usage }) : null,
     rawToolInput: input,
@@ -373,8 +377,66 @@ export function buildDeepAnalysisToolSchema() {
             required: ["proposed_dimension", "rationale", "example_span"],
           },
         },
+        source_limitations: {
+          type: "array",
+          description:
+            "제공 chunk에 결속된 입력 범위 한계 또는 모델의 근거 부족 판단. 없으면 빈 배열이며 누락 파일을 추정해 만들지 않는다.",
+          items: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              scope: {
+                type: "string",
+                enum: [...DEEP_ANALYSIS_SOURCE_LIMITATION_SCOPES],
+              },
+              kind: {
+                type: "string",
+                enum: [...DEEP_ANALYSIS_SOURCE_LIMITATION_KINDS],
+              },
+              source_ref: {
+                type: "object",
+                additionalProperties: false,
+                properties: {
+                  source_kind: { type: "string", enum: ["structured", "attachment"] },
+                  source_id: {
+                    type: "string",
+                    description: "입력 wrapper의 DEEP_ANALYSIS_SOURCE id와 정확히 같은 chunk ID",
+                  },
+                  source_sha256: {
+                    anyOf: [
+                      { type: "string" },
+                      { type: "null" },
+                    ],
+                  },
+                  source_span: { type: "string" },
+                },
+                required: ["source_kind", "source_id", "source_sha256", "source_span"],
+              },
+              affected_dimensions: {
+                anyOf: [
+                  {
+                    type: "array",
+                    minItems: 1,
+                    uniqueItems: true,
+                    items: { type: "string", enum: [...CRITERION_DIMENSIONS] },
+                  },
+                  { type: "null" },
+                ],
+              },
+              explanation: { type: "string" },
+            },
+            required: ["scope", "kind", "source_ref", "affected_dimensions", "explanation"],
+          },
+        },
       },
-      required: ["criteria", "axis_assessments", "analysis_markdown", "program_intent", "taxonomy_proposals"],
+      required: [
+        "criteria",
+        "axis_assessments",
+        "analysis_markdown",
+        "program_intent",
+        "taxonomy_proposals",
+        "source_limitations",
+      ],
     },
   };
 }
@@ -860,6 +922,55 @@ function normalizeTaxonomyProposals(rows: unknown): DeepAnalysisTaxonomyProposal
   return proposals;
 }
 
+export function normalizeSourceLimitations(rows: unknown): DeepAnalysisSourceLimitation[] {
+  if (!Array.isArray(rows)) return [];
+  const limitations: DeepAnalysisSourceLimitation[] = [];
+  for (const row of rows) {
+    if (!isRecord(row) || !isRecord(row.source_ref)) continue;
+    const scope = stringEnum(row.scope, DEEP_ANALYSIS_SOURCE_LIMITATION_SCOPES);
+    const kind = stringEnum(row.kind, DEEP_ANALYSIS_SOURCE_LIMITATION_KINDS);
+    const sourceKind = stringEnum(row.source_ref.source_kind, ["structured", "attachment"] as const);
+    const sourceId = cleanString(row.source_ref.source_id);
+    const sourceSpan = cleanString(row.source_ref.source_span);
+    const sourceSha256 = row.source_ref.source_sha256 === null
+      ? null
+      : typeof row.source_ref.source_sha256 === "string"
+        && /^[0-9a-f]{64}$/.test(row.source_ref.source_sha256)
+        ? row.source_ref.source_sha256
+        : undefined;
+    const explanation = cleanString(row.explanation);
+    const affectedDimensions = row.affected_dimensions === null
+      ? null
+      : Array.isArray(row.affected_dimensions)
+        && row.affected_dimensions.length > 0
+        && new Set(row.affected_dimensions).size === row.affected_dimensions.length
+        && row.affected_dimensions.every((value) => (
+          typeof value === "string"
+          && (CRITERION_DIMENSIONS as readonly string[]).includes(value)
+        ))
+        ? row.affected_dimensions as CriterionDimension[]
+        : undefined;
+    if (
+      !scope
+      || !kind
+      || !sourceKind
+      || !sourceId
+      || !sourceSpan
+      || sourceSha256 === undefined
+      || affectedDimensions === undefined
+      || !explanation
+    ) continue;
+    limitations.push({
+      scope,
+      kind,
+      sourceRef: { sourceKind, sourceId, sourceSha256, sourceSpan },
+      affectedDimensions,
+      explanation,
+    });
+  }
+  return limitations;
+}
+
 function normalizeProgramIntent(value: unknown): DeepAnalysisProgramIntent | null {
   if (!isRecord(value)) return null;
   return {
@@ -932,7 +1043,11 @@ export const DEEP_ANALYSIS_PROGRAM_THEME_BOUNDARY_RULE =
 export const DEEP_ANALYSIS_PROCEDURAL_EVIDENCE_CHECK_RULE =
   "증명서·확인서의 유효기간이나 제출 여부를 확인한다는 절차 문구만 있고 어떤 사실이 필수인지, 어떤 값이면 탈락하는지가 명시되지 않으면 자격 criterion이 아니다. 외국인 업주의 증명서 유효기간 확인처럼 확인 목적만 적힌 문구를 founder_trait required로 만들지 말고 신청 체크사항에만 보존한다. 문서가 증명하는 실질 사실과 합격·탈락 효과가 명시된 경우에만 그 사실의 축으로 추출한다.";
 export const DEEP_ANALYSIS_PRIOR_AWARD_LOSSLESS_RULE =
-  "prior_award 조건에 동일·유사 아이템·분야·기술, 특정 달력연도 구간, 주최기관, 팀원 전체 적용, 당시·해당 과제 연구책임자의 동반 신청, 별도 대회 수상 예외가 결합되면 programs·states·within 일부만 구조화하지 마라. required·exclusion·preferred 모두 현재 value가 모든 한정과 예외를 표현하지 못하면 prior_award/text_only 한 건에 전체 조건과 예외를 무손실 보존한다. 명시된 달력연도 범위를 최근 N년 within으로 바꾸거나, matcher가 읽지 않는 note에만 유사 분야·동일 책임자 같은 제약을 남긴 채 구조화 조건을 발행하지 마라.";
+  "prior_award 조건에 동일·유사 아이템·분야·기술, 특정 달력연도 구간, 주최기관, 팀원 전체 적용, 당시·해당 과제 연구책임자의 동반 신청, 별도 대회 수상 예외가 결합되면 programs·states·within 일부만 구조화하지 마라. required·exclusion·preferred 모두 현재 value가 모든 한정과 예외를 표현하지 못하면 prior_award/text_only 한 건에 전체 조건과 예외를 무손실 보존한다. 명시된 달력연도 범위를 최근 N년 within으로 바꾸거나, matcher가 읽지 않는 note에만 유사 분야·동일 책임자 같은 제약을 남긴 채 구조화 조건을 발행하지 마라. 이름이 비슷해도 행사·주최기관·기간·선정 범위·참가 횟수가 다른 두 이력 조건은 원문이 동일 집합 또는 포함 관계라고 명시하지 않는 한 서로 같은 조건이나 부분집합으로 추정하지 마라. 한 조건을 삭제하거나 횟수를 합산하거나 한 confirmation 답변을 다른 조건에 공용하지 말고, 각 조건의 사업명·기간·횟수·적용 범위를 별도로 보존한다.";
+export const DEEP_ANALYSIS_SOURCE_LIMITATION_RULE =
+  "제공된 입력의 범위 때문에 상세 공고·신청자격·제외대상·우대·배점을 완전히 확인할 수 없다고 판단하면 source_limitations에 기록한다. source 자체의 명시적 참조는 explicit_reference, 제공된 chunk가 요약·평가표 같은 제한된 범위라는 판단은 limited_coverage, 분석 중 확인 근거가 부족함을 스스로 밝히는 경우는 model_disclosure다. source_ref.source_id는 판단의 입력 근거가 실제로 들어 있는 DEEP_ANALYSIS_SOURCE wrapper의 id, source_sha256은 같은 wrapper의 sha256, source_span은 그 제공 chunk의 연속된 exact substring이어야 한다. model_disclosure의 explanation은 모델 판단임을 분명히 하되 그 문장을 source_span으로 꾸며내지 마라. 확보하지 못했다고 추정한 파일을 source_ref로 만들지 말고, '붙임2' 표기만으로 붙임1의 존재·역할·내용을 확정하지 마라. 자격·제외·우대·배점 같은 매칭 사실의 미확인은 scope=eligibility_details, 접수 방법·제출 서식 같은 절차만의 미확인은 application_procedure, 그 밖의 비매칭 정보만 other로 둔다. affected_dimensions=null은 영향을 특정하지 못했다는 뜻이며 모든 축을 input_missing으로 바꾸라는 뜻이 아니다. 제공된 입력만으로 자격 범위를 충분히 확인했고 별도 제한 판단이 없으면 빈 배열을 반환한다.";
+export const DEEP_ANALYSIS_OUTPUT_CONCISION_RULE =
+  "같은 사실과 인용을 analysis_markdown의 여러 절, program_intent, criteria note에 장문으로 반복하지 마라. analysis_markdown은 각 고유 사실을 가장 관련 있는 절에서 한 번만 간결하게 설명하고 구조화 criteria를 그대로 다시 나열하지 않는다. 다만 조건의 적용 범위·기간·횟수·예외·source_span과 서로 다른 고유 사실은 중복으로 오인해 삭제하거나 축약하지 마라.";
 export const DEEP_ANALYSIS_ITEM_SCOPE_EXCLUSION_RULE =
   "'본 대회 추진 목적에 부합되지 않는 아이템', 공모분야 밖 과제처럼 신청 아이템의 적합성을 명시적으로 제외하는 문구는 회사 속성이 아니어도 신청 가능성을 바꾸는 조건이다. 포괄적 '기타 부적합' 재량 문구와 구분하여 other/text_only exclusion으로 원문 범위를 보존한다.";
 export const DEEP_ANALYSIS_ELIGIBILITY_RANKING_SEPARATION_RULE =
@@ -1028,6 +1143,7 @@ export const DEEP_ANALYSIS_SYSTEM_PROMPT = [
   "첨부 공고문 전문을 근거로 최대한 깊게, 모든 축을 검사하고 반드시 원문 인용(source_span)을 남겨라.",
   "입력에 명시된 내용만 사용한다. 원문에 없는 내용을 창작하지 마라. 모든 source_span 은 입력에 실제 존재하는 짧은 근거 문장이어야 한다.",
   "source_span 은 입력 텍스트의 표기를 글자 그대로 복사하라 — 재구성·요약·라벨 형식 변경을 하지 마라.",
+  DEEP_ANALYSIS_OUTPUT_CONCISION_RULE,
   "",
   "[analysis_markdown — 사람이 읽는 한국어 분석 문서. 반드시 아래 구조를 이 순서대로 따른다]",
   "# 공고 요약",
@@ -1123,6 +1239,9 @@ export const DEEP_ANALYSIS_SYSTEM_PROMPT = [
   "도구 응답을 내기 전에 ambiguous 와 input_missing 잠정 축을 하나씩 재검토한다. 원문 전체를 다시 읽어 서로 충돌하는 명시 근거가 실제로 남으면 ambiguous 상태를 그대로 유지하고, 공고가 가리키는 상세 문서가 입력에 실제로 없으면 input_missing 상태를 그대로 유지한다. comment에는 충돌한 근거 또는 누락된 입력을 구체적으로 적는다.",
   "실제 충돌이나 입력 누락이 아닌 축은 근거 문장이 있으면 criterion과 condition_found로, 어떤 조건 문구도 없으면 inspected_no_condition으로 종결한다. validator를 통과시키기 위해 실제 ambiguous 또는 input_missing을 inspected_no_condition으로 바꾸지 마라.",
   "관련 문구의 canonical 구조화만 불안하다는 이유로 ambiguous를 쓰지 마라. 그 경우 해당 축 operator=text_only criterion과 condition_found로 원문 의미를 보존한다.",
+  "",
+  "[source_limitations — 제공 입력이 밝히는 범위 한계]",
+  DEEP_ANALYSIS_SOURCE_LIMITATION_RULE,
   "",
   "[taxonomy_proposals — 22축에 담기지 않는 반복 요건의 신규 축 제안]",
   "기존 축 어디에도 자연스럽게 들어가지 않는 요건 유형이 보이면 proposed_dimension(영문 snake_case), rationale(한국어 근거), example_span(원문 인용)으로 제안한다. 없으면 빈 배열.",

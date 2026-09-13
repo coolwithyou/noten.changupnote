@@ -1,5 +1,8 @@
 import { createHash } from "node:crypto";
-import type { DeepAnalysisModelPass } from "@/lib/server/deep-analysis/analyzer";
+import {
+  renderDeepAnalysisChunks,
+  type DeepAnalysisModelPass,
+} from "@/lib/server/deep-analysis/analyzer";
 import type { DeepAnalysisEffort, DeepAnalysisModelResult } from "@cunote/contracts";
 import type {
   LabPrimaryPassDiagnostic,
@@ -213,6 +216,7 @@ function validationRepairStateSignature(input: {
     criteria: input.result.criteria,
     axisAssessments: input.result.axisAssessments,
     taxonomyProposals: input.result.taxonomyProposals,
+    sourceLimitations: input.result.sourceLimitations ?? [],
     stopReason: input.result.stopReason,
   };
   const issues = input.issues
@@ -319,6 +323,9 @@ export async function runValidatedLabPrimary(input: {
     structuredText: input.inputText,
     attachments: [],
   });
+  // lab의 조립 입력은 실제 archive provenance를 다시 구성하지 않는다. 전체 current blob을
+  // synthetic structured chunk로만 봉인하고 그 exact id/SHA catalog를 모델에 노출한다.
+  const modelInputText = renderDeepAnalysisChunks(seal.chunks);
   const runModel = input.runModel ?? ((options) => runDeepGrantAnalysis({
     ...options,
     ...(input.fetchImpl ? { fetchImpl: input.fetchImpl } : {}),
@@ -327,7 +334,7 @@ export async function runValidatedLabPrimary(input: {
   const firstStartedAt = Date.now();
   const first = await runModel({
     apiKey: input.apiKey,
-    inputText: input.inputText,
+    inputText: modelInputText,
     evidenceText: input.inputText,
     model: input.model,
     ...(input.signal ? { signal: input.signal } : {}),
@@ -338,13 +345,13 @@ export async function runValidatedLabPrimary(input: {
   const firstPass: DeepAnalysisModelPass = {
     kind: "single",
     chunkId: null,
-    inputChars: input.inputText.length,
+    inputChars: modelInputText.length,
     result: first,
   };
   let execution = {
     result: first,
     passes: [firstPass],
-    evidenceText: input.inputText,
+    evidenceText: modelInputText,
   };
   let validation = validateDeepAnalysisResult({ seal, result: execution.result });
   passes.push(collectPassDiagnostic({
@@ -475,7 +482,9 @@ function classifyMatchingReadiness(
   route: Exclude<DeepAnalysisValidationRoute, { route: "repair" }>,
 ): ValidatedLabPrimaryResult["matchingReadiness"] {
   if (route.route === "accept") return "ready";
-  if (route.holdIssues.some((issue) => issue.code !== "unresolved_axis")) return "deferred";
+  if (route.holdIssues.some((issue) => (
+    issue.code !== "unresolved_axis" && issue.code !== "source_incomplete"
+  ))) return "deferred";
 
   // 한 축만 확인된 공고는 포털의 거친 대상 라벨 수준이라 실제 랭킹 근거로 부족하다.
   // 두 축 이상을 확인했다면 확인된 조건으로 후보를 만들고, unresolved 축은 대표자 질문으로 남긴다.

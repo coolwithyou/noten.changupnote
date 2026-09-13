@@ -4,8 +4,10 @@
 // ③ round 0 저효율의 거절 수락 임계 0.85(경계 구간은 uncertain → 재판정에서 회복)
 // ④ effort 미설정이면 현행과 100% 동일 동작
 import assert from "node:assert/strict";
+import type { IRBlock } from "kordoc";
 import type { RoundtripFieldCandidate } from "@/lib/server/analysis-lab/application-roundtrip/contract";
 import {
+  buildRoundtripFieldSourceContexts,
   findSurroundingText,
   planRoundtripFields,
   resolveRoundtripEffort,
@@ -28,7 +30,7 @@ try {
     assert.ok(markdown.includes(context), "정규화한 텍스트가 아닌 정확한 원문 slice");
     const bodies: Array<Record<string, unknown>> = [];
     await planRoundtripFields({ fields: [field], markdown, apiKey: "subscription",
-      transport: "claude-cli", fetchImpl: buildFetch(bodies, [[decision("spaced-label", false, 0.9)]]) });
+      transport: "claude-cli", fetchImpl: buildFetch(bodies, [[decision("spaced-label", false, 0.9, "신청내역")]]) });
     const payload = (bodies[0]?.messages as Array<{ content: string }>)[0]!.content;
     const candidates = JSON.parse(payload.slice(payload.indexOf("\n") + 1));
     assert.equal(candidates[0].surrounding_text, context);
@@ -36,8 +38,8 @@ try {
 
     assert.equal(findSurroundingText("앞 회사명 뒤", { ...field, label: "회사명" }), "앞 회사명 뒤");
     assert.equal(findSurroundingText("신청내역 / 신청 내역", field), "", "정규화 충돌은 임의 선택하지 않음");
-    assert.equal(findSurroundingText("회사명 / 회사명", { ...field, label: "회사명" }), "회사명 / 회사명",
-      "기존 exact 문맥 검색은 보존; 위치 결속 개선은 별도 변경");
+    assert.equal(findSurroundingText("회사명 / 회사명", { ...field, label: "회사명" }), "",
+      "구조 위치가 없는 fallback은 반복된 exact 라벨도 임의 선택하지 않음");
     for (const boundary of ["\n", "\r", "\f", "\v", "\u2028", "\u2029"]) {
       assert.equal(findSurroundingText(`신청${boundary}내역`, field), "", "행·페이지 경계를 공백으로 합치지 않음");
     }
@@ -47,6 +49,93 @@ try {
     const nested = `<table><tr><td><table>${section}</table></td></tr></table>`;
     assert.ok(findSurroundingText(nested, field).includes(section), "중첩 표의 위치를 행 번호로 추정하지 않음");
     assert.equal(findSurroundingText("🚀 신 청 내 역 💡", { ...field, label: "신청내역" }), "🚀 신 청 내 역 💡");
+  }
+  // ---- 구조 위치 문맥 및 negative evidence 결속 ------------------------------------
+  {
+    const field = {
+      ...candidate("techfest-joint-representative"),
+      label: "공동대표",
+      displayLabel: "공동대표",
+      normalizedLabel: "공동대표",
+      helperText: "원래 구조 후보 설명",
+      location: { blockIndex: 106, row: 17, col: 1, occurrence: 0, pageNumber: 1 },
+    };
+    const blocks: IRBlock[] = Array.from({ length: 107 }, () => ({ type: "paragraph", text: "" }));
+    const rows = Array.from({ length: 20 }, () => [
+      { text: "", colSpan: 1, rowSpan: 1 },
+      { text: "", colSpan: 1, rowSpan: 1 },
+      { text: "", colSpan: 1, rowSpan: 1 },
+    ]);
+    rows[14] = [{ text: "기업 구성 현황", colSpan: 3, rowSpan: 1 }];
+    rows[16] = [
+      { text: "성명", colSpan: 1, rowSpan: 1 },
+      { text: "직위", colSpan: 1, rowSpan: 1 },
+      { text: "담당업무", colSpan: 1, rowSpan: 1 },
+    ];
+    rows[17] = [
+      { text: "", colSpan: 1, rowSpan: 1 },
+      { text: "공동대표/대리", colSpan: 1, rowSpan: 1 },
+      { text: "", colSpan: 1, rowSpan: 1 },
+    ];
+    blocks[106] = { type: "table", table: { rows: 20, cols: 3, hasHeader: true, cells: rows } };
+    const fieldSourceContexts = buildRoundtripFieldSourceContexts(blocks, [field]);
+    const structuralContext = fieldSourceContexts.get(field.fieldInstanceId);
+    assert.equal(structuralContext?.binding, "block_row_col");
+    assert.equal(structuralContext?.blockIndex, 106);
+    assert.equal(structuralContext?.row, 17);
+    assert.equal(structuralContext?.col, 1);
+    assert.match(structuralContext?.text ?? "", /기업 구성 현황/);
+    assert.match(structuralContext?.text ?? "", /col1 TARGET.*공동대표\/대리/);
+
+    const bodies: Array<Record<string, unknown>> = [];
+    const foreignEvidence = "공동대표 또는 각자대표로 구성된 기업의 경우 대표자 전원이 신청자격에 해당";
+    const { fields, summary } = await planRoundtripFields({
+      fields: [field],
+      markdown: `${foreignEvidence}\n${"다른 내용".repeat(200)}`,
+      fieldSourceContexts,
+      apiKey: "subscription",
+      transport: "claude-cli",
+      fetchImpl: buildFetch(bodies, [
+        [decision(field.fieldInstanceId, false, 0.9, foreignEvidence, "잘못된 신청자격 설명")],
+        [decision(field.fieldInstanceId, false, 0.9, foreignEvidence, "잘못된 신청자격 설명")],
+        [decision(field.fieldInstanceId, false, 0.9, foreignEvidence, "잘못된 신청자격 설명")],
+      ]),
+    });
+    const payload = JSON.parse(
+      String(((bodies[0]?.messages as Array<{ content: string }>)[0]?.content ?? "")).split("\n").slice(1).join("\n"),
+    );
+    assert.deepEqual(payload[0].source_context, {
+      binding: "block_row_col",
+      block_index: 106,
+      row: 17,
+      col: 1,
+    }, "요청은 후보의 exact block/row/col 결속을 전달");
+    assert.equal(payload[0].surrounding_text, structuralContext?.text, "원문 문맥은 중복 없이 한 번만 전달");
+    assert.equal(fields[0]?.llmDecision, "uncertain", "다른 위치 근거로 고신뢰 비입력을 확정하지 않음");
+    assert.equal(fields[0]?.helperText, "원래 구조 후보 설명", "불일치 판정 설명으로 후보 의미를 덮지 않음");
+    assert.equal(fields[0]?.displayLabel, "공동대표", "불일치 판정 표시명으로 후보 의미를 덮지 않음");
+    assert.equal(summary.adjudicationStatus, "partial");
+    assert.match(fields[0]?.inputSignals.join(" ") ?? "", /근거 위치 불일치/);
+
+    const titleField = {
+      ...candidate("section-title"),
+      label: "기업 구성 현황",
+      displayLabel: "기업 구성 현황",
+      normalizedLabel: "기업구성현황",
+      location: { blockIndex: 106, row: 14, col: 0, occurrence: 0, pageNumber: 1 },
+    };
+    const titleContexts = buildRoundtripFieldSourceContexts(blocks, [titleField]);
+    const local = await planRoundtripFields({
+      fields: [titleField],
+      markdown: "",
+      fieldSourceContexts: titleContexts,
+      apiKey: "subscription",
+      transport: "claude-cli",
+      fetchImpl: buildFetch([], [[decision(titleField.fieldInstanceId, false, 0.9, "기업 구성 현황")]]),
+    });
+    assert.equal(local.fields[0]?.llmDecision, "not_input", "해당 위치의 실제 구획 제목 negative는 확정 가능");
+    assert.match(local.fields[0]?.inputSignals.join(" ") ?? "", /구조 위치 결속 확인/);
+    console.log("✅ RHWP 후보 문맥 — block/row/col 결속 및 다른 위치 negative 차단");
   }
   // ---- ① effort 해석 -------------------------------------------------------------
   delete process.env.APPLICATION_ROUNDTRIP_EFFORT;
@@ -211,9 +300,9 @@ function candidate(
 ): RoundtripFieldCandidate {
   return {
     fieldInstanceId: id,
-    label: `${id} 라벨`,
-    displayLabel: `${id} 라벨`,
-    normalizedLabel: `${id} 라벨`,
+    label: "회사명",
+    displayLabel: "회사명",
+    normalizedLabel: "회사명",
     originalValue: "",
     type: "text",
     required: false,
@@ -235,15 +324,21 @@ function candidate(
   };
 }
 
-function decision(candidateId: string, isUserInput: boolean, confidence: number): Record<string, unknown> {
+function decision(
+  candidateId: string,
+  isUserInput: boolean,
+  confidence: number,
+  evidence = "회사명",
+  helpText = "",
+): Record<string, unknown> {
   return {
     candidate_id: candidateId,
     is_user_input: isUserInput,
     suggested_label: "",
     input_kind: isUserInput ? "text" : "none",
     confidence,
-    help_text: "",
-    evidence: "",
+    help_text: helpText,
+    evidence,
   };
 }
 

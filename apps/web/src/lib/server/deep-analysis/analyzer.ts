@@ -162,6 +162,7 @@ export async function analyzeSealedDeepAnalysisInput(input: {
         "아래에는 같은 공고의 무손실 chunk별 독립 분석 결과가 있다.",
         "모든 결과를 합쳐 공고 전체의 최종 22축 판정을 한 번만 반환하라.",
         "source_span은 chunk 결과에 제시된 원문 문자열만 글자 그대로 사용하고 새 인용을 만들지 마라.",
+        "각 chunk의 source_limitations는 다른 chunk가 실제로 보완하는지 대조하고, 분할 때문에 한 chunk에만 내용이 없었던 한계는 제거하라. 전체 봉인 입력에서도 남는 limitation만 source_ref와 의미를 바꾸지 말고 최종 결과에 합쳐라.",
         "어느 chunk에서든 condition_found이면 다른 chunk의 inspected_no_condition보다 우선한다.",
         "서로 충돌하거나 안전하게 합칠 수 없으면 ambiguous로 둔다.",
       ].join(" "),
@@ -219,6 +220,7 @@ function renderSynthesisInput(passes: readonly DeepAnalysisModelPass[]): string 
       criteria: pass.result.criteria,
       axisAssessments: pass.result.axisAssessments,
       taxonomyProposals: pass.result.taxonomyProposals,
+      sourceLimitations: pass.result.sourceLimitations ?? [],
     });
   }).join("\n");
 }

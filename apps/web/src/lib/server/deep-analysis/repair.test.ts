@@ -83,6 +83,7 @@ const validation = {
     },
   ],
   criteria: [],
+  sourceLimitations: [],
   axisCriterionSemanticHashes: Object.fromEntries(
     [
       "region", "biz_age", "industry", "size", "revenue", "employees",
