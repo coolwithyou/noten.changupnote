@@ -177,6 +177,38 @@ assert.equal(validateDeepAnalysisResult({
   result: procedureLimitedResult,
 }).valid, true, "제출 절차나 서식 부재만으로 매칭 준비도를 막지 않는다");
 
+const evaluationPrecisionResult: DeepAnalysisModelResult = {
+  ...sourceLimitedResult,
+  sourceLimitations: [{
+    ...eligibilityLimitation,
+    scope: "evaluation_precision",
+    affectedDimensions: null,
+    explanation: "평가항목과 방향은 제공됐지만 수치 배점·가중치는 공개되지 않음.",
+  }],
+  rawToolInput: {
+    ...sourceLimitedResult.rawToolInput,
+    source_limitations: [{
+      ...rawEligibilityLimitation,
+      scope: "evaluation_precision",
+      affected_dimensions: null,
+      explanation: "평가항목과 방향은 제공됐지만 수치 배점·가중치는 공개되지 않음.",
+    }],
+  },
+};
+const evaluationPrecisionValidation = validateDeepAnalysisResult({
+  seal,
+  result: evaluationPrecisionResult,
+});
+assert.equal(
+  evaluationPrecisionValidation.valid,
+  true,
+  "평가 방향이 확인되고 수치 배점·가중치만 미공개인 한계는 자격 source_incomplete가 아니다",
+);
+assert.equal(decideDeepAnalysisValidationRoute({
+  result: evaluationPrecisionResult,
+  validation: evaluationPrecisionValidation,
+}).route, "accept");
+
 for (const [label, sourceRef] of [
   ["unknown chunk", { ...eligibilityLimitation.sourceRef, sourceId: "attachment:invented:0" }],
   ["wrong hash", { ...eligibilityLimitation.sourceRef, sourceSha256: "0".repeat(64) }],
@@ -417,6 +449,204 @@ assert.equal(
   true,
   "열린 목록이라고 설명하면서 closed 구조값을 내면 matcher 오탈락 전에 차단한다",
 );
+
+const directlyNegatedOpenTargetTypeValidation = validateDeepAnalysisResult({
+  seal,
+  result: result([criterion({
+    dimension: "target_type",
+    operator: "in",
+    kind: "required",
+    value: {
+      targets: ["창업기업"],
+      list_semantics: "closed",
+    },
+    note: "사업자 형태 구분은 별도 기재 항목이며 이는 창업기업 분류 자체를 열린 목록으로 만드는 근거는 아니다.",
+  })], axes(["target_type"])),
+});
+assert.equal(
+  directlyNegatedOpenTargetTypeValidation.valid,
+  true,
+  "open 표현에 직접 걸린 부정은 closed 값과 충돌하는 긍정 주장으로 오인하지 않는다",
+);
+
+for (const note of [
+  "해당 분류는 열린 목록이 아니라 폐쇄 목록이다.",
+  "해당 분류는 열린 목록이 아니다. 이 목록은 유한하다.",
+]) {
+  assert.equal(validateDeepAnalysisResult({
+    seal,
+    result: result([criterion({
+      dimension: "target_type",
+      operator: "in",
+      kind: "required",
+      value: {
+        targets: ["창업기업"],
+        list_semantics: "closed",
+      },
+      note,
+    })], axes(["target_type"])),
+  }).valid, true, `첫 목록 뒤의 직접 부정과 문장 경계를 보존한다: ${note}`);
+}
+
+const mixedOpenTargetTypeValidation = validateDeepAnalysisResult({
+  seal,
+  result: result([criterion({
+    dimension: "target_type",
+    operator: "in",
+    kind: "required",
+    value: {
+      targets: ["창업기업"],
+      list_semantics: "closed",
+    },
+    note: "개인·법인 구분은 창업기업 분류를 열린 목록으로 만드는 근거는 아니다. 다만 목록 밖 유형을 자동 탈락시키지 않도록 list_semantics=open으로 둔다.",
+  })], axes(["target_type"])),
+});
+assert.equal(
+  mixedOpenTargetTypeValidation.issues.some((issue) => (
+    issue.code === "semantic_misattribution"
+    && issue.path.endsWith(".value.list_semantics")
+  )),
+  true,
+  "직접 부정된 occurrence와 별개인 실제 open 주장은 계속 검출한다",
+);
+
+function validatePriorAwardConfirmation(input: {
+  sourceSpan: string;
+  prompt: string;
+  reusable: "company_fact" | "per_notice";
+}) {
+  const confirmationSeal = sealDeepAnalysisInput({
+    grantId: "grant-prior-award-confirmation-cutoff",
+    sourceRevisionSha256: "4".repeat(64),
+    structuredText: input.sourceSpan,
+    attachments: [],
+  });
+  const confirmedCriterion = criterion({
+    dimension: "prior_award",
+    operator: "text_only",
+    kind: "exclusion",
+    value: { note: input.sourceSpan },
+    sourceSpan: input.sourceSpan,
+    confirmation: {
+      prompt: input.prompt,
+      options: [
+        { value: "twice_or_more", label: "2회 이상", disqualifies: true },
+        { value: "once_or_less", label: "1회 이하", disqualifies: false },
+      ],
+      answerType: "single",
+      reusable: input.reusable,
+      conditionKey: input.reusable === "company_fact"
+        ? "prior_award_kised_overseas_exhibition_count_since_2022"
+        : null,
+    },
+  });
+  return {
+    criterion: confirmedCriterion,
+    validation: validateDeepAnalysisResult({
+      seal: confirmationSeal,
+      result: result([confirmedCriterion], axes(["prior_award"])),
+    }),
+  };
+}
+
+const techfestConfirmation = validatePriorAwardConfirmation({
+  sourceSpan:
+    "ㅇ 최근 5년간 창업진흥원 해외전시회 참가이력이 1회 이하인 기업 (2회 이상 기업 제외) * 2022년 1월 1일부터 공고일까지",
+  prompt:
+    "2022년 1월 1일부터 현재까지 창업진흥원 해외전시회에 참가한 이력이 몇 회 있나요?",
+  reusable: "company_fact",
+});
+assert.deepEqual(
+  techfestConfirmation.validation.issues
+    .filter((issue) => issue.code === "semantic_misattribution")
+    .map((issue) => issue.path),
+  [
+    "$.criteria[0].confirmation.prompt",
+    "$.criteria[0].confirmation.reusable",
+  ],
+  "공고일까지를 현재까지로 넓힌 질문과 공고별 답변 공용을 targeted repair로 보낸다",
+);
+assert.deepEqual(
+  techfestConfirmation.criterion.value,
+  {
+    note:
+      "ㅇ 최근 5년간 창업진흥원 해외전시회 참가이력이 1회 이하인 기업 (2회 이상 기업 제외) * 2022년 1월 1일부터 공고일까지",
+  },
+  "기간 질문 오류 때문에 source/value를 결정론적으로 바꾸지 않는다",
+);
+
+assert.equal(validatePriorAwardConfirmation({
+  sourceSpan:
+    "ㅇ 최근 5년간 창업진흥원 해외전시회 참가이력이 1회 이하인 기업 (2회 이상 기업 제외) * 2022년 1월 1일부터 공고일까지",
+  prompt:
+    "2022년 1월 1일부터 이 모집공고의 공고일까지 창업진흥원 해외전시회에 참가한 이력이 몇 회 있나요?",
+  reusable: "per_notice",
+}).validation.valid, true, "상대 공고일 cutoff를 보존한 공고별 질문은 통과한다");
+
+assert.equal(validatePriorAwardConfirmation({
+  sourceSpan:
+    "2022년 1월 1일부터 공고일까지 창업진흥원 해외전시회 참가 이력이 2회 이상인 기업",
+  prompt:
+    "현재까지가 아니라 이 모집공고의 공고일까지 참가한 이력이 2회 이상인가요?",
+  reusable: "per_notice",
+}).validation.valid, true, "올바른 공고일 기준을 함께 밝힌 질문의 부정문을 현재까지 확장으로 오인하지 않는다");
+
+assert.equal(validatePriorAwardConfirmation({
+  sourceSpan:
+    "해외전시회 이력은 2022년 1월 1일부터 공고일까지, 별도 수상 이력은 접수 마감일 현재 상태를 확인한다.",
+  prompt: "현재까지 관련 해외 활동 이력이 있나요?",
+  reusable: "company_fact",
+}).validation.issues.some((issue) => (
+  issue.path.startsWith("$.criteria[0].confirmation")
+)), false, "서로 다른 기간 끝점이 한 source span에 섞이면 임의 결속하지 않는다");
+
+for (const sourceSpan of [
+  "해외전시회는 공고일까지, 별도 수상 이력은 2025년 12월 31일까지 확인한다.",
+  "해외전시회는 공고일까지, 별도 수상 이력은 접수 마감일 기준으로 확인한다.",
+]) {
+  assert.equal(validatePriorAwardConfirmation({
+    sourceSpan,
+    prompt: "현재까지 관련 수상·참가 이력이 있나요?",
+    reusable: "company_fact",
+  }).validation.issues.some((issue) => (
+    issue.path.startsWith("$.criteria[0].confirmation")
+  )), false, `복수 기간 끝점을 단일 공고일 cutoff로 결속하지 않는다: ${sourceSpan}`);
+}
+
+const ungroundedTemporalCriterion = criterion({
+  dimension: "prior_award",
+  operator: "text_only",
+  kind: "exclusion",
+  value: { note: "2022년 1월 1일부터 공고일까지 참가 이력이 2회 이상인 기업" },
+  sourceSpan: "2022년 1월 1일부터 공고일까지 참가 이력이 2회 이상인 기업",
+  confirmation: {
+    prompt: "2022년 1월 1일부터 현재까지 참가한 이력이 몇 회 있나요?",
+    options: [
+      { value: "twice_or_more", label: "2회 이상", disqualifies: true },
+      { value: "once_or_less", label: "1회 이하", disqualifies: false },
+    ],
+    answerType: "single",
+    reusable: "company_fact",
+    conditionKey: "prior_award_unverified_cutoff",
+  },
+});
+const ungroundedTemporalValidation = validateDeepAnalysisResult({
+  seal,
+  result: result([ungroundedTemporalCriterion], axes(["prior_award"])),
+});
+assert.equal(ungroundedTemporalValidation.issues.some((issue) => (
+  issue.code === "evidence_not_grounded"
+)), true, "봉인 입력에 없는 기간 source_span은 근거 오류로 차단한다");
+assert.equal(ungroundedTemporalValidation.issues.some((issue) => (
+  issue.path.startsWith("$.criteria[0].confirmation")
+)), false, "검증되지 않은 source_span을 근거로 기간 repair를 지시하지 않는다");
+
+assert.equal(validatePriorAwardConfirmation({
+  sourceSpan:
+    "2022년 이후 K-스타트업 통합관 참가 이력이 2회 이상 있는 기업",
+  prompt: "2022년 이후 K-스타트업 통합관 참가 이력이 2회 이상 있나요?",
+  reusable: "company_fact",
+}).validation.valid, true, "공고일 cutoff가 없는 일반 since-2022 기업 이력은 company_fact를 유지한다");
 
 const compoundCertificationSpan =
   "방위사업법에 따라 지정된 방산업체 중 직접 연관 분야에서 방산물자 지정을 받은 중소기업 1.5%";

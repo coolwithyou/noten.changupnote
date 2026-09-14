@@ -20,6 +20,7 @@ import { partitionCohortEntries, type GrantRunState } from "./batch-plan";
 import { runConfirmationTaskPool } from "./confirmations-cli";
 import {
   CONFIRMATIONS_PROMPT_VERSION,
+  buildConfirmationsSystemPrompt,
   LAB_CONFIRMATIONS_SCHEMA,
   mergeConfirmationsIntoRun,
   normalizeConfirmationsPayload,
@@ -29,6 +30,13 @@ import {
   type ConfirmationsLlmDeps,
   type LabConfirmationsFile,
 } from "./confirmations";
+
+assert.equal(CONFIRMATIONS_PROMPT_VERSION, "confirmations-v3");
+assert.match(
+  buildConfirmationsSystemPrompt(),
+  /공고일까지[\s\S]*현재까지[\s\S]*오늘까지[\s\S]*per_notice/,
+  "경량 confirmation 보강도 primary와 같은 기간·재사용 규칙을 쓴다",
+);
 
 // ---- 픽스처 -----------------------------------------------------------------------
 

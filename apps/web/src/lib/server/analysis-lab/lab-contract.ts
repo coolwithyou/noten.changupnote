@@ -41,7 +41,8 @@ import type { MatchingConversionReport } from "@/lib/server/analysis-serving/mat
 // v23: 목록 의미·빈 선택 메타데이터·업력 exclusive 월 경계 계약을 일치시킨다.
 // v24: 위임형 업종 조항은 text_only에만 보존하고 평가와 참석 절차를 분리한다.
 // v25: 제공 chunk에 결속된 source limitation을 보존하고 자격 범위 한계를 conditional로 내린다.
-export const ANALYSIS_LAB_PROMPT_VERSION = "lab-deep-v25";
+// v26: 평가 정밀도 한계와 공고일 기준 confirmation 기간을 자격 한계·현재 시점과 구분한다.
+export const ANALYSIS_LAB_PROMPT_VERSION = "lab-deep-v26";
 export const ANALYSIS_LAB_DEFAULT_MODEL = "claude-opus-4-8";
 
 /**

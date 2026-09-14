@@ -4,7 +4,7 @@ type DeepAnalysisCriterionDimension = (typeof CRITERION_DIMENSIONS)[number];
 
 export const DEEP_ANALYSIS_ACTIVE_POLICY_VERSION = "deep-analysis-active-kst-v2" as const;
 export const DEEP_ANALYSIS_ACTIVE_TIME_ZONE = "Asia/Seoul" as const;
-export const DEEP_ANALYSIS_PROMPT_VERSION = "deep-analysis-v30" as const;
+export const DEEP_ANALYSIS_PROMPT_VERSION = "deep-analysis-v31" as const;
 export const DEEP_ANALYSIS_MODEL_POLICY_VERSION = "deep-analysis-model-policy-v25" as const;
 export const DEEP_ANALYSIS_COST_QUALITY_EXPERIMENT_POLICY_VERSION =
   "deep-analysis-model-policy-cq2-v8" as const;
@@ -294,6 +294,7 @@ export interface DeepAnalysisTaxonomyProposal {
 export const DEEP_ANALYSIS_SOURCE_LIMITATION_SCOPES = [
   "eligibility_details",
   "application_procedure",
+  "evaluation_precision",
   "other",
 ] as const;
 
@@ -309,7 +310,10 @@ export type DeepAnalysisSourceLimitationKind =
   (typeof DEEP_ANALYSIS_SOURCE_LIMITATION_KINDS)[number];
 
 export interface DeepAnalysisSourceLimitation {
-  /** eligibility_details만 매칭 준비도를 제한한다. 절차·서식 한계는 자격 미확정과 다르다. */
+  /**
+   * eligibility_details만 매칭 준비도를 제한한다. 절차·서식 한계와, 평가 방향은
+   * 공개됐지만 수치 배점·가중치만 없는 evaluation_precision은 자격 미확정과 다르다.
+   */
   scope: DeepAnalysisSourceLimitationScope;
   kind: DeepAnalysisSourceLimitationKind;
   sourceRef: {

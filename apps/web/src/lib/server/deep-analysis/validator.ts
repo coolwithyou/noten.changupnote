@@ -31,7 +31,7 @@ import {
 import { resolveExclusiveBizAgeUpperBound } from "./biz-age-boundary";
 import { resolveTargetTypeListSemantics } from "./target-type-list-semantics";
 
-export const DEEP_ANALYSIS_VALIDATOR_VERSION = "deep-analysis-validator-v18" as const;
+export const DEEP_ANALYSIS_VALIDATOR_VERSION = "deep-analysis-validator-v19" as const;
 
 export type DeepAnalysisValidationIssueCode =
   | "raw_contract_invalid"
@@ -1343,6 +1343,8 @@ function validateCriterion(
       path: `$.criteria[${index}].source_span`,
       message: "source_span does not exactly map to a sealed structured/attachment chunk.",
     });
+  } else {
+    validateConfirmationTemporalScope(criterion, index, issues);
   }
   const semanticSha256 = sha256Hex(stableJson({
     dimension: canonicalCriterion.dimension,
@@ -1411,9 +1413,70 @@ function crossAxisCoveredDimensions(criterion: DeepAnalysisCriterion): Criterion
 
 function targetTypeNoteRequiresOpenList(note: string): boolean {
   const normalized = note.normalize("NFKC");
-  return /list_semantics\s*=\s*open/iu.test(normalized)
-    || /(?:열린|개방형|완전\s*열거가\s*아닌).{0,24}목록/iu.test(normalized)
-    || /목록\s*밖.{0,40}(?:자동\s*)?탈락시키지/iu.test(normalized);
+  const assertions = [
+    /list_semantics\s*=\s*open/giu,
+    /(?:열린|개방형|완전\s*열거가\s*아닌)[^.!?。！？\n]{0,24}?목록/giu,
+    /목록\s*밖[^.!?。！？\n]{0,40}?(?:자동\s*)?탈락시키지/giu,
+  ].flatMap((pattern) => [...normalized.matchAll(pattern)]);
+  return assertions.some((assertion) => {
+    const end = (assertion.index ?? 0) + assertion[0].length;
+    const tail = normalized.slice(end, end + 48).trimStart();
+    return !isDirectlyNegatedOpenListAssertion(tail);
+  });
+}
+
+function isDirectlyNegatedOpenListAssertion(tail: string): boolean {
+  return /^(?:이|가|은|는)?\s*(?:아니(?:다|라|며|고)|아님|해당하지\s*않)/iu.test(tail)
+    || /^(?:이라는|으로\s*만드는)?\s*(?:근거|뜻|의미|주장|설명)(?:이|가|은|는)?\s*(?:아니(?:다|며|고)|아님)/iu
+      .test(tail);
+}
+
+function validateConfirmationTemporalScope(
+  criterion: DeepAnalysisCriterion,
+  index: number,
+  issues: DeepAnalysisValidationIssue[],
+): void {
+  if (criterion.dimension !== "prior_award" || !criterion.confirmation || !criterion.sourceSpan) {
+    return;
+  }
+  const sourceSpan = criterion.sourceSpan.normalize("NFKC");
+  if (!hasSoleRelativeNoticeCutoff(sourceSpan)) return;
+
+  const prompt = criterion.confirmation.prompt.normalize("NFKC");
+  const promptKeepsNoticeCutoff = RELATIVE_NOTICE_CUTOFF_PATTERN.test(prompt);
+  RELATIVE_NOTICE_CUTOFF_PATTERN.lastIndex = 0;
+  if (
+    !promptKeepsNoticeCutoff
+    && /(?:현재|오늘)\s*까지/iu.test(prompt)
+  ) {
+    issues.push({
+      code: "semantic_misattribution",
+      path: `$.criteria[${index}].confirmation.prompt`,
+      message:
+        "The verified source ends the prior-award window at this notice's announcement date, but the confirmation extends it to the present. Ask through '이 모집공고의 공고일까지' without inventing a date.",
+    });
+  }
+  if (criterion.confirmation.reusable !== "per_notice") {
+    issues.push({
+      code: "semantic_misattribution",
+      path: `$.criteria[${index}].confirmation.reusable`,
+      message:
+        "A prior-award answer bounded by this notice's announcement date is notice-specific. Use reusable=per_notice and do not share the answer across notices.",
+    });
+  }
+}
+
+const RELATIVE_NOTICE_CUTOFF_PATTERN =
+  /(?:이\s*)?(?:모집\s*)?공고(?:일|일자)?(?:\s*기준)?\s*까지/giu;
+
+function hasSoleRelativeNoticeCutoff(sourceSpan: string): boolean {
+  const matches = [...sourceSpan.matchAll(RELATIVE_NOTICE_CUTOFF_PATTERN)];
+  RELATIVE_NOTICE_CUTOFF_PATTERN.lastIndex = 0;
+  if (matches.length !== 1) return false;
+  const withoutNoticeCutoff = sourceSpan.replace(RELATIVE_NOTICE_CUTOFF_PATTERN, "");
+  RELATIVE_NOTICE_CUTOFF_PATTERN.lastIndex = 0;
+  return !/(?:(?:(?:\d{2,4}\s*년\s*)?\d{1,2}\s*월\s*\d{1,2}\s*일|[’']?\d{2,4}[.\-/]\d{1,2}[.\-/]\d{1,2})\s*까지)|(?:접수|신청)(?:\s*마감)?\s*일(?:자)?|(?:현재|오늘)(?:\s*기준|\s*까지)?/iu
+    .test(withoutNoticeCutoff);
 }
 
 function validateMatcherSemanticCompleteness(

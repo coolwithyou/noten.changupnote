@@ -152,7 +152,7 @@ const danyangScopeSpan = "〈사업 대상자 선정평가표〉\n\n붙임 2";
 const danyangInputText = `${inputText}\n${danyangScopeSpan}\n`;
 function sourceLimitedResult(
   modelInputText: string,
-  scope: "eligibility_details" | "application_procedure",
+  scope: "eligibility_details" | "application_procedure" | "evaluation_precision",
   base: DeepAnalysisModelResult = result(true),
 ): DeepAnalysisModelResult {
   const header = /<<<DEEP_ANALYSIS_SOURCE id="([^"]+)" kind="(structured|attachment)" sha256="([0-9a-f]{64})">>>/u
@@ -170,7 +170,9 @@ function sourceLimitedResult(
     affectedDimensions: scope === "eligibility_details" ? ["prior_award" as const] : null,
     explanation: scope === "eligibility_details"
       ? "제공된 선정평가표와 요약만으로 상세 신청자격·제외대상의 전체 범위를 확인할 수 없다고 판단함."
-      : "제공된 입력만으로 제출 서식과 접수 절차의 전체 범위를 확인할 수 없다고 판단함.",
+      : scope === "application_procedure"
+        ? "제공된 입력만으로 제출 서식과 접수 절차의 전체 범위를 확인할 수 없다고 판단함."
+        : "평가항목과 방향은 제공됐지만 수치 배점·가중치는 공개되지 않음.",
   };
   return {
     ...base,
@@ -220,6 +222,20 @@ const procedureOnlyLimited = await runValidatedLabPrimary({
   runModel: async (options) => sourceLimitedResult(options.inputText, "application_procedure"),
 });
 assert.equal(procedureOnlyLimited.matchingReadiness, "ready", "절차 범위 한계만으로 매칭을 낮추지 않는다");
+
+const evaluationPrecisionLimited = await runValidatedLabPrimary({
+  grantId: "grant-lab-evaluation-precision-limited",
+  inputText: danyangInputText,
+  inputSha256: "8".repeat(64),
+  apiKey: "subscription",
+  model: "claude-opus-5",
+  runModel: async (options) => sourceLimitedResult(options.inputText, "evaluation_precision"),
+});
+assert.equal(
+  evaluationPrecisionLimited.matchingReadiness,
+  "ready",
+  "수치 배점·가중치만 미공개인 평가 정밀도 한계로 자격 매칭을 conditional로 낮추지 않는다",
+);
 
 let preservedLimitationCalls = 0;
 const preservedThroughRepair = await runValidatedLabPrimary({

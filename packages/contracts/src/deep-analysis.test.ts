@@ -4,6 +4,7 @@ import {
   DEEP_ANALYSIS_ACTIVE_POLICY_VERSION,
   DEEP_ANALYSIS_COST_QUALITY_EXPERIMENT_POLICY_VERSION,
   DEEP_ANALYSIS_MODEL_POLICY_VERSION,
+  DEEP_ANALYSIS_SOURCE_LIMITATION_SCOPES,
   DEEP_ANALYSIS_STAGE_KEYS,
   assertDeepAnalysisModelEffort,
   assertDeepAnalysisModelPair,
@@ -23,6 +24,10 @@ assert.equal(DEEP_ANALYSIS_MODEL_POLICY_VERSION, "deep-analysis-model-policy-v25
 assert.equal(
   DEEP_ANALYSIS_COST_QUALITY_EXPERIMENT_POLICY_VERSION,
   "deep-analysis-model-policy-cq2-v8",
+);
+assert.equal(
+  DEEP_ANALYSIS_SOURCE_LIMITATION_SCOPES.includes("evaluation_precision"),
+  true,
 );
 
 assert.doesNotThrow(() => assertDeepAnalysisModelPair({

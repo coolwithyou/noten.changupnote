@@ -45,6 +45,7 @@ import {
   DEEP_ANALYSIS_SYSTEM_PROMPT,
   DEEP_ANALYSIS_TARGET_TYPE_LIST_SEMANTICS_RULE,
   DEEP_ANALYSIS_UNRESOLVED_REFUND_RULE,
+  CONFIRMATION_PROMPT_RULES,
   buildDeepAnalysisToolSchema,
   normalizeCriteria,
   resolveExactEvidenceSpan,
@@ -325,6 +326,15 @@ assert.match(DEEP_ANALYSIS_SOURCE_LIMITATION_RULE, /model_disclosure.*source_spa
 assert.match(DEEP_ANALYSIS_SOURCE_LIMITATION_RULE, /'붙임2'.*붙임1.*확정하지 마라/);
 assert.match(DEEP_ANALYSIS_SOURCE_LIMITATION_RULE, /affected_dimensions=null.*모든 축을 input_missing.*아니다/);
 assert.match(
+  DEEP_ANALYSIS_SOURCE_LIMITATION_RULE,
+  /숫자 배점·가중치만 공개되지 않아.*scope=evaluation_precision.*자격 누락으로 취급하지 않는다/,
+);
+assert.match(
+  CONFIRMATION_PROMPT_RULES.join("\n"),
+  /2022년 1월 1일부터 공고일까지[\s\S]*현재까지[\s\S]*오늘까지[\s\S]*이 모집공고의 공고일까지[\s\S]*per_notice/,
+  "공용 primary/confirmation prompt가 공고별 기간 끝점과 답변 범위를 함께 보존한다",
+);
+assert.match(
   DEEP_ANALYSIS_SYSTEM_PROMPT,
   /rawPayload\.trgetNm.*공식 신청대상.*첨부 본문에 같은 문장이 반복되지 않아도.*유효한 근거/,
 );
@@ -379,6 +389,10 @@ assert.deepEqual(
     "affected_dimensions",
     "explanation",
   ]);
+  assert.deepEqual(
+    (sourceLimitations.items.properties.scope as { enum: string[] }).enum,
+    ["eligibility_details", "application_procedure", "evaluation_precision", "other"],
+  );
 }
 assert.match(
   DEEP_ANALYSIS_SYSTEM_PROMPT,
