@@ -8,6 +8,22 @@ export const LEGACY_PROMOTION_APPLICATION_PRECOMPUTE_SCHEMA =
 export const ANALYSIS_LAUNCH_PROMOTION_APPLICATION_PRECOMPUTE_SCHEMA =
   "promotion-application-precompute-v3" as const;
 
+export type PromotionApplicationPrecomputeValidationPurpose =
+  | "current_admission"
+  | "field_repair_serving";
+
+const FIELD_REPAIR_SERVING_COMPATIBLE_ROUNDTRIP_VERSION =
+  "kordoc-application-roundtrip-v11";
+
+export function applicationFieldAnalysisVersionAllowedForPurpose(
+  value: unknown,
+  purpose: PromotionApplicationPrecomputeValidationPurpose,
+): boolean {
+  return value === APPLICATION_ROUNDTRIP_VERSION
+    || (purpose === "field_repair_serving"
+      && value === FIELD_REPAIR_SERVING_COMPATIBLE_ROUNDTRIP_VERSION);
+}
+
 export interface PromotionApplicationPrecomputeAdmissionEvidence {
   receiptSchema: ApplicationRoundtripReleaseAdmission["receiptSchema"];
   admissionReceiptSha256: string;
@@ -62,6 +78,7 @@ export interface PromotionApplicationPrecomputeEvidence {
 
 export function validatePromotionApplicationPrecomputeEvidence(
   value: unknown,
+  purpose: PromotionApplicationPrecomputeValidationPurpose = "current_admission",
 ): asserts value is PromotionApplicationPrecomputeEvidence {
   if (!value || typeof value !== "object") throw new Error("Kordoc release evidence가 객체가 아닙니다.");
   const evidence = value as Partial<PromotionApplicationPrecomputeEvidence>;
@@ -97,7 +114,7 @@ export function validatePromotionApplicationPrecomputeEvidence(
       throw new Error("Kordoc v2 evidence에는 launch admission을 기록할 수 없습니다.");
     }
   } else if (evidence.schema === ANALYSIS_LAUNCH_PROMOTION_APPLICATION_PRECOMPUTE_SCHEMA) {
-    validateLaunchAdmissionEvidence(evidence.launchAdmission, evidence);
+    validateLaunchAdmissionEvidence(evidence.launchAdmission, evidence, purpose);
     if (evidence.canaryAdmission !== undefined) {
       throw new Error("formal launch RHWP evidence에는 canary admission을 기록할 수 없습니다.");
     }
@@ -111,6 +128,7 @@ export function validatePromotionApplicationPrecomputeEvidence(
 function validateLaunchAdmissionEvidence(
   value: PromotionApplicationPrecomputeLaunchEvidence | undefined,
   evidence: { schema?: unknown },
+  purpose: PromotionApplicationPrecomputeValidationPurpose,
 ): void {
   if (
     !value
@@ -122,7 +140,10 @@ function validateLaunchAdmissionEvidence(
     || !isSha256(value.independentReviewManifestSha256)
     || !isSha256(value.independentReviewAggregateSha256)
     || !isSha256(value.runArtifactSha256)
-    || value.applicationFieldAnalysisVersion !== APPLICATION_ROUNDTRIP_VERSION
+    || !applicationFieldAnalysisVersionAllowedForPurpose(
+      value.applicationFieldAnalysisVersion,
+      purpose,
+    )
     || evidence.schema !== ANALYSIS_LAUNCH_PROMOTION_APPLICATION_PRECOMPUTE_SCHEMA
   ) {
     throw new Error("formal launch RHWP evidence 결속이 올바르지 않습니다.");

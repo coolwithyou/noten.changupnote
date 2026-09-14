@@ -6,7 +6,11 @@ import {
   sha256Canonical,
   type PromotionSourceArtifact,
 } from "./promotionReleaseContract";
-import { validatePromotionApplicationPrecomputeEvidence } from "./applicationPrecomputeEvidence";
+import {
+  applicationFieldAnalysisVersionAllowedForPurpose,
+  validatePromotionApplicationPrecomputeEvidence,
+  type PromotionApplicationPrecomputeValidationPurpose,
+} from "./applicationPrecomputeEvidence";
 
 export const APPLICATION_FIELD_REPAIR_RELEASE_SCHEMA =
   "analysis-lab-application-field-repair-release-v1" as const;
@@ -129,6 +133,20 @@ export function createApplicationFieldRepairReleaseManifest(input: {
 export function validateApplicationFieldRepairReleaseManifest(
   value: unknown,
 ): ApplicationFieldRepairReleaseManifest {
+  return validateApplicationFieldRepairReleaseManifestForPurpose(value, "current_admission");
+}
+
+/** 이미 봉인·적용된 v11 repair의 작성 readiness를 현재 제품에서만 재검증한다. */
+export function validateApplicationFieldRepairReleaseManifestForServing(
+  value: unknown,
+): ApplicationFieldRepairReleaseManifest {
+  return validateApplicationFieldRepairReleaseManifestForPurpose(value, "field_repair_serving");
+}
+
+function validateApplicationFieldRepairReleaseManifestForPurpose(
+  value: unknown,
+  purpose: PromotionApplicationPrecomputeValidationPurpose,
+): ApplicationFieldRepairReleaseManifest {
   if (!value || typeof value !== "object") throw new Error("application repair manifest가 객체가 아닙니다.");
   const manifest = value as Partial<ApplicationFieldRepairReleaseManifest>;
   const repair = manifest.repair;
@@ -156,7 +174,7 @@ export function validateApplicationFieldRepairReleaseManifest(
   ) {
     throw new Error("application repair manifest 형식이 올바르지 않습니다.");
   }
-  assertRepairPlan(repair);
+  assertRepairPlan(repair, purpose);
   if (manifest.canaryGrantIds[0] !== repair.grantId) {
     throw new Error("application repair canary와 grant가 다릅니다.");
   }
@@ -190,7 +208,7 @@ export function resolveApplicationFieldRepairAuthoringReadiness(
   ) return null;
   let manifest: ApplicationFieldRepairReleaseManifest;
   try {
-    manifest = validateApplicationFieldRepairReleaseManifest(row.releaseManifest);
+    manifest = validateApplicationFieldRepairReleaseManifestForServing(row.releaseManifest);
   } catch {
     return null;
   }
@@ -214,7 +232,10 @@ export function resolveApplicationFieldRepairAuthoringReadiness(
   };
 }
 
-function assertRepairPlan(repair: ApplicationFieldRepairPlan): void {
+function assertRepairPlan(
+  repair: ApplicationFieldRepairPlan,
+  purpose: PromotionApplicationPrecomputeValidationPurpose,
+): void {
   const source = repair.sourceArtifact;
   const evidence = source.localLabEvidence;
   const launch = evidence?.analysisLaunch;
@@ -273,11 +294,14 @@ function assertRepairPlan(repair: ApplicationFieldRepairPlan): void {
     || application.launchAdmission?.runArtifactSha256 !== source.runSha256
     || application.launchAdmission?.applicationFieldAnalysisVersion
       !== launch.applicationFieldAnalysisVersion
-    || launch.applicationFieldAnalysisVersion !== APPLICATION_ROUNDTRIP_VERSION
+    || !applicationFieldAnalysisVersionAllowedForPurpose(
+      launch.applicationFieldAnalysisVersion,
+      purpose,
+    )
   ) {
     throw new Error(`application repair exact 결속이 올바르지 않습니다: ${repair.grantId}`);
   }
-  validatePromotionApplicationPrecomputeEvidence(application);
+  validatePromotionApplicationPrecomputeEvidence(application, purpose);
 }
 
 function applicationPrecomputeReceiptMatches(

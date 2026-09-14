@@ -5,6 +5,7 @@ import {
   createApplicationFieldRepairReleaseManifest,
   resolveApplicationFieldRepairAuthoringReadiness,
   validateApplicationFieldRepairReleaseManifest,
+  validateApplicationFieldRepairReleaseManifestForServing,
   type ApplicationFieldRepairServingRow,
 } from "./applicationFieldRepairContract";
 import { sha256Canonical, type PromotionSourceArtifact } from "./promotionReleaseContract";
@@ -17,9 +18,13 @@ import {
 const grantId = "11111111-1111-4111-8111-111111111111";
 const parentId = "22222222-2222-4222-8222-222222222222";
 const releaseDbId = "33333333-3333-4333-8333-333333333333";
+const SERVING_COMPATIBLE_V11 = "kordoc-application-roundtrip-v11";
 const H = (value: string) => sha256Canonical(value);
 
-function fixture(version = APPLICATION_ROUNDTRIP_VERSION) {
+function fixture(
+  version = APPLICATION_ROUNDTRIP_VERSION,
+  nestedVersion = version,
+) {
   const releaseId = "application-field-repair-contract-r1";
   const launchReceiptSha256 = H("launch-receipt");
   const launchManifestSha256 = H("launch-manifest");
@@ -83,7 +88,7 @@ function fixture(version = APPLICATION_ROUNDTRIP_VERSION) {
         independentReviewManifestSha256: H("review-manifest"),
         independentReviewAggregateSha256: aggregateSha256,
         runArtifactSha256: runSha256,
-        applicationFieldAnalysisVersion: version,
+        applicationFieldAnalysisVersion: nestedVersion,
       },
     },
   } satisfies PromotionSourceArtifact;
@@ -164,10 +169,15 @@ function fixture(version = APPLICATION_ROUNDTRIP_VERSION) {
   return { manifest, receipt, roundtripRunId };
 }
 
-test("current contract의 applied repair만 authoring ready를 제공한다", () => {
-  const { manifest, receipt, roundtripRunId } = fixture();
-  assert.equal(validateApplicationFieldRepairReleaseManifest(manifest).manifestSha256, manifest.manifestSha256);
-  const row: ApplicationFieldRepairServingRow = {
+function servingRow(
+  version = APPLICATION_ROUNDTRIP_VERSION,
+  nestedVersion = version,
+): ApplicationFieldRepairServingRow & {
+  releaseManifest: ReturnType<typeof fixture>["manifest"];
+  applicationPrecomputeReceipt: ReturnType<typeof fixture>["receipt"];
+} {
+  const { manifest, receipt, roundtripRunId } = fixture(version, nestedVersion);
+  return {
     repairId: "repair-1",
     releaseDbId,
     releaseId: manifest.releaseId,
@@ -177,7 +187,7 @@ test("current contract의 applied repair만 authoring ready를 제공한다", ()
     grantId,
     parentPromotionItemId: parentId,
     roundtripRunId,
-    applicationFieldAnalysisVersion: APPLICATION_ROUNDTRIP_VERSION,
+    applicationFieldAnalysisVersion: version,
     planSha256: manifest.repair.planSha256,
     status: "applied",
     applicationPrecomputeReceipt: receipt,
@@ -185,6 +195,13 @@ test("current contract의 applied repair만 authoring ready를 제공한다", ()
     currentServingStateSha256: H("serving"),
     appliedAt: new Date("2026-09-11T00:01:00.000Z"),
   };
+}
+
+test("current contract의 applied repair만 authoring ready를 제공한다", () => {
+  const row = servingRow();
+  const manifest = row.releaseManifest;
+  const receipt = row.applicationPrecomputeReceipt;
+  assert.equal(validateApplicationFieldRepairReleaseManifest(manifest).manifestSha256, manifest.manifestSha256);
   assert.deepEqual(resolveApplicationFieldRepairAuthoringReadiness(row), {
     status: "ready",
     sourceDisposition: "ready",
@@ -199,6 +216,65 @@ test("current contract의 applied repair만 authoring ready를 제공한다", ()
   ]) {
     assert.equal(resolveApplicationFieldRepairAuthoringReadiness(broken), null);
   }
+});
+
+test("v11 repair는 serving에서만 ready로 복원한다", () => {
+  const row = servingRow(SERVING_COMPATIBLE_V11);
+  assert.throws(
+    () => validateApplicationFieldRepairReleaseManifest(row.releaseManifest),
+    /exact 결속/u,
+    "새 admission은 v11을 받지 않는다",
+  );
+  assert.equal(
+    validateApplicationFieldRepairReleaseManifestForServing(row.releaseManifest).manifestSha256,
+    row.releaseManifestSha256,
+  );
+  assert.deepEqual(resolveApplicationFieldRepairAuthoringReadiness(row), {
+    status: "ready",
+    sourceDisposition: "ready",
+  });
+});
+
+test("serving compatibility는 v9와 미지의 미래 version을 허용하지 않는다", () => {
+  for (const version of [
+    "kordoc-application-roundtrip-v9",
+    "kordoc-application-roundtrip-v15",
+  ]) {
+    const row = servingRow(version);
+    assert.throws(
+      () => validateApplicationFieldRepairReleaseManifest(row.releaseManifest),
+      /exact 결속/u,
+    );
+    assert.throws(
+      () => validateApplicationFieldRepairReleaseManifestForServing(row.releaseManifest),
+      /exact 결속/u,
+    );
+    assert.equal(resolveApplicationFieldRepairAuthoringReadiness(row), null);
+  }
+});
+
+test("serving repair의 중첩·행 version과 manifest hash drift를 거부한다", () => {
+  const nestedMismatch = servingRow(SERVING_COMPATIBLE_V11, APPLICATION_ROUNDTRIP_VERSION);
+  assert.throws(
+    () => validateApplicationFieldRepairReleaseManifestForServing(nestedMismatch.releaseManifest),
+    /exact 결속/u,
+  );
+  assert.equal(resolveApplicationFieldRepairAuthoringReadiness(nestedMismatch), null);
+
+  const rowMismatch = servingRow(SERVING_COMPATIBLE_V11);
+  assert.equal(resolveApplicationFieldRepairAuthoringReadiness({
+    ...rowMismatch,
+    applicationFieldAnalysisVersion: APPLICATION_ROUNDTRIP_VERSION,
+  }), null);
+
+  const manifestHashDrift = servingRow(SERVING_COMPATIBLE_V11);
+  assert.equal(resolveApplicationFieldRepairAuthoringReadiness({
+    ...manifestHashDrift,
+    releaseManifest: {
+      ...manifestHashDrift.releaseManifest,
+      cohortLabel: "drifted-after-seal",
+    },
+  }), null);
 });
 
 test("구 application 분석 version으로 새 repair manifest를 만들 수 없다", () => {
