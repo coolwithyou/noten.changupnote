@@ -42,7 +42,9 @@ import type { MatchingConversionReport } from "@/lib/server/analysis-serving/mat
 // v24: 위임형 업종 조항은 text_only에만 보존하고 평가와 참석 절차를 분리한다.
 // v25: 제공 chunk에 결속된 source limitation을 보존하고 자격 범위 한계를 conditional로 내린다.
 // v26: 평가 정밀도 한계와 공고일 기준 confirmation 기간을 자격 한계·현재 시점과 구분한다.
-export const ANALYSIS_LAB_PROMPT_VERSION = "lab-deep-v26";
+// v27: 서약 사실과 평가 진행 방식에 실제 신청·평가 효과가 결속됐는지 검증한다.
+// v28: 평가 근거 전부 부재 설명과 evaluation_precision의 자기모순을 repair한다.
+export const ANALYSIS_LAB_PROMPT_VERSION = "lab-deep-v28";
 export const ANALYSIS_LAB_DEFAULT_MODEL = "claude-opus-4-8";
 
 /**
@@ -442,13 +444,13 @@ export interface LabReviewResponse {
  * criterion 일치 24/28 · correct→wrong 오검출 0 · 빈 축 일치 45/46 (개정 카드 1회 소진).
  * 집계 방법론 표기(aggregate)·감사 로더(audited-reviews)·감사 UI 가 이 상수를 공유한다 —
  * 수치·모델을 다른 곳에 하드코딩하지 말 것.
- * v7은 기존 판정 어휘를 바꾸지 않고 missed_condition 영향도와 제출자료 리트머스를 적용한다.
+ * v8은 기존 판정 어휘를 바꾸지 않고 서약 사실·평가 진행 방식의 효과 결속을 강화한다.
  * promptVersion 은 생성기 상수(ai-review.ts AI_REVIEW_PROMPT_VERSION)와 같아야 하며,
  * 다르면 새 영향도 계약을 적용하지 않은 artifact라는 경고를 출력한다.
  */
 export const AI_REVIEW_ADOPTED = {
   model: "claude-fable-5",
-  promptVersion: "ai-review-v7",
+  promptVersion: "ai-review-v8",
   calibration: {
     criterionAgreement: "24/28",
     correctToWrong: 0,

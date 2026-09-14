@@ -6,6 +6,7 @@
 // ④ 판정 비교(compareAiAuditVerdicts — concur/불일치/unsure) ⑤ 응답 검증(대상 부분집합 강제).
 import assert from "node:assert/strict";
 import {
+  AI_AUDIT_PROMPT_VERSION,
   buildAiAuditSystemPrompt,
   compareAiAuditVerdicts,
   selectPendingAuditItems,
@@ -16,6 +17,7 @@ import { isAiAuditConcur, type LabAudit, type LabAuditItem } from "@/lib/server/
 
 {
   const systemPrompt = buildAiAuditSystemPrompt("검수 기준서");
+  assert.equal(AI_AUDIT_PROMPT_VERSION, "ai-audit-v7");
   assert.match(systemPrompt, /투자일자 범위나\s*투자기관 유형 필드는 없다/);
   assert.match(systemPrompt, /exclusion\+not_in만 보고 정상 기업을 배제한다고 추정하지 말고/);
   assert.match(systemPrompt, /첨부파일명·제출서류 목록[\s\S]*confirmed_absent/);

@@ -51,7 +51,7 @@ import {
 } from "./auditScope";
 
 export const DEEP_ANALYSIS_AUDIT_CONTRACT_VERSION =
-  "deep-analysis-audit-candidates-v9" as const;
+  "deep-analysis-audit-candidates-v10" as const;
 export const DEEP_ANALYSIS_AUDIT_TOOL_NAME =
   "emit_deep_analysis_audit_candidates" as const;
 

@@ -20,6 +20,7 @@ import {
   assertAnalysisLaunchExecutionContract,
   createAnalysisLaunchGrant,
   createAnalysisLaunchManifest,
+  encodeCanonical,
   normalizeAnalysisLaunchGrant,
   normalizeAnalysisLaunchManifest,
   normalizeAnalysisLaunchReceipt,
@@ -27,6 +28,7 @@ import {
   readCurrentSeriesPlanInventory,
   writeAnalysisLaunchArtifact,
   type AnalysisLaunchManifest,
+  type AnalysisLaunchCompletedCurrentInventoryBinding,
   type AnalysisLaunchReceipt,
   type AnalysisLaunchReceiptTarget,
 } from "./launch-batch-artifacts";
@@ -42,7 +44,13 @@ import {
 } from "./launch-status";
 import { classifyLabRunOutcome } from "./run-outcome";
 import { findMonorepoRoot, labRunFilePath } from "./run-store";
-import { verifyCurrentInventoryLaunchBinding } from "./current-inventory-launch";
+import {
+  buildCurrentInventoryLaunchManifest,
+  readAndVerifyCompletedCurrentInventoryLaunch,
+  verifyCurrentInventoryLaunchBinding,
+  type CurrentLaunchInventory,
+} from "./current-inventory-launch";
+import { verifyCurrentInventoryLaunchTarget } from "./current-inventory-launch-production";
 
 export async function prepareAnalysisLaunchManifest(input: {
   readonly seriesId: string;
@@ -80,6 +88,123 @@ export async function prepareAnalysisLaunchManifest(input: {
   });
   const stored = await writeAnalysisLaunchArtifact("manifests", manifest);
   return Object.freeze({ manifest, manifestSha256: stored.sha256, path: stored.path });
+}
+
+interface CompletedCurrentInventoryLaunchPreparationDependencies {
+  readonly repositoryRoot: string;
+  readonly now: () => Date;
+  readonly readProvenance: typeof readCurrentDeepRepairExecutionProvenance;
+  readonly readCompletedLaunch: typeof readAndVerifyCompletedCurrentInventoryLaunch;
+  readonly verifyTarget: typeof verifyCurrentInventoryLaunchTarget;
+  readonly prepareTarget: (grantId: string) => Promise<{
+    readonly grantId: string;
+    readonly inputSha256: string;
+    readonly attachmentManifestSha256: string;
+  }>;
+  readonly writeManifest: (
+    manifest: AnalysisLaunchManifest,
+    repositoryRoot: string,
+  ) => Promise<{ readonly sha256: string; readonly path: string }>;
+}
+
+/**
+ * 완료된 exact current-inventory launch를 현행 material 계약으로 다시 준비한다.
+ * 원본 결과는 재사용하지 않으며 새 manifest는 exact target 전부를 재실행하도록 봉인한다.
+ */
+export async function prepareCompletedCurrentInventoryLaunchManifest(input: {
+  readonly inventorySha256: string;
+  readonly sourceManifestSha256: string;
+  readonly sourceGrantSha256: string;
+  readonly terminalReceiptSha256: string;
+  readonly concurrency: number;
+}, dependencyOverrides: Partial<CompletedCurrentInventoryLaunchPreparationDependencies> = {}): Promise<{
+  readonly manifest: AnalysisLaunchManifest;
+  readonly manifestSha256: string;
+  readonly path: string;
+}> {
+  const dependencies: CompletedCurrentInventoryLaunchPreparationDependencies = {
+    repositoryRoot: findMonorepoRoot(),
+    now: () => new Date(),
+    readProvenance: readCurrentDeepRepairExecutionProvenance,
+    readCompletedLaunch: readAndVerifyCompletedCurrentInventoryLaunch,
+    verifyTarget: verifyCurrentInventoryLaunchTarget,
+    prepareTarget: async (grantId) => {
+      const prepared = await prepareLabAnalysis(grantId);
+      return {
+        grantId: prepared.grant.id,
+        inputSha256: prepared.input.inputSha256,
+        attachmentManifestSha256: prepared.input.attachmentManifestSha256,
+      };
+    },
+    writeManifest: async (manifest, repositoryRoot) => (
+      writeAnalysisLaunchArtifact("manifests", manifest, repositoryRoot)
+    ),
+    ...dependencyOverrides,
+  };
+  const completedLaunch: AnalysisLaunchCompletedCurrentInventoryBinding = Object.freeze({
+    schema: "analysis-launch-completed-current-inventory-v1",
+    inventorySha256: input.inventorySha256,
+    sourceManifestSha256: input.sourceManifestSha256,
+    sourceGrantSha256: input.sourceGrantSha256,
+    terminalReceiptSha256: input.terminalReceiptSha256,
+  });
+  const initialProvenance = await dependencies.readProvenance({
+    repositoryRoot: dependencies.repositoryRoot,
+  });
+  const inventory = await dependencies.readCompletedLaunch(
+    dependencies.repositoryRoot,
+    completedLaunch,
+  );
+  const preparedTargets = await prepareCurrentInventoryResealTargets(inventory, dependencies);
+  const finalPreparedTargets = await prepareCurrentInventoryResealTargets(inventory, dependencies);
+  if (!encodeCanonical(preparedTargets).equals(encodeCanonical(finalPreparedTargets))) {
+    throw new Error("current inventory 재봉인 준비 중 입력/첨부가 변경됐습니다.");
+  }
+  for (const target of inventory.targets) {
+    await dependencies.verifyTarget(inventory, target.grantId);
+  }
+  await dependencies.readCompletedLaunch(
+    dependencies.repositoryRoot,
+    completedLaunch,
+    inventory,
+  );
+  const finalProvenance = await dependencies.readProvenance({
+    repositoryRoot: dependencies.repositoryRoot,
+  });
+  if (!encodeCanonical(initialProvenance).equals(encodeCanonical(finalProvenance))) {
+    throw new Error("current inventory 재봉인 준비 중 실행 코드가 변경됐습니다.");
+  }
+  const manifest = buildCurrentInventoryLaunchManifest({
+    inventory,
+    inventorySha256: input.inventorySha256,
+    preparedTargets: finalPreparedTargets,
+    provenance: finalProvenance,
+    concurrency: input.concurrency,
+    completedLaunch,
+    now: dependencies.now(),
+  });
+  const stored = await dependencies.writeManifest(manifest, dependencies.repositoryRoot);
+  return Object.freeze({ manifest, manifestSha256: stored.sha256, path: stored.path });
+}
+
+async function prepareCurrentInventoryResealTargets(
+  inventory: CurrentLaunchInventory,
+  dependencies: CompletedCurrentInventoryLaunchPreparationDependencies,
+) {
+  const preparedTargets = [];
+  for (const target of inventory.targets) {
+    await dependencies.verifyTarget(inventory, target.grantId);
+    const prepared = await dependencies.prepareTarget(target.grantId);
+    if (
+      prepared.grantId !== target.grantId
+      || prepared.inputSha256 !== target.inputSha256
+      || prepared.attachmentManifestSha256 !== target.attachmentManifestSha256
+    ) {
+      throw new Error(`current inventory 재봉인 target 입력/첨부가 변경됐습니다: ${target.grantId}`);
+    }
+    preparedTargets.push(prepared);
+  }
+  return preparedTargets;
 }
 
 export async function approveAnalysisLaunchManifest(input: {

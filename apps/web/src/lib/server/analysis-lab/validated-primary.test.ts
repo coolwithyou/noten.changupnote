@@ -154,6 +154,7 @@ function sourceLimitedResult(
   modelInputText: string,
   scope: "eligibility_details" | "application_procedure" | "evaluation_precision",
   base: DeepAnalysisModelResult = result(true),
+  explanationOverride?: string,
 ): DeepAnalysisModelResult {
   const header = /<<<DEEP_ANALYSIS_SOURCE id="([^"]+)" kind="(structured|attachment)" sha256="([0-9a-f]{64})">>>/u
     .exec(modelInputText);
@@ -168,11 +169,11 @@ function sourceLimitedResult(
       sourceSpan: danyangScopeSpan,
     },
     affectedDimensions: scope === "eligibility_details" ? ["prior_award" as const] : null,
-    explanation: scope === "eligibility_details"
+    explanation: explanationOverride ?? (scope === "eligibility_details"
       ? "제공된 선정평가표와 요약만으로 상세 신청자격·제외대상의 전체 범위를 확인할 수 없다고 판단함."
       : scope === "application_procedure"
         ? "제공된 입력만으로 제출 서식과 접수 절차의 전체 범위를 확인할 수 없다고 판단함."
-        : "평가항목과 방향은 제공됐지만 수치 배점·가중치는 공개되지 않음.",
+        : "평가항목과 방향은 제공됐지만 수치 배점·가중치는 공개되지 않음."),
   };
   return {
     ...base,
@@ -257,6 +258,60 @@ assert.equal(
   preservedThroughRepair.extraction.sourceLimitations?.length,
   1,
   "이미 exact 검증된 자격 limitation을 unrelated repair 응답 누락으로 ready로 바꾸지 않는다",
+);
+
+const anseongContradictoryExplanation =
+  "모델 판단: 제공된 블록에는 지원 비율·한도만 있고 선정평가표나 배점·가점 항목이 전혀 없어, 신청자격 충족 이후 우선순위가 어떻게 결정되는지(예산 소진 선착순인지 평가 선정인지)를 근거 있게 판단할 수 없다.";
+let contradictoryLimitationCalls = 0;
+const repairedContradictoryLimitation = await runValidatedLabPrimary({
+  grantId: "grant-lab-contradictory-evaluation-limitation",
+  inputText: danyangInputText,
+  inputSha256: "7".repeat(64),
+  apiKey: "subscription",
+  model: "claude-opus-5",
+  runModel: async (options) => {
+    contradictoryLimitationCalls += 1;
+    if (contradictoryLimitationCalls > 1) {
+      const repaired = result(true);
+      return {
+        ...repaired,
+        sourceLimitations: [],
+        rawToolInput: { ...repaired.rawToolInput, source_limitations: [] },
+      };
+    }
+    const eligibility = sourceLimitedResult(options.inputText, "eligibility_details");
+    const invalidEvaluation = sourceLimitedResult(
+      options.inputText,
+      "evaluation_precision",
+      result(true),
+      anseongContradictoryExplanation,
+    );
+    return {
+      ...eligibility,
+      sourceLimitations: [
+        ...(eligibility.sourceLimitations ?? []),
+        ...(invalidEvaluation.sourceLimitations ?? []),
+      ],
+      rawToolInput: {
+        ...eligibility.rawToolInput,
+        source_limitations: [
+          ...(eligibility.rawToolInput.source_limitations as unknown[]),
+          ...(invalidEvaluation.rawToolInput.source_limitations as unknown[]),
+        ],
+      },
+    };
+  },
+});
+assert.equal(contradictoryLimitationCalls, 2, "자기모순 limitation은 모델 repair 한 번으로 보낸다");
+assert.equal(
+  repairedContradictoryLimitation.matchingReadiness,
+  "conditional",
+  "함께 검증된 eligibility limitation은 repair 뒤에도 conditional을 유지한다",
+);
+assert.deepEqual(
+  repairedContradictoryLimitation.extraction.sourceLimitations?.map((item) => item.scope),
+  ["eligibility_details"],
+  "검증된 eligibility limitation만 보존하고 자기모순 evaluation_precision은 되살리지 않는다",
 );
 
 const emptyCoveredDimensionsCriterion: DeepAnalysisCriterion = {

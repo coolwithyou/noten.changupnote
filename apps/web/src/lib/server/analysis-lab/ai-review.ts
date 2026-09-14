@@ -40,6 +40,10 @@ import type {
   LabUsage,
 } from "@/lib/server/analysis-lab/lab-contract";
 import type { AiAxisReview, AiCriterionReview } from "./ai-review-compare";
+import {
+  DEEP_ANALYSIS_NON_MATCHING_DECLARATION_RULE,
+  DEEP_ANALYSIS_SCORING_TABLE_COMPLETENESS_RULE,
+} from "../deep-analysis/extractor";
 import { DIMENSION_LABELS } from "./diff";
 import {
   applyLabVerifiedConversionArtifacts,
@@ -65,7 +69,7 @@ export const AI_REVIEW_SCHEMA = "lab-ai-review-v1";
  * v7 (2026-08-09): 판정 어휘는 유지하고 제출자료와 실제 매칭 사실의 대칭 경계를 추가한다.
  * 구 산출물은 promptVersion으로 구분하고 필요한 대상만 버전명으로 보존 후 재검수한다.
  */
-export const AI_REVIEW_PROMPT_VERSION = "ai-review-v7";
+export const AI_REVIEW_PROMPT_VERSION = "ai-review-v8";
 export const AI_REVIEW_TOOL_NAME = "emit_deep_analysis_review";
 export const AI_REVIEW_DEFAULT_MODEL = "claude-sonnet-5";
 
@@ -246,6 +250,8 @@ export function buildSystemPrompt(rubric: string): string {
     "  그 문서가 증명하는 기업 사실의 신청자격·배제·우대·배점 효과가 본문·평가표·인접 문장에",
     "  명시되지 않았다면 22축 조건이 아니다. 파일명이나 다른 제출항목과 병렬이라는 이유만으로",
     "  효과를 추론하지 말고 해당 빈 축은 confirmed_absent로 판정한다.",
+    `- [서약 사실과 신청 효과] ${DEEP_ANALYSIS_NON_MATCHING_DECLARATION_RULE}`,
+    `- [평가 방식과 역량 효과] ${DEEP_ANALYSIS_SCORING_TABLE_COMPLETENESS_RULE}`,
     "- 반대로 제출자료가 증명하는 기업 사실에 따라 배점·가점·최하점 등 평가 결과가 달라진다고",
     "  명시되어 있으면 단순 절차가 아니라 preferred/ranking이다. '서류 제출' 표현이 있다는 이유만으로",
     "  올바른 preferred criterion을 other/절차로 바꾸지 말고, criterion의 value가 그 기업 사실과",

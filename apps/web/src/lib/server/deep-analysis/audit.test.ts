@@ -7,6 +7,7 @@ import {
 } from "@cunote/contracts";
 import {
   compareDeepAnalysisValidations,
+  DEEP_ANALYSIS_AUDIT_PROMPT_VERSION,
   DEEP_ANALYSIS_BLIND_AUDIT_TASK_INSTRUCTION,
   resolveSemanticAuditVerdict,
   shouldRunSemanticAuditAdjudication,
@@ -63,7 +64,8 @@ for (const rule of [
 ]) {
   assert.equal(DEEP_ANALYSIS_AUDIT_SYSTEM_PROMPT.includes(rule), true);
 }
-assert.equal(DEEP_ANALYSIS_AUDIT_CONTRACT_VERSION, "deep-analysis-audit-candidates-v9");
+assert.equal(DEEP_ANALYSIS_AUDIT_CONTRACT_VERSION, "deep-analysis-audit-candidates-v10");
+assert.equal(DEEP_ANALYSIS_AUDIT_PROMPT_VERSION, "deep-analysis-blind-audit-v26");
 assert.equal(DEEP_ANALYSIS_AUDIT_SCOPE_VERSION, "deep-analysis-match-impacting-scope-v1");
 
 const auditToolSchema = buildDeepAnalysisAuditToolSchema();

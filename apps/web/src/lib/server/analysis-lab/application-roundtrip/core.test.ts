@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { VERSION } from "kordoc";
+import { VERSION, type IRBlock, type IRCell } from "kordoc";
 import type { RoundtripFieldCandidate } from "@/lib/server/analysis-lab/application-roundtrip/contract";
 import {
   applicationDocumentRecommendationPriority,
@@ -10,7 +10,9 @@ import {
   generateRoundtripSampleValue,
   assessRoundtripInputField,
   inferRoundtripInputKind,
+  hasNonOverridableStructuralRejection,
   isNarrativeInstructionPlaceholder,
+  isUnsupportedNestedMediaTextTarget,
 } from "./core";
 
 assert.equal(VERSION, "4.2.3", "왕복 실험은 검증된 Kordoc 4.2.3을 사용해야 한다");
@@ -199,6 +201,150 @@ for (const placeholderLabel of ["금: 백만원", "은행 지점\n( 담당자 �
   if (!placeholder) continue;
   assert.equal(placeholder.recommendedInput, false, `${placeholderLabel} 안내문 자체를 앵커로 쓰면 안 된다`);
   assert.match(placeholder.inputSignals.join(" "), /앞 라벨/);
+}
+
+{
+  const sourceSha256 = "5d9ad6200091e341c945f1c746b1512ded6f2d85f0aa21bd6f0eac5b566fe22c";
+  const emptyCell = () => ({ text: "", colSpan: 1, rowSpan: 1 });
+  const blocks: IRBlock[] = Array.from({ length: 109 }, () => ({ type: "paragraph", text: "" }));
+  const companyRows = Array.from({ length: 6 }, () => Array.from({ length: 11 }, emptyCell));
+  companyRows[5] = [
+    { text: "법인등록번호", colSpan: 4, rowSpan: 1 },
+    emptyCell(),
+    emptyCell(),
+    emptyCell(),
+    { text: "해당 시", colSpan: 3, rowSpan: 1 },
+    emptyCell(),
+    emptyCell(),
+    emptyCell(),
+    { text: "부 □", colSpan: 3, rowSpan: 1 },
+    emptyCell(),
+    emptyCell(),
+  ];
+  blocks[106] = {
+    type: "table",
+    table: { rows: companyRows.length, cols: 11, hasHeader: false, cells: companyRows },
+  };
+  const mediaRows: IRCell[][] = Array.from(
+    { length: 12 },
+    () => Array.from({ length: 3 }, emptyCell),
+  );
+  mediaRows[11] = [
+    { text: "이미지", colSpan: 2, rowSpan: 4 },
+    emptyCell(),
+    {
+      text: "※ 아이템의 특징을 나타낼 수 있는 참고사진(이미지)·설계도 등 삽입(해당 시)",
+      colSpan: 1,
+      rowSpan: 1,
+      blocks: [{
+        type: "table",
+        table: {
+          rows: 1,
+          cols: 1,
+          hasHeader: false,
+          cells: [[{
+            text: "※ 아이템의 특징을 나타낼 수 있는 참고사진(이미지)·설계도 등 삽입(해당 시)",
+            colSpan: 1,
+            rowSpan: 1,
+          }]],
+        },
+      }],
+    },
+  ];
+  blocks[108] = {
+    type: "table",
+    table: { rows: mediaRows.length, cols: 3, hasHeader: false, cells: mediaRows },
+  };
+
+  const techFields = extractLocatedRoundtripFields(blocks, sourceSha256).fields;
+  const corporateNumber = techFields.find((candidate) => candidate.fieldInstanceId === "851ed55f5c86157703600e13");
+  assert.equal(corporateNumber?.label, "법인등록번호");
+  assert.equal(corporateNumber?.originalValue, "해당 시", "label colSpan 뒤 실제 조건형 placeholder를 값으로 결속");
+  assert.equal(corporateNumber?.empty, true);
+  assert.equal(corporateNumber?.recommendedInput, true, "정상 법인등록번호 label→value 입력을 보존");
+  assert.equal(hasNonOverridableStructuralRejection(corporateNumber!), false);
+
+  const consumedPlaceholder = techFields.find((candidate) => candidate.fieldInstanceId === "cd3932af28c5d1a4d81b8f70");
+  assert.equal(consumedPlaceholder?.label, "해당 시");
+  assert.equal(consumedPlaceholder?.location.col, 4);
+  assert.equal(consumedPlaceholder?.recommendedInput, false);
+  assert.equal(
+    hasNonOverridableStructuralRejection(consumedPlaceholder!),
+    true,
+    "앞 법인등록번호의 값으로 소비된 origin만 별도 라벨 후보에서 안전 제외",
+  );
+
+  const media = techFields.find((candidate) => candidate.fieldInstanceId === "6543ab5d9e851d91c7177ed8");
+  assert.equal(media?.label, "이미지");
+  assert.equal(media?.recommendedInput, false);
+  assert.equal(hasNonOverridableStructuralRejection(media!), true);
+  assert.equal(
+    isUnsupportedNestedMediaTextTarget(mediaRows[11]!, 0, mediaRows[11]![0]!),
+    true,
+    "TECH 이미지 label의 오른쪽 nested 삽입 host는 일반 textarea 지원으로 가장하지 않음",
+  );
+}
+
+{
+  const emptyCell = () => ({ text: "", colSpan: 1, rowSpan: 1 });
+  const preservedTemplate = extractLocatedRoundtripFields([{
+    type: "table",
+    table: {
+      rows: 1,
+      cols: 5,
+      hasHeader: false,
+      cells: [[
+        { text: "창업아이템명", colSpan: 4, rowSpan: 1 },
+        emptyCell(),
+        emptyCell(),
+        emptyCell(),
+        { text: "OO기술이 적용된 OO제품·서비스", colSpan: 1, rowSpan: 1 },
+      ]],
+    },
+  }], "9".repeat(64)).fields.find((candidate) => candidate.label === "창업아이템명");
+  assert.equal(preservedTemplate?.originalValue, "", "일반 template 값을 새 역할 추론으로 덮지 않음");
+  assert.equal(preservedTemplate?.empty, true);
+  assert.equal(preservedTemplate?.recommendedInput, true);
+
+  const nestedNarrativeRows = [[
+    { text: "제품 소개", colSpan: 2, rowSpan: 1 },
+    emptyCell(),
+    {
+      text: "※ 제품의 특징을 구체적으로 작성해주세요.",
+      colSpan: 1,
+      rowSpan: 1,
+      blocks: [{ type: "paragraph" as const, text: "※ 제품의 특징을 구체적으로 작성해주세요." }],
+    },
+  ]];
+  assert.equal(
+    isUnsupportedNestedMediaTextTarget(nestedNarrativeRows[0]!, 0, nestedNarrativeRows[0]![0]!),
+    false,
+    "nested 서술 안내문을 media host와 함께 차단하지 않음",
+  );
+  const captionRows = [[
+    { text: "사진 제목", colSpan: 1, rowSpan: 1 },
+    emptyCell(),
+  ]];
+  assert.equal(
+    isUnsupportedNestedMediaTextTarget(captionRows[0]!, 0, captionRows[0]![0]!),
+    false,
+    "일반 사진 caption 텍스트 칸은 유지",
+  );
+
+  const standaloneConditional = extractLocatedRoundtripFields([{
+    type: "table",
+    table: {
+      rows: 1,
+      cols: 2,
+      hasHeader: false,
+      cells: [[{ text: "해당 시", colSpan: 1, rowSpan: 1 }, emptyCell()]],
+    },
+  }], "8".repeat(64)).fields.find((candidate) => candidate.label === "해당 시");
+  assert.equal(
+    hasNonOverridableStructuralRejection(standaloneConditional!),
+    false,
+    "다른 위치의 독립 '해당 시' 후보를 문자열만으로 차단하지 않음",
+  );
 }
 
 const rowSpanningContactFields = extractLocatedRoundtripFields([{

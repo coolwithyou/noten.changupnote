@@ -177,24 +177,32 @@ assert.equal(validateDeepAnalysisResult({
   result: procedureLimitedResult,
 }).valid, true, "제출 절차나 서식 부재만으로 매칭 준비도를 막지 않는다");
 
-const evaluationPrecisionResult: DeepAnalysisModelResult = {
-  ...sourceLimitedResult,
-  sourceLimitations: [{
-    ...eligibilityLimitation,
-    scope: "evaluation_precision",
-    affectedDimensions: null,
-    explanation: "평가항목과 방향은 제공됐지만 수치 배점·가중치는 공개되지 않음.",
-  }],
-  rawToolInput: {
-    ...sourceLimitedResult.rawToolInput,
-    source_limitations: [{
-      ...rawEligibilityLimitation,
+function evaluationPrecisionResultWithExplanation(
+  explanation: string,
+): DeepAnalysisModelResult {
+  return {
+    ...sourceLimitedResult,
+    sourceLimitations: [{
+      ...eligibilityLimitation,
       scope: "evaluation_precision",
-      affected_dimensions: null,
-      explanation: "평가항목과 방향은 제공됐지만 수치 배점·가중치는 공개되지 않음.",
+      affectedDimensions: null,
+      explanation,
     }],
-  },
-};
+    rawToolInput: {
+      ...sourceLimitedResult.rawToolInput,
+      source_limitations: [{
+        ...rawEligibilityLimitation,
+        scope: "evaluation_precision",
+        affected_dimensions: null,
+        explanation,
+      }],
+    },
+  };
+}
+
+const evaluationPrecisionResult = evaluationPrecisionResultWithExplanation(
+  "평가항목과 방향은 제공됐지만 수치 배점·가중치는 공개되지 않음.",
+);
 const evaluationPrecisionValidation = validateDeepAnalysisResult({
   seal,
   result: evaluationPrecisionResult,
@@ -208,6 +216,90 @@ assert.equal(decideDeepAnalysisValidationRoute({
   result: evaluationPrecisionResult,
   validation: evaluationPrecisionValidation,
 }).route, "accept");
+
+for (const explanation of [
+  "평가항목과 방향은 제공됐지만 수치 배점·가중치가 없어 정확한 우선순위를 계산할 수 없음.",
+  "평가기준(안)의 항목과 방향은 확인되며 숫자 배점만 공개되지 않음.",
+  "선정평가표와 배점표는 제공되지 않았지만 평가항목과 방향은 공고 본문에서 확인됨.",
+  "평가항목이 없는 것은 아니며 배점만 없다.",
+  "평가방향이 제공되지 않은 것은 아니다. 수치 가중치만 공개되지 않았다.",
+  "구체적 평가항목은 없으나 평가방향은 글로벌 진출 준비도로 제공됐고 수치 배점만 미공개다.",
+  "선정평가표나 배점·가점 항목이 전혀 없는 것은 아니며, 우선순위가 어떻게 결정되는지 판단할 수 없다.",
+  "선정평가표나 배점·가점 항목이 전혀 없다는 뜻은 아니다. 우선순위가 어떻게 결정되는지 판단할 수 없다.",
+  "선정평가표나 배점·가점 항목이 전혀 없어도 우선순위가 어떻게 결정되는지 판단할 수 없는 것은 아니다.",
+]) {
+  const result = evaluationPrecisionResultWithExplanation(explanation);
+  const validation = validateDeepAnalysisResult({ seal, result });
+  assert.equal(validation.valid, true, `일반 배점 미공개를 평가기준 부재로 확대하지 않는다: ${explanation}`);
+  assert.deepEqual(validation.sourceLimitations, result.sourceLimitations);
+}
+
+const anseongContradictoryExplanation =
+  "모델 판단: 제공된 블록에는 지원 비율·한도만 있고 선정평가표나 배점·가점 항목이 전혀 없어, 신청자격 충족 이후 우선순위가 어떻게 결정되는지(예산 소진 선착순인지 평가 선정인지)를 근거 있게 판단할 수 없다.";
+const anseongPrecisionSpan = "☞ 수출기업이 부담하는 운송비의 60% 지원(기업당 600만원 한도)";
+const anseongPrecisionSeal = sealDeepAnalysisInput({
+  grantId: "bizinfo:PBLN_000000000126414",
+  sourceRevisionSha256: "6".repeat(64),
+  structuredText: anseongPrecisionSpan,
+  attachments: [],
+});
+const anseongPrecisionChunk = anseongPrecisionSeal.chunks[0]!;
+const anseongBaseResult = result([], axes());
+const contradictoryEvaluationPrecisionResult: DeepAnalysisModelResult = {
+  ...anseongBaseResult,
+  sourceLimitations: [{
+    scope: "evaluation_precision",
+    kind: "model_disclosure",
+    sourceRef: {
+      sourceKind: anseongPrecisionChunk.sourceKind,
+      sourceId: anseongPrecisionChunk.id,
+      sourceSha256: anseongPrecisionChunk.sha256,
+      sourceSpan: anseongPrecisionSpan,
+    },
+    affectedDimensions: null,
+    explanation: anseongContradictoryExplanation,
+  }],
+  rawToolInput: {
+    ...anseongBaseResult.rawToolInput,
+    source_limitations: [{
+      scope: "evaluation_precision",
+      kind: "model_disclosure",
+      source_ref: {
+        source_kind: anseongPrecisionChunk.sourceKind,
+        source_id: anseongPrecisionChunk.id,
+        source_sha256: anseongPrecisionChunk.sha256,
+        source_span: anseongPrecisionSpan,
+      },
+      affected_dimensions: null,
+      explanation: anseongContradictoryExplanation,
+    }],
+  },
+};
+const contradictoryEvaluationPrecisionSnapshot = structuredClone(
+  contradictoryEvaluationPrecisionResult,
+);
+const contradictoryEvaluationPrecisionValidation = validateDeepAnalysisResult({
+  seal: anseongPrecisionSeal,
+  result: contradictoryEvaluationPrecisionResult,
+});
+assert.equal(contradictoryEvaluationPrecisionValidation.issues.some((issue) => (
+  issue.code === "semantic_misattribution"
+  && issue.path === "$.source_limitations[0].scope"
+)), true, "평가방식·방향 부재를 스스로 밝힌 evaluation_precision은 targeted repair 대상이다");
+assert.deepEqual(
+  contradictoryEvaluationPrecisionValidation.sourceLimitations,
+  [],
+  "자기모순 limitation은 검증된 repair 보존 목록에서 제외한다",
+);
+assert.equal(decideDeepAnalysisValidationRoute({
+  result: contradictoryEvaluationPrecisionResult,
+  validation: contradictoryEvaluationPrecisionValidation,
+}).route, "repair");
+assert.deepEqual(
+  contradictoryEvaluationPrecisionResult,
+  contradictoryEvaluationPrecisionSnapshot,
+  "validator는 자기모순을 찾더라도 normalized/raw 원본을 수정하거나 scope를 바꾸지 않는다",
+);
 
 for (const [label, sourceRef] of [
   ["unknown chunk", { ...eligibilityLimitation.sourceRef, sourceId: "attachment:invented:0" }],
@@ -2338,5 +2430,303 @@ assert.equal(
   "hold",
   "같은 축의 확정 criterion과 추가 입력 누락은 전체 재생성 없이 hold",
 );
+
+{
+  const duplicateDeclaration =
+    "당사는 동일 전시회 참가와 관련하여 타 기관 또는 사업으로부터 중복 지원을 받은 사실이 없으며";
+  const ipDeclaration =
+    "당사는 당사의 전시 제품(서비스)가 타인의 지식재산권을 침해하였거나, 침해 관련 소송 등의 재판을 진행중인 사실이 없음을 확인한다.";
+  const englishPresentation =
+    "◦ (발표평가) 영어 발표평가 (대면평가) 를 진행하여 글로벌 진출 준비 정도, 성장 가능성 등을 평가하여 고득점 순으로 선정";
+  const techSeal = sealDeepAnalysisInput({
+    grantId: "tech-effect-binding",
+    sourceRevisionSha256: "4".repeat(64),
+    structuredText: [duplicateDeclaration, ipDeclaration, englishPresentation].join("\n"),
+    attachments: [],
+  });
+  const techResult = result([
+    criterion({
+      dimension: "prior_award",
+      kind: "exclusion",
+      operator: "text_only",
+      value: { note: "동일 전시회 중복 지원 사실이 없어야 한다." },
+      sourceSpan: duplicateDeclaration,
+    }),
+    criterion({
+      dimension: "ip",
+      kind: "exclusion",
+      operator: "text_only",
+      value: { note: "지식재산권 침해·소송 사실이 없어야 한다." },
+      sourceSpan: ipDeclaration,
+    }),
+    criterion({
+      dimension: "other",
+      kind: "preferred",
+      operator: "text_only",
+      value: { note: "영어 발표 역량이 실질 평가요소다." },
+      sourceSpan: englishPresentation,
+    }),
+  ], axes(["prior_award", "ip", "other"]));
+  const techValidation = validateDeepAnalysisResult({ seal: techSeal, result: techResult });
+  assert.deepEqual(
+    techValidation.issues.filter((issue) => issue.code === "semantic_misattribution")
+      .map((issue) => issue.path),
+    ["$.criteria[0]", "$.criteria[1]", "$.criteria[2]"],
+    "실재 TECH 서약 2건과 영어 진행방식의 역량 확대를 targeted repair로 보낸다",
+  );
+  assert.equal(
+    decideDeepAnalysisValidationRoute({ result: techResult, validation: techValidation }).route,
+    "repair",
+  );
+}
+
+{
+  const explicitExclusion =
+    "당사는 동일 전시회 중복 지원을 받은 사실이 없음을 확인하며, 중복 지원을 받은 기업은 신청 제외 대상이다.";
+  const explicitEnglishScore = "영어 발표 역량 10점";
+  const explicitEnglishEvaluation = "영어 구사능력을 평가한다.";
+  const preservedRows = [
+    {
+      source: explicitExclusion,
+      row: criterion({
+        dimension: "prior_award",
+        kind: "exclusion",
+        operator: "text_only",
+        value: { note: "중복 지원 사실은 명시적 신청 제외다." },
+        sourceSpan: explicitExclusion,
+      }),
+    },
+    {
+      source: explicitEnglishScore,
+      row: criterion({
+        dimension: "other",
+        kind: "preferred",
+        operator: "text_only",
+        value: { note: "영어 발표 역량에 10점을 배점한다." },
+        sourceSpan: explicitEnglishScore,
+      }),
+    },
+    {
+      source: explicitEnglishEvaluation,
+      row: criterion({
+        dimension: "other",
+        kind: "preferred",
+        operator: "text_only",
+        value: { note: "영어 구사 능력을 평가한다." },
+        sourceSpan: explicitEnglishEvaluation,
+      }),
+    },
+    {
+      source: "현재 동일 과제에 중복 참여 중인 기업은 신청 제외",
+      row: criterion({
+        dimension: "prior_award",
+        kind: "exclusion",
+        operator: "text_only",
+        value: { note: "현재 동일 과제 중복 참여 기업은 제외한다." },
+        sourceSpan: "현재 동일 과제에 중복 참여 중인 기업은 신청 제외",
+      }),
+    },
+  ];
+  for (const { source, row } of preservedRows) {
+    const positiveSeal = sealDeepAnalysisInput({
+      grantId: "explicit-effect",
+      sourceRevisionSha256: "5".repeat(64),
+      structuredText: source,
+      attachments: [],
+    });
+    const positiveResult = result([row], axes([row.dimension]));
+    assert.equal(
+      validateDeepAnalysisResult({ seal: positiveSeal, result: positiveResult }).valid,
+      true,
+      `명시적 신청·평가 효과를 보존한다: ${source}`,
+    );
+  }
+}
+
+{
+  const presentationMethod =
+    "영어 발표평가(대면평가)를 진행하여 글로벌 진출 준비 정도와 성장 가능성을 평가한다.";
+  const communicationSkill = "글로벌 관계자 소통 능력을 평가한다.";
+  for (const { source, note } of [
+    { source: presentationMethod, note: "글로벌 진출 준비 정도와 성장 가능성을 평가한다." },
+    { source: communicationSkill, note: "글로벌 관계자 소통 능력을 평가한다." },
+  ]) {
+    const preferredSeal = sealDeepAnalysisInput({
+      grantId: "explicit-preferred",
+      sourceRevisionSha256: "6".repeat(64),
+      structuredText: source,
+      attachments: [],
+    });
+    const preferredResult = result([criterion({
+      dimension: "other",
+      kind: "preferred",
+      operator: "text_only",
+      value: { note },
+      sourceSpan: source,
+    })], axes(["other"]));
+    assert.equal(
+      validateDeepAnalysisResult({ seal: preferredSeal, result: preferredResult }).valid,
+      true,
+      "영어 진행방식과 영어로 한정되지 않은 실제 평가요소는 그대로 둔다",
+    );
+  }
+}
+
+{
+  const semanticIssueFor = (input: {
+    grantId: string;
+    source: string;
+    dimension: "prior_award" | "ip" | "other";
+    kind: "exclusion" | "preferred";
+    note: string;
+  }) => {
+    const adversarialSeal = sealDeepAnalysisInput({
+      grantId: input.grantId,
+      sourceRevisionSha256: "a".repeat(64),
+      structuredText: input.source,
+      attachments: [],
+    });
+    const adversarialResult = result([criterion({
+      dimension: input.dimension,
+      kind: input.kind,
+      operator: "text_only",
+      value: { note: input.note },
+      sourceSpan: input.source,
+    })], axes([input.dimension]));
+    return validateDeepAnalysisResult({ seal: adversarialSeal, result: adversarialResult })
+      .issues.some((issue) => issue.code === "semantic_misattribution");
+  };
+
+  assert.equal(
+    semanticIssueFor({
+      grantId: "negated-exclusion-effect",
+      source:
+        "당사는 중복 지원을 받은 사실이 없음을 확인한다. 이 확인 여부로 신청 제외하지 않는다.",
+      dimension: "prior_award",
+      kind: "exclusion",
+      note: "중복 지원 사실이 없지 않으면 신청 제외다.",
+    }),
+    true,
+    "직접 부정된 신청 제외 문구는 서약 사실의 제외 효과가 아니다",
+  );
+  assert.equal(
+    semanticIssueFor({
+      grantId: "different-fact-effect",
+      source:
+        "당사는 지식재산권 침해 관련 소송 사실이 없음을 확인한다. 체납기업은 지원 제외 대상이다.",
+      dimension: "ip",
+      kind: "exclusion",
+      note: "IP 소송 사실은 지원 제외다.",
+    }),
+    true,
+    "같은 source_span 안의 다른 사실에 대한 제외 효과로 서약을 통과시키지 않는다",
+  );
+  assert.equal(
+    semanticIssueFor({
+      grantId: "explicit-exclusion-exception",
+      source:
+        "중복 지원을 받은 기업은 신청 제외 대상이다. 다만 중복 지원 이력이 있어도 전액 반환한 기업은 지원 가능하다.",
+      dimension: "prior_award",
+      kind: "exclusion",
+      note: "중복 지원 기업은 제외하되 전액 반환한 기업은 예외로 지원 가능하다.",
+    }),
+    false,
+    "명시적 제외와 그 예외가 함께 있는 정상 조건은 기존 무손실 검증에 맡긴다",
+  );
+
+  for (const source of [
+    "발표 역량을 평가한다. 발표는 영어로 진행한다.",
+    "영어 구사 능력은 평가하지 않는다.",
+    "영어 발표 역량은 평가항목이 아니다.",
+  ]) {
+    assert.equal(
+      semanticIssueFor({
+        grantId: "unsupported-english-capability",
+        source,
+        dimension: "other",
+        kind: "preferred",
+        note: "영어 발표 역량이 독립 평가요소다.",
+      }),
+      true,
+      `영어 역량과 평가 효과가 같은 양성 명제에 결속되지 않으면 repair한다: ${source}`,
+    );
+  }
+  assert.equal(
+    semanticIssueFor({
+      grantId: "negated-model-english-claim",
+      source:
+        "영어 발표평가(대면평가)를 진행하여 글로벌 진출 준비 정도와 성장 가능성을 평가한다.",
+      dimension: "other",
+      kind: "preferred",
+      note: "영어 발표 역량은 독립 평가요소가 아니다. 글로벌 진출 준비 정도를 평가한다.",
+    }),
+    false,
+    "영어 역량 확대를 명시적으로 부정한 정상 교정 응답은 다시 reject하지 않는다",
+  );
+}
+
+{
+  const otherCompanyEffect = "A사는 지식재산권 소송 중이면 신청 제외 대상이다.";
+  const ownDeclaration = "당사는 지식재산권 침해 관련 소송 사실이 없음을 확인한다.";
+  const outsideEffectSeal = sealDeepAnalysisInput({
+    grantId: "outside-effect",
+    sourceRevisionSha256: "7".repeat(64),
+    structuredText: `${otherCompanyEffect}\n${ownDeclaration}`,
+    attachments: [],
+  });
+  const outsideEffectResult = result([criterion({
+    dimension: "ip",
+    kind: "exclusion",
+    operator: "text_only",
+    value: { note: "당사의 IP 소송 사실은 신청 제외다." },
+    sourceSpan: ownDeclaration,
+  })], axes(["ip"]));
+  const outsideEffectValidation = validateDeepAnalysisResult({
+    seal: outsideEffectSeal,
+    result: outsideEffectResult,
+  });
+  assert.equal(
+    outsideEffectValidation.issues.some((issue) => issue.code === "semantic_misattribution"),
+    true,
+    "같은 chunk의 다른 기업 제외 문구로 source_span의 효과 결속을 우회하지 않는다",
+  );
+
+  const explicitPermission = "당사는 지식재산권 침해 관련 소송 사실이 있어도 신청 가능함을 확인한다.";
+  const permissionSeal = sealDeepAnalysisInput({
+    grantId: "explicit-permission",
+    sourceRevisionSha256: "8".repeat(64),
+    structuredText: explicitPermission,
+    attachments: [],
+  });
+  const permissionResult = result([criterion({
+    dimension: "ip",
+    kind: "exclusion",
+    operator: "text_only",
+    value: { note: "IP 소송 사실이 있으면 제외한다." },
+    sourceSpan: explicitPermission,
+  })], axes(["ip"]));
+  assert.equal(
+    validateDeepAnalysisResult({ seal: permissionSeal, result: permissionResult })
+      .issues.some((issue) => issue.code === "semantic_misattribution"),
+    true,
+    "명시적 신청 가능 문구를 exclusion으로 뒤집지 않는다",
+  );
+
+  const unverifiedResult = result([criterion({
+    dimension: "ip",
+    kind: "exclusion",
+    operator: "text_only",
+    value: { note: "당사의 IP 소송 사실은 신청 제외다." },
+    sourceSpan: ownDeclaration,
+    spanVerified: false,
+  })], axes(["ip"]));
+  const unverified = validateDeepAnalysisResult({ seal: outsideEffectSeal, result: unverifiedResult });
+  assert.equal(unverified.issues.some((issue) => issue.code === "evidence_not_grounded"), true);
+  assert.equal(
+    unverified.issues.some((issue) => issue.code === "semantic_misattribution"),
+    false,
+    "검증되지 않은 source_span으로 의미 교정 지시를 만들지 않는다",
+  );
+}
 
 console.log("deep-analysis validator tests passed");

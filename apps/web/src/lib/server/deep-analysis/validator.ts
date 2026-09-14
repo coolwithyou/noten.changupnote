@@ -31,7 +31,7 @@ import {
 import { resolveExclusiveBizAgeUpperBound } from "./biz-age-boundary";
 import { resolveTargetTypeListSemantics } from "./target-type-list-semantics";
 
-export const DEEP_ANALYSIS_VALIDATOR_VERSION = "deep-analysis-validator-v19" as const;
+export const DEEP_ANALYSIS_VALIDATOR_VERSION = "deep-analysis-validator-v21" as const;
 
 export type DeepAnalysisValidationIssueCode =
   | "raw_contract_invalid"
@@ -244,6 +244,7 @@ export function validateDeepAnalysisResult(input: {
   validateStartupStageTargetDuplicates(validatedCriteria, issues);
   validateLocationTenureBusinessAge(validatedCriteria, issues);
   validateApplicationMatchingScope(validatedCriteria, issues);
+  validateDeclarationAndEvaluationEffectSupport(validatedCriteria, issues);
   validateActorAndTrackScope(validatedCriteria, issues);
   validateAlternativeApplicantPaths(validatedCriteria, issues);
   validateStructuredFilterMetadata(input.seal, validatedCriteria, issues);
@@ -388,6 +389,145 @@ function validateApplicationMatchingScope(
       message,
     });
   }
+}
+
+const FIRST_PERSON_DECLARATION_PATTERN =
+  /(?:^|[\s「『“"'])(?:당사|본\s*(?:기업|회사)|신청인)(?:는|가|은|이|의)?(?:\s|$)/u;
+const DUPLICATE_SUPPORT_ABSENCE_PATTERN =
+  /(?:중복\s*지원|타\s*(?:기관|사업).{0,32}지원).{0,80}(?:받은\s*사실이\s*없|받지\s*않았|없음을\s*(?:확인|서약|확약))/u;
+const IP_DISPUTE_ABSENCE_PATTERN =
+  /(?:지식\s*재산권|지식재산권|특허|저작권).{0,120}(?:침해|소송|재판).{0,120}(?:사실이\s*없|없음을\s*(?:확인|서약|확약))/u;
+const APPLICATION_EXCLUSION_EFFECT_PATTERN =
+  /(?:(?:신청|지원)\s*(?:대상에서\s*)?(?:제외|불가|제한)|(?:신청|지원)\s*자격.{0,16}(?:없|박탈|제한)|제외\s*대상|결격)/gu;
+const EXPLICIT_APPLICATION_PERMISSION_PATTERN =
+  /(?:있|해당하)(?:어도|더라도).{0,32}(?:신청|지원).{0,16}(?:가능|할\s*수\s*있)/u;
+const ENGLISH_CAPABILITY_OCCURRENCE_PATTERN =
+  /영어\s*(?:(?:발표|구사|의사소통)\s*)?(?:역량|능력)/gu;
+
+/**
+ * 모델의 note/value는 잘못 확장한 주장을 찾는 데만 사용한다. 그 주장을 정당화하는
+ * 신청 제외·평가 효과는 exact source_span 자체에 있어야 하며, 같은 chunk의 다른 절이나
+ * 다른 기업에 대한 문구를 빌려오지 않는다. 근거가 검증되지 않은 criterion에는 의미
+ * 교정 지시를 만들지 않고 기존 evidence_not_grounded 경로만 유지한다.
+ */
+function validateDeclarationAndEvaluationEffectSupport(
+  criteria: DeepAnalysisValidatedCriterion[],
+  issues: DeepAnalysisValidationIssue[],
+): void {
+  for (const item of criteria) {
+    if (!item.criterion.spanVerified || item.evidenceRefs.length === 0) continue;
+    const sourceSpan = (item.criterion.sourceSpan ?? "").normalize("NFKC").replace(/\s+/g, " ").trim();
+    if (!sourceSpan) continue;
+
+    if (
+      item.criterion.kind === "exclusion"
+      && (item.criterion.dimension === "prior_award" || item.criterion.dimension === "ip")
+    ) {
+      const isUnsupportedDeclaration = FIRST_PERSON_DECLARATION_PATTERN.test(sourceSpan)
+        && (
+          (item.criterion.dimension === "prior_award"
+            && DUPLICATE_SUPPORT_ABSENCE_PATTERN.test(sourceSpan))
+          || (item.criterion.dimension === "ip"
+            && IP_DISPUTE_ABSENCE_PATTERN.test(sourceSpan))
+        )
+        && !hasDimensionBoundApplicationExclusionEffect(sourceSpan, item.criterion.dimension);
+      const contradictsBareExclusion = EXPLICIT_APPLICATION_PERMISSION_PATTERN.test(sourceSpan)
+        && !hasDimensionBoundApplicationExclusionEffect(sourceSpan, item.criterion.dimension);
+      if (isUnsupportedDeclaration || contradictsBareExclusion) {
+        issues.push({
+          code: "semantic_misattribution",
+          path: `$.criteria[${item.index}]`,
+          message:
+            "The verified source_span does not establish that this attested prior-award or IP fact excludes the applicant. Do not infer current exclusion from a first-person declaration, future clawback/sanction, or unrelated source context. Either cite one contiguous span that explicitly binds the fact to application exclusion, or remove the criterion/confirmation and preserve the declaration only in analysis/caution text.",
+        });
+        continue;
+      }
+    }
+
+    if (item.criterion.kind !== "preferred") continue;
+    const assertionText = criterionModelAssertionText(item);
+    if (
+      hasPositiveEnglishCapabilityAssertion(assertionText)
+      && !hasExplicitEnglishCapabilityEffect(sourceSpan)
+    ) {
+      issues.push({
+        code: "semantic_misattribution",
+        path: `$.criteria[${item.index}]`,
+        message:
+          "The verified source_span uses English as the presentation method but does not score or evaluate English capability itself. Remove the unsupported English-capability expansion; preserve only evaluation factors explicitly named in the source, and keep the English presentation procedure in analysis/caution text. If English capability is independently scored, cite that exact contiguous evidence.",
+      });
+    }
+  }
+}
+
+function hasDimensionBoundApplicationExclusionEffect(
+  sourceSpan: string,
+  dimension: "prior_award" | "ip",
+): boolean {
+  const factPattern = dimension === "prior_award"
+    ? /중복\s*지원|타\s*(?:기관|사업).{0,24}지원/u
+    : /지식\s*재산권|지식재산권|특허|저작권|침해|소송|재판/u;
+  for (const match of sourceSpan.matchAll(APPLICATION_EXCLUSION_EFFECT_PATTERN)) {
+    const end = (match.index ?? 0) + match[0].length;
+    const tail = sourceSpan.slice(end, end + 32);
+    if (isDirectlyNegatedApplicationEffect(tail)) continue;
+    const prefix = sourceSpan.slice(0, match.index ?? 0);
+    const sentenceBoundary = Math.max(
+      prefix.lastIndexOf("."),
+      prefix.lastIndexOf("。"),
+      prefix.lastIndexOf("!"),
+      prefix.lastIndexOf("?"),
+      prefix.lastIndexOf("\n"),
+      prefix.lastIndexOf(";"),
+    );
+    const nearbyFact = sourceSpan.slice(
+      Math.max(sentenceBoundary + 1, (match.index ?? 0) - 72),
+      end,
+    );
+    if (factPattern.test(nearbyFact)) return true;
+  }
+  return false;
+}
+
+function isDirectlyNegatedApplicationEffect(tail: string): boolean {
+  return /^(?:하|되)?(?:지\s*않|지\s*아니)|^(?:대상\s*)?(?:이|가|은|는)?\s*(?:아니|아님|해당하지\s*않)/u
+    .test(tail.trimStart());
+}
+
+function hasPositiveEnglishCapabilityAssertion(text: string): boolean {
+  return englishCapabilityOccurrences(text).some(({ tail }) => (
+    !isDirectlyNegatedEnglishCapabilityEffect(tail)
+  ));
+}
+
+function hasExplicitEnglishCapabilityEffect(text: string): boolean {
+  return englishCapabilityOccurrences(text).some(({ tail }) => (
+    !isDirectlyNegatedEnglishCapabilityEffect(tail)
+    && /(?:평가|배점|가점|\d+\s*점)/u.test(tail)
+  ));
+}
+
+function englishCapabilityOccurrences(text: string): Array<{ tail: string }> {
+  return [...text.matchAll(ENGLISH_CAPABILITY_OCCURRENCE_PATTERN)].map((match) => {
+    const end = (match.index ?? 0) + match[0].length;
+    const sentenceTail = text.slice(end, end + 64).split(/[.!?。！？\n]/u, 1)[0] ?? "";
+    return { tail: sentenceTail };
+  });
+}
+
+function isDirectlyNegatedEnglishCapabilityEffect(tail: string): boolean {
+  return /^(?:은|는|이|가|을|를)?\s*(?:(?:독립|별도|실질)\s*)?(?:(?:평가\s*(?:요소|항목|대상)(?:이|가|은|는)?\s*(?:아니|아님|되지\s*않))|(?:평가하지\s*않)|(?:평가\s*대상에서\s*제외))/u
+    .test(tail.trimStart());
+}
+
+function criterionModelAssertionText(item: DeepAnalysisValidatedCriterion): string {
+  const valueNote = isRecord(item.criterion.value) && typeof item.criterion.value.note === "string"
+    ? item.criterion.value.note
+    : "";
+  return `${item.criterion.note ?? ""} ${valueNote}`
+    .normalize("NFKC")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function validateStructuredFilterMetadata(
@@ -1076,6 +1216,15 @@ function validateSourceLimitations(
       });
       return;
     }
+    if (evaluationPrecisionExplanationContradictsScope(value)) {
+      issues.push({
+        code: "semantic_misattribution",
+        path: `${path}.scope`,
+        message:
+          "evaluation_precision requires known evaluation factors or direction with only numeric scores/weights missing, but this limitation's own explanation says the evaluation basis is unavailable. Do not relabel the scope or treat the model explanation as source evidence; remove this limitation unless sealed source supports a separate valid limitation.",
+      });
+      return;
+    }
     grounded.push(value);
     if (value.scope === "eligibility_details") {
       issues.push({
@@ -1087,6 +1236,38 @@ function validateSourceLimitations(
     }
   });
   return grounded;
+}
+
+const ANSEONG_EVALUATION_MATERIAL_ABSENCE_PATTERN =
+  /선정\s*평가표(?:나|와|과|,)\s*배점\s*[·ㆍ/와과]\s*가점\s*항목(?:이|가|은|는|도)?\s*(?:전혀\s*)?없/gu;
+const UNKNOWN_SELECTION_DIRECTION_PATTERN =
+  /우선\s*순위(?:가|는|를)?\s*어떻게[^.!?。！？\n]{0,96}?결정[^.!?。！？\n]{0,96}?(?:판단|확인|알)\s*할\s*수\s*없/gu;
+
+/**
+ * explanation은 안성에서 관측된 좁은 자기모순만 찾으며 원문 근거로 승격하지 않는다.
+ * 일반적인 배점 미공개나 평가기준(안)은 evaluation basis 부재를 뜻하지 않는다.
+ */
+function evaluationPrecisionExplanationContradictsScope(
+  value: DeepAnalysisSourceLimitation,
+): boolean {
+  if (value.scope !== "evaluation_precision") return false;
+  const explanation = value.explanation.normalize("NFKC").replace(/\s+/g, " ").trim();
+  return hasNonNegatedAbsenceAssertion(
+    explanation,
+    ANSEONG_EVALUATION_MATERIAL_ABSENCE_PATTERN,
+  ) && hasNonNegatedAbsenceAssertion(explanation, UNKNOWN_SELECTION_DIRECTION_PATTERN);
+}
+
+function hasNonNegatedAbsenceAssertion(text: string, pattern: RegExp): boolean {
+  pattern.lastIndex = 0;
+  const matches = [...text.matchAll(pattern)];
+  pattern.lastIndex = 0;
+  return matches.some((match) => {
+    const end = (match.index ?? 0) + match[0].length;
+    const tail = text.slice(end, end + 32).trimStart();
+    return !/^(?:지\s*않|(?:이|가|은|는|다는)?\s*(?:(?:것|게|뜻|의미)(?:이|가|은|는)?\s*)?(?:아니|아님))/u
+      .test(tail);
+  });
 }
 
 function isRawSourceLimitation(value: unknown): boolean {

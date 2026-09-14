@@ -7,6 +7,10 @@ import type {
   RoundtripFieldCoverageIssue,
   RoundtripFieldCoverageSummary,
 } from "./contract";
+import {
+  hasNonOverridableStructuralRejection,
+  isUnsupportedNestedMediaTextTarget,
+} from "./core";
 
 const COLLAPSED_CONTEXT_LENGTH = 400;
 const GENERIC_CHOICE_COLLAPSED_LENGTH = 120;
@@ -83,7 +87,9 @@ export function detectUnsupportedNativeInputGaps(input: {
       row.forEach((cell, colIndex) => {
         const text = cell.text.normalize("NFKC");
         const inlineSlotCount = [...text.matchAll(INLINE_EMPTY_NUMBER_SLOT)].length;
-        const unsupportedKind = inlineSlotCount >= 2
+        const unsupportedKind = isUnsupportedNestedMediaTextTarget(row, colIndex, cell)
+          ? "nested_media"
+          : inlineSlotCount >= 2
           ? "inline_number_slots"
           : LEADING_TEXT_CHECKBOX.test(text)
             ? "text_checkbox"
@@ -98,6 +104,8 @@ export function detectUnsupportedNativeInputGaps(input: {
           label,
           reason: unsupportedKind === "inline_number_slots"
             ? "한 셀 안의 복수 숫자 입력 위치를 각각 exact하게 결속하지 못해 원문 직접 확인이 필요함"
+            : unsupportedKind === "nested_media"
+              ? "이미지·설계도 삽입용 nested 영역은 현재 텍스트 writer로 결속할 수 없어 원문 직접 편집이 필요함"
             : "텍스트 체크박스의 exact marker 쓰기 위치를 결속하지 못해 원문 직접 확인이 필요함",
           location: {
             blockIndex,
@@ -182,6 +190,7 @@ function hasExactCellTarget(
 }
 
 function hasResolvedRejection(field: RoundtripFieldCandidate): boolean {
+  if (hasNonOverridableStructuralRejection(field)) return true;
   const locatedLlmRejection = (
     field.analysisSource === "llm"
     && field.llmDecision === "not_input"

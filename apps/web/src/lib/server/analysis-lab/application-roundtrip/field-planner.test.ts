@@ -249,6 +249,43 @@ try {
     ]);
     console.log("✅ 동일 missing 실패 — 1회 교정 뒤 fail-closed");
   }
+  // ---- 구조적으로 지원하지 않는 후보는 positive/repeated vote로 부활하지 않음 ---------
+  {
+    const mediaHost = candidate("unsupported-media-host");
+    mediaHost.recommendedInput = false;
+    mediaHost.inputLikelihood = 0.59;
+    mediaHost.analysisSource = "llm";
+    mediaHost.llmDecision = "uncertain";
+    mediaHost.inputSignals.push(
+      "현재 텍스트 writer가 지원하지 않는 nested media 입력 영역 안전 제외",
+    );
+    const consumedPlaceholder = candidate("consumed-colspan-placeholder");
+    consumedPlaceholder.recommendedInput = false;
+    consumedPlaceholder.inputLikelihood = 0.59;
+    consumedPlaceholder.analysisSource = "llm";
+    consumedPlaceholder.llmDecision = "uncertain";
+    consumedPlaceholder.inputSignals.push(
+      "IR colSpan으로 앞 라벨에 결속된 값 placeholder 중복 안전 제외",
+    );
+    const bodies: Array<Record<string, unknown>> = [];
+    const result = await planRoundtripFields({
+      fields: [mediaHost, consumedPlaceholder],
+      markdown: "이미지 참고사진 설계도 삽입",
+      apiKey: "subscription",
+      transport: "claude-cli",
+      fetchImpl: buildFetch(bodies, [[
+        decision(mediaHost.fieldInstanceId, true, 0.99, "이미지"),
+        decision(consumedPlaceholder.fieldInstanceId, true, 0.99, "해당 시"),
+      ]]),
+    });
+    assert.equal(bodies.length, 0, "구조 unsupported 후보는 모델 판정·재판정 대상으로 보내지 않음");
+    for (const field of result.fields) {
+      assert.equal(field.recommendedInput, false);
+      assert.equal(field.llmDecision, "uncertain", "과거 판정은 진단으로만 남기고 입력으로 승격하지 않음");
+    }
+    assert.equal(result.summary.deterministicDecisionCount, 2);
+    console.log("✅ 구조 unsupported 후보 — positive LLM 재승격 차단");
+  }
   // ---- 300자 경계에서 같은 prefix로 잘린 서로 다른 응답은 동일 실패로 단정하지 않음 ----
   {
     const bodies: Array<Record<string, unknown>> = [];

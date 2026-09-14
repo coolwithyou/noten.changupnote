@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import type { RoundtripFieldCandidate } from "@/lib/server/analysis-lab/application-roundtrip/contract";
+import { extractLocatedRoundtripFields } from "./core";
 import { detectUnsupportedNativeInputGaps, finalizeRoundtripFieldCoverage } from "./field-coverage";
 
 const accepted = field({ id: "company-intro", label: "회사소개*", required: true, recommendedInput: true });
@@ -293,6 +294,66 @@ const remainingGaps = detectUnsupportedNativeInputGaps({
 });
 assert.equal(remainingGaps.length, 2, "이미 exact 결속된 셀을 미지원 gap으로 중복 경고하면 안 된다");
 assert.deepEqual(remainingGaps.map((gap) => [gap.location.row, gap.location.col]), [[0, 1], [1, 1]]);
+
+{
+  const mediaBlocks = [{
+    type: "table" as const,
+    table: {
+      rows: 1,
+      cols: 3,
+      hasHeader: false,
+      cells: [[
+        { text: "이미지", colSpan: 2, rowSpan: 1 },
+        { text: "", colSpan: 1, rowSpan: 1 },
+        {
+          text: "※ 참고사진(이미지)·설계도 등 삽입(해당 시)",
+          colSpan: 1,
+          rowSpan: 1,
+          blocks: [{ type: "paragraph" as const, text: "※ 참고사진(이미지)·설계도 등 삽입(해당 시)" }],
+        },
+      ]],
+    },
+  }];
+  const mediaFields = extractLocatedRoundtripFields(mediaBlocks, "7".repeat(64)).fields;
+  const mediaGaps = detectUnsupportedNativeInputGaps({
+    blocks: mediaBlocks,
+    fields: mediaFields,
+    role: "application_form",
+  });
+  assert.equal(mediaGaps.length, 1);
+  assert.match(mediaGaps[0]?.reason ?? "", /텍스트 writer/);
+  const mediaCoverage = finalizeRoundtripFieldCoverage(mediaFields, mediaGaps);
+  assert.equal(mediaCoverage.status, "partial", "지원하지 않는 media 입력을 complete로 가장하지 않음");
+  assert.equal(mediaCoverage.acceptedInputCount, 0);
+  assert.equal(mediaCoverage.unresolvedCandidateCount, 0, "알려진 unsupported와 의미 불명을 중복 집계하지 않음");
+  assert.equal(mediaCoverage.structuralWarningCount, 1);
+}
+
+{
+  const mergedConditionalBlocks = [{
+    type: "table" as const,
+    table: {
+      rows: 1,
+      cols: 8,
+      hasHeader: false,
+      cells: [[
+        { text: "법인등록번호", colSpan: 4, rowSpan: 1 },
+        { text: "", colSpan: 1, rowSpan: 1 },
+        { text: "", colSpan: 1, rowSpan: 1 },
+        { text: "", colSpan: 1, rowSpan: 1 },
+        { text: "해당 시", colSpan: 3, rowSpan: 1 },
+        { text: "", colSpan: 1, rowSpan: 1 },
+        { text: "", colSpan: 1, rowSpan: 1 },
+        { text: "", colSpan: 1, rowSpan: 1 },
+      ]],
+    },
+  }];
+  const mergedFields = extractLocatedRoundtripFields(mergedConditionalBlocks, "6".repeat(64)).fields;
+  const mergedCoverage = finalizeRoundtripFieldCoverage(mergedFields);
+  assert.equal(mergedCoverage.status, "complete");
+  assert.equal(mergedCoverage.acceptedInputCount, 1, "canonical 법인등록번호만 입력으로 admission");
+  assert.equal(mergedCoverage.unresolvedCandidateCount, 0, "소비된 placeholder 후보가 review hold로 남지 않음");
+}
 
 console.log("application-roundtrip field coverage tests: ok");
 

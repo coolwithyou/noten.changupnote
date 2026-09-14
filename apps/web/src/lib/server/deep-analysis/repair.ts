@@ -22,6 +22,8 @@ import {
   DEEP_ANALYSIS_ALTERNATIVE_PATH_SCOPE_RULE,
   DEEP_ANALYSIS_BIZ_AGE_BOUNDARY_RULE,
   DEEP_ANALYSIS_CROSS_AXIS_TEXT_ONLY_RULE,
+  DEEP_ANALYSIS_NON_MATCHING_DECLARATION_RULE,
+  DEEP_ANALYSIS_SCORING_TABLE_COMPLETENESS_RULE,
   DEEP_ANALYSIS_STRUCTURED_FILTER_METADATA_RULE,
   DEEP_ANALYSIS_TARGET_TYPE_LIST_SEMANTICS_RULE,
   findExactEvidenceSpanCandidates,
@@ -37,7 +39,7 @@ import {
   type DeepAnalysisValidationResult,
 } from "./validator";
 
-export const DEEP_ANALYSIS_REPAIR_VERSION = "deep-analysis-repair-v9" as const;
+export const DEEP_ANALYSIS_REPAIR_VERSION = "deep-analysis-repair-v10" as const;
 export const DEEP_ANALYSIS_AUDIT_RETRY_FEEDBACK_VERSION =
   "deep-analysis-audit-retry-feedback-v1" as const;
 
@@ -276,6 +278,8 @@ export async function repairDeepAnalysisExecution(input: {
       "axis_criterion_mismatch에서 실제 조건이 있으면 같은 축 criterion을 만들고 condition_found를 유지하며, 실제 조건이 없으면 criterion을 만들지 말고 inspected_no_condition으로 고쳐라.",
       `list_semantics 또는 포털 구조화 필드 관련 semantic_misattribution은 다음 계약으로 고쳐라: ${DEEP_ANALYSIS_TARGET_TYPE_LIST_SEMANTICS_RULE}`,
       `업력 월 경계 관련 semantic_misattribution은 다음 계약으로 고쳐라: ${DEEP_ANALYSIS_BIZ_AGE_BOUNDARY_RULE}`,
+      DEEP_ANALYSIS_NON_MATCHING_DECLARATION_RULE,
+      DEEP_ANALYSIS_SCORING_TABLE_COMPLETENESS_RULE,
       DEEP_ANALYSIS_STRUCTURED_FILTER_METADATA_RULE,
       `신청자 대안 경로를 한 조건으로 평탄화하지 마라: ${DEEP_ANALYSIS_ALTERNATIVE_PATH_SCOPE_RULE}`,
       DEEP_ANALYSIS_CROSS_AXIS_TEXT_ONLY_RULE,

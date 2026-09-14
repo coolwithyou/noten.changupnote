@@ -86,6 +86,11 @@ export interface AnalysisLaunchManifest {
     readonly planSha256: string;
     readonly planArtifactSha256: string;
     readonly adoptionManifestSha256: string | null;
+    /**
+     * 완료된 current-inventory launch를 같은 exact inventory와 현행 material 계약으로
+     * 다시 봉인할 때만 존재한다. live grant가 아니라 읽기 전용 ancestry다.
+     */
+    readonly completedLaunch?: AnalysisLaunchCompletedCurrentInventoryBinding;
     readonly sequenceFrom: number;
     readonly sequenceTo: number;
   };
@@ -104,6 +109,14 @@ export interface AnalysisLaunchManifest {
     readonly existingRunPolicy: "skip_existing" | "rerun_exact_targets";
   };
   readonly targets: readonly AnalysisLaunchManifestTarget[];
+}
+
+export interface AnalysisLaunchCompletedCurrentInventoryBinding {
+  readonly schema: "analysis-launch-completed-current-inventory-v1";
+  readonly inventorySha256: string;
+  readonly sourceManifestSha256: string;
+  readonly sourceGrantSha256: string;
+  readonly terminalReceiptSha256: string;
 }
 
 export interface AnalysisLaunchGrant {
@@ -227,7 +240,9 @@ export function createAnalysisLaunchManifest(
 
 /** 현행 재고의 exact 목록. 역사 formal 표본 수/필수 층 계약은 변경하지 않는다. */
 export function createCurrentInventoryAnalysisLaunchManifest(
-  input: AnalysisLaunchManifestPreparationInput,
+  input: AnalysisLaunchManifestPreparationInput & {
+    readonly completedLaunch?: AnalysisLaunchCompletedCurrentInventoryBinding;
+  },
 ): AnalysisLaunchManifest {
   if (input.inventory.planSha256 !== input.inventory.planArtifactSha256) {
     throw new Error("current inventory의 content address 결속이 다릅니다.");
@@ -235,7 +250,15 @@ export function createCurrentInventoryAnalysisLaunchManifest(
   const formal = createAnalysisLaunchManifest(input);
   return normalizeAnalysisLaunchManifest({
     ...formal,
-    source: { ...formal.source, kind: "current_inventory" },
+    source: {
+      ...formal.source,
+      kind: "current_inventory",
+      ...(input.completedLaunch ? { completedLaunch: input.completedLaunch } : {}),
+    },
+    execution: {
+      ...formal.execution,
+      existingRunPolicy: input.completedLaunch ? "rerun_exact_targets" : "skip_existing",
+    },
   });
 }
 
@@ -492,7 +515,26 @@ export function createAnalysisLaunchGrant(input: {
   });
 }
 
+type AnalysisLaunchManifestNormalizationPurpose = "live" | "completed-current-inventory-source";
+
 export function normalizeAnalysisLaunchManifest(value: unknown): AnalysisLaunchManifest {
+  return normalizeAnalysisLaunchManifestForPurpose(value, "live");
+}
+
+/**
+ * current-inventory 재봉인의 읽기 전용 ancestry 검증 전용이다. 이 함수가 허용한 역사
+ * material은 새 manifest의 실행 계약이나 grant/run admission에는 사용되지 않는다.
+ */
+export function normalizeCompletedCurrentInventorySourceManifest(
+  value: unknown,
+): AnalysisLaunchManifest {
+  return normalizeAnalysisLaunchManifestForPurpose(value, "completed-current-inventory-source");
+}
+
+function normalizeAnalysisLaunchManifestForPurpose(
+  value: unknown,
+  purpose: AnalysisLaunchManifestNormalizationPurpose,
+): AnalysisLaunchManifest {
   const record = object(value, "manifest");
   if (record.schema !== "analysis-launch-manifest-v1") throw new Error("launch manifest schema가 다릅니다.");
   const source = object(record.source, "manifest.source");
@@ -583,6 +625,9 @@ export function normalizeAnalysisLaunchManifest(value: unknown): AnalysisLaunchM
     || source.adoptionManifestSha256 === null
     ? null
     : exactSha(String(source.adoptionManifestSha256), "adoptionManifestSha256");
+  const completedLaunch = source.completedLaunch === undefined
+    ? undefined
+    : normalizeCompletedCurrentInventoryBinding(source.completedLaunch);
   if (
     sourceKind !== "independent_review_repair"
       ? targets.some((target) => target.applicationRoundtripReuse)
@@ -605,15 +650,39 @@ export function normalizeAnalysisLaunchManifest(value: unknown): AnalysisLaunchM
   if (new Set(reusedRoundtripRunIds).size !== reusedRoundtripRunIds.length) {
     throw new Error("launch Kordoc exact 재사용 runId가 중복됐습니다.");
   }
+  const expectedCurrentInventoryRunPolicy = completedLaunch
+    ? "rerun_exact_targets"
+    : "skip_existing";
+  const expectedApplicationFieldAnalysisVersion = purpose === "completed-current-inventory-source"
+    ? "kordoc-application-roundtrip-v14"
+    : APPLICATION_ROUNDTRIP_VERSION;
+  if (
+    purpose === "completed-current-inventory-source"
+    && (
+      sourceKind !== "current_inventory"
+      || completedLaunch !== undefined
+      || existingRunPolicy !== "skip_existing"
+      || execution.promptVersion !== "lab-deep-v26"
+      || execution.validatorVersion !== "deep-analysis-validator-v19"
+      || applicationFieldAnalysisVersion !== "kordoc-application-roundtrip-v14"
+    )
+  ) {
+    throw new Error("재봉인 원본은 exact v14/lab-v26/validator-v19 current inventory launch여야 합니다.");
+  }
   if (
     ((sourceKind === "formal_plan" || sourceKind === "current_inventory")
       && (
         adoptionManifestSha256 !== null
-        || existingRunPolicy !== "skip_existing"
+        || (sourceKind === "formal_plan"
+          ? existingRunPolicy !== "skip_existing" || completedLaunch !== undefined
+          : existingRunPolicy !== expectedCurrentInventoryRunPolicy)
         || !withApplicationRoundtrip
         || roundtripModel !== APPLICATION_ROUNDTRIP_ADOPTED_MODEL
-        || applicationFieldAnalysisVersion !== APPLICATION_ROUNDTRIP_VERSION
+        || applicationFieldAnalysisVersion !== expectedApplicationFieldAnalysisVersion
         || (sourceKind === "current_inventory" && planSha256 !== planArtifactSha256)
+        || (sourceKind === "current_inventory"
+          && completedLaunch !== undefined
+          && completedLaunch.inventorySha256 !== planArtifactSha256)
       ))
     || (sourceKind === "authoring_guide_adoption"
       && (
@@ -627,6 +696,7 @@ export function normalizeAnalysisLaunchManifest(value: unknown): AnalysisLaunchM
     || (sourceKind === "independent_review_repair"
       && (
         adoptionManifestSha256 !== null
+        || completedLaunch !== undefined
         || planSha256 !== planArtifactSha256
         || existingRunPolicy !== "rerun_exact_targets"
         || !withApplicationRoundtrip
@@ -639,6 +709,7 @@ export function normalizeAnalysisLaunchManifest(value: unknown): AnalysisLaunchM
       && sourceKind !== "authoring_guide_adoption"
       && sourceKind !== "independent_review_repair"
     )
+    || (sourceKind !== "current_inventory" && completedLaunch !== undefined)
     || (existingRunPolicy !== "skip_existing" && existingRunPolicy !== "rerun_exact_targets")
   ) {
     throw new Error("launch source/existing run 정책 결속이 잘못됐습니다.");
@@ -655,6 +726,7 @@ export function normalizeAnalysisLaunchManifest(value: unknown): AnalysisLaunchM
       planSha256,
       planArtifactSha256,
       adoptionManifestSha256,
+      ...(completedLaunch ? { completedLaunch } : {}),
       sequenceFrom,
       sequenceTo,
     }),
@@ -672,6 +744,31 @@ export function normalizeAnalysisLaunchManifest(value: unknown): AnalysisLaunchM
       existingRunPolicy,
     }),
     targets: Object.freeze(targets),
+  });
+}
+
+function normalizeCompletedCurrentInventoryBinding(
+  value: unknown,
+): AnalysisLaunchCompletedCurrentInventoryBinding {
+  const binding = object(value, "manifest.source.completedLaunch");
+  if (binding.schema !== "analysis-launch-completed-current-inventory-v1") {
+    throw new Error("completed current inventory launch schema가 다릅니다.");
+  }
+  return Object.freeze({
+    schema: "analysis-launch-completed-current-inventory-v1",
+    inventorySha256: exactSha(String(binding.inventorySha256), "completedLaunch.inventorySha256"),
+    sourceManifestSha256: exactSha(
+      String(binding.sourceManifestSha256),
+      "completedLaunch.sourceManifestSha256",
+    ),
+    sourceGrantSha256: exactSha(
+      String(binding.sourceGrantSha256),
+      "completedLaunch.sourceGrantSha256",
+    ),
+    terminalReceiptSha256: exactSha(
+      String(binding.terminalReceiptSha256),
+      "completedLaunch.terminalReceiptSha256",
+    ),
   });
 }
 

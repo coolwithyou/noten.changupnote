@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import type { LabAudit, LabAuditItem } from "@/lib/server/analysis-lab/lab-contract";
 import { isAiAdjudicationResolved } from "@/lib/server/analysis-lab/lab-contract";
 import {
+  AI_ADJUDICATION_PROMPT_VERSION,
   buildAdjudicationJudgments,
   buildAiAdjudicationSystemPrompt,
   renderAdjudicationConflictContext,
@@ -20,6 +21,7 @@ const criterion: LabAuditItem = {
   aiAuditVerdict: "correct",
   aiAuditNote: null,
 };
+assert.equal(AI_ADJUDICATION_PROMPT_VERSION, "ai-adjudication-v2");
 const axis: LabAuditItem = {
   kind: "axis",
   dimension: "other",

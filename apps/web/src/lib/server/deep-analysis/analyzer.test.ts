@@ -115,6 +115,14 @@ assert.match(
   DEEP_ANALYSIS_NON_MATCHING_DECLARATION_RULE,
   /중복지원 신청을 하지 않겠다.*현재 또는 과거 수혜 사실이 아니므로 prior_award criterion.*만들지 마라/,
 );
+assert.match(
+  DEEP_ANALYSIS_NON_MATCHING_DECLARATION_RULE,
+  /중복 지원을 받은 사실이 없다.*지식재산권 침해·소송 사실이 없음을 확인.*같은 연속 인용.*신청 제외·지원 불가·결격/,
+);
+assert.match(
+  DEEP_ANALYSIS_NON_MATCHING_DECLARATION_RULE,
+  /향후 적발 시 환수·제재·선정 취소 가능성만으로 현재 신청 제외 효과를 추정하지 말고/,
+);
 assert.doesNotMatch(
   DEEP_ANALYSIS_SYSTEM_PROMPT,
   /서류 허위·미제출·표절.*other\/text_only exclusion 으로 둔다/,
@@ -196,6 +204,14 @@ assert.match(
 assert.equal(
   DEEP_ANALYSIS_SYSTEM_PROMPT.includes(DEEP_ANALYSIS_SCORING_TABLE_COMPLETENESS_RULE),
   true,
+);
+assert.match(
+  DEEP_ANALYSIS_SCORING_TABLE_COMPLETENESS_RULE,
+  /영어가 진행 언어·방식으로만 명시되면 영어 발표 역량을 독립 preferred로 추론하지 말고/,
+);
+assert.match(
+  DEEP_ANALYSIS_SCORING_TABLE_COMPLETENESS_RULE,
+  /영어 구사·발표 역량 자체를 평가.*배점·가점이 직접 결속.*영어 역량 preferred를 유지/,
 );
 assert.equal(
   DEEP_ANALYSIS_SYSTEM_PROMPT.includes(DEEP_ANALYSIS_LOCALITY_PREMISES_RULE),
@@ -328,6 +344,18 @@ assert.match(DEEP_ANALYSIS_SOURCE_LIMITATION_RULE, /affected_dimensions=null.*�
 assert.match(
   DEEP_ANALYSIS_SOURCE_LIMITATION_RULE,
   /숫자 배점·가중치만 공개되지 않아.*scope=evaluation_precision.*자격 누락으로 취급하지 않는다/,
+);
+assert.match(
+  DEEP_ANALYSIS_SOURCE_LIMITATION_RULE,
+  /평가방식·평가방향·평가항목·명시된 동점 규칙 중 어느 판단 근거도 제공되지 않았다고 밝히면서.*evaluation_precision을 만들지 마라/,
+);
+assert.match(
+  DEEP_ANALYSIS_SOURCE_LIMITATION_RULE,
+  /배점·가중치 미공개나 '평가기준\(안\)'.*평가방식·방향 부재로 확대하지 말고.*구체적 평가항목이 없더라도 평가방향이나 명시된 동점 규칙이 제공됐다면.*정확한 우선순위를 계산할 수 없다는 설명도.*평가항목 또는 방향이 제공됐다면 evaluation_precision으로 보존/,
+);
+assert.match(
+  DEEP_ANALYSIS_SOURCE_LIMITATION_RULE,
+  /모순되는 limitation을 설명만으로 다른 scope에 자동 재분류하지 말고.*별도 근거가 없으면.*제외/,
 );
 assert.match(
   CONFIRMATION_PROMPT_RULES.join("\n"),

@@ -94,7 +94,7 @@ const validation = {
     ].map((dimension) => [dimension, []]),
   ) as never,
 };
-assert.equal(DEEP_ANALYSIS_REPAIR_VERSION, "deep-analysis-repair-v9");
+assert.equal(DEEP_ANALYSIS_REPAIR_VERSION, "deep-analysis-repair-v10");
 assert.equal(
   findExactEvidenceSpanCandidates(requestedSpan, execution.evidenceText).length,
   2,
@@ -148,6 +148,8 @@ assert.ok(Math.abs((repaired.result.costUsd ?? 0) - 0.3) < 1e-9);
 assert.match(repairInstruction, /validator 실패/);
 assert.match(repairInstruction, /exactCandidates/);
 assert.match(repairInstruction, /axis_criterion_mismatch/);
+assert.match(repairInstruction, /사실 부존재를 1인칭으로 확인하더라도/);
+assert.match(repairInstruction, /영어가 진행 언어·방식으로만 명시되면/);
 assert.match(repairInstruction, /source_field: aply_trgt/);
 assert.match(repairInstruction, /biz_enyy/);
 assert.match(repairInstruction, /서로 다른 22축이 섞인 대안/);
@@ -810,6 +812,25 @@ const locallyRepairedMatchingScope = await repairDeepAnalysisExecution({
 assert.equal(matchingScopeFallbackModelCalled, false);
 assert.equal(locallyRepairedMatchingScope.passes.length, 1);
 assert.equal(locallyRepairedMatchingScope.deterministicMatchingScopeRepairs?.length, 1);
+
+const unsupportedEffectValidation = {
+  ...matchingScopeValidation,
+  issues: [{
+    code: "semantic_misattribution" as const,
+    path: "$.criteria[0]",
+    message: "verified source_span does not bind the claimed exclusion effect",
+  }],
+};
+const unsupportedEffectRepair = repairDeepAnalysisMatchingScopeDeterministically({
+  execution: matchingScopeExecution,
+  validation: unsupportedEffectValidation,
+});
+assert.equal(unsupportedEffectRepair.repairs.length, 0);
+assert.equal(
+  unsupportedEffectRepair.execution.result.criteria.length,
+  1,
+  "효과 결속 실패는 deterministic 삭제하지 않고 targeted model repair 또는 held로 남긴다",
+);
 
 const axisSyncSpan = "사업영위 기간 10년 이상인 기업";
 const axisSyncSeal = sealDeepAnalysisInput({

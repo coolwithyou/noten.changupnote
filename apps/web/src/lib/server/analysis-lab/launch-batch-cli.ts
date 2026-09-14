@@ -3,6 +3,7 @@ import { closeCunoteDb } from "../db/client";
 import { loadAnalysisLabEnv } from "../loadMonorepoEnv";
 import {
   approveAnalysisLaunchManifest,
+  prepareCompletedCurrentInventoryLaunchManifest,
   prepareAnalysisLaunchManifest,
   runApprovedAnalysisLaunchBatch,
 } from "./launch-batch-production";
@@ -14,6 +15,7 @@ import {
 
 const SHA256 = /^[a-f0-9]{64}$/;
 const USAGE = `pnpm lab:launch:prepare -- --series=${ACTIVE_DEEP_REPAIR_SERIES_ID} --sequences=0-${ACTIVE_DEEP_REPAIR_TARGET_COUNT - 1} --concurrency=2
+pnpm lab:launch:prepare -- --reseal-current-inventory=<sha256> --source-manifest=<sha256> --source-grant=<sha256> --terminal-receipt=<sha256> --concurrency=1
 pnpm lab:launch:grant -- --manifest=<sha256> --approved-by=<actor>
 pnpm lab:launch -- --grant=<sha256> [--retry-errors]`;
 
@@ -26,6 +28,14 @@ export type AnalysisLaunchCliArgs =
       readonly seriesId: string;
       readonly sequenceFrom: number;
       readonly sequenceTo: number;
+      readonly concurrency: number;
+    }
+  | {
+      readonly kind: "prepare-current-inventory-reseal";
+      readonly inventorySha256: string;
+      readonly sourceManifestSha256: string;
+      readonly sourceGrantSha256: string;
+      readonly terminalReceiptSha256: string;
       readonly concurrency: number;
     }
   | { readonly kind: "grant"; readonly manifestSha256: string; readonly approvedBy: string }
@@ -53,6 +63,40 @@ export function parseAnalysisLaunchCliArgs(
     values.set(key, value);
   }
   if (command === "prepare") {
+    const resealInventorySha256 = values.get("--reseal-current-inventory");
+    if (resealInventorySha256 !== undefined) {
+      const allowedResealValues = new Set([
+        "--reseal-current-inventory",
+        "--source-manifest",
+        "--source-grant",
+        "--terminal-receipt",
+        "--concurrency",
+      ]);
+      if (
+        flags.size > 0
+        || values.size !== allowedResealValues.size
+        || [...values.keys()].some((key) => !allowedResealValues.has(key))
+      ) throw usageError();
+      const sourceManifestSha256 = values.get("--source-manifest");
+      const sourceGrantSha256 = values.get("--source-grant");
+      const terminalReceiptSha256 = values.get("--terminal-receipt");
+      const concurrency = Number(values.get("--concurrency"));
+      if (
+        !SHA256.test(resealInventorySha256)
+        || !sourceManifestSha256 || !SHA256.test(sourceManifestSha256)
+        || !sourceGrantSha256 || !SHA256.test(sourceGrantSha256)
+        || !terminalReceiptSha256 || !SHA256.test(terminalReceiptSha256)
+        || !Number.isInteger(concurrency) || concurrency < 1 || concurrency > 4
+      ) throw usageError();
+      return {
+        kind: "prepare-current-inventory-reseal",
+        inventorySha256: resealInventorySha256,
+        sourceManifestSha256,
+        sourceGrantSha256,
+        terminalReceiptSha256,
+        concurrency,
+      };
+    }
     const allowedValues = new Set(["--series", "--sequences", "--concurrency"]);
     if ([...values.keys()].some((key) => !allowedValues.has(key)) || flags.size > 0) {
       throw usageError();
@@ -102,6 +146,25 @@ async function main(command: Command, argv: readonly string[]): Promise<void> {
   }
   loadAnalysisLabEnv();
   try {
+    if (parsed.kind === "prepare-current-inventory-reseal") {
+      const result = await prepareCompletedCurrentInventoryLaunchManifest({
+        inventorySha256: parsed.inventorySha256,
+        sourceManifestSha256: parsed.sourceManifestSha256,
+        sourceGrantSha256: parsed.sourceGrantSha256,
+        terminalReceiptSha256: parsed.terminalReceiptSha256,
+        concurrency: parsed.concurrency,
+      });
+      console.log(JSON.stringify({
+        kind: "launch-manifest",
+        liveExecutionAuthorized: false,
+        sourceKind: result.manifest.source.kind,
+        existingRunPolicy: result.manifest.execution.existingRunPolicy,
+        manifestSha256: result.manifestSha256,
+        targetCount: result.manifest.targets.length,
+        path: result.path,
+      }, null, 2));
+      return;
+    }
     if (parsed.kind === "prepare") {
       const result = await prepareAnalysisLaunchManifest({
         seriesId: parsed.seriesId,

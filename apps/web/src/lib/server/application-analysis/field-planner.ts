@@ -13,6 +13,7 @@ import {
   EXECUTION_TIMEOUT_HEADER,
   hasExecutionScopedTimeout,
 } from "@/lib/server/deep-analysis/fetchTimeout";
+import { hasNonOverridableStructuralRejection } from "./core";
 
 const TOOL_NAME = "emit_application_field_plan";
 const DEFAULT_MODEL = "claude-sonnet-5";
@@ -174,9 +175,10 @@ export async function planRoundtripFields(options: {
   const startedMs = Date.now();
   const runtime = resolveRoundtripFieldPlannerRuntimeConfig(options);
   const fields = options.fields.map(cloneField);
+  const plannerEligibleFields = fields.filter((field) => !hasNonOverridableStructuralRejection(field));
   const triageCandidates = runtime.transport === "claude-cli"
-    ? fields.filter(needsLlmTriage)
-    : fields;
+    ? plannerEligibleFields.filter(needsLlmTriage)
+    : plannerEligibleFields;
   const candidates = runtime.candidateLimit === null
     ? triageCandidates
     : triageCandidates.slice(0, runtime.candidateLimit);

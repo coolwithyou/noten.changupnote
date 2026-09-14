@@ -238,7 +238,7 @@ test("v11 repair는 serving에서만 ready로 복원한다", () => {
 test("serving compatibility는 v9와 미지의 미래 version을 허용하지 않는다", () => {
   for (const version of [
     "kordoc-application-roundtrip-v9",
-    "kordoc-application-roundtrip-v15",
+    "kordoc-application-roundtrip-v16",
   ]) {
     const row = servingRow(version);
     assert.throws(

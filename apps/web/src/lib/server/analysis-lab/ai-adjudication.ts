@@ -29,7 +29,7 @@ import {
 } from "./audit-store";
 import { isPublishableLabRun } from "./run-outcome";
 
-export const AI_ADJUDICATION_PROMPT_VERSION = "ai-adjudication-v1";
+export const AI_ADJUDICATION_PROMPT_VERSION = "ai-adjudication-v2";
 export const AI_ADJUDICATION_DEFAULT_MODEL = "claude-opus-5";
 
 export function selectPendingAdjudicationItems(audit: LabAudit): LabAuditItem[] {

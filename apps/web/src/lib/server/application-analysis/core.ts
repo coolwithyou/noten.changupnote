@@ -23,6 +23,11 @@ const EVIDENCE_BODY = /(개인정보\s*수집|서약합니다|확약합니다|�
 const EMBEDDED_APPLICATION_SECTION = /(?:^|\n)[^\S\r\n]*(?:\*\*)?(?:\[|【|\|\s*)?(?:붙임|별첨|별지)\s*(?:제?\s*\d+\s*호?)?(?:(?:[^\r\n]{0,30})\r?\n){0,3}[^\r\n]{0,100}(?:신청서|지원서|참가신청서|사업계획서)/iu;
 const EXPLICIT_PRIMARY_FORM_FILENAME = /(?:^|[\s_[\](])(?:서식|붙임|별첨|별지)\s*(?:제\s*)?1(?:\s*호)?(?:[^0-9]|$)/iu;
 const APPLICATION_AUTHORING_GUIDANCE_FILENAME = /(?:필독|작성\s*(?:및\s*발급)?\s*방법|발급\s*방법|작성\s*안내)/iu;
+const SPAN_AWARE_VALUE_SIGNAL = "KorDoc 병합 라벨 값 셀을 IR colSpan으로 보정";
+const SPAN_AWARE_PLACEHOLDER_REJECTION_SIGNAL =
+  "IR colSpan으로 앞 라벨에 결속된 값 placeholder 중복 안전 제외";
+const UNSUPPORTED_NESTED_MEDIA_REJECTION_SIGNAL =
+  "현재 텍스트 writer가 지원하지 않는 nested media 입력 영역 안전 제외";
 
 export interface RoleClassification {
   role: RoundtripDocumentRole;
@@ -189,6 +194,11 @@ export function extractLocatedRoundtripFields(
       const label = field.label.trim();
       const normalizedLabel = normalizeRoundtripLabel(label);
       if (!normalizedLabel) continue;
+      const spanAwareValue = resolveSpanAwareFormValue(block, field);
+      const originalValue = spanAwareValue?.value ?? field.value;
+      // KorDoc의 empty 판정에는 템플릿 예시·선택지가 포함된 입력 셀도 반영돼 있다.
+      // 값 좌표를 교정하더라도 그 역할 판정을 일반 non-empty 검사로 뒤집지 않는다.
+      const rawEmpty = field.empty;
       const occurrence = occurrences.get(normalizedLabel) ?? 0;
       occurrences.set(normalizedLabel, occurrence + 1);
       const fieldInstanceId = createHash("sha256")
@@ -202,17 +212,20 @@ export function extractLocatedRoundtripFields(
         row: field.row,
         required: field.required ?? false,
       });
-      const narrativePlaceholder = isNarrativeInstructionPlaceholder(label, field.value);
-      const fixedCellPlaceholder = !field.empty
+      const narrativePlaceholder = isNarrativeInstructionPlaceholder(label, originalValue);
+      const fixedCellPlaceholder = !rawEmpty
         && inputAssessment.recommended
-        && isWritableStructuralPlaceholder(field.value);
-      const empty = field.empty || narrativePlaceholder || fixedCellPlaceholder;
+        && isWritableStructuralPlaceholder(originalValue);
+      const spanAwarePlaceholder = spanAwareValue !== null
+        && inputAssessment.recommended
+        && isSpanAwareConditionalPlaceholder(originalValue);
+      const empty = rawEmpty || narrativePlaceholder || fixedCellPlaceholder || spanAwarePlaceholder;
       fields.push({
         fieldInstanceId,
         label,
         displayLabel: label,
         normalizedLabel,
-        originalValue: field.value,
+        originalValue,
         type: field.type,
         required: field.required ?? false,
         empty,
@@ -220,16 +233,19 @@ export function extractLocatedRoundtripFields(
         inputLikelihood: inputAssessment.likelihood,
         inputSignals: [
           ...inputAssessment.signals,
+          ...(spanAwareValue ? [SPAN_AWARE_VALUE_SIGNAL] : []),
           ...(narrativePlaceholder ? ["작성 안내문이 있는 장문 입력 셀"] : []),
-          ...(fixedCellPlaceholder ? ["입력 셀에 남아 있는 고정 양식 placeholder"] : []),
+          ...(fixedCellPlaceholder || spanAwarePlaceholder
+            ? ["입력 셀에 남아 있는 고정 양식 placeholder"]
+            : []),
         ],
         sampleValue: sample.value,
         sampleReason: sample.reason,
         source: "kordoc-form",
         inputKind: narrativePlaceholder ? "textarea" : inferRoundtripInputKind(label, field.type),
         writeOperation: "kordoc_field",
-        helperText: field.value.trim() && (!field.empty || narrativePlaceholder || fixedCellPlaceholder)
-          ? field.value.trim()
+        helperText: originalValue.trim() && (!rawEmpty || narrativePlaceholder || fixedCellPlaceholder || spanAwarePlaceholder)
+          ? originalValue.trim()
           : null,
         unit: null,
         options: [],
@@ -263,7 +279,45 @@ export function extractLocatedRoundtripFields(
     }
   }
   suppressValueCellDuplicates(fields, blocks);
+  suppressUnsupportedNestedMediaCandidates(fields, blocks);
   return { fields, formConfidence };
+}
+
+/**
+ * KorDoc 4.2.3은 표 field의 값을 무조건 c+1에서 읽는다. logical grid에 colSpan covered
+ * dummy cell이 펼쳐지고 실제 값이 이번 native 증거로 확인된 조건형 placeholder인 경우에만
+ * 원 라벨의 오른쪽 값 셀로 교정한다. 일반 예시·선택지·URL·기존 작성값의 역할은 이 seam에서
+ * 재분류하지 않는다. 기존 값이 c+1과 다르거나 covered 영역에 텍스트가 있어도 손대지 않는다.
+ */
+function resolveSpanAwareFormValue(
+  block: IRBlock,
+  field: FormFieldSchema,
+): { value: string } | null {
+  if (block.type !== "table" || !block.table) return null;
+  const row = block.table.cells[field.row];
+  const labelCell = row?.[field.col];
+  if (
+    !row
+    || !labelCell
+    || labelCell.colSpan <= 1
+    || normalizeRoundtripLabel(labelCell.text) !== normalizeRoundtripLabel(field.label)
+  ) return null;
+  const targetIndex = field.col + labelCell.colSpan;
+  const coveredCells = row.slice(field.col + 1, targetIndex);
+  const immediateValue = row[field.col + 1]?.text ?? "";
+  if (
+    coveredCells.length !== labelCell.colSpan - 1
+    || coveredCells.some((cell) => cell.text.trim() !== "")
+    || immediateValue.normalize("NFKC").trim() !== field.value.normalize("NFKC").trim()
+  ) return null;
+  const target = row[targetIndex];
+  return target && isSpanAwareConditionalPlaceholder(target.text)
+    ? { value: target.text }
+    : null;
+}
+
+function isSpanAwareConditionalPlaceholder(value: string): boolean {
+  return /^(?:해당\s*시|해당하는\s*경우)$/u.test(value.normalize("NFKC").trim());
 }
 
 interface StructuralLabelOccurrence {
@@ -570,7 +624,49 @@ function suppressValueCellDuplicates(fields: RoundtripFieldCandidate[], blocks: 
     candidate.recommendedInput = false;
     candidate.inputLikelihood = Math.min(candidate.inputLikelihood, 0.15);
     candidate.inputSignals.push(`앞 라벨 “${owner.label}”의 값 placeholder 가능성`);
+    if (owner.inputSignals.includes(SPAN_AWARE_VALUE_SIGNAL)) {
+      candidate.inputSignals.push(SPAN_AWARE_PLACEHOLDER_REJECTION_SIGNAL);
+    }
   }
+}
+
+function suppressUnsupportedNestedMediaCandidates(
+  fields: RoundtripFieldCandidate[],
+  blocks: readonly IRBlock[],
+): void {
+  for (const field of fields) {
+    if (field.source !== "kordoc-form" && field.source !== "rhwp-structural") continue;
+    const block = blocks[field.location.blockIndex];
+    const row = block?.type === "table" ? block.table?.cells[field.location.row] : undefined;
+    const labelCell = row?.[field.location.col];
+    if (!row || !labelCell || !isUnsupportedNestedMediaTextTarget(row, field.location.col, labelCell)) continue;
+    field.recommendedInput = false;
+    field.inputLikelihood = Math.min(field.inputLikelihood, 0.1);
+    field.inputSignals.push(UNSUPPORTED_NESTED_MEDIA_REJECTION_SIGNAL);
+  }
+}
+
+/**
+ * 일반 nested table이나 이미지 설명/제목은 막지 않는다. 이미지·설계도 삽입을 요구하는
+ * 좁은 라벨→nested host 관계만 현재 text/textarea writer가 지원하지 않는 입력으로 본다.
+ */
+export function isUnsupportedNestedMediaTextTarget(
+  row: readonly IRCell[],
+  colIndex: number,
+  labelCell: IRCell,
+): boolean {
+  const label = normalizeRoundtripLabel(labelCell.text);
+  if (!/^(?:이미지|사진|참고사진|설계도|도면)$/u.test(label)) return false;
+  const target = row[colIndex + Math.max(1, labelCell.colSpan)];
+  if (!target || !Array.isArray(target.blocks) || target.blocks.length === 0) return false;
+  const roleText = target.text.normalize("NFKC").replace(/\s+/gu, " ").trim();
+  return /(?:사진|이미지|설계도|도면)/u.test(roleText)
+    && /(?:삽입|첨부|업로드)/u.test(roleText);
+}
+
+export function hasNonOverridableStructuralRejection(field: RoundtripFieldCandidate): boolean {
+  return field.inputSignals.includes(SPAN_AWARE_PLACEHOLDER_REJECTION_SIGNAL)
+    || field.inputSignals.includes(UNSUPPORTED_NESTED_MEDIA_REJECTION_SIGNAL);
 }
 
 function isEmptyMetadataSubfieldOfRowSpanningGroup(
@@ -597,7 +693,7 @@ function isEmptyMetadataSubfieldOfRowSpanningGroup(
   return valueCell !== undefined && valueCell.text.trim() === "";
 }
 
-const POSITIVE_INPUT_LABEL = /(회사명|기업명|업체명|단체명|상호|법인명|기관명|대표자|성명|이름|신청인|담당자|책임자|사업자|법인번호|주민등록|연락처|전화|휴대|이메일|email|전자우편|주소|소재지|과제명|사업명|아이템명|제품명|서비스명|주생산품|업태|업종|종목|설립|개업|직위|부서|홈페이지|지원금|사업비|예산|금액|계좌|은행|예금주|상담|매출|고용|인원|자본금|기간|일자|날짜|년도|연도)/i;
+const POSITIVE_INPUT_LABEL = /(회사명|기업명|업체명|단체명|상호|법인명|기관명|대표자|성명|이름|신청인|담당자|책임자|사업자|법인등록번호|법인번호|주민등록|연락처|전화|휴대|이메일|email|전자우편|주소|소재지|과제명|사업명|아이템명|제품명|서비스명|주생산품|업태|업종|종목|설립|개업|직위|부서|홈페이지|지원금|사업비|예산|금액|계좌|은행|예금주|상담|매출|고용|인원|자본금|기간|일자|날짜|년도|연도)/i;
 const CONTENT_INPUT_LABEL = /((회사|기업|업체|단체|기관|제품|서비스|기술)소개|자기소개|개요|현황|계획|목표|필요성|전략|기대효과|시장|기술|실적|역량|일정|자금|추진|문제|해결|활용|성과|동기|신청사유|운영계획|요약|주요내용|세부내용|주고객|이용대상)/i;
 const NON_INPUT_LABEL = /^(?:(?:서식|붙임|별첨|별지)\d*.*|연번|순번|번호|구분|항목|서류명|제출서류|제출형식|형식|비고|배점|평가항목|확인|단위|천원|원|적용법률|법률)$/i;
 
