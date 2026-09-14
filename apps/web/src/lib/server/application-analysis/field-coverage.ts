@@ -192,6 +192,9 @@ function hasResolvedRejection(field: RoundtripFieldCandidate): boolean {
     .filter((value): value is string => typeof value === "string")
     .join(" ")
     .normalize("NFKC");
+  // 현재 최종 판정이 해당 구조 위치의 연속 인용을 통과했다면 과거 라운드의 실패 signal은
+  // 진단 이력일 뿐이다. 반대로 current uncertain은 오래된 성공 marker로 종결하지 않는다.
+  if (locatedLlmRejection) return true;
   if (
     field.analysisSource === "llm"
     && field.inputSignals.includes("LLM 비입력 근거 위치 불일치 또는 누락")
@@ -207,7 +210,7 @@ function hasResolvedRejection(field: RoundtripFieldCandidate): boolean {
   }
   // LLM을 거친 후보는 현재 최종 decision과 구조 근거만 본다. 앞 라운드나 heuristic의
   // 오래된 비입력 signal이 뒤의 uncertain 결정을 우회해 complete로 닫지 못하게 한다.
-  if (field.analysisSource === "llm") return locatedLlmRejection;
+  if (field.analysisSource === "llm") return false;
   return field.inputSignals.some((signal) => EXPLICIT_REJECTION_SIGNAL.test(signal));
 }
 

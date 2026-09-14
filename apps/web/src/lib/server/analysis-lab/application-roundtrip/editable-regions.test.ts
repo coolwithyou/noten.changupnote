@@ -607,7 +607,12 @@ const uncertainPlan = await planRoundtripFields({
   transport: "claude-cli",
   fetchImpl: uncertain.fetchImpl,
 });
-assert.equal(uncertain.calls(), 3, "최초 1회와 재판정 최대 2회 뒤 종료");
+assert.equal(uncertain.calls(), 2, "동일한 짧은 인용 실패는 최초 판정과 1회 교정 뒤 종료");
+assert.equal(uncertainPlan.summary.adjudicationRounds, 1);
+assert.deepEqual(
+  uncertainPlan.fields[0]?.llmRejectedEvidenceAttempts?.map((attempt) => attempt.reason),
+  ["not_contiguous", "not_contiguous"],
+);
 assert.equal(uncertainPlan.summary.adjudicationStatus, "partial");
 assert.equal(uncertainPlan.summary.remainingUnresolvedCandidateCount, 1);
 assert.equal(uncertainPlan.fields[0]?.llmDecision, "uncertain");

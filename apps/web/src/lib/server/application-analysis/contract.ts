@@ -114,6 +114,17 @@ export type RoundtripFieldWriteOperation =
   | "toggle_text_choice"
   | "replace_instruction";
 
+export type RoundtripRejectedEvidenceReason = "missing" | "not_contiguous";
+
+export interface RoundtripRejectedEvidenceAttempt {
+  /** 0은 최초 판정, 1 이상은 자동 재판정 라운드다. */
+  round: number;
+  /** missing은 비어 있거나 너무 짧은 인용, not_contiguous는 현재 위치 문맥의 연속 문자열이 아닌 인용이다. */
+  reason: RoundtripRejectedEvidenceReason;
+  /** 모델이 반환한 원문 인용. 판정 응답 정규화 단계에서 최대 300자로 제한한다. */
+  evidence: string;
+}
+
 export interface RoundtripFieldOption {
   optionId: string;
   label: string;
@@ -148,6 +159,8 @@ export interface RoundtripFieldCandidate {
   llmDecisionRound?: number;
   /** 낮은 확신을 확정 거절로 오인하지 않기 위한 최종 모델 판정 상태다. */
   llmDecision?: "input" | "not_input" | "uncertain";
+  /** 비입력 판정의 원문 인용 계약 실패 이력. 최초 판정과 최대 2회 재판정만 보존한다. */
+  llmRejectedEvidenceAttempts?: RoundtripRejectedEvidenceAttempt[];
   location: RoundtripFieldLocation;
 }
 

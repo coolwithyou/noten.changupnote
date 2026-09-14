@@ -106,7 +106,7 @@ test("launch manifest는 inventory drift를 target telemetry로 보존한다", (
   assert.equal(manifest.targets[1]?.changedSinceInventory, true);
   assert.equal(manifest.execution.withApplicationRoundtrip, true);
   assert.equal(manifest.execution.roundtripModel, "claude-opus-5");
-  assert.equal(manifest.execution.applicationFieldAnalysisVersion, "kordoc-application-roundtrip-v13");
+  assert.equal(manifest.execution.applicationFieldAnalysisVersion, "kordoc-application-roundtrip-v14");
   assert.deepEqual(normalizeAnalysisLaunchManifest(JSON.parse(encodeCanonical(manifest).toString("utf8"))), manifest);
 });
 
@@ -212,7 +212,7 @@ test("정식 launch publishable은 필드 분석 준비도까지 통과해야 �
 
   const v12Scan = resolveLabBatchRunScan([scanRecord("v12.json", {
     ...v10FieldReference,
-    version: "kordoc-application-roundtrip-v13",
+    version: "kordoc-application-roundtrip-v14",
   })]);
   assert.equal(v12Scan.states.get(GRANT_0)?.applicationFieldAnalysisReadyCurrent, true);
   const v12LaunchAgainstV12 = partitionCohortEntries([{ grantId: GRANT_0 }], v12Scan.states, {
@@ -462,7 +462,7 @@ test("독립 검수 합의 결함 재분석은 exact 원본 대상과 RHWP 필�
   assert.equal(repair.execution.existingRunPolicy, "rerun_exact_targets");
   assert.equal(repair.execution.withApplicationRoundtrip, true);
   assert.equal(repair.execution.roundtripModel, "claude-opus-5");
-  assert.equal(repair.execution.applicationFieldAnalysisVersion, "kordoc-application-roundtrip-v13");
+  assert.equal(repair.execution.applicationFieldAnalysisVersion, "kordoc-application-roundtrip-v14");
   assert.match(repair.targets[0]!.stratum, /original-3$/);
   assert.equal(repair.targets[0]!.reviewRepair?.blockingCount, 2);
   assert.match(repair.targets[0]!.reviewRepair?.taskInstruction ?? "", /결함 두 건/);

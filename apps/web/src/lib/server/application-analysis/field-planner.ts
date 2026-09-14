@@ -5,6 +5,7 @@ import type {
   RoundtripFieldInputKind,
   RoundtripFieldPlanningSummary,
   RoundtripLlmTransport,
+  RoundtripRejectedEvidenceAttempt,
 } from "./contract";
 import type { IRBlock } from "kordoc";
 import { priceDeepAnalysisUsage } from "@/lib/server/deep-analysis/costPolicy";
@@ -274,10 +275,12 @@ export async function planRoundtripFields(options: {
   let adjudicationFailureCode: RoundtripFailureCode | null = null;
   if (runtime.transport === "claude-cli") {
     for (let round = 1; round <= MAX_ADJUDICATION_ROUNDS && unresolved.length > 0; round += 1) {
+      const retryable = unresolved.filter((field) => !hasRepeatedRejectedEvidenceFailure(field));
+      if (retryable.length === 0) break;
       adjudicationRounds = round;
-      unresolved.forEach((field) => adjudicatedCandidateIds.add(field.fieldInstanceId));
+      retryable.forEach((field) => adjudicatedCandidateIds.add(field.fieldInstanceId));
       const adjudication = await requestDecisionPass({
-        candidates: unresolved,
+        candidates: retryable,
         markdown: options.markdown,
         ...(options.fieldSourceContexts ? { fieldSourceContexts: options.fieldSourceContexts } : {}),
         apiKey: options.apiKey,
@@ -515,6 +518,9 @@ async function requestFieldDecisions(input: {
       structural_signals: field.inputSignals,
       previous_decision: field.llmDecision ?? null,
       previous_confidence: field.llmConfidence,
+      ...(field.llmRejectedEvidenceAttempts?.length
+        ? { previous_evidence_rejections: field.llmRejectedEvidenceAttempts }
+        : {}),
       source_context: sourceContext
         ? {
             binding: sourceContext.binding,
@@ -539,6 +545,9 @@ async function requestFieldDecisions(input: {
       input.adjudicationRound > 0
         ? `이 요청은 최초 판정에서 누락되거나 확신이 낮았던 후보의 ${input.adjudicationRound}차 독립 재판정이다.`
         : "이 요청은 최초 판정이다.",
+      input.adjudicationRound > 0
+        ? "previous_evidence_rejections는 이전 인용 형식 실패의 진단 정보다. 그 실패를 의미 판정의 정답으로 간주하지 말고 현재 surrounding_text에서 독립적으로 다시 판정한다."
+        : "",
       "각 candidate_id를 반드시 하나씩 판정하고, 문서에 실제로 신청자가 입력해야 하는 영역만 is_user_input=true로 둔다.",
       "빈 셀뿐 아니라 단위만 있는 셀, 파란색 예시 문구로 보이는 값, 괄호형 작성 안내문, □ 선택지, ○ 표시 지시문도 입력 대상일 수 있다.",
       "반대로 섹션명·표 머리글·포괄 라벨(예: 재무현황, 관련기술현황)과 이미 확정된 고정 문구는 입력 필드로 만들지 않는다.",
@@ -546,7 +555,7 @@ async function requestFieldDecisions(input: {
       "값을 작성하거나 추정하지 말고 필드의 의미와 입력 UI만 판정한다.",
       "candidate_id와 쓰기 위치는 바꾸거나 새로 만들지 않는다.",
       "각 후보는 source_context 좌표에 결속된 surrounding_text만 판정한다. 같은 라벨의 다른 위치나 문서의 다른 설명을 근거로 대신하지 않는다.",
-      "evidence는 해당 candidate_id의 surrounding_text 안에서 짧게 그대로 인용한다. 문맥이 없거나 위치에 맞는 근거가 없으면 confidence를 0.75 미만으로 둔다.",
+      "evidence는 해당 candidate_id의 surrounding_text 안에 실제로 존재하는 짧은 단일 연속 문자열 하나를 그대로 인용한다. 비워 두거나 의역하거나 떨어진 여러 구간을 이어 붙이지 않는다. 문맥이 없거나 위치에 맞는 단일 연속 인용이 없으면 confidence를 0.75 미만으로 둔다.",
       "모든 candidate_id를 빠짐없이 반환한다. 원문만으로 판단 불가능할 때에만 confidence를 0.75 미만으로 둔다.",
     ].join("\n"),
     messages: [{
@@ -657,7 +666,10 @@ function buildFieldPlanToolSchema() {
               },
               confidence: { type: "number", minimum: 0, maximum: 1 },
               help_text: { type: "string" },
-              evidence: { type: "string" },
+              evidence: {
+                type: "string",
+                description: "해당 candidate의 surrounding_text에서 그대로 복사한 짧은 단일 연속 문자열 하나. 의역하거나 여러 구간을 결합하지 않는다.",
+              },
             },
             required: [
               "candidate_id",
@@ -706,8 +718,10 @@ function applyDecision(
   const acceptedInput = decision.isUserInput
     && decision.inputKind !== "none"
     && decision.confidence >= ACCEPT_INPUT_CONFIDENCE;
-  const rejectionEvidenceBound = !decision.isUserInput
-    && evidenceBelongsToContext(decision.evidence, sourceContext);
+  const rejectionEvidence = !decision.isUserInput
+    ? validateEvidenceBinding(decision.evidence, sourceContext)
+    : null;
+  const rejectionEvidenceBound = rejectionEvidence?.valid === true;
   const acceptedRejection = rejectionEvidenceBound
     && decision.confidence
       >= (lowEffortRound ? LOW_EFFORT_ACCEPT_REJECTION_CONFIDENCE : ACCEPT_REJECTION_CONFIDENCE);
@@ -737,6 +751,15 @@ function applyDecision(
       : "LLM 비입력 근거의 유일 문맥 결속 확인");
   }
   if (!decision.isUserInput && !rejectionEvidenceBound) {
+    const attempt: RoundtripRejectedEvidenceAttempt = {
+      round,
+      reason: rejectionEvidence?.reason ?? "missing",
+      evidence: decision.evidence,
+    };
+    field.llmRejectedEvidenceAttempts = [
+      ...(field.llmRejectedEvidenceAttempts ?? []).filter((item) => item.round !== round),
+      attempt,
+    ].slice(-(MAX_ADJUDICATION_ROUNDS + 1));
     field.inputSignals.push("LLM 비입력 근거 위치 불일치 또는 누락");
   }
 }
@@ -869,17 +892,33 @@ function resolveFieldSourceContext(
     : null;
 }
 
-function evidenceBelongsToContext(
+function validateEvidenceBinding(
   evidence: string,
   sourceContext: RoundtripFieldSourceContext | null,
-): boolean {
+): { valid: true } | { valid: false; reason: RoundtripRejectedEvidenceAttempt["reason"] } {
   const needle = normalizeEvidenceText(evidence);
   const haystack = normalizeEvidenceText(sourceContext?.text ?? "");
-  return needle.length >= 2 && haystack.includes(needle);
+  if (needle.length < 2) return { valid: false, reason: "missing" };
+  return haystack.includes(needle)
+    ? { valid: true }
+    : { valid: false, reason: "not_contiguous" };
 }
 
 function normalizeEvidenceText(value: string): string {
   return value.normalize("NFKC").replace(/\s+/gu, " ").trim();
+}
+
+function hasRepeatedRejectedEvidenceFailure(field: RoundtripFieldCandidate): boolean {
+  const attempts = field.llmRejectedEvidenceAttempts ?? [];
+  if (attempts.length < 2) return false;
+  const previous = attempts[attempts.length - 2]!;
+  const current = attempts[attempts.length - 1]!;
+  if (previous.reason !== current.reason) return false;
+  if (previous.reason === "missing") return true;
+  // 저장 경계(300자)에 닿은 값은 서로 다른 긴 응답이 같은 prefix로 잘렸을 수 있다.
+  // 원문 전체 fingerprint를 저장하지 않는 최소 계약에서는 이를 동일 실패로 단정하지 않는다.
+  if (previous.evidence.length >= 300 || current.evidence.length >= 300) return false;
+  return normalizeEvidenceText(previous.evidence) === normalizeEvidenceText(current.evidence);
 }
 
 function blockText(block: IRBlock): string {
@@ -971,6 +1010,9 @@ function cloneField(field: RoundtripFieldCandidate): RoundtripFieldCandidate {
     ...field,
     inputSignals: [...field.inputSignals],
     options: field.options.map((option) => ({ ...option })),
+    ...(field.llmRejectedEvidenceAttempts
+      ? { llmRejectedEvidenceAttempts: field.llmRejectedEvidenceAttempts.map((attempt) => ({ ...attempt })) }
+      : {}),
     location: field.location.target
       ? { ...field.location, target: { ...field.location.target } }
       : { ...field.location },

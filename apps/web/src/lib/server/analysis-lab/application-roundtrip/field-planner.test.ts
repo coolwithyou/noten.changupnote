@@ -13,6 +13,7 @@ import {
   resolveRoundtripEffort,
   resolveRoundtripFieldPlannerRuntimeConfig,
 } from "./field-planner";
+import { finalizeRoundtripFieldCoverage } from "./field-coverage";
 
 const originalEffortEnv = process.env.APPLICATION_ROUNDTRIP_EFFORT;
 
@@ -111,6 +112,17 @@ try {
       col: 1,
     }, "요청은 후보의 exact block/row/col 결속을 전달");
     assert.equal(payload[0].surrounding_text, structuralContext?.text, "원문 문맥은 중복 없이 한 번만 전달");
+    assert.equal(bodies.length, 2, "같은 짧은 인용 실패를 두 번 받은 후보는 세 번째 동일 재판정을 생략");
+    const retryPayload = parseCandidatePayload(bodies[1]!);
+    assert.deepEqual(retryPayload[0]?.previous_evidence_rejections, [{
+      round: 0,
+      reason: "not_contiguous",
+      evidence: foreignEvidence,
+    }], "다음 재판정에 후보별 bounded 인용 실패와 원인을 전달");
+    assert.match(String(bodies[1]?.system ?? ""), /의미 판정의 정답으로 간주하지 말고/,
+      "이전 인용 실패가 재판정 의미를 고정하지 않음");
+    assert.match(JSON.stringify(bodies[0]?.tools), /단일 연속 문자열/,
+      "도구 schema에도 단일 연속 인용 계약을 명시");
     assert.equal(fields[0]?.llmDecision, "uncertain", "다른 위치 근거로 고신뢰 비입력을 확정하지 않음");
     assert.equal(fields[0]?.helperText, "원래 구조 후보 설명", "불일치 판정 설명으로 후보 의미를 덮지 않음");
     assert.equal(fields[0]?.displayLabel, "공동대표", "불일치 판정 표시명으로 후보 의미를 덮지 않음");
@@ -136,6 +148,131 @@ try {
     assert.equal(local.fields[0]?.llmDecision, "not_input", "해당 위치의 실제 구획 제목 negative는 확정 가능");
     assert.match(local.fields[0]?.inputSignals.join(" ") ?? "", /구조 위치 결속 확인/);
     console.log("✅ RHWP 후보 문맥 — block/row/col 결속 및 다른 위치 negative 차단");
+  }
+  // ---- TECHFEST 원문 위치 3건: 실패 진단 전달 후 구조 결속 negative 회복 ------------
+  {
+    // source SHA256 5d9ad6200091e341c945f1c746b1512ded6f2d85f0aa21bd6f0eac5b566fe22c
+    // 에서 판정 대상 행과 bounded 인접 행만 옮긴 회귀 fixture다. 과거 raw rejected evidence는
+    // 저장되지 않았으므로 최초 응답은 관측 사실을 가장하지 않는 합성 비연속 인용이다.
+    const blocks: IRBlock[] = Array.from({ length: 112 }, () => ({ type: "paragraph", text: "" }));
+    blocks[61] = tableBlock([
+      tableRow("①모집 및 접수", "![image](image_003.bmp)", "②서류평가", "![image](image_003.bmp)", "③발표평가", "![image](image_003.bmp)", "④최종 선정"),
+      tableRow("K-STARTUP\n온라인 접수", "", "사업계획서 및\n제출자료 검토", "", "영어 발표평가", "", "최종 요건검토 및\n선정결과 발표"),
+      tableRow("9.10.(목) ~ 9.17.(목)", "", "~9.22.(화)", "", "9.29.(화) 예정", "", "~ 10.6.(화)"),
+      tableRow("", "", "", "", "", "", ""),
+    ]);
+    const companyRows = Array.from({ length: 19 }, () => tableRow(...Array.from({ length: 11 }, () => "")));
+    companyRows[13] = tableRow("", "", "", "", "", "", "", "", "신청일 현재", "00백만원", "");
+    companyRows[14] = tableRow("신청기업 홈페이지", "", "", "", "[www.k-startup.go.kr](http://www.k-startup.go.kr)", "", "", "", "", "", "");
+    companyRows[15] = tableRow("기업 구성 현황 (대표자 본인 제외 공동·각자대표 포함)", "", "", "", "", "", "", "", "", "", "");
+    companyRows[16] = tableRow("연번", "직위", "", "담당 업무", "", "", "보유역량(경력 및 학력 등)", "", "", "", "구성 상태");
+    companyRows[17] = tableRow("1", "공동대표", "", "S/W 개발 총괄", "", "", "OO학 박사, OO학과 교수 재직(00년)", "", "", "", "완료");
+    companyRows[18] = tableRow("2", "대리", "", "해외 영업", "", "", "OO학 학사, OO 관련 경력(00년 이상)", "", "", "", "예정(’00.0)");
+    blocks[106] = tableBlock(companyRows);
+    blocks[111] = tableBlock([tableRow("참 고", "", "2026년 베트남 테크페스트(TECHFEST) 개요")]);
+
+    const targetSpecs = [
+      { id: "8a1be818ff580276f82f31c6", label: "영어 발표평가", blockIndex: 61, row: 1, col: 4,
+        rejected: "영어 발표평가 최종 요건검토" },
+      { id: "2353259a4fa428a79d532953", label: "담당 업무", blockIndex: 106, row: 16, col: 3,
+        rejected: "담당 업무 보유역량" },
+      { id: "b498ee03ca75c2693f8266d2", label: "참 고", blockIndex: 111, row: 0, col: 0,
+        rejected: "참 고 TECHFEST 개요" },
+    ];
+    const candidates = targetSpecs.map((spec) => ({
+      ...candidate(spec.id),
+      label: spec.label,
+      displayLabel: spec.label,
+      normalizedLabel: spec.label.replace(/\s/gu, ""),
+      source: "rhwp-structural" as const,
+      writeOperation: "rhwp_field" as const,
+      location: { blockIndex: spec.blockIndex, row: spec.row, col: spec.col, occurrence: 0, pageNumber: 1 },
+    }));
+    const contexts = buildRoundtripFieldSourceContexts(blocks, candidates);
+    const bodies: Array<Record<string, unknown>> = [];
+    const result = await planRoundtripFields({
+      fields: candidates,
+      markdown: "",
+      fieldSourceContexts: contexts,
+      apiKey: "subscription",
+      transport: "claude-cli",
+      fetchImpl: buildFetch(bodies, [
+        targetSpecs.map((spec) => decision(spec.id, false, 0.92, spec.rejected)),
+        targetSpecs.map((spec) => decision(spec.id, false, 0.92, spec.label)),
+      ]),
+    });
+    assert.equal(bodies.length, 2, "세 후보 모두 1회 교정 재판정에서 회복");
+    const retryPayload = parseCandidatePayload(bodies[1]!);
+    assert.deepEqual(
+      retryPayload.map((item) => item.previous_evidence_rejections?.[0]?.reason),
+      ["not_contiguous", "not_contiguous", "not_contiguous"],
+      "세 후보의 최초 비연속 인용 실패를 각 후보 payload에 보존",
+    );
+    assert.equal(result.summary.adjudicationStatus, "resolved");
+    for (const field of result.fields) {
+      assert.equal(field.llmDecision, "not_input");
+      assert.equal(field.llmDecisionRound, 1);
+      assert.equal(field.llmRejectedEvidenceAttempts?.length, 1);
+      assert.match(field.inputSignals.join(" "), /근거 위치 불일치.*구조 위치 결속 확인/s);
+    }
+    assert.equal(
+      finalizeRoundtripFieldCoverage(result.fields).status,
+      "complete",
+      "최종 구조 결속 not_input은 과거 mismatch 진단 때문에 계속 hold되지 않음",
+    );
+    console.log("✅ TECHFEST 원문 3건 — 인용 실패 전달 후 1회 교정 및 coverage 회복");
+  }
+  // ---- 동일 missing 실패는 한 번만 교정하고 unresolved로 보존 -----------------------
+  {
+    const bodies: Array<Record<string, unknown>> = [];
+    const result = await planRoundtripFields({
+      fields: [candidate("missing-evidence")],
+      markdown: "회사명: ____",
+      apiKey: "subscription",
+      transport: "claude-cli",
+      fetchImpl: buildFetch(bodies, [
+        [decision("missing-evidence", false, 0.95, "")],
+        [decision("missing-evidence", false, 0.95, "")],
+        [decision("missing-evidence", false, 0.95, "회사명")],
+      ]),
+    });
+    assert.equal(bodies.length, 2, "동일 missing 실패의 불필요한 두 번째 교정 호출을 생략");
+    assert.equal(result.summary.adjudicationRounds, 1);
+    assert.equal(result.summary.adjudicationStatus, "partial");
+    assert.equal(result.fields[0]?.llmDecision, "uncertain");
+    assert.deepEqual(result.fields[0]?.llmRejectedEvidenceAttempts, [
+      { round: 0, reason: "missing", evidence: "" },
+      { round: 1, reason: "missing", evidence: "" },
+    ]);
+    assert.deepEqual(parseCandidatePayload(bodies[1]!)[0]?.previous_evidence_rejections, [
+      { round: 0, reason: "missing", evidence: "" },
+    ]);
+    console.log("✅ 동일 missing 실패 — 1회 교정 뒤 fail-closed");
+  }
+  // ---- 300자 경계에서 같은 prefix로 잘린 서로 다른 응답은 동일 실패로 단정하지 않음 ----
+  {
+    const bodies: Array<Record<string, unknown>> = [];
+    const prefix = "가".repeat(300);
+    const result = await planRoundtripFields({
+      fields: [candidate("truncated-evidence")],
+      markdown: "회사명: ____",
+      apiKey: "subscription",
+      transport: "claude-cli",
+      fetchImpl: buildFetch(bodies, [
+        [decision("truncated-evidence", false, 0.95, `${prefix}첫째`)],
+        [decision("truncated-evidence", false, 0.95, `${prefix}둘째`)],
+        [decision("truncated-evidence", false, 0.95, "회사명")],
+      ]),
+    });
+    assert.equal(bodies.length, 3, "서로 다른 긴 응답의 잘린 prefix만으로 두 번째 교정을 생략하지 않음");
+    assert.equal(result.fields[0]?.llmDecision, "not_input");
+    assert.equal(result.fields[0]?.llmDecisionRound, 2);
+    assert.deepEqual(
+      result.fields[0]?.llmRejectedEvidenceAttempts?.map((attempt) => attempt.evidence.length),
+      [300, 300],
+      "보존 evidence는 라운드별 300자로 제한",
+    );
+    console.log("✅ rejected evidence 300자 경계 — 잘린 prefix 충돌 시 재판정 보존");
   }
   // ---- ① effort 해석 -------------------------------------------------------------
   delete process.env.APPLICATION_ROUNDTRIP_EFFORT;
@@ -361,4 +498,27 @@ function buildFetch(
       { status: 200 },
     );
   }) as typeof fetch;
+}
+
+function parseCandidatePayload(body: Record<string, unknown>): Array<{
+  previous_evidence_rejections?: Array<{ round: number; reason: string; evidence: string }>;
+}> {
+  const content = (body.messages as Array<{ content: string }>)[0]?.content ?? "";
+  return JSON.parse(content.slice(content.indexOf("\n") + 1));
+}
+
+function tableRow(...values: string[]) {
+  return values.map((text) => ({ text, colSpan: 1, rowSpan: 1 }));
+}
+
+function tableBlock(cells: ReturnType<typeof tableRow>[]): IRBlock {
+  return {
+    type: "table",
+    table: {
+      rows: cells.length,
+      cols: Math.max(0, ...cells.map((row) => row.length)),
+      hasHeader: true,
+      cells,
+    },
+  };
 }

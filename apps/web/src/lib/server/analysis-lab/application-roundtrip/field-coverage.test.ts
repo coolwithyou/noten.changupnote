@@ -49,6 +49,42 @@ assert.equal(
   "해당 구조 위치와 결속된 고신뢰 negative는 전역 hold 없이 종결",
 );
 
+const recoveredBoundNegative = field({
+  id: "recovered-bound-negative",
+  label: "담당 업무",
+  recommendedInput: false,
+  analysisSource: "llm",
+  llmConfidence: 0.93,
+});
+recoveredBoundNegative.llmDecision = "not_input";
+recoveredBoundNegative.inputSignals.push(
+  "LLM 비입력 근거 위치 불일치 또는 누락",
+  "LLM 비입력 근거의 구조 위치 결속 확인",
+);
+assert.equal(
+  finalizeRoundtripFieldCoverage([recoveredBoundNegative]).status,
+  "complete",
+  "현재 최종 구조 결속 negative는 앞 라운드의 mismatch 진단 뒤에도 coverage를 회복",
+);
+
+const staleBoundNegative = field({
+  id: "stale-bound-negative",
+  label: "참 고",
+  recommendedInput: false,
+  analysisSource: "llm",
+  llmConfidence: 0.93,
+});
+staleBoundNegative.llmDecision = "uncertain";
+staleBoundNegative.inputSignals.push(
+  "LLM 비입력 근거의 구조 위치 결속 확인",
+  "LLM 비입력 근거 위치 불일치 또는 누락",
+);
+assert.equal(
+  finalizeRoundtripFieldCoverage([staleBoundNegative]).status,
+  "review_required",
+  "현재 uncertain은 과거 구조 결속 marker를 재사용해 complete로 닫지 않음",
+);
+
 const mismatchedFixedMarker = field({
   id: "mismatched-fixed-marker",
   label: "고정 기호 입력 대상 아님",
