@@ -301,6 +301,82 @@ const [placeholderResolution] = resolveRhwpFieldAnchorsExact(placeholderDocument
 assert.equal(placeholderResolution?.status, "unique");
 assert.equal(placeholderResolution?.status === "unique" ? placeholderResolution.anchor.target.cellIndex : null, 12);
 
+// TECHFEST source 5d9ad620…: LLM이 정확한 예시 셀을 입력 역할로 판정해 저장한 계약은
+// 오른쪽 담당업무 cell58로 이동하지 않고 공동대표 cell57 자체를 가리킨다.
+const techfestRoleExampleDocument: RhwpAnchorDocument = {
+  ...document,
+  pageCount: () => 1,
+  searchAllText: (query) => query === "공동대표" ? JSON.stringify([{
+    sec: 0,
+    length: query.length,
+    cellContext: { parentPara: 180, ctrlIdx: 0, cellIdx: 57, cellPara: 0 },
+  }]) : query === "법인등록번호" ? JSON.stringify([{
+    sec: 0,
+    length: query.length,
+    cellContext: { parentPara: 150, ctrlIdx: 0, cellIdx: 16, cellPara: 0 },
+  }]) : "[]",
+  getPageTextLayout: () => JSON.stringify({ runs: [
+    { text: "법인등록번호", secIdx: 0, parentParaIdx: 150, controlIdx: 0, cellIdx: 16, cellParaIdx: 0 },
+    { text: "공동대표", secIdx: 0, parentParaIdx: 180, controlIdx: 0, cellIdx: 57, cellParaIdx: 0 },
+  ] }),
+  getTableCellBboxes: (_section, parentPara) => parentPara === 180 ? JSON.stringify([
+    { cellIdx: 57, row: 17, col: 1, colSpan: 2, pageIndex: 0, x: 180, y: 600, w: 160, h: 40 },
+    { cellIdx: 58, row: 17, col: 3, colSpan: 3, pageIndex: 0, x: 340, y: 600, w: 240, h: 40 },
+  ]) : JSON.stringify([
+    { cellIdx: 16, row: 5, col: 0, colSpan: 4, pageIndex: 0, x: 100, y: 300, w: 300, h: 40 },
+    { cellIdx: 17, row: 5, col: 4, colSpan: 3, pageIndex: 0, x: 400, y: 300, w: 260, h: 40 },
+  ]),
+};
+const [techfestRoleResolution, corporateNumberResolution] = resolveRhwpFieldAnchorsExact(
+  techfestRoleExampleDocument,
+  [{
+    fieldId: "6200f43ce98d6b731ed42654",
+    label: "기업 구성 현황 1번 구성원 직위",
+    anchorLabel: "공동대표",
+    fieldType: "text",
+    position: { row: 17, col: 1, targetKind: "table_cell_text", targetRow: 17, targetCol: 1 },
+  }, {
+    fieldId: "851ed55f5c86157703600e13",
+    label: "법인등록번호",
+    anchorLabel: "법인등록번호",
+    fieldType: "text",
+    position: { row: 5, col: 0 },
+  }],
+);
+assert.equal(techfestRoleResolution?.status, "unique");
+assert.equal(
+  techfestRoleResolution?.status === "unique" ? techfestRoleResolution.anchor.target.cellIndex : null,
+  57,
+);
+assert.equal(
+  techfestRoleResolution?.status === "unique" ? techfestRoleResolution.anchor.target.labelCellIndex : null,
+  57,
+);
+assert.equal(corporateNumberResolution?.status, "unique");
+assert.equal(
+  corporateNumberResolution?.status === "unique" ? corporateNumberResolution.anchor.target.cellIndex : null,
+  17,
+);
+assert.equal(
+  corporateNumberResolution?.status === "unique" ? corporateNumberResolution.anchor.target.labelCellIndex : null,
+  16,
+);
+const [mismatchedRoleResolution] = resolveRhwpFieldAnchorsExact(
+  techfestRoleExampleDocument,
+  [{
+    fieldId: "mismatched-example-role",
+    label: "기업 구성 현황 1번 구성원 직위",
+    anchorLabel: "공동대표",
+    fieldType: "text",
+    position: { row: 17, col: 1, targetKind: "table_cell_text", targetRow: 17, targetCol: 2 },
+  }],
+);
+assert.deepEqual(
+  mismatchedRoleResolution,
+  { fieldId: "mismatched-example-role", status: "missing", candidateCount: 0 },
+  "source-bound exact 좌표가 다르면 이웃 담당업무 셀로 fallback하지 않는다",
+);
+
 // source-bound 장문 라벨이 한 행 전체 셀을 차지하면 시각적 입력 여백도 같은 셀이다.
 // 바로 아래의 선언문/날짜/서명 셀로 이동하지 않고, 증명된 첫 문단을 보호한다.
 const sameCellTextareaLabel = "※ 기타 현재 상황, 개선하고자 하는 점 등 자유롭게 기술해주세요.";

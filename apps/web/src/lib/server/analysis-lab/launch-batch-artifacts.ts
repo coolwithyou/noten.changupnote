@@ -515,7 +515,10 @@ export function createAnalysisLaunchGrant(input: {
   });
 }
 
-type AnalysisLaunchManifestNormalizationPurpose = "live" | "completed-current-inventory-source";
+type AnalysisLaunchManifestNormalizationPurpose =
+  | "live"
+  | "completed-current-inventory-source"
+  | "completed-receipt-offline-consumer";
 
 export function normalizeAnalysisLaunchManifest(value: unknown): AnalysisLaunchManifest {
   return normalizeAnalysisLaunchManifestForPurpose(value, "live");
@@ -529,6 +532,16 @@ export function normalizeCompletedCurrentInventorySourceManifest(
   value: unknown,
 ): AnalysisLaunchManifest {
   return normalizeAnalysisLaunchManifestForPurpose(value, "completed-current-inventory-source");
+}
+
+/**
+ * terminal receipt가 가리키는 원 실행을 오프라인에서 재검증할 때만 사용한다.
+ * 허용된 역사 tuple은 live grant/run admission으로 승격되지 않는다.
+ */
+export function normalizeCompletedAnalysisLaunchManifestForOfflineConsumption(
+  value: unknown,
+): AnalysisLaunchManifest {
+  return normalizeAnalysisLaunchManifestForPurpose(value, "completed-receipt-offline-consumer");
 }
 
 function normalizeAnalysisLaunchManifestForPurpose(
@@ -612,13 +625,13 @@ function normalizeAnalysisLaunchManifestForPurpose(
     throw new Error("필드 분석이 꺼진 launch에는 필드 분석 버전을 결속할 수 없습니다.");
   }
   if (execution.transport !== "claude-cli") throw new Error("launch transport는 claude-cli여야 합니다.");
-  const sourceKind = source.kind === undefined ? "formal_plan" : source.kind;
+  const sourceKind = normalizeAnalysisLaunchSourceKind(source.kind);
   if (sourceKind !== "independent_review_repair" && targets.some((target) => target.reviewRepair)) {
     throw new Error("독립 검수 repair 외 launch에는 reviewRepair 지시를 결속할 수 없습니다.");
   }
-  const existingRunPolicy = execution.existingRunPolicy === undefined
-    ? "skip_existing"
-    : execution.existingRunPolicy;
+  const existingRunPolicy = normalizeAnalysisLaunchExistingRunPolicy(
+    execution.existingRunPolicy,
+  );
   const planSha256 = exactSha(String(source.planSha256), "planSha256");
   const planArtifactSha256 = exactSha(String(source.planArtifactSha256), "planArtifactSha256");
   const adoptionManifestSha256 = source.adoptionManifestSha256 === undefined
@@ -669,7 +682,7 @@ function normalizeAnalysisLaunchManifestForPurpose(
   ) {
     throw new Error("재봉인 원본은 exact v14/lab-v26/validator-v19 current inventory launch여야 합니다.");
   }
-  if (
+  const liveSourcePolicyRejected = (
     ((sourceKind === "formal_plan" || sourceKind === "current_inventory")
       && (
         adoptionManifestSha256 !== null
@@ -711,6 +724,38 @@ function normalizeAnalysisLaunchManifestForPurpose(
     )
     || (sourceKind !== "current_inventory" && completedLaunch !== undefined)
     || (existingRunPolicy !== "skip_existing" && existingRunPolicy !== "rerun_exact_targets")
+  );
+  const supportedHistoricalOfflineContract = purpose === "completed-receipt-offline-consumer"
+    && isSupportedCompletedReceiptOfflineContract({
+      rawSourceKind: source.kind,
+      rawAdoptionManifestSha256: source.adoptionManifestSha256,
+      rawExistingRunPolicy: execution.existingRunPolicy,
+      rawApplicationFieldAnalysisVersion: execution.applicationFieldAnalysisVersion,
+      sourceKind,
+      existingRunPolicy,
+      adoptionManifestSha256,
+      completedLaunch,
+      planSha256,
+      planArtifactSha256,
+      transport: execution.transport,
+      model: execution.model,
+      promptVersion: execution.promptVersion,
+      validatorVersion: execution.validatorVersion,
+      withApplicationRoundtrip,
+      roundtripModel,
+    });
+  const supportedCurrentOfflineContract = purpose === "completed-receipt-offline-consumer"
+    && !liveSourcePolicyRejected
+    && execution.model === APPLICATION_ROUNDTRIP_ADOPTED_MODEL
+    && execution.promptVersion === ANALYSIS_LAB_PROMPT_VERSION
+    && execution.validatorVersion === DEEP_ANALYSIS_VALIDATOR_VERSION
+    && withApplicationRoundtrip
+    && roundtripModel === APPLICATION_ROUNDTRIP_ADOPTED_MODEL
+    && applicationFieldAnalysisVersion === APPLICATION_ROUNDTRIP_VERSION;
+  if (
+    purpose === "completed-receipt-offline-consumer"
+      ? !supportedHistoricalOfflineContract && !supportedCurrentOfflineContract
+      : liveSourcePolicyRejected
   ) {
     throw new Error("launch source/existing run 정책 결속이 잘못됐습니다.");
   }
@@ -745,6 +790,97 @@ function normalizeAnalysisLaunchManifestForPurpose(
     }),
     targets: Object.freeze(targets),
   });
+}
+
+const COMPLETED_RECEIPT_OFFLINE_HISTORICAL_CONTRACTS = new Set([
+  "formal_plan|skip_existing|lab-deep-v21|deep-analysis-validator-v14|kordoc-application-roundtrip-v9",
+  "current_inventory|skip_existing|lab-deep-v22|deep-analysis-validator-v15|kordoc-application-roundtrip-v9",
+  "independent_review_repair|rerun_exact_targets|lab-deep-v21|deep-analysis-validator-v14|kordoc-application-roundtrip-v9",
+  "<absent>|<absent>|lab-deep-v17|deep-analysis-validator-v10|<absent>",
+  "formal_plan|skip_existing|lab-deep-v17|deep-analysis-validator-v10|kordoc-application-roundtrip-v9",
+  "current_inventory|skip_existing|lab-deep-v22|deep-analysis-validator-v16|kordoc-application-roundtrip-v11",
+  "independent_review_repair|rerun_exact_targets|lab-deep-v18|deep-analysis-validator-v11|kordoc-application-roundtrip-v9",
+  "authoring_guide_adoption|rerun_exact_targets|lab-deep-v17|deep-analysis-validator-v10|<absent>",
+]);
+
+/** 2026-09-15 audit v2의 258건에서 실측한 42개 manifest 계약 tuple만 보존한다. */
+function isSupportedCompletedReceiptOfflineContract(input: {
+  readonly rawSourceKind: unknown;
+  readonly rawAdoptionManifestSha256: unknown;
+  readonly rawExistingRunPolicy: unknown;
+  readonly rawApplicationFieldAnalysisVersion: unknown;
+  readonly sourceKind: unknown;
+  readonly existingRunPolicy: unknown;
+  readonly adoptionManifestSha256: string | null;
+  readonly completedLaunch: AnalysisLaunchCompletedCurrentInventoryBinding | undefined;
+  readonly planSha256: string;
+  readonly planArtifactSha256: string;
+  readonly transport: unknown;
+  readonly model: unknown;
+  readonly promptVersion: unknown;
+  readonly validatorVersion: unknown;
+  readonly withApplicationRoundtrip: boolean;
+  readonly roundtripModel: string | null;
+}): boolean {
+  if (
+    input.transport !== "claude-cli"
+    || input.model !== APPLICATION_ROUNDTRIP_ADOPTED_MODEL
+    || input.completedLaunch !== undefined
+  ) return false;
+  const authoringGuidePrimaryOnly = input.sourceKind === "authoring_guide_adoption"
+    && input.adoptionManifestSha256 !== null
+    && input.adoptionManifestSha256 === input.planSha256
+    && input.planSha256 === input.planArtifactSha256
+    && !input.withApplicationRoundtrip
+    && input.roundtripModel === null;
+  const applicationRoundtripLaunch = input.sourceKind !== "authoring_guide_adoption"
+    && input.adoptionManifestSha256 === null
+    && input.withApplicationRoundtrip
+    && input.roundtripModel === APPLICATION_ROUNDTRIP_ADOPTED_MODEL;
+  if (!authoringGuidePrimaryOnly && !applicationRoundtripLaunch) return false;
+  if (
+    (input.rawSourceKind === undefined && input.rawAdoptionManifestSha256 !== undefined)
+    || (input.rawSourceKind !== undefined
+      && input.rawSourceKind !== "authoring_guide_adoption"
+      && input.rawAdoptionManifestSha256 !== null)
+  ) return false;
+  if (
+    (input.sourceKind === "current_inventory" || input.sourceKind === "independent_review_repair")
+    && input.planSha256 !== input.planArtifactSha256
+  ) return false;
+  const field = (value: unknown) => value === undefined ? "<absent>" : String(value);
+  return COMPLETED_RECEIPT_OFFLINE_HISTORICAL_CONTRACTS.has([
+    field(input.rawSourceKind),
+    field(input.rawExistingRunPolicy),
+    field(input.promptVersion),
+    field(input.validatorVersion),
+    field(input.rawApplicationFieldAnalysisVersion),
+  ].join("|"));
+}
+
+function normalizeAnalysisLaunchSourceKind(
+  value: unknown,
+): AnalysisLaunchManifest["source"]["kind"] {
+  if (value === undefined) return "formal_plan";
+  if (
+    value !== "formal_plan"
+    && value !== "current_inventory"
+    && value !== "authoring_guide_adoption"
+    && value !== "independent_review_repair"
+  ) {
+    throw new Error("launch source/existing run 정책 결속이 잘못됐습니다.");
+  }
+  return value;
+}
+
+function normalizeAnalysisLaunchExistingRunPolicy(
+  value: unknown,
+): AnalysisLaunchManifest["execution"]["existingRunPolicy"] {
+  if (value === undefined) return "skip_existing";
+  if (value !== "skip_existing" && value !== "rerun_exact_targets") {
+    throw new Error("launch source/existing run 정책 결속이 잘못됐습니다.");
+  }
+  return value;
 }
 
 function normalizeCompletedCurrentInventoryBinding(

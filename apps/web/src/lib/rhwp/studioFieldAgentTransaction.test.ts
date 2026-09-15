@@ -21,9 +21,9 @@ import {
 const target: StudioTableCellTextTargetV1 = {
   kind: "table_cell_text",
   section: 0,
-  parentPara: 0,
+  parentPara: 180,
   controlIndex: 0,
-  cellIndex: 1,
+  cellIndex: 57,
   cellParagraph: 0,
 };
 const encoder = new TextEncoder();
@@ -38,7 +38,7 @@ function encode(cells: string[], charShapeId = 7): Uint8Array {
 class FakeDocument {
   private readonly fixture: FlatFixture;
   constructor(bytes: Uint8Array) { this.fixture = JSON.parse(decoder.decode(bytes)) as FlatFixture; }
-  getTableDimensions() { return JSON.stringify({ rowCount: 1, colCount: 2, cellCount: 2 }); }
+  getTableDimensions() { return JSON.stringify({ rowCount: 18, colCount: 8, cellCount: this.fixture.cells.length }); }
   getCellParagraphCount() { return 1; }
   getCellParagraphLength(_s: number, _p: number, _c: number, cell: number) { return this.fixture.cells[cell]!.length; }
   getTextInCell(_s: number, _p: number, _c: number, cell: number) { return this.fixture.cells[cell]!; }
@@ -53,7 +53,10 @@ class FakeDocument {
 }
 
 const rhwp = { HwpDocument: FakeDocument } as unknown as RhwpModule;
-const original = encode(["항목", "기존값"]);
+const techfestCells = Array.from({ length: 59 }, () => "");
+techfestCells[57] = "공동대표";
+techfestCells[58] = "S/W 개발 총괄";
+const original = encode(techfestCells);
 let current = original;
 let changeSeq = 0;
 const journal = new Map<string, { before: Uint8Array; after: Uint8Array }>();
@@ -141,9 +144,11 @@ const applied = await transaction.apply({
     formatSha256: beforeEvidence.formatSha256,
     adjacentContextSha256: beforeEvidence.adjacentContextSha256,
   },
-  replacement: "주식회사 노튼",
+  replacement: "이사",
 });
-assert.equal((JSON.parse(decoder.decode(applied.bytes)) as FlatFixture).cells[1], "주식회사 노튼");
+const techfestAppliedCells = (JSON.parse(decoder.decode(applied.bytes)) as FlatFixture).cells;
+assert.equal(techfestAppliedCells[57], "이사");
+assert.equal(techfestAppliedCells[58], "S/W 개발 총괄", "이웃 담당업무 셀은 보존한다");
 assert.notEqual(applied.receipt.formatSha256, beforeEvidence.formatSha256);
 const reverted = await transaction.revert({
   bytes: applied.bytes,
@@ -171,7 +176,7 @@ const recovered = await reloadedTransaction.revert({
   expectedAfterTextSha256: applied.receipt.afterTextSha256,
   recovery: {
     appliedDocumentSha256: applied.afterDocumentSha256,
-    appliedText: "주식회사 노튼",
+    appliedText: "이사",
     binding: {
       target,
       beforeText: beforeEvidence.text,
@@ -194,7 +199,7 @@ await assert.rejects(
     expectedAfterTextSha256: applied.receipt.afterTextSha256,
     recovery: {
       appliedDocumentSha256: "0".repeat(64),
-      appliedText: "주식회사 노튼",
+      appliedText: "이사",
       binding: {
         target,
         beforeText: beforeEvidence.text,

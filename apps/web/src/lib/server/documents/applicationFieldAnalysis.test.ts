@@ -152,6 +152,121 @@ assert.equal((choice.visualEvidence as { source?: string })?.source, "kordoc-rhw
 
 assert.equal(fields.some((item) => item.label === "접수번호"), false);
 
+const techfestSourceSha256 = "5d9ad6200091e341c945f1c746b1512ded6f2d85f0aa21bd6f0eac5b566fe22c";
+const techfestFields = buildReconciledApplicationFields({
+  ...document,
+  sourceSha256: techfestSourceSha256,
+  fields: [
+    field({
+      id: "6200f43ce98d6b731ed42654",
+      label: "공동대표",
+      displayLabel: "기업 구성 현황 1번 구성원 직위",
+      blockIndex: 106,
+      row: 17,
+      col: 1,
+      occurrence: 0,
+      analysisSource: "llm",
+      llmConfidence: 0.8,
+      llmDecision: "input",
+      helperText: "예시로 기재된 '공동대표' 자리에 실제 구성원의 직위를 입력한다.",
+      inputSignals: [
+        "LLM 맥락 판정: 사용자 입력",
+        "LLM 표시명 제안: 기업 구성 현황 1번 구성원 직위",
+        "LLM 근거: [col1 TARGET;span=1x2] 공동대표",
+      ],
+    }),
+    field({
+      id: "851ed55f5c86157703600e13",
+      label: "법인등록번호",
+      blockIndex: 106,
+      row: 5,
+      col: 0,
+      occurrence: 0,
+      originalValue: "해당 시",
+    }),
+    field({ id: "excluded-conditional", label: "해당 시", blockIndex: 106, row: 5, col: 4, occurrence: 0, recommendedInput: false }),
+    field({ id: "excluded-image", label: "이미지 삽입", blockIndex: 106, row: 12, col: 4, occurrence: 0, recommendedInput: false }),
+  ],
+  choiceGroups: [],
+});
+assert.equal(techfestFields.length, 2, "구조적으로 제외한 해당 시/이미지는 다시 열지 않는다");
+assert.equal(techfestFields[0]?.visualEvidence?.sourceSha256, techfestSourceSha256);
+assert.deepEqual(techfestFields[0]?.position, {
+  page: 1,
+  bbox: null,
+  blockIndex: 106,
+  row: 17,
+  col: 1,
+  occurrence: 0,
+  normalizedLabel: "공동대표",
+  anchorLabel: "공동대표",
+  targetKind: "table_cell_text",
+  targetRow: 17,
+  targetCol: 1,
+});
+assert.equal(
+  techfestFields[1]?.position?.targetKind,
+  undefined,
+  "일반 법인등록번호 라벨은 기존 오른쪽 값 셀 계약을 유지한다",
+);
+
+const techfestPlanSourceSha256 = "7eab03622b926be6e1b08ba28da3210d092c37ef2b479598919729eb5b5ef655";
+const [techfestPlanRole] = buildReconciledApplicationFields({
+  ...document,
+  sourceSha256: techfestPlanSourceSha256,
+  fields: [field({
+    id: "afa5adef6e56543d22c8effd",
+    label: "공동대표",
+    displayLabel: "기업 구성 현황 1번 직위",
+    blockIndex: 5,
+    row: 17,
+    col: 1,
+    occurrence: 0,
+    analysisSource: "llm",
+    llmConfidence: 0.88,
+    llmDecision: "input",
+    helperText: "대표자 본인을 제외한 구성원 1번의 직위를 입력합니다(예: 공동대표, 이사, 팀장 등). 공동·각자대표는 포함합니다.",
+    inputSignals: ["LLM 근거: [col1 TARGET;span=1x2] 공동대표"],
+  })],
+  choiceGroups: [],
+});
+assert.equal(techfestPlanRole?.visualEvidence?.sourceSha256, techfestPlanSourceSha256);
+assert.deepEqual(techfestPlanRole?.position, {
+  page: 1,
+  bbox: null,
+  blockIndex: 5,
+  row: 17,
+  col: 1,
+  occurrence: 0,
+  normalizedLabel: "공동대표",
+  anchorLabel: "공동대표",
+  targetKind: "table_cell_text",
+  targetRow: 17,
+  targetCol: 1,
+});
+
+const [ordinaryLabel] = buildReconciledApplicationFields({
+  ...document,
+  fields: [field({
+    id: "ordinary-contact-label",
+    label: "담당자",
+    displayLabel: "사업 담당자 이름",
+    row: 8,
+    col: 0,
+    analysisSource: "llm",
+    llmConfidence: 0.9,
+    llmDecision: "input",
+    helperText: "담당자 이름을 입력합니다.",
+    inputSignals: ["LLM 근거: [col0 TARGET;span=1x1] 담당자"],
+  })],
+  choiceGroups: [],
+});
+assert.equal(
+  ordinaryLabel?.position?.targetKind,
+  undefined,
+  "TARGET 인용이 있어도 예시 값 근거가 없는 일반 라벨은 same-cell을 열지 않는다",
+);
+
 console.log("application field analysis tests: ok");
 
 function field(input: {
@@ -160,12 +275,19 @@ function field(input: {
   displayLabel?: string;
   required?: boolean;
   recommendedInput?: boolean;
+  blockIndex?: number;
   row?: number;
   col?: number;
+  occurrence?: number;
   inputKind?: RoundtripFieldCandidate["inputKind"];
   originalValue?: string;
   source?: RoundtripFieldCandidate["source"];
   sameCellTarget?: boolean;
+  analysisSource?: RoundtripFieldCandidate["analysisSource"];
+  llmConfidence?: number;
+  llmDecision?: RoundtripFieldCandidate["llmDecision"];
+  helperText?: string;
+  inputSignals?: string[];
 }): RoundtripFieldCandidate {
   return {
     fieldInstanceId: input.id,
@@ -178,22 +300,23 @@ function field(input: {
     empty: true,
     recommendedInput: input.recommendedInput ?? true,
     inputLikelihood: 0.9,
-    inputSignals: ["테스트"],
+    inputSignals: input.inputSignals ?? ["테스트"],
     sampleValue: "샘플",
     sampleReason: "테스트",
     source: input.source ?? "kordoc-form",
     inputKind: input.inputKind ?? "text",
     writeOperation: "kordoc_field",
-    helperText: input.originalValue ?? null,
+    helperText: input.helperText ?? input.originalValue ?? null,
     unit: null,
     options: [],
-    analysisSource: "heuristic",
-    llmConfidence: null,
+    analysisSource: input.analysisSource ?? "heuristic",
+    llmConfidence: input.llmConfidence ?? null,
+    ...(input.llmDecision ? { llmDecision: input.llmDecision } : {}),
     location: {
-      blockIndex: 1,
+      blockIndex: input.blockIndex ?? 1,
       row: input.row ?? 1,
       col: input.col ?? 1,
-      occurrence: input.row ?? 1,
+      occurrence: input.occurrence ?? input.row ?? 1,
       pageNumber: 1,
       ...(input.sameCellTarget ? {
         target: {

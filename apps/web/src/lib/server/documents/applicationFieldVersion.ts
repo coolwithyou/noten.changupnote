@@ -1,5 +1,5 @@
-// v8은 표 밖 단일 문단 입력의 prefix/value/suffix와 occurrence를 exact binding까지 보존한다.
-export const APPLICATION_FIELD_PARSER_VERSION = "kordoc-rhwp-application-fields-v8";
+// v9는 구조화된 값 예시 TARGET을 native whole-cell exact binding으로 보존한다.
+export const APPLICATION_FIELD_PARSER_VERSION = "kordoc-rhwp-application-fields-v9";
 export const APPLICATION_FIELD_PARSER_PREFIX = "kordoc-rhwp-application-fields-";
 
 export function isAutomatedApplicationFieldParserVersion(value: string): boolean {

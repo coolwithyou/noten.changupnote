@@ -4,7 +4,8 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { LabRun } from "./lab-contract";
+import { ANALYSIS_LAB_PROMPT_VERSION, type LabRun } from "./lab-contract";
+import { DEEP_ANALYSIS_VALIDATOR_VERSION } from "../deep-analysis/validator";
 import {
   APPLICATION_ROUNDTRIP_ADOPTED_MODEL,
   APPLICATION_ROUNDTRIP_VERSION,
@@ -17,6 +18,7 @@ import {
 } from "./primary-matching-projection";
 import {
   encodeCanonical,
+  normalizeAnalysisLaunchManifest,
   writeAnalysisLaunchArtifact,
   type AnalysisLaunchGrant,
   type AnalysisLaunchManifest,
@@ -37,6 +39,26 @@ const INPUT_SHA256 = "1".repeat(64);
 const ATTACHMENT_SHA256 = "2".repeat(64);
 const SOURCE_REVISION_SHA256 = "3".repeat(64);
 const SOURCE_RAW_SHA256 = "4".repeat(64);
+const OTHER_GRANT_ID = "00000000-0000-4000-8000-0000000009b1";
+interface FixtureManifestContract {
+  readonly sourceKind: "formal_plan" | "current_inventory" | "independent_review_repair" | "authoring_guide_adoption" | null;
+  readonly existingRunPolicy: "skip_existing" | "rerun_exact_targets" | null;
+  readonly promptVersion: string;
+  readonly validatorVersion: string;
+  readonly applicationFieldAnalysisVersion: string | null;
+  readonly withApplicationRoundtrip?: boolean;
+  readonly liveNormalizerAccepted?: boolean;
+}
+const HISTORICAL_CONTRACTS: readonly FixtureManifestContract[] = [
+  { sourceKind: "formal_plan", existingRunPolicy: "skip_existing", promptVersion: "lab-deep-v21", validatorVersion: "deep-analysis-validator-v14", applicationFieldAnalysisVersion: "kordoc-application-roundtrip-v9" },
+  { sourceKind: "current_inventory", existingRunPolicy: "skip_existing", promptVersion: "lab-deep-v22", validatorVersion: "deep-analysis-validator-v15", applicationFieldAnalysisVersion: "kordoc-application-roundtrip-v9" },
+  { sourceKind: "independent_review_repair", existingRunPolicy: "rerun_exact_targets", promptVersion: "lab-deep-v21", validatorVersion: "deep-analysis-validator-v14", applicationFieldAnalysisVersion: "kordoc-application-roundtrip-v9" },
+  { sourceKind: null, existingRunPolicy: null, promptVersion: "lab-deep-v17", validatorVersion: "deep-analysis-validator-v10", applicationFieldAnalysisVersion: null },
+  { sourceKind: "formal_plan", existingRunPolicy: "skip_existing", promptVersion: "lab-deep-v17", validatorVersion: "deep-analysis-validator-v10", applicationFieldAnalysisVersion: "kordoc-application-roundtrip-v9" },
+  { sourceKind: "current_inventory", existingRunPolicy: "skip_existing", promptVersion: "lab-deep-v22", validatorVersion: "deep-analysis-validator-v16", applicationFieldAnalysisVersion: "kordoc-application-roundtrip-v11" },
+  { sourceKind: "independent_review_repair", existingRunPolicy: "rerun_exact_targets", promptVersion: "lab-deep-v18", validatorVersion: "deep-analysis-validator-v11", applicationFieldAnalysisVersion: "kordoc-application-roundtrip-v9" },
+  { sourceKind: "authoring_guide_adoption", existingRunPolicy: "rerun_exact_targets", promptVersion: "lab-deep-v17", validatorVersion: "deep-analysis-validator-v10", applicationFieldAnalysisVersion: null, withApplicationRoundtrip: false, liveNormalizerAccepted: true },
+];
 const roots: string[] = [];
 let fetchCalls = 0;
 const originalFetch = globalThis.fetch;
@@ -91,6 +113,76 @@ try {
   const idempotent = await sealCurrentMatchingProjectionRevalidation(fixture.request);
   assert.equal(idempotent.artifactSha256, sealed.artifactSha256);
   assert.equal(idempotent.path, sealed.path);
+  assert.doesNotThrow(() => normalizeAnalysisLaunchManifest(fixture.manifest));
+
+  for (const contract of HISTORICAL_CONTRACTS) {
+    const historical = await createFixture({ manifestContract: contract });
+    const historicalSeal = await sealCurrentMatchingProjectionRevalidation(historical.request)
+      .catch((cause: unknown) => {
+        throw new Error(`역사 manifest offline 소비 실패: ${JSON.stringify(contract)}`, { cause });
+      });
+    assert.equal(historicalSeal.artifact.original.runId, RUN_ID);
+    if (contract.liveNormalizerAccepted) {
+      assert.doesNotThrow(
+        () => normalizeAnalysisLaunchManifest(historical.manifest),
+        "primary-only authoring guide manifest의 기존 live normalizer 수용을 바꾸지 않는다",
+      );
+    } else {
+      assert.throws(
+        () => normalizeAnalysisLaunchManifest(historical.manifest),
+        /launch source\/existing run 정책 결속/,
+        `역사 manifest를 live admission으로 열면 안 된다: ${JSON.stringify(contract)}`,
+      );
+    }
+  }
+
+  const unknownHistorical = await createFixture({
+    manifestContract: {
+      sourceKind: "formal_plan",
+      existingRunPolicy: "skip_existing",
+      promptVersion: "lab-deep-v20",
+      validatorVersion: "deep-analysis-validator-v13",
+      applicationFieldAnalysisVersion: "kordoc-application-roundtrip-v8",
+    },
+  });
+  await assert.rejects(
+    sealCurrentMatchingProjectionRevalidation(unknownHistorical.request),
+    /launch source\/existing run 정책 결속/,
+  );
+
+  const unknownSchema = await createFixture({ manifestSchema: "analysis-launch-manifest-v2" });
+  await assert.rejects(
+    sealCurrentMatchingProjectionRevalidation(unknownSchema.request),
+    /launch manifest schema/,
+  );
+
+  const nonterminal = await createFixture({ receiptLifecycle: "running" });
+  await assert.rejects(
+    sealCurrentMatchingProjectionRevalidation(nonterminal.request),
+    /launch receipt 계약/,
+  );
+
+  const targetMismatch = await createFixture({ receiptTargetGrantId: OTHER_GRANT_ID });
+  await assert.rejects(
+    sealCurrentMatchingProjectionRevalidation(targetMismatch.request),
+    /receipt target.*manifest exact target/,
+  );
+
+  const incompleteReceipt = await createFixture({ omitRunArtifactBinding: true });
+  await assert.rejects(
+    sealCurrentMatchingProjectionRevalidation(incompleteReceipt.request),
+    /원 run artifact 결속/,
+  );
+
+  const tamperedManifest = await createFixture({ manifestContract: HISTORICAL_CONTRACTS[0]! });
+  await writeFile(tamperedManifest.manifestPath, encodeCanonical({
+    ...tamperedManifest.manifest,
+    preparedAt: "2026-09-09T00:00:01.000Z",
+  }));
+  await assert.rejects(
+    sealCurrentMatchingProjectionRevalidation(tamperedManifest.request),
+    /launch manifests artifact SHA/,
+  );
 
   const reobservedRequest = requestWithEvidence(fixture.request, {
     observedAt: "2026-09-09T01:00:00.000Z",
@@ -225,40 +317,63 @@ try {
 
 async function createFixture(options: {
   historicalRuntimeDrift?: boolean;
+  manifestContract?: FixtureManifestContract;
+  manifestSchema?: string;
+  receiptLifecycle?: string;
+  receiptTargetGrantId?: string;
+  omitRunArtifactBinding?: boolean;
 } = {}): Promise<{
   root: string;
   request: CurrentMatchingProjectionRevalidationRequest;
   runPath: string;
   receiptPath: string;
+  manifestPath: string;
+  manifest: AnalysisLaunchManifest;
   run: LabRun;
   receipt: AnalysisLaunchReceipt;
 }> {
   const root = await mkdtemp(join(tmpdir(), "cunote-current-projection-sidecar-"));
   roots.push(root);
-  const manifest: AnalysisLaunchManifest = {
-    schema: "analysis-launch-manifest-v1",
+  const contract = options.manifestContract;
+  const sourceKind = contract ? contract.sourceKind : "formal_plan";
+  const promptVersion = contract?.promptVersion ?? ANALYSIS_LAB_PROMPT_VERSION;
+  const planSha256 = "8".repeat(64);
+  const withApplicationRoundtrip = contract?.withApplicationRoundtrip ?? true;
+  const manifest = {
+    schema: options.manifestSchema ?? "analysis-launch-manifest-v1",
     preparedAt: "2026-09-09T00:00:00.000Z",
     source: {
-      kind: "formal_plan",
+      ...(sourceKind === null ? {} : { kind: sourceKind }),
       seriesId: "current-projection-test",
-      planSha256: "8".repeat(64),
-      planArtifactSha256: "9".repeat(64),
-      adoptionManifestSha256: null,
+      planSha256,
+      planArtifactSha256: sourceKind === "current_inventory"
+        || sourceKind === "independent_review_repair"
+        || sourceKind === "authoring_guide_adoption"
+        ? planSha256
+        : "9".repeat(64),
+      ...(sourceKind === null
+        ? {}
+        : { adoptionManifestSha256: sourceKind === "authoring_guide_adoption" ? planSha256 : null }),
       sequenceFrom: 0,
       sequenceTo: 0,
     },
     execution: {
       transport: "claude-cli",
       model: APPLICATION_ROUNDTRIP_ADOPTED_MODEL,
-      promptVersion: "lab-deep-v21",
-      validatorVersion: "deep-analysis-validator-test",
+      promptVersion,
+      validatorVersion: contract?.validatorVersion ?? DEEP_ANALYSIS_VALIDATOR_VERSION,
       packageRuntimeSha256: "a".repeat(64),
       gitShaAtPreparation: "b".repeat(40),
-      withApplicationRoundtrip: true,
-      roundtripModel: APPLICATION_ROUNDTRIP_ADOPTED_MODEL,
-      applicationFieldAnalysisVersion: APPLICATION_ROUNDTRIP_VERSION,
+      withApplicationRoundtrip,
+      roundtripModel: withApplicationRoundtrip ? APPLICATION_ROUNDTRIP_ADOPTED_MODEL : null,
+      ...(contract?.applicationFieldAnalysisVersion === null
+        ? {}
+        : { applicationFieldAnalysisVersion:
+          contract?.applicationFieldAnalysisVersion ?? APPLICATION_ROUNDTRIP_VERSION }),
       concurrency: 1,
-      existingRunPolicy: "skip_existing",
+      ...(contract?.existingRunPolicy === null
+        ? {}
+        : { existingRunPolicy: contract?.existingRunPolicy ?? "skip_existing" }),
     },
     targets: [{
       sequence: 0,
@@ -270,7 +385,7 @@ async function createFixture(options: {
       inventoryAttachmentManifestSha256: ATTACHMENT_SHA256,
       changedSinceInventory: false,
     }],
-  };
+  } as AnalysisLaunchManifest;
   const storedManifest = await writeAnalysisLaunchArtifact("manifests", manifest, root);
   const grant: AnalysisLaunchGrant = {
     schema: "analysis-launch-grant-v1",
@@ -282,7 +397,7 @@ async function createFixture(options: {
     targetCount: 1,
   };
   const storedGrant = await writeAnalysisLaunchArtifact("grants", grant, root);
-  const run = fixtureRun();
+  const run = fixtureRun(promptVersion);
   if (options.historicalRuntimeDrift) {
     const source = primaryProjectionSource({
       runId: run.runId,
@@ -305,22 +420,24 @@ async function createFixture(options: {
   const runBytes = encodeCanonical(run);
   await writeFile(runPath, runBytes);
   const runArtifactSha256 = sha256(runBytes);
-  const receipt: AnalysisLaunchReceipt = {
+  const receipt = {
     schema: "analysis-launch-receipt-v1",
     grantSha256: storedGrant.sha256,
     manifestSha256: storedManifest.sha256,
     startedAt: "2026-09-09T00:00:02.000Z",
     finishedAt: "2026-09-09T00:00:03.000Z",
-    lifecycle: "finished",
+    lifecycle: options.receiptLifecycle ?? "finished",
     stopReason: "completed",
     systemicFailure: null,
     summary: { publishable: 1, held: 0, failed: 0, skipped: 0 },
     targets: [{
       sequence: 0,
-      grantId: GRANT_ID,
+      grantId: options.receiptTargetGrantId ?? GRANT_ID,
       status: "publishable",
-      runArtifactPath: relative(root, runPath).split(sep).join("/"),
-      runArtifactSha256,
+      runArtifactPath: options.omitRunArtifactBinding
+        ? null
+        : relative(root, runPath).split(sep).join("/"),
+      runArtifactSha256: options.omitRunArtifactBinding ? null : runArtifactSha256,
       applicationRoundtripStatus: null,
       applicationDocumentCount: null,
       fieldReadyDocumentCount: null,
@@ -332,7 +449,7 @@ async function createFixture(options: {
         : {}),
       error: null,
     }],
-  };
+  } as AnalysisLaunchReceipt;
   const storedReceipt = await writeAnalysisLaunchArtifact("receipts", receipt, root);
   const currentEvidence: CurrentMatchingProjectionSourceEvidence = {
     schema: CURRENT_MATCHING_PROJECTION_SOURCE_EVIDENCE_SCHEMA,
@@ -364,12 +481,14 @@ async function createFixture(options: {
     },
     runPath,
     receiptPath: storedReceipt.path,
+    manifestPath: storedManifest.path,
+    manifest,
     run,
     receipt,
   };
 }
 
-function fixtureRun(): LabRun {
+function fixtureRun(promptVersion = ANALYSIS_LAB_PROMPT_VERSION): LabRun {
   return {
     runId: RUN_ID,
     grantId: GRANT_ID,
@@ -378,7 +497,7 @@ function fixtureRun(): LabRun {
     title: "current matching projection sidecar fixture",
     model: APPLICATION_ROUNDTRIP_ADOPTED_MODEL,
     transport: "claude-cli",
-    promptVersion: "lab-deep-v21",
+    promptVersion,
     startedAt: "2026-09-09T00:00:02.000Z",
     durationMs: 1,
     inputBlocks: [],

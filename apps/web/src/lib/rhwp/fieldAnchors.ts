@@ -554,6 +554,14 @@ function enumerateFieldCandidates(
       const cells = context.tableCache.get(tableKey) ?? [];
       const labelCell = cells.find((cell) => cell.cellIdx === cellContext.cellIdx);
       if (!labelCell) continue;
+      const exactSameCellTextRequested = field.position?.targetKind === "table_cell_text";
+      const exactSameCellText = exactSameCellTextRequested
+        && hit.wholeCellExact === true
+        && field.position?.targetRow === labelCell.row
+        && field.position?.targetCol === labelCell.col;
+      // 값 예시 셀을 직접 쓰는 계약은 source-bound IR 좌표와 native whole-cell exact가
+      // 함께 맞을 때만 연다. 하나라도 다르면 일반 오른쪽 셀 추정으로 후퇴하지 않는다.
+      if (exactSameCellTextRequested && !exactSameCellText) continue;
       const protectedRegionRequested = isLongTextField(field)
         && field.position?.targetKind === "table_cell_region";
       const declaredProtectedPrefix = protectedRegionRequested
@@ -567,7 +575,7 @@ function enumerateFieldCandidates(
       // `(예정지)※해당시 주소 기재`처럼 값 셀 자체에 placeholder가 들어 있는 경우에는
       // 오른쪽/아래 셀을 추측하지 않고 exact하게 그 셀 자체를 입력 대상으로 삼는다.
       let targetCell: CellBox | null;
-      if (protectedPrefixChars !== null || isSelfTargetingPlaceholder(anchorLabel)) {
+      if (protectedPrefixChars !== null || exactSameCellText || isSelfTargetingPlaceholder(anchorLabel)) {
         targetCell = labelCell;
       } else {
         const right = rightCellForLabel(labelCell, cells);

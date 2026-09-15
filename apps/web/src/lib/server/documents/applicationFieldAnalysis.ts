@@ -254,7 +254,7 @@ export function buildReconciledApplicationFields(document: RoundtripParsedDocume
           paragraphPrefix: candidate.location.target.paragraphPrefix ?? "",
           paragraphSuffix: candidate.location.target.paragraphSuffix ?? "",
           paragraphOccurrence: candidate.location.target.paragraphOccurrence ?? 0,
-        } : tableCellRegionPosition(candidate, fieldType)),
+        } : tableCellPosition(candidate, fieldType)),
       },
       visualEvidence: {
         source: "kordoc-rhwp",
@@ -312,30 +312,75 @@ export function buildReconciledApplicationFields(document: RoundtripParsedDocume
   return fields;
 }
 
-function tableCellRegionPosition(
+function tableCellPosition(
   candidate: RoundtripFieldCandidate,
   fieldType: ReconciledField["fieldType"],
 ): Pick<NonNullable<ReconciledField["position"]>,
   "targetKind" | "targetRow" | "targetCol" | "protectedPrefixText"> | Record<string, never> {
   const target = candidate.location.target;
   if (
-    fieldType !== "long_text"
-    || target?.kind !== "table_cell"
-    || !Number.isSafeInteger(target.row)
-    || !Number.isSafeInteger(target.col)
-    || target.row !== candidate.location.row
-    || target.col !== candidate.location.col
-    || target.textStart !== 0
-    || target.textEnd !== candidate.label.length
-    || target.expectedText !== candidate.label
-    || target.expectedSha256 !== createHash("sha256").update(candidate.label).digest("hex")
-  ) return {};
+    fieldType === "long_text"
+    && target?.kind === "table_cell"
+    && Number.isSafeInteger(target.row)
+    && Number.isSafeInteger(target.col)
+    && target.row === candidate.location.row
+    && target.col === candidate.location.col
+    && target.textStart === 0
+    && target.textEnd === candidate.label.length
+    && target.expectedText === candidate.label
+    && target.expectedSha256 === createHash("sha256").update(candidate.label).digest("hex")
+  ) {
+    return {
+      targetKind: "table_cell_region",
+      targetRow: target.row!,
+      targetCol: target.col!,
+      protectedPrefixText: candidate.label,
+    };
+  }
+  if (!isExactSameCellExampleInput(candidate, fieldType)) return {};
   return {
-    targetKind: "table_cell_region",
-    targetRow: target.row!,
-    targetCol: target.col!,
-    protectedPrefixText: candidate.label,
+    targetKind: "table_cell_text",
+    targetRow: candidate.location.row,
+    targetCol: candidate.location.col,
   };
+}
+
+/**
+ * KorDoc이 값 예시 셀을 label로 올린 경우에도 모델의 입력 판정만으로 same-cell 쓰기를 열지 않는다.
+ * 구조화된 exact TARGET 인용, 별도 역할 표시명, 원문 값을 참조하는 helper가 같은 후보에 결속돼야 한다.
+ */
+function isExactSameCellExampleInput(
+  candidate: RoundtripFieldCandidate,
+  fieldType: ReconciledField["fieldType"],
+): boolean {
+  if (
+    fieldType === "long_text"
+    || candidate.source !== "kordoc-form"
+    || candidate.location.target
+    || !Number.isSafeInteger(candidate.location.row)
+    || !Number.isSafeInteger(candidate.location.col)
+    || candidate.originalValue.trim() !== ""
+    || !candidate.recommendedInput
+    || candidate.analysisSource !== "llm"
+    || candidate.llmDecision !== "input"
+    || (candidate.llmConfidence ?? 0) < 0.75
+  ) return false;
+  const label = normalizeRoundtripLabel(candidate.label);
+  const displayLabel = normalizeRoundtripLabel(candidate.displayLabel);
+  if (!label || !displayLabel || displayLabel === label) return false;
+  const helper = candidate.helperText?.normalize("NFKC") ?? "";
+  if (!hasExactExampleValueReference(helper, candidate.label)) return false;
+  const prefix = `LLM 근거: [col${candidate.location.col} TARGET;`;
+  const evidence = candidate.inputSignals.find((signal) => signal.startsWith(prefix));
+  const closingBracket = evidence?.indexOf("]") ?? -1;
+  return closingBracket >= 0
+    && normalizeRoundtripLabel(evidence!.slice(closingBracket + 1)) === label;
+}
+
+function hasExactExampleValueReference(helper: string, label: string): boolean {
+  const escapedLabel = label.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+  return new RegExp(`예시로\\s*기재된\\s*['\"“”‘’]?\\s*${escapedLabel}\\s*['\"“”‘’]?\\s*자리`, "u").test(helper)
+    || new RegExp(`\\(\\s*예(?:시)?\\s*:\\s*${escapedLabel}(?:\\s*[,，)])`, "u").test(helper);
 }
 
 function result(

@@ -12,14 +12,10 @@ import {
 } from "./primary-matching-projection";
 import {
   encodeCanonical,
-  normalizeAnalysisLaunchGrant,
-  normalizeAnalysisLaunchManifest,
-  normalizeAnalysisLaunchReceipt,
-  readAnalysisLaunchArtifact,
   type AnalysisLaunchMatchingProjectionBinding,
-  type AnalysisLaunchManifestTarget,
   type AnalysisLaunchReceiptTarget,
 } from "./launch-batch-artifacts";
+import { readCompletedAnalysisLaunchArtifacts } from "./completed-analysis-launch-reader";
 import { writeImmutableBytesAtomic } from "./immutable-artifact-fs";
 import { isPublishableLabRun } from "./run-outcome";
 
@@ -282,30 +278,10 @@ async function loadOriginal(request: CurrentMatchingProjectionRevalidationReques
   readonly runArtifactSha256: string;
   readonly run: LabRun;
 }> {
-  const receipt = normalizeAnalysisLaunchReceipt(await readAnalysisLaunchArtifact(
-    "receipts",
-    request.launchReceiptSha256,
-    request.repositoryRoot,
-  ));
-  const manifest = normalizeAnalysisLaunchManifest(await readAnalysisLaunchArtifact(
-    "manifests",
-    receipt.manifestSha256,
-    request.repositoryRoot,
-  ));
-  const grant = normalizeAnalysisLaunchGrant(await readAnalysisLaunchArtifact(
-    "grants",
-    receipt.grantSha256,
-    request.repositoryRoot,
-  ));
-
-  if (
-    grant.manifestSha256 !== receipt.manifestSha256
-    || grant.targetCount !== manifest.targets.length
-    || receipt.targets.length !== manifest.targets.length
-  ) {
-    throw new Error("launch receipt/manifest/grant target 결속이 다릅니다.");
-  }
-  assertReceiptManifestTargetsMatch(receipt.targets, manifest.targets);
+  const { receipt, manifest } = await readCompletedAnalysisLaunchArtifacts({
+    launchReceiptSha256: request.launchReceiptSha256,
+    repositoryRoot: request.repositoryRoot,
+  });
   const receiptTarget = exactlyOneTarget(receipt.targets, request.sequence, "receipt");
   const manifestTarget = exactlyOneTarget(manifest.targets, request.sequence, "manifest");
   if (
@@ -439,23 +415,6 @@ function assertCurrentEvidenceBinding(
     || evidence.attachmentManifestSha256 !== run.attachmentManifestSha256
   ) {
     throw new Error("caller-supplied current evidence가 원 run exact binding과 다릅니다.");
-  }
-}
-
-function assertReceiptManifestTargetsMatch(
-  receiptTargets: readonly AnalysisLaunchReceiptTarget[],
-  manifestTargets: readonly AnalysisLaunchManifestTarget[],
-): void {
-  const receiptSequences = new Set<number>();
-  for (const receiptTarget of receiptTargets) {
-    if (receiptSequences.has(receiptTarget.sequence)) {
-      throw new Error("launch receipt sequence가 중복됐습니다.");
-    }
-    receiptSequences.add(receiptTarget.sequence);
-    const manifestTarget = manifestTargets.find((target) => target.sequence === receiptTarget.sequence);
-    if (!manifestTarget || manifestTarget.grantId !== receiptTarget.grantId) {
-      throw new Error("launch receipt target이 manifest exact target과 다릅니다.");
-    }
   }
 }
 
