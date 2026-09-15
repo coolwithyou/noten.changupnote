@@ -812,6 +812,8 @@ function normalizeAnalysisLaunchManifestForPurpose(
 }
 
 const COMPLETED_RECEIPT_OFFLINE_HISTORICAL_CONTRACTS = new Set([
+  // exact19 종료 receipt의 v17 계약은 오프라인 재검증에만 보존한다.
+  "current_inventory|skip_existing|lab-deep-v28|deep-analysis-validator-v22|kordoc-application-roundtrip-v17",
   "current_inventory|skip_existing|lab-deep-v28|deep-analysis-validator-v21|kordoc-application-roundtrip-v15",
   "formal_plan|skip_existing|lab-deep-v21|deep-analysis-validator-v14|kordoc-application-roundtrip-v9",
   "current_inventory|skip_existing|lab-deep-v22|deep-analysis-validator-v15|kordoc-application-roundtrip-v9",
@@ -842,7 +844,7 @@ function normalizeTerminalRepairBinding(value: unknown): AnalysisLaunchTerminalR
     receiptSha256s: Object.freeze(receiptSha256s), originalSequences: Object.freeze(originalSequences) });
 }
 
-/** 2026-09-15 audit v2의 258건에서 실측한 42개 manifest 계약 tuple만 보존한다. */
+/** 실측된 종료 manifest 계약만 보존한다. live grant/run admission에는 사용하지 않는다. */
 function isSupportedCompletedReceiptOfflineContract(input: {
   readonly rawSourceKind: unknown;
   readonly rawAdoptionManifestSha256: unknown;

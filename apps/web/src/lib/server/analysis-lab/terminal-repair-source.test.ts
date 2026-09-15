@@ -15,7 +15,7 @@ import { DEEP_ANALYSIS_VALIDATOR_VERSION } from "../deep-analysis/validator";
 const sha = (v: Buffer) => createHash("sha256").update(v).digest("hex");
 const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
 const provenance = { gitSha: "1".repeat(40), packageRuntimeSha256: "e".repeat(64), validatorVersion: DEEP_ANALYSIS_VALIDATOR_VERSION };
-async function fixture(root: string) {
+async function fixture(root: string, previousVersion = false) {
   const inventory: CurrentLaunchInventory = { schema: "analysis-current-inventory-v1", seriesId: "current-20260915",
     observedAt: "2026-09-15T00:00:00.000Z", model: "claude-opus-5", policy: "open-visible-current-period-unseen-v1",
     historicalGrantIdsSha256: "a".repeat(64), targets: [0, 1, 2].map(sequence => ({ sequence, grantId: id(sequence),
@@ -24,7 +24,8 @@ async function fixture(root: string) {
   const manifest = buildCurrentInventoryLaunchManifest({ inventory, inventorySha256: stored.sha256, provenance,
     concurrency: 1, now: new Date("2026-09-15T00:01:00.000Z") });
   const historical = { ...manifest, execution: { ...manifest.execution, promptVersion: "lab-deep-v28",
-    validatorVersion: "deep-analysis-validator-v21", applicationFieldAnalysisVersion: "kordoc-application-roundtrip-v15" } };
+    validatorVersion: previousVersion ? "deep-analysis-validator-v22" : "deep-analysis-validator-v21",
+    applicationFieldAnalysisVersion: previousVersion ? "kordoc-application-roundtrip-v17" : "kordoc-application-roundtrip-v15" } };
   assert.throws(() => normalizeAnalysisLaunchManifest(historical), /정책/);
   const sourceManifest = await writeAnalysisLaunchArtifact("manifests", historical, root);
   const grant = await writeAnalysisLaunchArtifact("grants", createAnalysisLaunchGrant({ manifestSha256: sourceManifest.sha256,
@@ -95,6 +96,18 @@ test("sealed repair verifies source files, excludes success and rejects newly ar
     await writeFile(runPath, bytes);
     await writeAnalysisLaunchArtifact("receipts", f.receipt(["publishable", "skipped", "skipped"], 3), root);
     await assert.rejects(() => verifyCurrentInventoryLaunchBinding(root, manifest), /최종 실패/);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("v17 종료 receipt는 v18 전환 후에도 성공을 보존하며 오프라인 repair 원본으로 읽힌다", async () => {
+  const root = await mkdtemp(join(tmpdir(), "cunote-terminal-v17-"));
+  try {
+    const f = await fixture(root, true);
+    const source = await readTerminalRepairSource(root, f.sourceManifest.sha256, f.grant.sha256);
+    assert.equal(source.manifest.execution.applicationFieldAnalysisVersion, "kordoc-application-roundtrip-v17");
+    assert.deepEqual(source.binding.originalSequences, [0, 2]);
+    assert.throws(() => normalizeAnalysisLaunchManifest(source.manifest), /정책/,
+      "역사 receipt 소비를 기존 v17 live 실행 권한으로 승격하지 않는다");
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 

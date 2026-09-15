@@ -504,7 +504,28 @@ async function run() {
     });
   }
 
-  console.log("input.test.ts: 16개 시나리오 전부 통과");
+  {
+    const originalCap = process.env.ANALYSIS_LAB_INPUT_CHAR_CAP;
+    const baseline = await assembleLabInput({ grant: GRANT, payload: null, archives: [] }, { storage: fakeStorage({}) });
+    process.env.ANALYSIS_LAB_INPUT_CHAR_CAP = String(baseline.blocks[0]!.chars + 90);
+    try {
+      const result = await assembleLabInput({ grant: GRANT, payload: null, archives: [
+        archive({ filename: "연구개발비 사용 기준.hwp", markdownStorageKey: "law", markdownBytes: 10_000 }),
+        archive({ filename: "신규과제 제안요청서.hwp", markdownStorageKey: "rfp", markdownBytes: 30 }),
+        archive({ filename: "모집 공고문.hwp", markdownStorageKey: "notice", markdownBytes: 30 }),
+      ] }, { storage: fakeStorage({ law: "법규".repeat(5_000), rfp: "과제 개발목표 ".repeat(3), notice: "공고 신청조건 ".repeat(3) }) });
+      const rfp = result.blocks.find(block => block.label.includes("제안요청서"));
+      assert.ok(rfp && rfp.chars > 0 && !rfp.truncated, "과제별 RFP를 일반 법규보다 먼저 포함한다");
+      assert.ok(result.blocks.findIndex(block => block.label.includes("공고문"))
+        < result.blocks.findIndex(block => block.label.includes("제안요청서")), "주 공고문 우선순위는 유지한다");
+      assert.match(result.text, /입력 한계 고지/, "나머지 참고자료의 캡 누락을 숨기지 않는다");
+    } finally {
+      if (originalCap === undefined) delete process.env.ANALYSIS_LAB_INPUT_CHAR_CAP;
+      else process.env.ANALYSIS_LAB_INPUT_CHAR_CAP = originalCap;
+    }
+  }
+
+  console.log("input.test.ts: 17개 시나리오 전부 통과");
 }
 
 run().catch((error) => {

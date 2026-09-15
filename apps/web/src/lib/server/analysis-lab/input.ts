@@ -382,6 +382,8 @@ const FORM_PATTERNS =
 export function announcementScore(filename: string): number {
   let score = 0;
   if (ANNOUNCEMENT_PATTERNS.test(filename)) score += 2;
+  // 과제별 RFP가 긴 일반 법규에 밀려 입력 캡 밖으로 사라지지 않게 한다.
+  if (/제안\s*요청서/u.test(filename)) score += 1;
   if (FORM_PATTERNS.test(filename)) score -= 2;
   return score;
 }
