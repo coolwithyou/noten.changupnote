@@ -31,7 +31,7 @@ import {
 import { resolveExclusiveBizAgeUpperBound } from "./biz-age-boundary";
 import { resolveTargetTypeListSemantics } from "./target-type-list-semantics";
 
-export const DEEP_ANALYSIS_VALIDATOR_VERSION = "deep-analysis-validator-v21" as const;
+export const DEEP_ANALYSIS_VALIDATOR_VERSION = "deep-analysis-validator-v22" as const;
 
 export type DeepAnalysisValidationIssueCode =
   | "raw_contract_invalid"
@@ -1408,11 +1408,15 @@ function validateCriterion(
       inputText: seal.chunks.map((chunk) => chunk.text).join("\n"),
     });
     if (listSemanticsResolution.decision === "unresolved") {
+      const contractualRoleDefinition = listSemanticsResolution.reason === "contractual_role_definition";
       issues.push({
-        code: "semantic_misattribution",
-        path: `$.criteria[${index}].value.list_semantics`,
-        message:
-          "Generic applicant descriptions do not establish whether target_type is an open or closed legal-type list. Preserve the condition as other/text_only and mark target_type ambiguous.",
+        code: contractualRoleDefinition ? "non_matching_criterion" : "semantic_misattribution",
+        path: contractualRoleDefinition
+          ? `$.criteria[${index}]`
+          : `$.criteria[${index}].value.list_semantics`,
+        message: contractualRoleDefinition
+          ? "A contractual role definition does not establish applicant eligibility and cannot be used as a target_type matching criterion. Preserve it only in analysis or caution text."
+          : "Generic applicant descriptions do not establish whether target_type is an open or closed legal-type list. Preserve the condition as other/text_only and mark target_type ambiguous.",
       });
     } else if (
       rawValue.list_semantics === "closed"

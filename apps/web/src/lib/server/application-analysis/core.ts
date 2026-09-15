@@ -28,6 +28,9 @@ const SPAN_AWARE_PLACEHOLDER_REJECTION_SIGNAL =
   "IR colSpan으로 앞 라벨에 결속된 값 placeholder 중복 안전 제외";
 const UNSUPPORTED_NESTED_MEDIA_REJECTION_SIGNAL =
   "현재 텍스트 writer가 지원하지 않는 nested media 입력 영역 안전 제외";
+const FIXED_TABLE_ROLE_REJECTION_SIGNAL =
+  "다열 표의 병합 분류·집계 라벨을 고정 구조로 안전 제외";
+const MATRIX_AGGREGATE_ROLE = /^(?:(?:총|소|누|합)?계)$/u;
 
 export interface RoleClassification {
   role: RoundtripDocumentRole;
@@ -280,6 +283,7 @@ export function extractLocatedRoundtripFields(
   }
   suppressValueCellDuplicates(fields, blocks);
   suppressUnsupportedNestedMediaCandidates(fields, blocks);
+  suppressFixedTableRoleCandidates(fields, blocks);
   return { fields, formConfidence };
 }
 
@@ -666,7 +670,81 @@ export function isUnsupportedNestedMediaTextTarget(
 
 export function hasNonOverridableStructuralRejection(field: RoundtripFieldCandidate): boolean {
   return field.inputSignals.includes(SPAN_AWARE_PLACEHOLDER_REJECTION_SIGNAL)
-    || field.inputSignals.includes(UNSUPPORTED_NESTED_MEDIA_REJECTION_SIGNAL);
+    || field.inputSignals.includes(UNSUPPORTED_NESTED_MEDIA_REJECTION_SIGNAL)
+    || hasFixedTableRoleRejection(field);
+}
+
+export function hasFixedTableRoleRejection(field: RoundtripFieldCandidate): boolean {
+  return field.inputSignals.includes(FIXED_TABLE_ROLE_REJECTION_SIGNAL);
+}
+
+/**
+ * Kordoc이 다열 matrix의 병합 분류 셀이나 집계 band를 label→빈 값 후보로 내놓아도
+ * 신청자가 쓰는 값 셀로 승격하지 않는다. 병합 span·covered row 또는 표준 집계 역할과
+ * 정렬된 복수 열의 구조를 함께 요구해 같은 이름의 일반 2열 입력과 신규 행은 보존한다.
+ */
+export function suppressFixedTableRoleCandidates(
+  fields: RoundtripFieldCandidate[],
+  blocks: readonly IRBlock[],
+): void {
+  for (const field of fields) {
+    if (field.source === "contextual-region") continue;
+    const table = blocks[field.location.blockIndex]?.table;
+    const row = table?.cells[field.location.row];
+    const labelCell = row?.[field.location.col];
+    if (
+      !table
+      || !row
+      || !labelCell
+      || normalizeRoundtripLabel(labelCell.text) !== field.normalizedLabel
+      || (!isMergedMatrixCategory(table, field.location.row, field.location.col, labelCell)
+        && !isMatrixAggregateBand(table, field.location.row, field.location.col, labelCell))
+    ) continue;
+    field.recommendedInput = false;
+    field.inputLikelihood = Math.min(field.inputLikelihood, 0.1);
+    if (!field.inputSignals.includes(FIXED_TABLE_ROLE_REJECTION_SIGNAL)) {
+      field.inputSignals.push(FIXED_TABLE_ROLE_REJECTION_SIGNAL);
+    }
+  }
+}
+
+function isMergedMatrixCategory(
+  table: IRTable,
+  rowIndex: number,
+  colIndex: number,
+  labelCell: IRCell,
+): boolean {
+  if (!table.hasHeader || colIndex !== 0 || labelCell.rowSpan <= 1 || labelCell.colSpan <= 1) {
+    return false;
+  }
+  const valueStart = colIndex + labelCell.colSpan;
+  const valueColumns = table.cells[rowIndex]!.slice(valueStart);
+  if (valueColumns.length < 3 || valueColumns.filter((cell) => cell.text.trim() === "").length < 2) {
+    return false;
+  }
+  const coveredRows = table.cells.slice(rowIndex + 1, rowIndex + labelCell.rowSpan);
+  return coveredRows.length === labelCell.rowSpan - 1
+    && coveredRows.every((row) => (
+      row.slice(colIndex, valueStart).length === labelCell.colSpan
+      && row.slice(colIndex, valueStart).every((cell) => cell.text.trim() === "")
+    ));
+}
+
+function isMatrixAggregateBand(
+  table: IRTable,
+  rowIndex: number,
+  colIndex: number,
+  labelCell: IRCell,
+): boolean {
+  if (!table.hasHeader) return false;
+  const normalizedLabel = normalizeRoundtripLabel(labelCell.text);
+  if (!MATRIX_AGGREGATE_ROLE.test(normalizedLabel)) return false;
+  const valueStart = colIndex + Math.max(1, labelCell.colSpan);
+  const valueColumns = table.cells[rowIndex]!.slice(valueStart);
+  if (valueColumns.length < 3 || valueColumns.some((cell) => cell.text.trim() !== "")) return false;
+  const precedingColumns = table.cells[rowIndex - 1]?.slice(valueStart, valueStart + valueColumns.length) ?? [];
+  const alignedValues = precedingColumns.filter((cell) => cell.text.trim() !== "").length;
+  return alignedValues >= 2 && (rowIndex === table.cells.length - 1 || colIndex > 0);
 }
 
 function isEmptyMetadataSubfieldOfRowSpanningGroup(

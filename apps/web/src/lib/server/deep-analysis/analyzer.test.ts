@@ -436,6 +436,72 @@ assert.match(
 );
 
 {
+  const contractualRoleSpan =
+    "1. \"전시자\"라 함은 본 전시회 참가를 위하여 참가계약서 및 신청서를 제출하고 계약금을 납부한 회사, 조합 및 단체를 말한다.";
+  const contractualRoleInput =
+    `『2026 경남특산물박람회』참가규정 제1조 (용어의 정의) ${contractualRoleSpan} 제2조 (참가신청 및 계약)`;
+  assert.deepEqual(resolveTargetTypeListSemantics({
+    dimension: "target_type",
+    kind: "required",
+    operator: "in",
+    sourceSpan: contractualRoleSpan,
+    spanVerified: true,
+    targets: ["회사", "조합", "단체"],
+    listSemantics: "open",
+    note: null,
+    inputText: contractualRoleInput,
+  }), {
+    decision: "unresolved",
+    reason: "contractual_role_definition",
+    sourceKind: "detailed_or_unknown",
+    previousClaim: "open",
+  });
+  assert.deepEqual(resolveTargetTypeListSemantics({
+    dimension: "target_type",
+    kind: "exclusion",
+    operator: "not_in",
+    sourceSpan: contractualRoleSpan,
+    spanVerified: true,
+    targets: ["회사", "조합", "단체"],
+    listSemantics: "closed",
+    note: null,
+    inputText: contractualRoleInput,
+  }), {
+    decision: "unchanged",
+    reason: "not_applicable",
+    sourceKind: "detailed_or_unknown",
+    previousClaim: "closed",
+  }, "exclusion target_type 계약은 정의문 보정 범위 밖에서 보존한다");
+  const [contractualRoleCriterion] = normalizeCriteria([{
+    dimension: "target_type",
+    kind: "required",
+    operator: "in",
+    value: { targets: ["회사", "조합", "단체"], list_semantics: "open" },
+    confidence: 0.9,
+    source_span: contractualRoleSpan,
+  }], contractualRoleInput);
+  assert.equal(
+    (contractualRoleCriterion?.value as { list_semantics?: string }).list_semantics,
+    "open",
+    "계약 당사자 용어 정의의 model open을 유한 신청자격 목록 closed로 강제하지 않는다",
+  );
+
+  const eligibilityDefinition =
+    "1. \"지원대상자\"라 함은 신청자격을 충족한 법인기업과 개인사업자만을 말한다.";
+  const [eligibilityDefinitionCriterion] = normalizeCriteria([{
+    dimension: "target_type",
+    kind: "required",
+    operator: "in",
+    value: { targets: ["법인기업", "개인사업자"], list_semantics: "open" },
+    confidence: 0.9,
+    source_span: eligibilityDefinition,
+  }], `제1조 (용어의 정의) ${eligibilityDefinition}`);
+  assert.equal(
+    (eligibilityDefinitionCriterion?.value as { list_semantics?: string }).list_semantics,
+    "closed",
+    "신청자격을 직접 한정한 정의문까지 계약 역할 정의로 open 처리하지 않는다",
+  );
+
   const exhaustiveSpan =
     "경기도 내 본사 또는 공장이 소재한 창업 7년 이내 법인기업, 개인사업자, 예비창업자";
   const [criterion] = normalizeCriteria([{

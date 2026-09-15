@@ -12,6 +12,7 @@ export type TargetTypeListSemanticsReason =
   | "delegated_summary"
   | "explicit_closed_marker"
   | "explicit_open_marker"
+  | "contractual_role_definition"
   | "generic_applicant_description"
   | "finite_eligibility_list";
 
@@ -84,10 +85,33 @@ export function resolveTargetTypeListSemantics(input: {
   if (hasOpenTargetTypeListMarker(sourceSpan)) {
     return { decision: "open", reason: "explicit_open_marker", sourceKind: "detailed_or_unknown", previousClaim };
   }
+  if (hasGroundedContractualRoleDefinition({ sourceSpan, inputText: input.inputText })) {
+    return { decision: "unresolved", reason: "contractual_role_definition", sourceKind: "detailed_or_unknown", previousClaim };
+  }
   if (input.targets.every(isGenericApplicantDescription)) {
     return { decision: "unresolved", reason: "generic_applicant_description", sourceKind: "detailed_or_unknown", previousClaim };
   }
   return { decision: "closed", reason: "finite_eligibility_list", sourceKind: "detailed_or_unknown", previousClaim };
+}
+
+function hasGroundedContractualRoleDefinition(input: {
+  sourceSpan: string;
+  inputText: string;
+}): boolean {
+  if (!/["“‘][^"”’]{1,40}["”’]\s*(?:이?라\s*함은|은|는).{1,400}(?:을|를)\s*말한다(?:[.]|$)/u.test(input.sourceSpan)) {
+    return false;
+  }
+  if (/(?:신청|지원|참가)\s*(?:대상|자격)|(?:신청|지원|참가)(?:할\s*수\s*있|\s*가능)|(?:대상|자격).{0,16}(?:한정|제한)/u.test(input.sourceSpan)) {
+    return false;
+  }
+  if (
+    !/(?:계약서|신청서).{0,80}제출/u.test(input.sourceSpan)
+    || !/(?:계약금|참가비|대금).{0,60}(?:납부|납입)/u.test(input.sourceSpan)
+  ) return false;
+  const inputText = normalizeEvidence(input.inputText);
+  const offset = inputText.indexOf(input.sourceSpan);
+  if (offset < 0) return false;
+  return /용어(?:의)?\s*정의/u.test(inputText.slice(Math.max(0, offset - 120), offset));
 }
 
 function hasStructuredSummaryEvidence(input: {

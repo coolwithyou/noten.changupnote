@@ -355,6 +355,77 @@ assert.deepEqual(remainingGaps.map((gap) => [gap.location.row, gap.location.col]
   assert.equal(mergedCoverage.unresolvedCandidateCount, 0, "소비된 placeholder 후보가 review hold로 남지 않음");
 }
 
+{
+  const fixedAggregateBlocks = [{
+    type: "table" as const,
+    table: {
+      rows: 3,
+      cols: 5,
+      hasHeader: true,
+      cells: [
+        ["구분", "단가", "수량", "금액", "비고"].map((text) => ({ text, colSpan: 1, rowSpan: 1 })),
+        ["장비", "10", "1", "10", ""].map((text) => ({ text, colSpan: 1, rowSpan: 1 })),
+        ["계", "", "", "", ""].map((text) => ({ text, colSpan: 1, rowSpan: 1 })),
+      ],
+    },
+  }];
+  const fixedAggregateFields = extractLocatedRoundtripFields(
+    fixedAggregateBlocks,
+    "8".repeat(64),
+  ).fields;
+  const fixedAggregate = fixedAggregateFields.find((candidate) => (
+    candidate.location.row === 2 && candidate.location.col === 0
+  ));
+  assert.ok(fixedAggregate);
+  assert.equal(fixedAggregate.recommendedInput, false, "고정 집계 라벨을 값 후보로 쓰지 않음");
+  const aggregateGaps = detectUnsupportedNativeInputGaps({
+    blocks: fixedAggregateBlocks,
+    fields: fixedAggregateFields,
+    role: "application_form",
+  });
+  assert.equal(aggregateGaps.length, 1);
+  assert.equal(aggregateGaps[0]?.location.col, 1, "첫 미결속 합계 값 셀을 가리킴");
+  assert.match(aggregateGaps[0]?.reason ?? "", /다열 빈 값 4개/);
+  const aggregateCoverage = finalizeRoundtripFieldCoverage(fixedAggregateFields, aggregateGaps);
+  assert.equal(aggregateCoverage.status, "partial", "고정 라벨 제외로 인접 입력 미지원을 숨기지 않음");
+  assert.equal(aggregateCoverage.structuralWarningCount, 1);
+
+  const exactValueFields = [1, 2, 3, 4].map((col) => {
+    const valueField = field({
+      id: `aggregate-value-${col}`,
+      label: `합계 값 ${col}`,
+      recommendedInput: true,
+      targetText: " ",
+    });
+    valueField.location = {
+      blockIndex: 0,
+      row: 2,
+      col: 0,
+      occurrence: 0,
+      pageNumber: 1,
+      target: {
+        kind: "table_cell",
+        row: 2,
+        col,
+        textStart: 0,
+        textEnd: 0,
+        expectedText: "",
+        expectedSha256: "a".repeat(64),
+      },
+    };
+    return valueField;
+  });
+  assert.deepEqual(
+    detectUnsupportedNativeInputGaps({
+      blocks: fixedAggregateBlocks,
+      fields: [...fixedAggregateFields, ...exactValueFields],
+      role: "application_form",
+    }),
+    [],
+    "인접 합계 값 셀이 모두 exact field로 결속되면 미지원 경고를 만들지 않음",
+  );
+}
+
 console.log("application-roundtrip field coverage tests: ok");
 
 function field(input: {

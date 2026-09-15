@@ -8,6 +8,7 @@ import type {
   RoundtripFieldCoverageSummary,
 } from "./contract";
 import {
+  hasFixedTableRoleRejection,
   hasNonOverridableStructuralRejection,
   isUnsupportedNestedMediaTextTarget,
 } from "./core";
@@ -116,6 +117,41 @@ export function detectUnsupportedNativeInputGaps(input: {
           },
         });
       });
+      for (const field of input.fields) {
+        if (
+          !hasFixedTableRoleRejection(field)
+          || field.location.blockIndex !== blockIndex
+          || field.location.row !== rowIndex
+        ) continue;
+        const labelCell = row[field.location.col];
+        if (!labelCell) continue;
+        const valueStart = field.location.col + Math.max(1, labelCell.colSpan);
+        const uncoveredValueCols = row
+          .map((cell, col) => ({ cell, col }))
+          .slice(valueStart)
+          .filter(({ cell, col }) => (
+            cell.text.trim() === ""
+            && !hasExactCellTarget(input.fields, blockIndex, rowIndex, col)
+          ))
+          .map(({ col }) => col);
+        const firstUncoveredCol = uncoveredValueCols[0];
+        if (firstUncoveredCol === undefined) continue;
+        warnings.push({
+          fieldInstanceId: createHash("sha256")
+            .update(`unsupported-fixed-matrix-values:${field.fieldInstanceId}:${uncoveredValueCols.join(",")}`)
+            .digest("hex")
+            .slice(0, 24),
+          label: field.displayLabel,
+          reason: `고정 분류·집계 라벨은 입력값으로 쓸 수 없고 인접 다열 빈 값 ${uncoveredValueCols.length}개를 현재 writer가 각각 exact 결속하지 못함`,
+          location: {
+            blockIndex,
+            row: rowIndex,
+            col: firstUncoveredCol,
+            occurrence: field.location.occurrence,
+            pageNumber: field.location.pageNumber,
+          },
+        });
+      }
     });
   });
   return warnings;

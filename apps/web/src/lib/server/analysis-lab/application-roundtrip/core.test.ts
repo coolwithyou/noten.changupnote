@@ -13,6 +13,7 @@ import {
   hasNonOverridableStructuralRejection,
   isNarrativeInstructionPlaceholder,
   isUnsupportedNestedMediaTextTarget,
+  suppressFixedTableRoleCandidates,
 } from "./core";
 
 assert.equal(VERSION, "4.2.3", "왕복 실험은 검증된 Kordoc 4.2.3을 사용해야 한다");
@@ -416,6 +417,144 @@ assert.equal(
   "rowSpan 그룹의 행 끝 값 placeholder를 독립 입력 라벨로 되살리면 안 된다",
 );
 assert.match(totalHeadcountPlaceholder?.inputSignals.join(" ") ?? "", /값 placeholder/);
+
+const matrixRow = (...texts: string[]): IRCell[] => texts.map((text) => ({
+  text,
+  colSpan: 1,
+  rowSpan: 1,
+}));
+const fixedMatrixRoleBlocks: IRBlock[] = [
+  {
+    type: "table",
+    table: {
+      rows: 5,
+      cols: 7,
+      hasHeader: true,
+      cells: [
+        matrixRow("구 분", "", "품 명", "규 격", "단 가", "수량", "소 계"),
+        [
+          { text: "제어시스템", colSpan: 2, rowSpan: 2 },
+          emptyTestCell(), emptyTestCell(), emptyTestCell(), emptyTestCell(),
+          { text: "개", colSpan: 1, rowSpan: 1 }, emptyTestCell(),
+        ],
+        matrixRow("", "", "", "", "", "개", ""),
+        [
+          { text: "컨트롤러", colSpan: 2, rowSpan: 2 },
+          emptyTestCell(), emptyTestCell(), emptyTestCell(), emptyTestCell(),
+          { text: "개", colSpan: 1, rowSpan: 1 }, emptyTestCell(),
+        ],
+        matrixRow("", "", "", "", "", "개", ""),
+      ],
+    },
+  },
+  {
+    type: "table",
+    table: {
+      rows: 3,
+      cols: 5,
+      hasHeader: true,
+      cells: [
+        matrixRow("구분", "단가", "수량", "금액", "비고"),
+        matrixRow("장비", "10", "1", "10", ""),
+        matrixRow("계", "", "", "", ""),
+      ],
+    },
+  },
+  {
+    type: "table",
+    table: {
+      rows: 2,
+      cols: 9,
+      hasHeader: true,
+      cells: [
+        matrixRow("", "사업 위치", "", "", "사업내용", "물량", "금액", "융자금", "자부담"),
+        matrixRow("", "착공예정일", "", "", "계", "", "", "", ""),
+      ],
+    },
+  },
+];
+const historicalFixedFields = [
+  { ...field({ id: "fixed-control", label: "제어시스템", occurrence: 0 }), location: { blockIndex: 0, row: 1, col: 0, occurrence: 0, pageNumber: null } },
+  { ...field({ id: "fixed-controller", label: "컨트롤러", occurrence: 0 }), location: { blockIndex: 0, row: 3, col: 0, occurrence: 0, pageNumber: null } },
+  { ...field({ id: "fixed-total-last", label: "계", occurrence: 0 }), location: { blockIndex: 1, row: 2, col: 0, occurrence: 0, pageNumber: null } },
+  { ...field({ id: "fixed-total-side", label: "계", occurrence: 1 }), location: { blockIndex: 2, row: 1, col: 4, occurrence: 1, pageNumber: null } },
+];
+suppressFixedTableRoleCandidates(historicalFixedFields, fixedMatrixRoleBlocks);
+for (const fixed of historicalFixedFields) {
+  assert.equal(fixed.recommendedInput, false, `${fixed.fieldInstanceId} 고정 matrix 라벨 안전 제외`);
+  assert.equal(hasNonOverridableStructuralRejection(fixed), true);
+}
+const extractedFixedFields = extractLocatedRoundtripFields(
+  fixedMatrixRoleBlocks,
+  "9".repeat(64),
+).fields;
+for (const expected of historicalFixedFields) {
+  const extracted = extractedFixedFields.find((candidate) => (
+    candidate.location.blockIndex === expected.location.blockIndex
+    && candidate.location.row === expected.location.row
+    && candidate.location.col === expected.location.col
+  ));
+  assert.ok(extracted, `${expected.label} 고정 matrix 후보를 구조 추출해야 한다`);
+  assert.equal(hasNonOverridableStructuralRejection(extracted), true);
+}
+
+const ordinarySameLabelFields = extractLocatedRoundtripFields([{
+  type: "table",
+  table: {
+    rows: 3,
+    cols: 2,
+    hasHeader: false,
+    cells: [matrixRow("계", ""), matrixRow("제어시스템", ""), matrixRow("사업명", "")],
+  },
+}], "a".repeat(64)).fields;
+for (const label of ["계", "제어시스템"]) {
+  const ordinary = ordinarySameLabelFields.find((candidate) => candidate.label === label);
+  assert.ok(ordinary, `${label} 동명 일반 2열 후보를 보존해야 한다`);
+  assert.equal(hasNonOverridableStructuralRejection(ordinary), false);
+}
+assert.equal(
+  ordinarySameLabelFields.find((candidate) => candidate.label === "사업명")?.recommendedInput,
+  true,
+  "실제 빈 인접 입력은 계속 추천해야 한다",
+);
+const unheadedTotal = extractLocatedRoundtripFields([{
+  type: "table",
+  table: {
+    rows: 2,
+    cols: 5,
+    hasHeader: false,
+    cells: [matrixRow("장비", "10", "1", "10", ""), matrixRow("계", "", "", "", "")],
+  },
+}], "b".repeat(64)).fields.find((candidate) => (
+  candidate.location.row === 1 && candidate.location.col === 0
+));
+assert.ok(unheadedTotal);
+assert.equal(
+  hasNonOverridableStructuralRejection(unheadedTotal),
+  false,
+  "header 의미가 없는 일반 표의 동명 값 후보까지 고정 집계로 단정하지 않는다",
+);
+const newMatrixRow = extractLocatedRoundtripFields([{
+  type: "table",
+  table: {
+    rows: 3,
+    cols: 5,
+    hasHeader: true,
+    cells: [
+      matrixRow("품명", "단가", "수량", "금액", "비고"),
+      matrixRow("기존 장비", "10", "1", "10", ""),
+      matrixRow("신규 장비", "", "", "", ""),
+    ],
+  },
+}], "c".repeat(64)).fields.find((candidate) => (
+  candidate.location.row === 2 && candidate.location.col === 0
+));
+assert.ok(newMatrixRow);
+assert.equal(
+  hasNonOverridableStructuralRejection(newMatrixRow),
+  false,
+  "다열 표의 마지막 빈 신규 행을 집계 band라는 이유만으로 제외하지 않는다",
+);
 
 const sameCellNarrativeLabel = "※ 기타 현재 상황, 개선하고자 하는 점 등 자유롭게 기술해주세요.";
 const sameCellNarrativeFields = extractRhwpStructuralFields([{

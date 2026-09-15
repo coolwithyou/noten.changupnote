@@ -519,6 +519,35 @@ const openTargetTypeValidation = validateDeepAnalysisResult({
 });
 assert.equal(openTargetTypeValidation.valid, true);
 
+const contractualRoleSpan =
+  "1. \"전시자\"라 함은 본 전시회 참가를 위하여 참가계약서 및 신청서를 제출하고 계약금을 납부한 회사, 조합 및 단체를 말한다.";
+const contractualRoleSeal = sealDeepAnalysisInput({
+  grantId: "grant-contractual-role-definition",
+  sourceRevisionSha256: "7".repeat(64),
+  structuredText: `『2026 경남특산물박람회』참가규정 제1조 (용어의 정의) ${contractualRoleSpan} 제2조 (참가신청 및 계약)`,
+  attachments: [],
+});
+const contractualRoleValidation = validateDeepAnalysisResult({
+  seal: contractualRoleSeal,
+  result: result([criterion({
+    dimension: "target_type",
+    operator: "in",
+    kind: "required",
+    value: { targets: ["회사", "조합", "단체"], list_semantics: "open" },
+    sourceSpan: contractualRoleSpan,
+  })], axes(["target_type"])),
+});
+assert.equal(contractualRoleValidation.valid, false);
+assert.equal(
+  contractualRoleValidation.issues.some((issue) => (
+    issue.code === "non_matching_criterion"
+    && issue.path === "$.criteria[0]"
+    && issue.message.includes("contractual role definition")
+  )),
+  true,
+  "계약 당사자 용어 정의를 신규 신청자 target_type 필터로 통과시키지 않는다",
+);
+
 const contradictoryTargetTypeValidation = validateDeepAnalysisResult({
   seal,
   result: result([criterion({

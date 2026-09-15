@@ -76,23 +76,45 @@ export function normalizeBizInfoUrl(value: string | null | undefined): string | 
 }
 
 function collectAttachments(program: BizInfoProgram): Array<{ filename: string; url: string | null }> {
-  const names = splitMaybeMultiValue(program.fileNm);
-  const printNames = splitMaybeMultiValue(program.printFileNm);
-  const fileUrls = splitMaybeMultiValue(program.flpthNm);
-  const printUrls = splitMaybeMultiValue(program.printFlpthNm);
-  const max = Math.max(names.length, printNames.length, fileUrls.length, printUrls.length);
-  const attachments: Array<{ filename: string; url: string | null }> = [];
+  const names = splitAttachmentValues(program.fileNm);
+  const printNames = splitAttachmentValues(program.printFileNm);
+  const fileUrls = splitAttachmentValues(program.flpthNm);
+  const printUrls = splitAttachmentValues(program.printFlpthNm);
+  const attachments = [
+    ...pairAttachmentFields(names, fileUrls),
+    ...pairAttachmentFields(printNames, printUrls),
+  ];
+  const exactPairs = new Set<string>();
+  return attachments.filter((attachment) => {
+    const key = `${attachment.filename}\u0000${attachment.url ?? ""}`;
+    if (exactPairs.has(key)) return false;
+    exactPairs.add(key);
+    return true;
+  });
+}
 
-  for (let index = 0; index < max; index += 1) {
-    const filename = names[index] ?? printNames[index];
+function pairAttachmentFields(
+  names: readonly string[],
+  urls: readonly string[],
+): Array<{ filename: string; url: string | null }> {
+  const attachments: Array<{ filename: string; url: string | null }> = [];
+  for (let index = 0; index < names.length; index += 1) {
+    const filename = names[index];
     if (!filename) continue;
     attachments.push({
       filename,
-      url: normalizeBizInfoUrl(fileUrls[index] ?? printUrls[index]),
+      url: normalizeBizInfoUrl(urls[index]),
     });
   }
-
   return attachments;
+}
+
+function splitAttachmentValues(value: string | null | undefined): string[] {
+  const text = cleanText(value);
+  if (!text) return [];
+  return text
+    .split(/\s*(?:,|\r?\n|\||@)\s*/)
+    .map((part) => part.trim());
 }
 
 function renderBlocks(sourceId: string, title: string, blocks: BizInfoExtractionBlock[]): string {

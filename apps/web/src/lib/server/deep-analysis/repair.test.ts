@@ -432,6 +432,87 @@ const locallyRepairedChangwonTarget = await repairDeepAnalysisExecution({
 assert.equal(changwonTargetFallbackModelCalled, false);
 assert.equal(locallyRepairedChangwonTarget.deterministicTargetTypeListRepairs?.length, 1);
 
+const contractualRoleSpan =
+  "1. \"전시자\"라 함은 본 전시회 참가를 위하여 참가계약서 및 신청서를 제출하고 계약금을 납부한 회사, 조합 및 단체를 말한다.";
+const contractualRoleSeal = sealDeepAnalysisInput({
+  grantId: "grant-contractual-role-definition",
+  sourceRevisionSha256: "7".repeat(64),
+  structuredText: `『2026 경남특산물박람회』참가규정 제1조 (용어의 정의) ${contractualRoleSpan} 제2조 (참가신청 및 계약)`,
+  attachments: [],
+});
+const contractualRoleCriterion = {
+  ...changwonTargetCriterion,
+  value: { targets: ["회사", "조합", "단체"], list_semantics: "open" as const },
+  sourceSpan: contractualRoleSpan,
+  note: null,
+};
+const contractualRoleResult: DeepAnalysisModelResult = {
+  ...result,
+  criteria: [contractualRoleCriterion],
+  axisAssessments: changwonTargetAxes,
+  rawToolInput: {
+    criteria: [{
+      dimension: contractualRoleCriterion.dimension,
+      kind: contractualRoleCriterion.kind,
+      operator: contractualRoleCriterion.operator,
+      value: contractualRoleCriterion.value,
+      confidence: contractualRoleCriterion.confidence,
+      source_span: contractualRoleCriterion.sourceSpan,
+    }],
+    axis_assessments: changwonTargetAxes,
+  },
+};
+const contractualRoleExecution: DeepAnalysisExecution = {
+  evidenceText: renderDeepAnalysisChunks(contractualRoleSeal.chunks),
+  result: contractualRoleResult,
+  passes: [{
+    kind: "single",
+    chunkId: null,
+    inputChars: contractualRoleSpan.length,
+    result: contractualRoleResult,
+  }],
+};
+const contractualRoleValidation = validateDeepAnalysisResult({
+  seal: contractualRoleSeal,
+  result: contractualRoleExecution.result,
+});
+assert.deepEqual(
+  contractualRoleValidation.issues.map((issue) => `${issue.code}:${issue.path}`),
+  ["non_matching_criterion:$.criteria[0]"],
+);
+const repairedContractualRole = repairDeepAnalysisTargetTypeListDeterministically({
+  execution: contractualRoleExecution,
+  validation: contractualRoleValidation,
+});
+assert.deepEqual(repairedContractualRole.repairs, []);
+assert.equal(
+  repairedContractualRole.execution,
+  contractualRoleExecution,
+  "계약 역할 정의를 other/required/text_only라는 새 매칭 조건으로 바꾸지 않는다",
+);
+const removedContractualRole = repairDeepAnalysisMatchingScopeDeterministically({
+  execution: repairedContractualRole.execution,
+  validation: contractualRoleValidation,
+});
+assert.deepEqual(removedContractualRole.repairs, [{
+  issuePath: "$.criteria[0]",
+  criterionIndex: 0,
+  dimension: "target_type",
+  sourceSpan: contractualRoleSpan,
+  strategy: "remove_non_matching_application_criterion",
+}]);
+assert.equal(removedContractualRole.execution.result.criteria.length, 0);
+assert.equal(
+  removedContractualRole.execution.result.axisAssessments
+    .find((axis) => axis.dimension === "target_type")?.status,
+  "inspected_no_condition",
+  "계약 역할 정의를 매칭 축에서 제거한다",
+);
+assert.equal(validateDeepAnalysisResult({
+  seal: contractualRoleSeal,
+  result: removedContractualRole.execution.result,
+}).valid, true, "비매칭 scope repair 뒤 계약 역할 정의가 신청자격으로 남지 않는다");
+
 const invalidClaimExecution: DeepAnalysisExecution = {
   ...changwonTargetExecution,
   result: {
