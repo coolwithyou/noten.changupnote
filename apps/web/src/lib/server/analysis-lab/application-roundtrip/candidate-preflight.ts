@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import type {
+  RoundtripDetectedDocumentFormat,
   RoundtripDocumentFormat,
   RoundtripDocumentRole,
 } from "@/lib/server/analysis-lab/application-roundtrip/contract";
@@ -32,7 +33,7 @@ export interface ApplicationRoundtripSource {
 }
 
 export interface ApplicationRoundtripProbe {
-  readonly detectedFormat: RoundtripDocumentFormat;
+  readonly detectedFormat: RoundtripDetectedDocumentFormat;
   readonly role: RoundtripDocumentRole;
   readonly roleConfidence: number;
   readonly fieldCandidateCount: number;
@@ -50,7 +51,7 @@ interface CandidateDocumentResult {
   readonly filename: string;
   readonly sourceSha256: string | null;
   readonly declaredFormat: RoundtripDocumentFormat;
-  readonly detectedFormat: RoundtripDocumentFormat | null;
+  readonly detectedFormat: RoundtripDetectedDocumentFormat | null;
   readonly role: RoundtripDocumentRole | null;
   readonly roleConfidence: number | null;
   readonly fieldCandidateCount: number;

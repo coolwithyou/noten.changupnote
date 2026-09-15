@@ -18,6 +18,14 @@ export const LOCAL_PREVIEW_COMPATIBLE_ROUNDTRIP_VERSIONS = new Set([
 export const APPLICATION_ROUNDTRIP_ADOPTED_MODEL = "claude-opus-5";
 
 export type RoundtripDocumentFormat = "hwp" | "hwpx";
+/** KorDoc로 읽을 수 있지만 native 입력·저장은 허용하지 않는 형식을 포함한다. */
+export type RoundtripDetectedDocumentFormat = RoundtripDocumentFormat | "hwpml";
+
+export function isEditableRoundtripDocumentFormat(
+  value: string | null,
+): value is RoundtripDocumentFormat {
+  return value === "hwp" || value === "hwpx";
+}
 export type RoundtripDocumentRole =
   | "application_form"
   | "business_plan"
@@ -268,7 +276,7 @@ export interface RoundtripParsedDocument {
   attachmentId: string;
   filename: string;
   declaredFormat: RoundtripDocumentFormat;
-  detectedFormat: string | null;
+  detectedFormat: RoundtripDetectedDocumentFormat | null;
   sourceSha256: string | null;
   byteLength: number | null;
   parseDurationMs: number;

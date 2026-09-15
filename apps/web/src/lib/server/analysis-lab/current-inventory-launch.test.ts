@@ -98,7 +98,7 @@ async function completedLaunchFixture(root: string, value = inventory(2)) {
   return { value, sourceManifest, sourceGrant, receipt, binding };
 }
 
-test("완료된 v14 current inventory ancestry만 현행 v16 exact 재실행으로 재봉인한다", async () => {
+test("완료된 v14 current inventory ancestry만 현행 v17 exact 재실행으로 재봉인한다", async () => {
   const root = await mkdtemp(join(tmpdir(), "cunote-current-reseal-"));
   try {
     const fixture = await completedLaunchFixture(root);
@@ -128,7 +128,7 @@ test("완료된 v14 current inventory ancestry만 현행 v16 exact 재실행으�
         validatorVersion: DEEP_ANALYSIS_VALIDATOR_VERSION,
       },
     });
-    assert.equal(resealed.execution.applicationFieldAnalysisVersion, "kordoc-application-roundtrip-v16");
+    assert.equal(resealed.execution.applicationFieldAnalysisVersion, "kordoc-application-roundtrip-v17");
     assert.equal(resealed.execution.existingRunPolicy, "rerun_exact_targets");
     assert.deepEqual(resealed.source.completedLaunch, fixture.binding);
     assert.deepEqual(normalizeAnalysisLaunchManifest(resealed), resealed);

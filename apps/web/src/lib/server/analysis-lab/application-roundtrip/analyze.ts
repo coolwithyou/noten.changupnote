@@ -196,7 +196,7 @@ export async function runApplicationRoundtripAnalysis(
         filename: attachment.filename,
         storageKey: attachment.storageKey,
         sourceSha256,
-        detectedFormat: analyzed.document.detectedFormat as "hwp" | "hwpx",
+        detectedFormat: analyzed.document.detectedFormat,
       });
     } catch (error) {
       const attachmentId = createHash("sha256")

@@ -9,6 +9,7 @@ const bodies = new Map([
   ["form", Buffer.from("form-bytes")],
   ["policy", Buffer.from("policy-bytes")],
   ["announcement", Buffer.from("announcement-bytes")],
+  ["hwpml-reference", Buffer.from("hwpml-reference-bytes")],
 ]);
 const candidates: ApplicationRoundtripCandidate[] = [
   candidate(0, "grant-ready", "ready"),
@@ -35,6 +36,7 @@ const preflight = createApplicationRoundtripCandidatePreflight({
       return [
         attachment("신청서.hwp", "form"),
         attachment("공통 운영요령.hwpx", "policy"),
+        attachment("국가연구개발혁신법.hwp", "hwpml-reference"),
       ];
     }
     if (grantId === "grant-not-applicable") {
@@ -53,7 +55,7 @@ const preflight = createApplicationRoundtripCandidatePreflight({
     return body;
   },
   probeAttachment: async ({ filename, body }) => ({
-    detectedFormat: filename.endsWith(".hwpx") ? "hwpx" : "hwp",
+    detectedFormat: filename.includes("혁신법") ? "hwpml" : filename.endsWith(".hwpx") ? "hwpx" : "hwp",
     role: filename.includes("신청서") ? "application_form" : "announcement",
     roleConfidence: 0.95,
     fieldCandidateCount: body.byteLength,
@@ -69,6 +71,9 @@ assert.equal(result.proposal.proposalSha256, stored[0]?.sha256);
 assert.equal(result.proposal.liveExecutionAuthorized, false);
 assert.equal(result.proposal.candidates[0]?.status, "ready");
 assert.deepEqual(result.proposal.candidates[0]?.selectedSourceSha256s, [sha(bodies.get("form")!)]);
+assert.equal(result.proposal.candidates[0]?.documents[2]?.detectedFormat, "hwpml");
+assert.equal(result.proposal.candidates[0]?.documents[2]?.selected, false, "HWPML 참고자료는 작성 원본으로 선택하지 않음");
+assert.equal(result.proposal.candidates[0]?.documents[2]?.error, null, "읽힌 HWPML 참고자료를 분석 실패로 집계하지 않음");
 assert.equal(result.proposal.candidates[1]?.status, "not_applicable");
 assert.equal(result.proposal.candidates[2]?.status, "source_unavailable");
 assert.deepEqual(result.proposal.executionTargets.map((target) => target.grantId), ["grant-ready"]);

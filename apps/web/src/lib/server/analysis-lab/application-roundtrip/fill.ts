@@ -15,6 +15,7 @@ import type {
   RoundtripFieldVerification,
   RoundtripFillResult,
 } from "@/lib/server/analysis-lab/application-roundtrip/contract";
+import { isEditableRoundtripDocumentFormat } from "@/lib/server/analysis-lab/application-roundtrip/contract";
 import { createR2ObjectStorageFromEnv } from "@/lib/server/storage/r2ObjectStorage";
 import { sanitizeDownloadFilename } from "@/lib/server/documents/downloadHeaders";
 import {
@@ -66,6 +67,14 @@ export async function fillApplicationRoundtrip(input: {
   if (!document || !manifestAttachment) {
     throw new ApplicationRoundtripFillError("attachment_not_found", "선택한 분석 문서를 찾지 못했습니다.", 404);
   }
+  const detectedFormat = manifestAttachment.detectedFormat;
+  if (!isEditableRoundtripDocumentFormat(detectedFormat)) {
+    throw new ApplicationRoundtripFillError(
+      "reference_document_not_editable",
+      "읽기 전용 참고자료는 신청서 입력·저장 대상으로 사용할 수 없습니다.",
+      415,
+    );
+  }
   if (document.error) {
     throw new ApplicationRoundtripFillError("attachment_parse_failed", "파싱에 실패한 문서는 채울 수 없습니다.", 409);
   }
@@ -113,7 +122,7 @@ export async function fillApplicationRoundtrip(input: {
   kordocFilledCount = filledIr.filled.length;
   unmatchedLabels = filledIr.unmatched;
 
-  if (manifestAttachment.detectedFormat === "hwpx") {
+  if (detectedFormat === "hwpx") {
     if (preparedChoices.length > 0) {
       throw new ApplicationRoundtripFillError(
         "unsupported_hwpx_form_control",
@@ -222,7 +231,7 @@ export async function fillApplicationRoundtrip(input: {
     && verifiedChoiceGroupCount === preparedChoices.length;
   const diff = diffBlocks(originalParsed.blocks, outputParsed.blocks).stats;
   const fillId = buildRoundtripFillId(startedAt);
-  const extension = manifestAttachment.detectedFormat;
+  const extension = detectedFormat;
   const filenameBase = manifestAttachment.filename.replace(/\.(?:hwp|hwpx)$/i, "");
   const outputFilename = `${sanitizeDownloadFilename(filenameBase, "application")}-샘플채움-${fillId.slice(-6)}.${extension}`;
   const warnings: string[] = [...nativeChoiceWarnings];

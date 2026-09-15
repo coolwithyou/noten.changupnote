@@ -58,9 +58,6 @@ const preflight = createApplicationRoundtripCandidatePreflight({
       model: APPLICATION_ROUNDTRIP_ADOPTED_MODEL,
       transport: "api",
     });
-    if (document.detectedFormat !== "hwp" && document.detectedFormat !== "hwpx") {
-      throw new Error("Kordoc actual format probe가 HWP/HWPX를 반환하지 않았습니다.");
-    }
     const llmCandidateCount = document.fields.filter(isSubscriptionRoundtripLlmCandidate).length;
     return {
       detectedFormat: document.detectedFormat,

@@ -3,6 +3,7 @@ import { lstat, mkdir, readdir, readFile, realpath, writeFile } from "node:fs/pr
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import type {
   ApplicationRoundtripRun,
+  RoundtripDetectedDocumentFormat,
   RoundtripDocumentFormat,
   RoundtripFillResult,
 } from "@/lib/server/analysis-lab/application-roundtrip/contract";
@@ -19,7 +20,7 @@ export interface RoundtripRunManifest {
     filename: string;
     storageKey: string;
     sourceSha256: string;
-    detectedFormat: RoundtripDocumentFormat;
+    detectedFormat: RoundtripDetectedDocumentFormat;
   }>;
 }
 

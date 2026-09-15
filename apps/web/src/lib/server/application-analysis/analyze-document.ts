@@ -1,11 +1,13 @@
 // 제품과 실험실이 공유하는 문서 분석 구현. 실행 승인·로컬 artifact 저장은 호출자가 소유한다.
 import { parse } from "kordoc";
 import type {
+  RoundtripDetectedDocumentFormat,
   RoundtripDocumentFormat,
   RoundtripFieldPlanningSummary,
   RoundtripLlmTransport,
   RoundtripParsedDocument,
 } from "./contract";
+import { isEditableRoundtripDocumentFormat } from "./contract";
 import {
   classifyRoundtripDocument,
   extractLocatedRoundtripFields,
@@ -38,26 +40,50 @@ export interface AnalyzeRoundtripDocumentInput {
   onPlannerUsage?: (usage: RoundtripFieldPlannerUsageEvent) => Promise<void> | void;
 }
 
+export type AnalyzedRoundtripDocument = RoundtripParsedDocument & {
+  detectedFormat: RoundtripDetectedDocumentFormat;
+};
+
 /**
  * KorDoc 파싱부터 문맥 판정·HWP 객관식 보강까지 한 문서에서 끝내는 공용 모듈.
  * dev 왕복 실험과 production workspace field 분석이 같은 안전 규칙을 공유한다.
  */
 export async function analyzeRoundtripDocument(
   input: AnalyzeRoundtripDocumentInput,
-): Promise<{ document: RoundtripParsedDocument; markdown: string }> {
+): Promise<{ document: AnalyzedRoundtripDocument; markdown: string }> {
   const startedMs = Date.now();
   const plannerRuntime = resolveRoundtripFieldPlannerRuntimeConfig(input);
   const parsed = await parse(Buffer.from(input.body));
   if (!parsed.success) throw new Error(`${parsed.code}: ${parsed.error}`);
-  if (parsed.fileType !== "hwp" && parsed.fileType !== "hwpx") {
+  if (!isAnalyzableRoundtripDocumentFormat(parsed.fileType)) {
     throw new Error(`확장자는 ${input.declaredFormat}이지만 실제 감지 형식은 ${parsed.fileType}입니다.`);
   }
 
   const located = extractLocatedRoundtripFields(parsed.blocks, input.sourceSha256);
   const contextualFields = extractContextualRoundtripFields(parsed.blocks, input.sourceSha256);
-  const allFields = [...located.fields, ...contextualFields];
-  const fieldSourceContexts = buildRoundtripFieldSourceContexts(parsed.blocks, allFields);
+  const extractedFields = [...located.fields, ...contextualFields];
   const warnings = (parsed.warnings ?? []).map((warning) => `${warning.code}: ${warning.message}`);
+  if (parsed.fileType === "hwpml" && (parsed.warnings ?? []).some((warning) => warning.code === "MALFORMED_XML")) {
+    throw new Error("HWPML 참고자료 XML이 손상되어 안전하게 분류할 수 없습니다.");
+  }
+  const classification = classifyRoundtripDocument({
+    filename: input.filename,
+    markdown: parsed.markdown,
+    fields: extractedFields,
+    formConfidence: located.formConfidence,
+  });
+  if (parsed.fileType === "hwpml") {
+    if (likelyApplicationRole(classification.role)) {
+      throw new Error("HWPML은 읽기 전용 참고자료만 지원하며 신청 양식 입력·저장은 지원하지 않습니다.");
+    }
+    if (classification.role === "unknown") {
+      throw new Error("HWPML 참고자료의 문서 역할을 확정하지 못했습니다.");
+    }
+    warnings.push("REFERENCE_ONLY_FORMAT: HWPML은 읽기·역할 분류에만 사용하며 신청서 입력·저장 대상이 아닙니다.");
+  }
+  // HWPML 구조에서 입력처럼 보이는 셀이 있더라도 writer 후보로 전달하지 않는다.
+  const allFields = isEditableRoundtripDocumentFormat(parsed.fileType) ? extractedFields : [];
+  const fieldSourceContexts = buildRoundtripFieldSourceContexts(parsed.blocks, allFields);
   let choiceGroups: RoundtripParsedDocument["choiceGroups"] = [];
   if (parsed.fileType === "hwp") {
     try {
@@ -68,12 +94,6 @@ export async function analyzeRoundtripDocument(
     }
   }
 
-  const classification = classifyRoundtripDocument({
-    filename: input.filename,
-    markdown: parsed.markdown,
-    fields: allFields,
-    formConfidence: located.formConfidence,
-  });
   const planned = likelyApplicationRole(classification.role)
     ? await planRoundtripFields({
         fields: allFields,
@@ -92,7 +112,7 @@ export async function analyzeRoundtripDocument(
         fields: allFields,
         summary: skippedFieldPlanning(allFields.length, plannerRuntime),
       };
-  if (parsed.fileType === "hwp" || parsed.fileType === "hwpx") {
+  if (isEditableRoundtripDocumentFormat(parsed.fileType)) {
     const paragraphBindings = await verifyRoundtripParagraphFieldBindings({
       body: input.body,
       fields: planned.fields,
@@ -148,6 +168,12 @@ export async function analyzeRoundtripDocument(
     },
     markdown: parsed.markdown,
   };
+}
+
+function isAnalyzableRoundtripDocumentFormat(
+  value: string,
+): value is RoundtripDetectedDocumentFormat {
+  return isEditableRoundtripDocumentFormat(value) || value === "hwpml";
 }
 
 function suppressChoiceBackedTextFields(
