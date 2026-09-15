@@ -17,7 +17,7 @@ const SHA256 = /^[a-f0-9]{64}$/;
 const USAGE = `pnpm lab:launch:prepare -- --series=${ACTIVE_DEEP_REPAIR_SERIES_ID} --sequences=0-${ACTIVE_DEEP_REPAIR_TARGET_COUNT - 1} --concurrency=2
 pnpm lab:launch:prepare -- --reseal-current-inventory=<sha256> --source-manifest=<sha256> --source-grant=<sha256> --terminal-receipt=<sha256> --concurrency=1
 pnpm lab:launch:grant -- --manifest=<sha256> --approved-by=<actor>
-pnpm lab:launch -- --grant=<sha256> [--retry-errors]`;
+pnpm lab:launch -- --grant=<sha256> [--retry-errors [--retry-sequences=<n[,n-m...]>]]`;
 
 type Command = "prepare" | "grant" | "run";
 
@@ -39,7 +39,32 @@ export type AnalysisLaunchCliArgs =
       readonly concurrency: number;
     }
   | { readonly kind: "grant"; readonly manifestSha256: string; readonly approvedBy: string }
-  | { readonly kind: "run"; readonly grantSha256: string; readonly retryErrors: boolean };
+  | {
+      readonly kind: "run";
+      readonly grantSha256: string;
+      readonly retryErrors: boolean;
+      readonly retrySequences: readonly number[] | null;
+    };
+
+function parseRetrySequences(value: string | undefined): readonly number[] | null {
+  if (value === undefined) return null;
+  const sequences: number[] = [];
+  const seen = new Set<number>();
+  for (const part of value.split(",")) {
+    const range = /^(\d+)(?:-(\d+))?$/.exec(part);
+    if (!range) throw usageError();
+    const from = Number(range[1]);
+    const to = Number(range[2] ?? range[1]);
+    if (!Number.isSafeInteger(from) || !Number.isSafeInteger(to) || to < from) throw usageError();
+    for (let sequence = from; sequence <= to; sequence += 1) {
+      if (seen.has(sequence) || sequences.length >= 100) throw usageError();
+      seen.add(sequence);
+      sequences.push(sequence);
+    }
+  }
+  if (sequences.length === 0) throw usageError();
+  return sequences;
+}
 
 export function parseAnalysisLaunchCliArgs(
   command: Command,
@@ -130,12 +155,15 @@ export function parseAnalysisLaunchCliArgs(
     return { kind: "grant", manifestSha256, approvedBy };
   }
   if (
-    [...values.keys()].some((key) => key !== "--grant")
+    [...values.keys()].some((key) => !["--grant", "--retry-sequences"].includes(key))
     || [...flags].some((key) => key !== "--retry-errors")
   ) throw usageError();
   const grantSha256 = values.get("--grant");
   if (!grantSha256 || !SHA256.test(grantSha256)) throw usageError();
-  return { kind: "run", grantSha256, retryErrors: flags.has("--retry-errors") };
+  const retryErrors = flags.has("--retry-errors");
+  const retrySequences = parseRetrySequences(values.get("--retry-sequences"));
+  if (retrySequences && !retryErrors) throw usageError();
+  return { kind: "run", grantSha256, retryErrors, retrySequences };
 }
 
 async function main(command: Command, argv: readonly string[]): Promise<void> {
@@ -198,6 +226,7 @@ async function main(command: Command, argv: readonly string[]): Promise<void> {
       const result = await runApprovedAnalysisLaunchBatch({
         grantSha256: parsed.grantSha256,
         retryErrors: parsed.retryErrors,
+        retrySequences: parsed.retrySequences,
         signal: abort.signal,
         onEvent(event) {
           if (event.type === "target-started") {

@@ -253,6 +253,7 @@ export function selectAnalysisLaunchRetryGrantIds(input: {
   readonly grantSha256: string;
   readonly manifestSha256: string;
   readonly receipts: readonly AnalysisLaunchReceipt[];
+  readonly retrySequences?: readonly number[] | null;
 }): string[] {
   const matching = input.receipts
     .filter((receipt) => (
@@ -276,11 +277,33 @@ export function selectAnalysisLaunchRetryGrantIds(input: {
       if (target.status !== "skipped") latest.set(target.grantId, target.status);
     }
   }
-  return input.manifest.targets
+  const eligible = input.manifest.targets
     .filter((target) => {
       const status = latest.get(target.grantId);
       return status === undefined || status === "failed";
-    })
+    });
+  if (input.retrySequences === undefined || input.retrySequences === null) {
+    return eligible.map((target) => target.grantId);
+  }
+  if (input.retrySequences.length === 0) {
+    throw new Error("--retry-sequences는 하나 이상의 sequence를 지정해야 합니다.");
+  }
+  const manifestBySequence = new Map(input.manifest.targets.map((target) => [target.sequence, target]));
+  const eligibleGrantIds = new Set(eligible.map((target) => target.grantId));
+  const requested = new Set<number>();
+  for (const sequence of input.retrySequences) {
+    if (!Number.isSafeInteger(sequence) || sequence < 0 || requested.has(sequence)) {
+      throw new Error("--retry-sequences에 잘못되거나 중복된 sequence가 있습니다.");
+    }
+    requested.add(sequence);
+    const target = manifestBySequence.get(sequence);
+    if (!target) throw new Error("--retry-sequences가 exact manifest 범위를 벗어났습니다.");
+    if (!eligibleGrantIds.has(target.grantId)) {
+      throw new Error("--retry-sequences에는 기존 retry 대상만 지정할 수 있습니다.");
+    }
+  }
+  return eligible
+    .filter((target) => requested.has(target.sequence))
     .map((target) => target.grantId);
 }
 
@@ -291,9 +314,13 @@ export function selectAnalysisLaunchRetryGrantIds(input: {
 export async function runApprovedAnalysisLaunchBatch(input: {
   readonly grantSha256: string;
   readonly retryErrors: boolean;
+  readonly retrySequences?: readonly number[] | null;
   readonly signal: AbortSignal;
   readonly onEvent?: (event: LabBatchEvent) => void;
 }): Promise<AnalysisLaunchRunResult> {
+  if (input.retrySequences != null && !input.retryErrors) {
+    throw new Error("--retry-sequences는 --retry-errors와 함께 사용해야 합니다.");
+  }
   const startedAt = new Date();
   const repositoryRoot = findMonorepoRoot();
   const grant = normalizeAnalysisLaunchGrant(
@@ -316,6 +343,7 @@ export async function runApprovedAnalysisLaunchBatch(input: {
       manifest,
       grantSha256: input.grantSha256,
       manifestSha256: grant.manifestSha256,
+      ...(input.retrySequences !== undefined ? { retrySequences: input.retrySequences } : {}),
     })
     : manifest.targets.map((target) => target.grantId);
   let launchStatus: AnalysisLaunchStatus = createAnalysisLaunchStatus({
@@ -548,6 +576,7 @@ async function readAnalysisLaunchRetryGrantIds(input: {
   readonly manifest: AnalysisLaunchManifest;
   readonly grantSha256: string;
   readonly manifestSha256: string;
+  readonly retrySequences?: readonly number[] | null;
 }): Promise<string[]> {
   const directory = dirname(analysisLaunchArtifactPath("receipts", "0".repeat(64), input.repositoryRoot));
   const names = await readdir(directory);
@@ -567,6 +596,7 @@ async function readAnalysisLaunchRetryGrantIds(input: {
     grantSha256: input.grantSha256,
     manifestSha256: input.manifestSha256,
     receipts,
+    ...(input.retrySequences !== undefined ? { retrySequences: input.retrySequences } : {}),
   });
 }
 

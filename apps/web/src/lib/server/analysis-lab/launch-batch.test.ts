@@ -335,6 +335,33 @@ test("작성 가이드 adoption 재분석은 source-sealed rerun만 exact 기존
     manifestSha256: SHA_C,
     receipts: [noOpReceipt, firstReceipt],
   }), [GRANT_1]);
+  assert.deepEqual(selectAnalysisLaunchRetryGrantIds({
+    manifest,
+    grantSha256: SHA_D,
+    manifestSha256: SHA_C,
+    receipts: [noOpReceipt, firstReceipt],
+    retrySequences: [1],
+  }), [GRANT_1], "기존 retry eligible 집합을 exact sequence로만 좁힌다");
+  for (const retrySequences of [[], [1, 1], [2], [0]]) {
+    assert.throws(() => selectAnalysisLaunchRetryGrantIds({
+      manifest,
+      grantSha256: SHA_D,
+      manifestSha256: SHA_C,
+      receipts: [noOpReceipt, firstReceipt],
+      retrySequences,
+    }));
+  }
+  const heldReceipt = launchReceipt([
+    launchReceiptTarget(0, GRANT_0, "held"),
+    launchReceiptTarget(1, GRANT_1, "failed"),
+  ], "2026-08-26T00:25:00.000Z");
+  assert.throws(() => selectAnalysisLaunchRetryGrantIds({
+    manifest,
+    grantSha256: SHA_D,
+    manifestSha256: SHA_C,
+    receipts: [heldReceipt],
+    retrySequences: [0],
+  }), /기존 retry 대상/, "held history는 exact retry 대상에 넣을 수 없다");
 
   const successReceipt = launchReceipt([
     launchReceiptTarget(0, GRANT_0, "skipped"),
@@ -1018,7 +1045,23 @@ test("launch CLI는 prepare/grant/run의 권한 단계를 분리한다", () => {
   assert.deepEqual(parseAnalysisLaunchCliArgs("run", [
     `--grant=${SHA_B}`,
     "--retry-errors",
-  ]), { kind: "run", grantSha256: SHA_B, retryErrors: true });
+  ]), { kind: "run", grantSha256: SHA_B, retryErrors: true, retrySequences: null });
+  assert.deepEqual(parseAnalysisLaunchCliArgs("run", [
+    `--grant=${SHA_B}`,
+    "--retry-errors",
+    "--retry-sequences=35-40",
+  ]), {
+    kind: "run",
+    grantSha256: SHA_B,
+    retryErrors: true,
+    retrySequences: [35, 36, 37, 38, 39, 40],
+  });
+  for (const args of [
+    [`--grant=${SHA_B}`, "--retry-sequences=35-40"],
+    [`--grant=${SHA_B}`, "--retry-errors", "--retry-sequences=35-40,40"],
+    [`--grant=${SHA_B}`, "--retry-errors", "--retry-sequences=40-35"],
+    [`--grant=${SHA_B}`, "--retry-errors", "--retry-sequences="],
+  ]) assert.throws(() => parseAnalysisLaunchCliArgs("run", args));
   assert.deepEqual(parseAuthoringGuideRerunLaunchCliArgs([
     `--adoption-manifest=${SHA_A}`,
     "--concurrency=3",
