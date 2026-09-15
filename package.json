@@ -66,6 +66,8 @@
     "lab:experiment": "pnpm verify:package-runtime-freshness && tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/analysis-lab/deep-repair-live-cli.ts",
     "lab:launch:prepare-current": "pnpm verify:package-runtime-freshness && tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/analysis-lab/current-inventory-launch-cli.ts",
     "lab:launch:prepare-field-repair": "pnpm verify:package-runtime-freshness && tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/analysis-lab/workspace-field-repair-launch-cli.ts",
+    "lab:launch:prepare-terminal-repair": "pnpm verify:package-runtime-freshness && tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/analysis-lab/terminal-repair-launch-cli.ts",
+    "lab:launch:terminal-repair:test": "TSX_TSCONFIG_PATH=apps/web/tsconfig.json node --import tsx apps/web/src/lib/server/analysis-lab/terminal-repair-source.test.ts",
     "lab:launch:prepare": "pnpm verify:package-runtime-freshness && ANALYSIS_LAUNCH_COMMAND=prepare tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/analysis-lab/launch-batch-cli.ts",
     "lab:launch:grant": "ANALYSIS_LAUNCH_COMMAND=grant tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/analysis-lab/launch-batch-cli.ts",
     "lab:launch": "pnpm verify:package-runtime-freshness && ANALYSIS_LAUNCH_COMMAND=run tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/analysis-lab/launch-batch-cli.ts",

@@ -91,6 +91,7 @@ export interface AnalysisLaunchManifest {
      * 다시 봉인할 때만 존재한다. live grant가 아니라 읽기 전용 ancestry다.
      */
     readonly completedLaunch?: AnalysisLaunchCompletedCurrentInventoryBinding;
+    readonly terminalRepair?: AnalysisLaunchTerminalRepairBinding;
     readonly sequenceFrom: number;
     readonly sequenceTo: number;
   };
@@ -117,6 +118,14 @@ export interface AnalysisLaunchCompletedCurrentInventoryBinding {
   readonly sourceManifestSha256: string;
   readonly sourceGrantSha256: string;
   readonly terminalReceiptSha256: string;
+}
+
+export interface AnalysisLaunchTerminalRepairBinding {
+  readonly schema: "analysis-launch-terminal-repair-v1";
+  readonly sourceManifestSha256: string;
+  readonly sourceGrantSha256: string;
+  readonly receiptSha256s: readonly string[];
+  readonly originalSequences: readonly number[];
 }
 
 export interface AnalysisLaunchGrant {
@@ -242,6 +251,7 @@ export function createAnalysisLaunchManifest(
 export function createCurrentInventoryAnalysisLaunchManifest(
   input: AnalysisLaunchManifestPreparationInput & {
     readonly completedLaunch?: AnalysisLaunchCompletedCurrentInventoryBinding;
+    readonly terminalRepair?: AnalysisLaunchTerminalRepairBinding;
   },
 ): AnalysisLaunchManifest {
   if (input.inventory.planSha256 !== input.inventory.planArtifactSha256) {
@@ -254,10 +264,11 @@ export function createCurrentInventoryAnalysisLaunchManifest(
       ...formal.source,
       kind: "current_inventory",
       ...(input.completedLaunch ? { completedLaunch: input.completedLaunch } : {}),
+      ...(input.terminalRepair ? { terminalRepair: input.terminalRepair } : {}),
     },
     execution: {
       ...formal.execution,
-      existingRunPolicy: input.completedLaunch ? "rerun_exact_targets" : "skip_existing",
+      existingRunPolicy: input.completedLaunch || input.terminalRepair ? "rerun_exact_targets" : "skip_existing",
     },
   });
 }
@@ -641,6 +652,12 @@ function normalizeAnalysisLaunchManifestForPurpose(
   const completedLaunch = source.completedLaunch === undefined
     ? undefined
     : normalizeCompletedCurrentInventoryBinding(source.completedLaunch);
+  const terminalRepair = source.terminalRepair === undefined ? undefined
+    : normalizeTerminalRepairBinding(source.terminalRepair);
+  if (terminalRepair && (sourceKind !== "current_inventory" || completedLaunch
+    || terminalRepair.originalSequences.length !== targets.length)) {
+    throw new Error("terminal repair source 범위가 잘못됐습니다.");
+  }
   if (
     sourceKind !== "independent_review_repair"
       ? targets.some((target) => target.applicationRoundtripReuse)
@@ -663,7 +680,7 @@ function normalizeAnalysisLaunchManifestForPurpose(
   if (new Set(reusedRoundtripRunIds).size !== reusedRoundtripRunIds.length) {
     throw new Error("launch Kordoc exact 재사용 runId가 중복됐습니다.");
   }
-  const expectedCurrentInventoryRunPolicy = completedLaunch
+  const expectedCurrentInventoryRunPolicy = completedLaunch || terminalRepair
     ? "rerun_exact_targets"
     : "skip_existing";
   const expectedApplicationFieldAnalysisVersion = purpose === "completed-current-inventory-source"
@@ -726,6 +743,7 @@ function normalizeAnalysisLaunchManifestForPurpose(
     || (existingRunPolicy !== "skip_existing" && existingRunPolicy !== "rerun_exact_targets")
   );
   const supportedHistoricalOfflineContract = purpose === "completed-receipt-offline-consumer"
+    && terminalRepair === undefined
     && isSupportedCompletedReceiptOfflineContract({
       rawSourceKind: source.kind,
       rawAdoptionManifestSha256: source.adoptionManifestSha256,
@@ -772,6 +790,7 @@ function normalizeAnalysisLaunchManifestForPurpose(
       planArtifactSha256,
       adoptionManifestSha256,
       ...(completedLaunch ? { completedLaunch } : {}),
+      ...(terminalRepair ? { terminalRepair } : {}),
       sequenceFrom,
       sequenceTo,
     }),
@@ -793,6 +812,7 @@ function normalizeAnalysisLaunchManifestForPurpose(
 }
 
 const COMPLETED_RECEIPT_OFFLINE_HISTORICAL_CONTRACTS = new Set([
+  "current_inventory|skip_existing|lab-deep-v28|deep-analysis-validator-v21|kordoc-application-roundtrip-v15",
   "formal_plan|skip_existing|lab-deep-v21|deep-analysis-validator-v14|kordoc-application-roundtrip-v9",
   "current_inventory|skip_existing|lab-deep-v22|deep-analysis-validator-v15|kordoc-application-roundtrip-v9",
   "independent_review_repair|rerun_exact_targets|lab-deep-v21|deep-analysis-validator-v14|kordoc-application-roundtrip-v9",
@@ -802,6 +822,25 @@ const COMPLETED_RECEIPT_OFFLINE_HISTORICAL_CONTRACTS = new Set([
   "independent_review_repair|rerun_exact_targets|lab-deep-v18|deep-analysis-validator-v11|kordoc-application-roundtrip-v9",
   "authoring_guide_adoption|rerun_exact_targets|lab-deep-v17|deep-analysis-validator-v10|<absent>",
 ]);
+
+function normalizeTerminalRepairBinding(value: unknown): AnalysisLaunchTerminalRepairBinding {
+  const binding = object(value, "terminalRepair");
+  if (binding.schema !== "analysis-launch-terminal-repair-v1"
+    || !Array.isArray(binding.receiptSha256s) || binding.receiptSha256s.length < 1
+    || !Array.isArray(binding.originalSequences) || binding.originalSequences.length < 1) {
+    throw new Error("terminal repair ancestry가 잘못됐습니다.");
+  }
+  const receiptSha256s = binding.receiptSha256s.map(v => exactSha(String(v), "receiptSha256"));
+  const originalSequences = binding.originalSequences.map(v => integer(v, "originalSequence"));
+  if (new Set(receiptSha256s).size !== receiptSha256s.length
+    || originalSequences.some((v, i) => v < 0 || (i > 0 && v <= originalSequences[i - 1]!))) {
+    throw new Error("terminal repair ancestry에 중복 또는 잘못된 sequence가 있습니다.");
+  }
+  return Object.freeze({ schema: "analysis-launch-terminal-repair-v1",
+    sourceManifestSha256: exactSha(String(binding.sourceManifestSha256), "sourceManifestSha256"),
+    sourceGrantSha256: exactSha(String(binding.sourceGrantSha256), "sourceGrantSha256"),
+    receiptSha256s: Object.freeze(receiptSha256s), originalSequences: Object.freeze(originalSequences) });
+}
 
 /** 2026-09-15 audit v2의 258건에서 실측한 42개 manifest 계약 tuple만 보존한다. */
 function isSupportedCompletedReceiptOfflineContract(input: {

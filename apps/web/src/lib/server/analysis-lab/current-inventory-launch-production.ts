@@ -8,13 +8,15 @@ import { prepareLabAnalysis } from "./analyze";
 import { readDeepRepairHistoricalGrantIds } from "./deep-repair-preparation-history";
 import { readCurrentDeepRepairExecutionProvenance } from "./deep-repair-runtime-provenance";
 import { resolveLabModel } from "./extractor";
-import { encodeCanonical, writeAnalysisLaunchArtifact } from "./launch-batch-artifacts";
+import { encodeCanonical, writeAnalysisLaunchArtifact, type AnalysisLaunchTerminalRepairBinding } from "./launch-batch-artifacts";
+import { readTerminalRepairSource } from "./terminal-repair-source";
 import { classifyNoticePeriod, kstDayStartUtc } from "./notice-period";
 import { findMonorepoRoot } from "./run-store";
 import { stratumIdOf, thicknessTierOf } from "./strata";
 import {
   CURRENT_INVENTORY_SCHEMA,
   MISSING_WORKSPACE_FIELDS_POLICY,
+  TERMINAL_REPAIR_POLICY,
   buildCurrentInventoryLaunchManifest,
   storeCurrentLaunchInventory,
   type CurrentLaunchInventory,
@@ -37,10 +39,22 @@ export async function prepareMissingWorkspaceFieldsLaunch(input: {
   return prepareExactInventory(input, MISSING_WORKSPACE_FIELDS_POLICY);
 }
 
+export async function prepareTerminalRepairLaunch(input: {
+  sourceManifestSha256: string; sourceGrantSha256: string; concurrency: number;
+}) {
+  const source = await readTerminalRepairSource(findMonorepoRoot(), input.sourceManifestSha256, input.sourceGrantSha256);
+  const result = await prepareExactInventory({ grantIds: source.selected.map(t => t.grantId), concurrency: input.concurrency },
+    TERMINAL_REPAIR_POLICY, source.binding);
+  return { ...result, sourceTargetCount: source.manifest.targets.length,
+    preservedTargetCount: source.manifest.targets.length - source.selected.length,
+    originalSequences: source.binding.originalSequences };
+}
+
 async function prepareExactInventory(input: {
   readonly grantIds: readonly string[];
   readonly concurrency: number;
-}, policy: CurrentInventoryPolicy) {
+}, policy: CurrentInventoryPolicy, terminalRepair?: AnalysisLaunchTerminalRepairBinding) {
+  if ((policy === TERMINAL_REPAIR_POLICY) !== Boolean(terminalRepair)) throw new Error("terminal repair ancestry가 필요합니다.");
   if (input.grantIds.length < 1 || input.grantIds.length > 100
     || new Set(input.grantIds).size !== input.grantIds.length
     || input.grantIds.some(id => !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/u.test(id))
@@ -50,7 +64,7 @@ async function prepareExactInventory(input: {
   const root = findMonorepoRoot();
   const provenance = await readCurrentDeepRepairExecutionProvenance();
   const history = await readDeepRepairHistoricalGrantIds({ scope: "all" });
-  assertCurrentInventoryHistoryEligibility(input.grantIds, history, policy);
+  if (policy !== TERMINAL_REPAIR_POLICY) assertCurrentInventoryHistoryEligibility(input.grantIds, history, policy);
   const before = await readCurrentEligibility(input.grantIds, policy);
   const prepared = [];
   for (const grantId of input.grantIds) prepared.push(await prepareLabAnalysis(grantId));
@@ -65,7 +79,7 @@ async function prepareExactInventory(input: {
   const now = new Date();
   const inventory: CurrentLaunchInventory = {
     schema: CURRENT_INVENTORY_SCHEMA,
-    seriesId: `current-${policy === MISSING_WORKSPACE_FIELDS_POLICY ? "field-repair-" : ""}${kstDayStartUtc(now).toISOString().slice(0, 10).replaceAll("-", "")}`,
+    seriesId: `current-${policy === TERMINAL_REPAIR_POLICY ? "terminal-repair-" : policy === MISSING_WORKSPACE_FIELDS_POLICY ? "field-repair-" : ""}${kstDayStartUtc(now).toISOString().slice(0, 10).replaceAll("-", "")}`,
     observedAt: now.toISOString(), model: resolveLabModel(),
     policy,
     historicalGrantIdsSha256: createHash("sha256").update(encodeCanonical(history)).digest("hex"),
@@ -99,12 +113,16 @@ async function prepareExactInventory(input: {
   }
   const inventorySha256 = createHash("sha256").update(encodeCanonical(inventory)).digest("hex");
   const manifest = buildCurrentInventoryLaunchManifest({ inventory, inventorySha256,
-    provenance, concurrency: input.concurrency, now: new Date() });
+    provenance, concurrency: input.concurrency, now: new Date(), ...(terminalRepair ? { terminalRepair } : {}) });
+  if (terminalRepair) {
+    const latest = await readTerminalRepairSource(root, terminalRepair.sourceManifestSha256, terminalRepair.sourceGrantSha256);
+    if (!encodeCanonical(latest.binding).equals(encodeCanonical(terminalRepair))) throw new Error("준비 중 terminal receipt 집합이 변경됐습니다.");
+  }
   const stored = await storeCurrentLaunchInventory(root, inventory);
   const launch = await writeAnalysisLaunchArtifact("manifests", manifest, root);
   return { manifest, manifestSha256: launch.sha256, path: launch.path,
     inventorySha256: stored.sha256, inventoryPath: stored.path,
-    policy, historicalExcluded: policy === MISSING_WORKSPACE_FIELDS_POLICY ? 0 : history.length,
+    policy, historicalExcluded: policy === MISSING_WORKSPACE_FIELDS_POLICY || policy === TERMINAL_REPAIR_POLICY ? 0 : history.length,
     modelCalls: 0, serviceWrites: 0,
     liveExecutionAuthorized: false };
 }

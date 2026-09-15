@@ -9,15 +9,18 @@ import {
   normalizeCompletedCurrentInventorySourceManifest,
   readAnalysisLaunchArtifact,
   type AnalysisLaunchCompletedCurrentInventoryBinding,
+  type AnalysisLaunchTerminalRepairBinding,
   type AnalysisLaunchManifest,
   type AnalysisLaunchPreparedTarget,
   type AnalysisLaunchPlanTarget,
 } from "./launch-batch-artifacts";
 import { writeImmutableBytesAtomic } from "./immutable-artifact-fs";
+import { readTerminalRepairSource } from "./terminal-repair-source";
 
 export const CURRENT_INVENTORY_SCHEMA = "analysis-current-inventory-v1" as const;
 export const MISSING_WORKSPACE_FIELDS_POLICY = "open-visible-current-period-missing-fields-v1" as const;
-export type CurrentInventoryPolicy = "open-visible-current-period-unseen-v1" | typeof MISSING_WORKSPACE_FIELDS_POLICY;
+export const TERMINAL_REPAIR_POLICY = "open-visible-current-period-terminal-repair-v1" as const;
+export type CurrentInventoryPolicy = "open-visible-current-period-unseen-v1" | typeof MISSING_WORKSPACE_FIELDS_POLICY | typeof TERMINAL_REPAIR_POLICY;
 export interface CurrentLaunchInventory {
   readonly schema: typeof CURRENT_INVENTORY_SCHEMA;
   readonly seriesId: string;
@@ -36,7 +39,7 @@ export function validateCurrentLaunchInventory(value: unknown): CurrentLaunchInv
   if (!value || typeof value !== "object") throw new Error("current inventory가 없습니다.");
   const inventory = value as CurrentLaunchInventory;
   if (inventory.schema !== CURRENT_INVENTORY_SCHEMA
-    || (inventory.policy !== "open-visible-current-period-unseen-v1" && inventory.policy !== MISSING_WORKSPACE_FIELDS_POLICY)
+    || (inventory.policy !== "open-visible-current-period-unseen-v1" && inventory.policy !== MISSING_WORKSPACE_FIELDS_POLICY && inventory.policy !== TERMINAL_REPAIR_POLICY)
     || typeof inventory.seriesId !== "string"
     || !/^current-[a-z0-9][a-z0-9-]{0,70}$/u.test(inventory.seriesId)
     || typeof inventory.model !== "string" || !inventory.model.trim()
@@ -47,6 +50,9 @@ export function validateCurrentLaunchInventory(value: unknown): CurrentLaunchInv
     || inventory.targets.length > 100) throw new Error("current inventory 계약이 잘못됐습니다.");
   if ((inventory.policy === MISSING_WORKSPACE_FIELDS_POLICY) !== inventory.seriesId.startsWith("current-field-repair-")) {
     throw new Error("누락 필드 보완은 독립된 field-repair inventory로 봉인해야 합니다.");
+  }
+  if ((inventory.policy === TERMINAL_REPAIR_POLICY) !== inventory.seriesId.startsWith("current-terminal-repair-")) {
+    throw new Error("terminal repair는 독립된 inventory로 봉인해야 합니다.");
   }
   const ids = new Set<string>();
   for (const [index, target] of inventory.targets.entries()) {
@@ -90,9 +96,11 @@ export function buildCurrentInventoryLaunchManifest(input: {
   readonly concurrency: number;
   readonly now: Date;
   readonly completedLaunch?: AnalysisLaunchCompletedCurrentInventoryBinding;
+  readonly terminalRepair?: AnalysisLaunchTerminalRepairBinding;
   readonly preparedTargets?: readonly AnalysisLaunchPreparedTarget[];
 }): AnalysisLaunchManifest {
   const inventory = validateCurrentLaunchInventory(input.inventory);
+  if ((inventory.policy === TERMINAL_REPAIR_POLICY) !== Boolean(input.terminalRepair)) throw new Error("terminal repair ancestry가 필요합니다.");
   if (sha(encodeCanonical(inventory)) !== input.inventorySha256) throw new Error("current inventory SHA가 다릅니다.");
   const manifest = createCurrentInventoryAnalysisLaunchManifest({
     inventory: { ...inventory, planSha256: input.inventorySha256, planArtifactSha256: input.inventorySha256 },
@@ -101,6 +109,7 @@ export function buildCurrentInventoryLaunchManifest(input: {
     provenance: input.provenance, withApplicationRoundtrip: true,
     concurrency: input.concurrency, now: input.now,
     ...(input.completedLaunch ? { completedLaunch: input.completedLaunch } : {}),
+    ...(input.terminalRepair ? { terminalRepair: input.terminalRepair } : {}),
   });
   if (input.completedLaunch && manifest.targets.some((target) => target.changedSinceInventory)) {
     throw new Error("완료 launch 재봉인 target의 현재 입력/첨부가 원본 inventory와 다릅니다.");
@@ -116,10 +125,19 @@ export async function verifyCurrentInventoryLaunchBinding(root: string, manifest
   if (manifest.source.completedLaunch) {
     await readAndVerifyCompletedCurrentInventoryLaunch(root, manifest.source.completedLaunch, inventory);
   }
+  if ((inventory.policy === TERMINAL_REPAIR_POLICY) !== Boolean(manifest.source.terminalRepair)) throw new Error("terminal repair inventory 정책이 다릅니다.");
+  if (manifest.source.terminalRepair) {
+    const binding = manifest.source.terminalRepair;
+    const source = await readTerminalRepairSource(root, binding.sourceManifestSha256, binding.sourceGrantSha256);
+    if (!encodeCanonical(binding).equals(encodeCanonical(source.binding))
+      || !encodeCanonical(inventory.targets.map(t => t.grantId)).equals(encodeCanonical(source.selected.map(t => t.grantId)))) {
+      throw new Error("terminal repair 최종 실패·보류 대상 또는 receipt 집합이 변경됐습니다.");
+    }
+  }
   return inventory;
 }
 
-function assertCurrentInventoryManifestBinding(
+export function assertCurrentInventoryManifestBinding(
   manifest: AnalysisLaunchManifest,
   inventory: CurrentLaunchInventory,
 ): void {
