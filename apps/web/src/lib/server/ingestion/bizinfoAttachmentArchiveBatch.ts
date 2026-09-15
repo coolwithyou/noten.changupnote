@@ -1,5 +1,6 @@
 import { eq } from "drizzle-orm";
-import type { BizInfoProgram } from "@cunote/core";
+import type { NormalizedGrant } from "@cunote/contracts";
+import { buildBizInfoProgramExtractionInput, type BizInfoProgram } from "@cunote/core";
 import type { CunoteDb } from "../db/client";
 import * as schema from "../db/schema";
 import { createDrizzleRepositories } from "../repositories/drizzle";
@@ -12,8 +13,21 @@ import { buildGrantArchiveAttachmentReceipts } from "./grantArchiveWriteReceipt"
 import { publishBizInfoGrants } from "./bizinfoPublisher";
 import {
   mergeArchivedKStartupAttachments,
+  preserveArchivedKStartupAttachmentMetadata,
   selectKStartupAttachmentsForArchive,
 } from "./kstartupAttachmentSelection";
+
+/**
+ * 과거 raw.attachments에 빠진 기업마당 본문출력파일을 보관 raw payload에서 복구한다.
+ * 현재 collector 계약으로 filename/URL 합집합을 다시 만들되, exact 원본이 같은 기존
+ * attachment에는 R2/변환 메타데이터를 되씌워 완료 항목을 재다운로드하지 않는다.
+ */
+export function recoverBizInfoSourceAttachments(
+  entry: NormalizedGrant<BizInfoProgram>,
+) {
+  const collected = buildBizInfoProgramExtractionInput(entry.raw.payload).metadata.attachments;
+  return preserveArchivedKStartupAttachmentMetadata(collected, entry.raw.attachments);
+}
 
 export interface RunBizInfoAttachmentArchiveBatchInput {
   db: CunoteDb;
@@ -50,6 +64,7 @@ export interface BizInfoAttachmentArchiveBatchResult {
   maxGrants: number;
   maxTotalAttachments: number;
   maxAttachmentsPerGrant: number;
+  reprocessMissingMarkdown: boolean;
   imageOcr: string;
   sourceIds: string[];
   candidates: Array<{ sourceId: string; title: string; selectedFilenames: string[] }>;
@@ -91,7 +106,7 @@ export async function runBizInfoAttachmentArchiveBatch(
     .map((entry) => ({
       entry,
       selected: selectKStartupAttachmentsForArchive(
-        entry.raw.attachments ?? [],
+        recoverBizInfoSourceAttachments(entry),
         input.maxAttachmentsPerGrant,
         {
           includeImages: Boolean(input.imageOcr),
@@ -201,6 +216,7 @@ export async function runBizInfoAttachmentArchiveBatch(
     maxGrants: input.maxGrants,
     maxTotalAttachments: input.maxTotalAttachments,
     maxAttachmentsPerGrant: input.maxAttachmentsPerGrant,
+    reprocessMissingMarkdown: input.reprocessMissingMarkdown ?? false,
     imageOcr: input.imageOcrName ?? (input.imageOcr ? "configured" : "none"),
     sourceIds: [...(input.sourceIds ?? [])],
     candidates: candidates.map((candidate) => ({

@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { basename, extname, join } from "node:path";
 import { tmpdir } from "node:os";
+import { detectHwpFormat } from "../documents/hwpx-fill.js";
 import { htmlToText } from "./extraction-input.js";
 
 export interface HwpMarkdownConverterStatus {
@@ -19,6 +20,25 @@ export interface HwpMarkdownResult {
 
 export function isHwpFilename(filename: string): boolean {
   return /\.(?:hwp|hwpx)$/i.test(filename);
+}
+
+/**
+ * HWP/HWPX 변환기는 확장자가 아니라 확보한 원본 바이트를 우선한다.
+ * 기업마당에는 `.hwpx` 이름으로 내려오는 실제 HWP(CFBF) 파일이 있으므로,
+ * 호출자가 준 이름만 따르면 HWPX unzip 경로에서 같은 원본이 계속 실패한다.
+ * 매직을 확증하지 못한 손상/부분 바이트만 기존 확장자 판정으로 폴백한다.
+ */
+export function detectHwpMarkdownFormat(
+  filename: string,
+  body: Buffer,
+): "hwp" | "hwpx" {
+  if (!isHwpFilename(filename)) {
+    throw new Error(`Unsupported HWP attachment filename: ${filename}`);
+  }
+  const detected = detectHwpFormat(body);
+  if (detected === "hwp-binary") return "hwp";
+  if (detected === "hwpx") return "hwpx";
+  return /\.hwpx$/i.test(filename) ? "hwpx" : "hwp";
 }
 
 let cachedAutoConverter: {
@@ -60,18 +80,20 @@ export function convertHwpBufferToMarkdown(input: {
   autoInstallPyhwp?: boolean;
   keepTmp?: boolean;
 }): HwpMarkdownResult {
-  if (!isHwpFilename(input.filename)) {
-    throw new Error(`Unsupported HWP attachment filename: ${input.filename}`);
-  }
-  if (/\.hwpx$/i.test(input.filename)) return convertHwpxBufferToMarkdown(input);
+  const format = detectHwpMarkdownFormat(input.filename, input.body);
+  const conversionInput = {
+    ...input,
+    filename: replaceHwpExtension(input.filename, format),
+  };
+  if (format === "hwpx") return convertHwpxBufferToMarkdown(conversionInput);
 
   const workDir = mkdtempSync(join(tmpdir(), "cunote-hwp-convert."));
-  const safeName = sanitizeFilename(input.filename);
+  const safeName = sanitizeFilename(conversionInput.filename);
   const hwpPath = join(workDir, safeName);
   const xhtmlPath = join(workDir, `${stripExtension(safeName)}.xhtml`);
 
   try {
-    writeFileSync(hwpPath, input.body);
+    writeFileSync(hwpPath, conversionInput.body);
     const converter = ensureHwp5Html({
       workDir,
       autoInstallPyhwp: input.autoInstallPyhwp ?? true,
@@ -86,6 +108,10 @@ export function convertHwpBufferToMarkdown(input: {
   } finally {
     if (!input.keepTmp) rmSync(workDir, { recursive: true, force: true });
   }
+}
+
+function replaceHwpExtension(filename: string, format: "hwp" | "hwpx"): string {
+  return filename.replace(/\.(?:hwp|hwpx)$/i, `.${format}`);
 }
 
 function ensureHwp5Html(options: { workDir: string; autoInstallPyhwp: boolean }): {

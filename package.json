@@ -282,7 +282,7 @@
     "verify:ingestion-publish": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/ingestion/verify-kstartup-publish.ts",
     "verify:promotion-protection": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/ingestion/normalizedGrantPublisher.promotion-protection.test.ts",
     "verify:kstartup-archive": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/ingestion/verify-kstartup-archive.ts && tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/ingestion/kstartupAttachmentSelection.test.ts && tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/ingestion/kstartupAttachmentArchiveBatch.test.ts",
-    "verify:bizinfo-archive": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/ingestion/verify-bizinfo-archive.ts",
+    "verify:bizinfo-archive": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/ingestion/verify-bizinfo-archive.ts && tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/ingestion/bizinfoAttachmentArchiveBatch.test.ts",
     "verify:grant-attachment-archive": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/ingestion/verify-grant-attachment-archive.ts && tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/ingestion/grantAttachmentArchive.magic-bytes.test.ts",
     "verify:grant-document-taxonomy": "tsx packages/core/scripts/verify-grant-document-taxonomy.ts",
     "verify:grant-document-fields": "tsx packages/core/scripts/verify-grant-document-fields.ts && tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/documents/reviewFieldMapping.test.ts",

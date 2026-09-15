@@ -1,3 +1,5 @@
+// 기업마당 첨부 보관 백필 CLI. 기본 dry-run이며 --write에는 별도 confirm이 필요하다.
+// 과거 변환 실패 HWP/HWPX를 함께 재처리할 때만 --reprocess-missing-markdown을 명시한다.
 import { closeCunoteDb, getCunoteDb } from "../db/client";
 import { loadMonorepoEnv } from "../loadMonorepoEnv";
 import { createR2ObjectStorageFromEnv } from "../storage/r2ObjectStorage";
@@ -20,6 +22,7 @@ const maxTotalAttachments = boundedInteger(
 const sourceIds = csvArg(readArg("sourceIds"), 100);
 const asOf = dateArg(readArg("asOf")) ?? new Date();
 const convertHwp = !process.argv.includes("--skip-attachment-conversion");
+const reprocessMissingMarkdown = process.argv.includes("--reprocess-missing-markdown");
 const imageOcr = parseGrantImageOcrProvider(readArg("imageOcr"));
 const imageOcrAdapter = imageOcr === "none" ? null : resolveGrantImageOcrAdapter(imageOcr);
 if (write && confirmation !== "ARCHIVE_BIZINFO_ATTACHMENTS") {
@@ -39,6 +42,7 @@ try {
     maxTotalAttachments,
     maxAttachmentsPerGrant,
     sourceIds,
+    reprocessMissingMarkdown,
     imageOcr: imageOcrAdapter,
     imageOcrName: imageOcr,
   });

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { detectHwpMarkdownFormat } from "../src/bizinfo/hwp-markdown.js";
 import {
   assertBizInfoApiResponse,
   buildBizInfoCriteriaToolSchema,
@@ -13,6 +14,24 @@ import {
   normalizeBizInfoProgram,
   validateGrantCriteriaContract,
 } from "../src/index.js";
+
+const HWP_CFBF_MAGIC = Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]);
+const HWPX_ZIP_MAGIC = Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x14, 0x00, 0x08, 0x00]);
+assert.equal(
+  detectHwpMarkdownFormat("표시만-HWPX.hwpx", HWP_CFBF_MAGIC),
+  "hwp",
+  "실제 HWP 바이트가 .hwpx 확장자보다 우선해야 함",
+);
+assert.equal(
+  detectHwpMarkdownFormat("표시만-HWP.hwp", HWPX_ZIP_MAGIC),
+  "hwpx",
+  "실제 HWPX 바이트가 .hwp 확장자보다 우선해야 함",
+);
+assert.equal(
+  detectHwpMarkdownFormat("매직-불명.hwpx", Buffer.from("partial")),
+  "hwpx",
+  "매직 불명은 기존 확장자 경로를 유지해야 함",
+);
 
 const url = buildBizInfoUrl("https://example.test/uss/rss/bizinfoApi.do", "abc/def==");
 assert.equal(
