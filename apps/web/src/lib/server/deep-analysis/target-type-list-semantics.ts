@@ -134,6 +134,7 @@ function hasStructuredSummaryEvidence(input: {
       && (
         normalizeEvidence(short) === input.sourceSpan
         || normalizeEvidence(`${input.label}: ${short}`) === input.sourceSpan
+        || line === input.sourceSpan
       )
     ) return true;
     if (line !== `## ${input.label}`) continue;

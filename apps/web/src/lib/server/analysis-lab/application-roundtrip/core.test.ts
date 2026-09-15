@@ -106,6 +106,17 @@ assert.equal(
   "파일명이 신청서를 명시하면 관리지침 표현만으로 양식을 제외하면 안 된다",
 );
 
+for (const filename of ["연구개발비 사용 기준.hwp", "정보통신방송연구개발관리규정.hwp"]) {
+  const input = { filename, markdown: "[시행 2026. 5. 6.]\n제1조(목적) 이 고시는 연구비 기준을 정한다.\n신청기업 대표자 연락처",
+    fields: [], formConfidence: 0 };
+  assert.equal(classifyRoundtripDocument(input).role, "announcement", "고시 본문과 파일명이 함께 입증하는 독립 참고자료");
+  assert.notEqual(classifyRoundtripDocument({ ...input, markdown: "내용" }).role, "announcement", "사용 기준이라는 파일명만으로 미분류 원본을 면제하지 않는다");
+  assert.equal(classifyRoundtripDocument({ ...input, filename: "연구개발비 사용 기준 및 신청서.hwp" }).role, "application_form", "실제 신청서 합본은 고시 신호만으로 제외하지 않는다");
+}
+assert.equal(classifyRoundtripDocument({filename:"신규과제 제안요청서.hwp",markdown:"관리번호 2026-005\n과제명: 수중 통신\n1. 개요\n연구내용",
+  fields:Array.from({length:6},(_,i)=>field({id:`rfp-${i}`,label:`항목${i}`,occurrence:0})),formConfidence:1}).role,"announcement",
+  "제안요청서의 지정 과제 내용과 빈 표를 신청 입력으로 오인하지 않는다");
+
 const resultReport = classifyRoundtripDocument({
   filename: "(붙임 3) 결과보고서.hwp",
   markdown: "신청기업 대표자 담당자 연락처 사업자등록번호".repeat(20),

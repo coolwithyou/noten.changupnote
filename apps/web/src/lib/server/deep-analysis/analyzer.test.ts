@@ -671,6 +671,30 @@ assert.match(
     );
   }
 
+  for (const summaryLine of [
+    "지원대상: 창업벤처 (source_field: trgetNm)",
+    "신청대상 요약: 창업벤처 (source_field: aply_trgt)",
+  ]) {
+    for (const requested of ["open", "closed"] as const) {
+      const [criterion] = normalizeCriteria([{
+        dimension: "target_type", kind: "required", operator: "in",
+        value: { targets: ["창업벤처"], list_semantics: requested },
+        confidence: 0.6, source_span: summaryLine,
+        note: "포털 요약이므로 열린 목록으로 보존한다.",
+      }], summaryLine);
+      assert.equal((criterion?.value as { list_semantics: string }).list_semantics, "open",
+        "source_field 표지를 포함한 정확한 요약 행 인용도 포털 분류로 보존한다");
+    }
+    const detailed = "신청대상은 창업벤처만 신청할 수 있음";
+    const [criterion] = normalizeCriteria([{
+      dimension: "target_type", kind: "required", operator: "in",
+      value: { targets: ["창업벤처"], list_semantics: "closed" },
+      confidence: 0.9, source_span: detailed,
+    }], `${summaryLine}\n${detailed}`);
+    assert.equal((criterion?.value as { list_semantics: string }).list_semantics, "closed",
+      "포털 요약이 함께 있어도 별도 상세 자격 문장의 배타 조건은 유지한다");
+  }
+
   const irBizAgeSpan = "☞ 업력 7년 미만의 제조창업기업";
   const [irBizAgeCriterion] = normalizeCriteria([{
     dimension: "biz_age",

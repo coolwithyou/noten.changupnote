@@ -31,7 +31,7 @@ import {
 import { resolveExclusiveBizAgeUpperBound } from "./biz-age-boundary";
 import { resolveTargetTypeListSemantics } from "./target-type-list-semantics";
 
-export const DEEP_ANALYSIS_VALIDATOR_VERSION = "deep-analysis-validator-v22" as const;
+export const DEEP_ANALYSIS_VALIDATOR_VERSION = "deep-analysis-validator-v23" as const;
 
 export type DeepAnalysisValidationIssueCode =
   | "raw_contract_invalid"

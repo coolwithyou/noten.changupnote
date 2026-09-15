@@ -553,6 +553,9 @@ function extractNarrativeFields(
 ): void {
   const text = block.text ?? "";
   if (!text || !NARRATIVE_ACTION_PATTERN.test(text) || !/[（(][^\n)）]{2,40}[)）]/.test(text)) return;
+  // 전체 계획서의 작성 요령 상자가 평탄화되면 안내문이 본문 입력칸처럼 보인다.
+  // 두 개의 명시적 안내 표지가 있고 그 사이에 새 절/표가 없는 인접 지시문만 제외한다.
+  if (isGeneralAuthoringInstruction(blocks, blockIndex)) return;
   const sectionLabel = findSectionLabel(blocks, blockIndex);
   let offset = 0;
   for (const line of text.split("\n")) {
@@ -584,6 +587,21 @@ function extractNarrativeFields(
       confidence: 0.93,
     }));
   }
+}
+
+function isGeneralAuthoringInstruction(blocks: IRBlock[], blockIndex: number): boolean {
+  for (let index = blockIndex - 1; index >= Math.max(0, blockIndex - 16); index -= 1) {
+    const candidate = blocks[index]!;
+    if (candidate.type === "table" || candidate.type === "heading") return false;
+    if (candidate.pageNumber != null && blocks[blockIndex]!.pageNumber != null
+        && candidate.pageNumber !== blocks[blockIndex]!.pageNumber) return false;
+    const text = (candidate.text ?? "").trim();
+    if (/^(?:\d+[.．]|[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ][.．]?)\s+/u.test(text)) return false;
+    if (/^작성\s*요령$/u.test(text)) {
+      return /^※\s*작성방법\s*\([^)]*전체\s*해당사항\)/u.test(blocks[index + 1]?.text?.trim() ?? "");
+    }
+  }
+  return false;
 }
 
 function createContextualField(input: {

@@ -85,6 +85,23 @@ export function classifyRoundtripDocument(input: {
     signals.push("파일명에 독립 관리·운영지침 표현");
   }
 
+  // 고시와 제안요청서는 빈 표가 있어도 신청자가 작성하는 서식이 아닐 수 있다.
+  // 파일명만으로 제외하지 않고 실제 시행·조문 또는 지정 과제 내용까지 함께 확인한다.
+  const referenceHead = input.markdown.slice(0, 8_000);
+  const statutoryReference = /(?:관리\s*규정|사용\s*기준|제한\s*기준)/u.test(input.filename)
+    && /\[시행\s+\d{4}[.\s]/u.test(referenceHead)
+    && /제\s*1\s*조\s*\(목적\)/u.test(referenceHead);
+  const requestForProposal = /제안\s*요청서/u.test(input.filename)
+    && /관리번호|과제번호/u.test(referenceHead)
+    && /과제명/u.test(referenceHead)
+    && /개요|개발목표|연구내용/u.test(referenceHead);
+  if ((statutoryReference || requestForProposal)
+      && !APPLICATION_FILENAME.test(input.filename)
+      && !PLAN_FILENAME.test(input.filename)) {
+    scores.announcement += 12;
+    signals.push(statutoryReference ? "시행일·목적 조문으로 확인된 독립 고시·규정" : "지정 과제번호·과제 내용으로 확인된 제안요청서");
+  }
+
   const body = input.markdown.slice(0, 80_000);
   const applicationHits = matchCount(body, APPLICATION_BODY);
   const planHits = matchCount(body, PLAN_BODY);

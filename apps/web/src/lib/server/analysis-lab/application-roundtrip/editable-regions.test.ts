@@ -35,6 +35,26 @@ const blocks: IRBlock[] = [
 ];
 
 const fields = extractContextualRoundtripFields(blocks, "a".repeat(64));
+const instruction = "- (기술개발의 중요성) 기술개발과제의 기술, 경제·산업적 중요성을 구체적으로 서술";
+const generalGuidance: IRBlock[] = [
+  { type: "paragraph", text: "작성 요령", pageNumber: 7 },
+  { type: "paragraph", text: "※ 작성방법(연구개발계획서 전체 해당사항)", pageNumber: 7 },
+  { type: "paragraph", text: "◦ 기술개발의 개요", pageNumber: 7 },
+  { type: "paragraph", text: instruction, pageNumber: 7 },
+];
+assert.equal(extractContextualRoundtripFields(generalGuidance, "a".repeat(64)).length, 0,
+  "전체 작성 요령의 설명문은 교체할 입력칸이 아니다");
+for (const boundary of [
+  { type: "heading", text: "1. 개발 필요성", pageNumber: 7 },
+  { type: "paragraph", text: "1. 개발 필요성", pageNumber: 7 },
+  { type: "paragraph", text: "다음 페이지", pageNumber: 8 },
+] satisfies IRBlock[]) {
+  const actualForm = [...generalGuidance, boundary, { type: "paragraph" as const, text: instruction, pageNumber: boundary.pageNumber }];
+  assert.equal(extractContextualRoundtripFields(actualForm, "a".repeat(64)).length, 1,
+    "새 절 또는 새 페이지의 실제 서술 입력은 보존한다");
+}
+assert.equal(extractContextualRoundtripFields(generalGuidance.slice(1), "a".repeat(64)).length, 1,
+  "명시적인 두 안내 표지가 없으면 임의로 입력을 제외하지 않는다");
 assert.equal(fields.filter((field) => field.writeOperation === "toggle_text_choice").length, 2);
 assert.equal(fields.filter((field) => field.writeOperation === "insert_before_unit").length, 6);
 assert.equal(fields.filter((field) => field.writeOperation === "replace_instruction").length, 2);
