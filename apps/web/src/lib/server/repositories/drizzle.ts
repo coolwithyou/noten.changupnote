@@ -448,7 +448,7 @@ class DrizzleGrantRepository<TPayload> implements GrantRepository<TPayload> {
     );
   }
 
-  private async findGrantByIdInSnapshot(
+  async findGrantByIdInSnapshot(
     session: CunoteDbSession,
     grantId: string,
   ): Promise<NormalizedGrant<TPayload> | null> {
@@ -652,6 +652,17 @@ export async function listActiveGrantsInPromotionServingSnapshot<TPayload = unkn
     client: session as unknown as CunoteDb,
   });
   return repository.listActiveGrantsInSnapshot(session, options);
+}
+
+/** 호출자가 연 repeatable-read transaction의 미커밋 publication도 같은 snapshot에서 읽는다. */
+export async function findGrantByIdInPromotionServingSnapshot<TPayload = unknown>(
+  session: CunoteDbSession,
+  grantId: string,
+): Promise<NormalizedGrant<TPayload> | null> {
+  const repository = new DrizzleGrantRepository<TPayload>({
+    dialect: "drizzle", client: session as unknown as CunoteDb,
+  });
+  return repository.findGrantByIdInSnapshot(session, grantId);
 }
 
 export interface ReviewedExtractionMetadataRow {

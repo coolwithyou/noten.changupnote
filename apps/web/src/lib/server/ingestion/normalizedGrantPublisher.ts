@@ -334,6 +334,7 @@ export async function publishNormalizedGrants<TPayload>(
     if (refreshGrantIds.size > 0 && invalidatedCompanyIds.size > 0) {
       const refresh = await runGrantRevisionScopedRefresh({
         db: tx as unknown as CunoteDb,
+        publicationSnapshot: tx as unknown as CunoteDbSession,
         grantIds: [...refreshGrantIds],
         companyIds: [...invalidatedCompanyIds],
         companyLimit: invalidatedCompanyIds.size,
@@ -360,7 +361,7 @@ export async function publishNormalizedGrants<TPayload>(
       promotionProtectedSourceIds: [...promotionProtectedSourceIds].sort(),
       ...(conversionWarnings.length > 0 ? { conversionWarnings } : {}),
     };
-  });
+  }, { isolationLevel: "repeatable read" });
 
   if (result.promotionProtectedCount > 0) {
     // 관측성: 수집 크론(Vercel) 함수 로그에 보호 발동을 1줄로 남긴다 — 커밋된 publish에만 기록.

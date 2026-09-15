@@ -8,6 +8,9 @@ import * as schema from "../db/schema";
 import { refreshMatchStates } from "./matchStateRefresh";
 import { submitGrantConfirmations } from "./grantConfirmations";
 import { runGrantRevisionScopedRefresh } from "./grantRevisionScopedRefreshCore";
+import { findGrantByIdInPromotionServingSnapshot } from "../repositories/drizzle";
+import type { CunoteDb, CunoteDbSession } from "../db/client";
+import { eq } from "drizzle-orm";
 
 /** 전용 Unix-socket PostgreSQL에서만 실행하는 shared match_state stale-write 통합검사. */
 export async function verifyMatchStateInputRevisionPostgres(input: {
@@ -331,6 +334,27 @@ export async function verifyMatchStateInputRevisionPostgres(input: {
   });
   assert.equal(missingBaselineRefresh.plannedStateCount, 1);
   assert.equal(missingBaselineRefresh.changedCount, 1, "invalid cache is a missing baseline and remains recomputable");
+
+  const beforePublication = await repositories.grants.findGrantById(grantId);
+  await assert.rejects(() => db.transaction(async (tx) => {
+    await tx.update(schema.grants).set({ title: "uncommitted publication fixture" })
+      .where(eq(schema.grants.id, grantId));
+    // publisher는 revision이 바뀐 공고의 stale cache를 삭제한 뒤 같은 transaction에서 재계산한다.
+    await tx.delete(schema.matchState).where(eq(schema.matchState.grantId, grantId));
+    const sameSnapshot = await findGrantByIdInPromotionServingSnapshot(tx, grantId);
+    assert.equal(sameSnapshot?.grant.title, "uncommitted publication fixture");
+    const refreshed = await runGrantRevisionScopedRefresh({
+      db: tx as unknown as CunoteDb,
+      publicationSnapshot: tx as unknown as CunoteDbSession,
+      grantIds: [grantId], companyIds: [input.companyId], companyLimit: 1, asOf: dueAt, write: true,
+    });
+    assert.equal(refreshed.savedCount, 1, JSON.stringify(refreshed));
+    throw new Error("publication rollback probe");
+  }, { isolationLevel: "repeatable read" }), /publication rollback probe/);
+  assert.equal((await repositories.grants.findGrantById(grantId))?.grant.title, beforePublication?.grant.title);
+  assert.equal((await runGrantRevisionScopedRefresh({
+    db, grantIds: [grantId], companyIds: [input.companyId], companyLimit: 1, asOf: dueAt, write: false,
+  })).changedCount, 1, "rollback also discards the nested refresh result");
 
   // 일반 제품 role은 revision 원장을 직접 고치거나 SECURITY DEFINER mutator를 호출할 수 없다.
   await input.client.begin(async (tx) => {

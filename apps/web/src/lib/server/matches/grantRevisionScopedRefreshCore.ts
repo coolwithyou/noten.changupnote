@@ -5,9 +5,9 @@ import {
   type ExistingMatchStateSnapshot,
 } from "@cunote/core";
 import type { NormalizedGrant } from "@cunote/contracts";
-import type { CunoteDb } from "../db/client";
+import type { CunoteDb, CunoteDbSession } from "../db/client";
 import * as schema from "../db/schema";
-import { createDrizzleRepositories } from "../repositories/drizzle";
+import { createDrizzleRepositories, findGrantByIdInPromotionServingSnapshot } from "../repositories/drizzle";
 import { resolveSystemProductCompanyProfile } from "../productProfile/resolveProductCompanyProfile";
 import { expandConfirmedGrantComponentIds } from "../ingestion/grantRevisionInvalidation";
 import { loadCriterionConfirmations } from "./matchStateRefresh";
@@ -15,6 +15,8 @@ import { filterCurrentMatchStateCacheRows } from "./matchStateCacheValidity";
 
 export interface RunGrantRevisionScopedRefreshInput {
   db: CunoteDb;
+  /** publisher가 소유한 repeatable-read transaction. top-level CLI는 생략한다. */
+  publicationSnapshot?: CunoteDbSession;
   grantIds: string[];
   /** 생략하면 전체 회사, 지정하면 publisher가 실제 stale state를 삭제한 회사만 재계산한다. */
   companyIds?: string[];
@@ -31,10 +33,13 @@ export async function runGrantRevisionScopedRefresh(
   if (requestedGrantIds.length === 0) throw new Error("at least one grantId is required");
 
   const repositories = createDrizzleRepositories<unknown>({ dialect: "drizzle", client: input.db });
+  const grantReader = input.publicationSnapshot
+    ? (id: string) => findGrantByIdInPromotionServingSnapshot(input.publicationSnapshot!, id)
+    : (id: string) => repositories.grants.findGrantById(id);
   const requestedCompanyIds = input.companyIds
     ? [...new Set(input.companyIds.filter(Boolean))].sort()
     : null;
-  const preliminaryGrantIds = (await loadEffectiveGrants(input.db, repositories, requestedGrantIds))
+  const preliminaryGrantIds = (await loadEffectiveGrants(input.db, grantReader, requestedGrantIds))
     .map((grant) => grant.grant.id)
     .filter((id): id is string => Boolean(id));
   const preliminaryCompanyRows = await loadCompanyRows(
@@ -56,10 +61,10 @@ export async function runGrantRevisionScopedRefresh(
   // 사이에 끼어도 실제 계산은 캡처 이후 snapshot을 사용하고 save guard가 다시 확인한다.
   const [grants, companyRows] = input.write
     ? await Promise.all([
-        loadEffectiveGrants(input.db, repositories, requestedGrantIds),
+        loadEffectiveGrants(input.db, grantReader, requestedGrantIds),
         loadCompanyRows(input.db, requestedCompanyIds, input.companyLimit),
       ])
-    : [await loadEffectiveGrants(input.db, repositories, requestedGrantIds), preliminaryCompanyRows];
+    : [await loadEffectiveGrants(input.db, grantReader, requestedGrantIds), preliminaryCompanyRows];
   const truncated = companyRows.length > input.companyLimit;
   if (input.write && truncated) throw new Error("refusing incomplete grant-scope refresh after binding: increase --companyLimit");
   const companies = [];
@@ -169,7 +174,7 @@ export async function runGrantRevisionScopedRefresh(
 
 async function loadEffectiveGrants(
   db: CunoteDb,
-  repositories: ReturnType<typeof createDrizzleRepositories<unknown>>,
+  readGrant: (id: string) => Promise<NormalizedGrant<unknown> | null>,
   requestedGrantIds: string[],
 ): Promise<Array<NormalizedGrant<unknown>>> {
   const links = await db.select({
@@ -181,7 +186,7 @@ async function loadEffectiveGrants(
     const resolvedId = await resolveGrantRowId(db, requestedId);
     if (!resolvedId) throw new Error(`grant not found: ${requestedId}`);
     const componentIds = expandConfirmedGrantComponentIds([resolvedId], links);
-    const entries = (await Promise.all(componentIds.map((id) => repositories.grants.findGrantById(id))))
+    const entries = (await Promise.all(componentIds.map(readGrant)))
       .filter((entry): entry is NormalizedGrant<unknown> => entry !== null);
     if (entries.length === 0) throw new Error(`grant not found: ${requestedId}`);
     const [effective] = collapseConfirmedGrantOccurrences(entries, links.map((link) => ({
