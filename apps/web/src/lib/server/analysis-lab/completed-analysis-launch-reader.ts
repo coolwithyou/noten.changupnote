@@ -15,8 +15,9 @@ export interface CompletedAnalysisLaunchArtifacts {
 }
 
 /**
- * 완료 receipt의 content-addressed ancestry를 읽는 오프라인 consumer 전용 경계다.
- * live admission과 promotion은 이 reader를 사용하지 않는다.
+ * 종료 receipt의 immutable ancestry를 읽는 후속 소비 전용 경계다.
+ * 역사 계약은 독립 검수·release 준비 같은 모델 무호출 소비에서만 허용하며,
+ * 이 reader의 성공을 새 grant/run admission으로 사용할 수 없다.
  */
 export async function readCompletedAnalysisLaunchArtifacts(input: {
   readonly launchReceiptSha256: string;
@@ -48,6 +49,10 @@ export async function readCompletedAnalysisLaunchArtifacts(input: {
     || receipt.targets.some((target) => manifestTargets.get(target.sequence) !== target.grantId)
   ) {
     throw new Error("launch receipt target이 manifest exact target과 다릅니다.");
+  }
+  if (manifest.source.terminalRepair) {
+    const { verifyCurrentInventoryLaunchBinding } = await import("./current-inventory-launch");
+    await verifyCurrentInventoryLaunchBinding(input.repositoryRoot, manifest);
   }
   return Object.freeze({ receipt, manifest, grant });
 }

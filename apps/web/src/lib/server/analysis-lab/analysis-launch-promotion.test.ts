@@ -3,12 +3,18 @@ import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, relative, sep } from "node:path";
-import type { LabReview, LabRun } from "@/lib/server/analysis-lab/lab-contract";
+import {
+  ANALYSIS_LAB_PROMPT_VERSION,
+  type LabReview,
+  type LabRun,
+} from "@/lib/server/analysis-lab/lab-contract";
+import { DEEP_ANALYSIS_VALIDATOR_VERSION } from "@/lib/server/deep-analysis/validator";
 import {
   APPLICATION_ROUNDTRIP_ADOPTED_MODEL,
   APPLICATION_ROUNDTRIP_VERSION,
 } from "./application-roundtrip/contract";
 import {
+  classifyAnalysisLaunchPromotionReadiness,
   guardAnalysisLaunchPromotionPlan,
   loadAnalysisLaunchPromotionCohort,
   verifyAnalysisLaunchPrimaryMatchingProjection,
@@ -61,8 +67,8 @@ try {
     execution: {
       transport: "claude-cli",
       model: APPLICATION_ROUNDTRIP_ADOPTED_MODEL,
-      promptVersion: "lab-deep-v21",
-      validatorVersion: "deep-analysis-validator-v14",
+      promptVersion: ANALYSIS_LAB_PROMPT_VERSION,
+      validatorVersion: DEEP_ANALYSIS_VALIDATOR_VERSION,
       packageRuntimeSha256: "6".repeat(64),
       gitShaAtPreparation: "7".repeat(40),
       withApplicationRoundtrip: true,
@@ -232,6 +238,77 @@ try {
     "같은 packet coverage면 최신 검수 정책을 선택한다",
   );
   assert.equal(isVerifiedLocalLabSourceArtifact(candidate.sourceArtifact), true);
+
+  const historicalFeatureReadiness = {
+    schema: "analysis-feature-readiness-v1" as const,
+    matching: {
+      status: "ready" as const,
+      sourceDisposition: "conditional" as const,
+      reasons: [],
+    },
+    authoring: {
+      status: "ready" as const,
+      sourceDisposition: "ready" as const,
+      reasons: [],
+    },
+  };
+  const historicalReadiness = classifyAnalysisLaunchPromotionReadiness({
+    loaded: {
+      launch: {
+        receiptSha256: "a".repeat(64),
+        receipt,
+        manifest: {
+          ...manifest,
+          execution: {
+            ...manifest.execution,
+            validatorVersion: "deep-analysis-validator-v21",
+            applicationFieldAnalysisVersion: "kordoc-application-roundtrip-v15",
+          },
+        },
+        review: {
+          manifestSha256: "c".repeat(64),
+          aggregateSha256: "b".repeat(64),
+          reviewPolicyVersion: "codex-only-v5",
+          packetBySequence: new Map(),
+          comparisonBySequence: new Map(),
+          blockedSequences: new Set(),
+        },
+      },
+      target: { ...receipt.targets[0]!, featureReadiness: historicalFeatureReadiness },
+      run: {
+        ...run,
+        applicationRoundtrip: {
+          ...run.applicationRoundtrip!,
+          version: "kordoc-application-roundtrip-v15",
+        },
+      },
+      runArtifactSha256,
+      primaryMatchingProjectionStatus: "unverified",
+      primaryMatchingProjectionSnapshotSha256: null,
+    },
+    current: {
+      sourceRevisionSha256,
+      sourceRawSha256: "9".repeat(64),
+      inputSha256,
+      attachmentManifestSha256,
+      status: "open",
+      servingState: "visible",
+      applicationOpen: true,
+      hasDeepAnalysisRun: false,
+      hasPromotionItem: false,
+      confirmedDuplicate: false,
+    },
+  } as Parameters<typeof classifyAnalysisLaunchPromotionReadiness>[0]);
+  assert.equal(historicalReadiness.disposition, "conditional");
+  assert.deepEqual(historicalReadiness.reasons, []);
+  assert.equal(historicalReadiness.runFeatureReadiness.matching.status, "ready");
+  assert.equal(historicalReadiness.runFeatureReadiness.authoring.status, "ready");
+  assert.equal(historicalReadiness.authoringEvidenceStatus, "held");
+  assert.deepEqual(
+    historicalReadiness.authoringEvidenceReasons,
+    ["application_field_analysis_binding"],
+    "manifest와 맞는 역사 authoring 판정은 matching integrity에 쓰되 현행 작성 증거로 승격하지 않는다",
+  );
 
   const authoringHeldRun: LabRun = {
     ...run,
@@ -618,7 +695,7 @@ function fixtureRun(): LabRun {
     title: "analysis launch release",
     model: APPLICATION_ROUNDTRIP_ADOPTED_MODEL,
     transport: "claude-cli",
-    promptVersion: "lab-deep-v21",
+    promptVersion: ANALYSIS_LAB_PROMPT_VERSION,
     startedAt: "2026-08-31T00:00:02.000Z",
     durationMs: 1,
     inputBlocks: [],
@@ -659,6 +736,7 @@ function fixtureRun(): LabRun {
       sourceIncompleteIssueAfterRepairCount: 0,
     },
     applicationRoundtrip: {
+      version: APPLICATION_ROUNDTRIP_VERSION,
       status: "complete",
       runId: roundtripRunId,
       transport: "claude-cli",

@@ -13,7 +13,6 @@ import {
   classifyAnalysisFeatureReadiness,
   type AnalysisFeatureReadiness,
 } from "../analysis-serving/analysisFeatureReadiness";
-import { classifyApplicationFieldAnalysis } from "./application-precompute";
 import {
   INDEPENDENT_REVIEW_AGGREGATE_SCHEMA,
   INDEPENDENT_REVIEW_MANIFEST_SCHEMA,
@@ -21,14 +20,11 @@ import {
   deriveIndependentReviewAxes,
 } from "./independent-review-packet";
 import {
-  normalizeAnalysisLaunchGrant,
-  normalizeAnalysisLaunchManifest,
-  normalizeAnalysisLaunchReceipt,
-  readAnalysisLaunchArtifact,
   type AnalysisLaunchManifest,
   type AnalysisLaunchReceipt,
   type AnalysisLaunchReceiptTarget,
 } from "./launch-batch-artifacts";
+import { readCompletedAnalysisLaunchArtifacts } from "./completed-analysis-launch-reader";
 import { loadCurrentGrantEvidence, type CurrentGrantEvidence } from "./deep-repair-promotion";
 import {
   planGrantPromotion,
@@ -469,9 +465,10 @@ export function classifyAnalysisLaunchPromotionReadiness(input: {
   const current = input.current;
   const reasons: string[] = [];
   const primaryOutcome = isPublishableLabRun(run) ? "publishable" as const : "held" as const;
-  const applicationFieldAnalysis = launch.manifest.execution.withApplicationRoundtrip
-    ? classifyApplicationFieldAnalysis(run.applicationRoundtrip)
-    : "not_required" as const;
+  const applicationFieldAnalysis = classifyManifestBoundApplicationFieldAnalysis(
+    launch.manifest.execution,
+    run.applicationRoundtrip,
+  );
   const derivedFeatureReadiness = classifyAnalysisFeatureReadiness({
     primaryOutcome,
     matchingReadiness: run.matchingReadiness,
@@ -517,6 +514,7 @@ export function classifyAnalysisLaunchPromotionReadiness(input: {
     && execution.applicationFieldAnalysisVersion === APPLICATION_ROUNDTRIP_VERSION
     && execution.roundtripModel === APPLICATION_ROUNDTRIP_ADOPTED_MODEL
     && Boolean(roundtrip)
+    && roundtrip?.version === APPLICATION_ROUNDTRIP_VERSION
     && roundtrip?.transport === "claude-cli"
     && roundtrip.model === APPLICATION_ROUNDTRIP_ADOPTED_MODEL
     && roundtrip.status === target.applicationRoundtripStatus
@@ -557,6 +555,39 @@ export function classifyAnalysisLaunchPromotionReadiness(input: {
   };
 }
 
+/**
+ * 완료 source의 당시 field 분석 판정은 원 manifest에 봉인된 version과만 비교한다.
+ * 역사 결과의 matching integrity를 보존하되, 현행 authoring admission은 위의
+ * applicationBindingMatches가 현재 APPLICATION_ROUNDTRIP_VERSION을 별도로 요구한다.
+ */
+function classifyManifestBoundApplicationFieldAnalysis(
+  execution: AnalysisLaunchManifest["execution"],
+  reference: LabRun["applicationRoundtrip"],
+) {
+  if (!execution.withApplicationRoundtrip) return "not_required" as const;
+  if (
+    !reference
+    || execution.applicationFieldAnalysisVersion === null
+    || reference.version !== execution.applicationFieldAnalysisVersion
+  ) {
+    return "held" as const;
+  }
+  if (
+    reference.status === "not_applicable"
+    && (reference.applicationDocumentCount ?? 0) === 0
+  ) {
+    return "not_applicable" as const;
+  }
+  if (
+    (reference.status === "complete" || reference.status === "partial")
+    && (reference.fieldReadyDocumentCount ?? 0) > 0
+    && (reference.recognizedFieldCount ?? 0) > 0
+  ) {
+    return "ready" as const;
+  }
+  return "held" as const;
+}
+
 export function guardAnalysisLaunchPromotionPlan(
   readiness: AnalysisLaunchPromotionReadiness,
   plan: Pick<GrantPromotionPlan, "criteria" | "conversion" | "scopeRejectedCriterionIndexes">,
@@ -587,28 +618,10 @@ async function loadLaunch(
   receiptSha256: string,
   requestedGrantIds: readonly string[],
 ): Promise<LoadedLaunch> {
-  const receipt = normalizeAnalysisLaunchReceipt(
-    await readAnalysisLaunchArtifact("receipts", receiptSha256, root),
-  );
-  const manifest = normalizeAnalysisLaunchManifest(
-    await readAnalysisLaunchArtifact("manifests", receipt.manifestSha256, root),
-  );
-  const grant = normalizeAnalysisLaunchGrant(
-    await readAnalysisLaunchArtifact("grants", receipt.grantSha256, root),
-  );
-  if (
-    grant.manifestSha256 !== receipt.manifestSha256
-    || grant.targetCount !== manifest.targets.length
-    || receipt.targets.length !== manifest.targets.length
-  ) {
-    throw new Error(`launch receipt manifest/grant cardinality가 다릅니다: ${receiptSha256}`);
-  }
-  for (const target of receipt.targets) {
-    const manifestTarget = manifest.targets.find((item) => item.sequence === target.sequence);
-    if (!manifestTarget || manifestTarget.grantId !== target.grantId) {
-      throw new Error(`launch receipt target이 manifest와 다릅니다: ${target.grantId}`);
-    }
-  }
+  const { receipt, manifest } = await readCompletedAnalysisLaunchArtifacts({
+    launchReceiptSha256: receiptSha256,
+    repositoryRoot: root,
+  });
   return {
     receiptSha256,
     receipt,

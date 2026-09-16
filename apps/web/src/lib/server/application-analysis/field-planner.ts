@@ -1,4 +1,5 @@
 // 제품과 실험실이 공유하는 문서 분석 구현. 실행 승인·로컬 artifact 저장은 호출자가 소유한다.
+import { createHash } from "node:crypto";
 import type {
   RoundtripFailureCode,
   RoundtripFieldCandidate,
@@ -7,7 +8,7 @@ import type {
   RoundtripLlmTransport,
   RoundtripRejectedEvidenceAttempt,
 } from "./contract";
-import type { IRBlock } from "kordoc";
+import type { IRBlock, IRTable } from "kordoc";
 import { priceDeepAnalysisUsage } from "@/lib/server/deep-analysis/costPolicy";
 import {
   EXECUTION_TIMEOUT_HEADER,
@@ -91,6 +92,11 @@ export interface RoundtripFieldSourceContext {
   blockIndex: number | null;
   row: number | null;
   col: number | null;
+  labelRow?: number;
+  labelCol?: number;
+  valueRow?: number;
+  valueCol?: number;
+  valueBinding?: "bound" | "candidate" | "unavailable";
   text: string;
 }
 
@@ -529,6 +535,15 @@ async function requestFieldDecisions(input: {
             block_index: sourceContext.blockIndex,
             row: sourceContext.row,
             col: sourceContext.col,
+            ...(sourceContext.binding === "block_row_col"
+              ? {
+                  label_row: sourceContext.labelRow,
+                  label_col: sourceContext.labelCol,
+                  value_row: sourceContext.valueRow,
+                  value_col: sourceContext.valueCol,
+                  value_binding: sourceContext.valueBinding,
+                }
+              : {}),
           }
         : null,
       // 구 prompt 관측 도구가 읽는 키에 원문을 한 번만 싣는다.
@@ -551,6 +566,7 @@ async function requestFieldDecisions(input: {
         ? "previous_evidence_rejections는 이전 인용 형식 실패의 진단 정보다. 그 실패를 의미 판정의 정답으로 간주하지 말고 현재 surrounding_text에서 독립적으로 다시 판정한다."
         : "",
       "각 candidate_id를 반드시 하나씩 판정하고, 문서에 실제로 신청자가 입력해야 하는 영역만 is_user_input=true로 둔다.",
+      "표 후보의 source_context에서 label_row/label_col은 라벨 위치다. value_binding=bound인 VALUE만 original_value가 검증 결속된 위치이고, value_binding=candidate인 VALUE_CANDIDATE는 인접 구조 후보일 뿐 편집 대상 확정이 아니다. surrounding_text의 역할과 제목·머리글·범례를 함께 판정한다.",
       "빈 셀뿐 아니라 단위만 있는 셀, 파란색 예시 문구로 보이는 값, 괄호형 작성 안내문, □ 선택지, ○ 표시 지시문도 입력 대상일 수 있다.",
       "반대로 섹션명·표 머리글·포괄 라벨(예: 재무현황, 관련기술현황)과 이미 확정된 고정 문구는 입력 필드로 만들지 않는다.",
       "행 라벨과 열 머리글을 결합해 매출액·연도처럼 구체적인 필드를 선호한다.",
@@ -819,8 +835,9 @@ export function findSurroundingText(markdown: string, field: RoundtripFieldCandi
 }
 
 /**
- * KorDoc IR 위치를 후보 판정의 공용 seam으로 낮춘다. 표 후보는 target row와 인접 3/2개
- * 행만, 문단 후보는 현재 block과 앞뒤 block만 전달해 다른 동일 라벨 위치가 섞이지 않게 한다.
+ * KorDoc IR 위치를 후보 판정의 공용 seam으로 낮춘다. 표 후보는 라벨과 값 역할을 분리하고,
+ * 첫 2개 머리글 중 대상 열을 덮는 셀, 인접 문단 1개씩, target row 앞3/뒤2개만 전달한다.
+ * 문단 후보는 현재 block과 앞뒤 block만 전달해 다른 동일 라벨 위치가 섞이지 않게 한다.
  */
 export function buildRoundtripFieldSourceContexts(
   blocks: readonly IRBlock[],
@@ -836,25 +853,54 @@ export function buildRoundtripFieldSourceContexts(
       if (!Number.isSafeInteger(row) || row < 0 || row >= block.table.cells.length) continue;
       const targetRow = block.table.cells[row];
       if (!targetRow || !Number.isSafeInteger(col) || col < 0 || col >= targetRow.length) continue;
+      const valueContext = resolveTableValueContext(field, block.table, row, col);
       const startRow = Math.max(0, row - 3);
       const endRow = Math.min(block.table.cells.length - 1, row + 2);
+      const before = findNearbyTableContextBlock(blocks, field.location.blockIndex, -1);
+      const after = findNearbyTableContextBlock(blocks, field.location.blockIndex, 1);
       const lines = [
-        `block=${field.location.blockIndex} type=table target=row${row},col${col}`,
-        `target_cell=[row${row},col${col};span=${targetRow[col]!.rowSpan}x${targetRow[col]!.colSpan}] ${clipSourceText(targetRow[col]!.text, 1_200)}`,
+        `block=${field.location.blockIndex} type=table label=row${row},col${col}`
+          + (valueContext.binding !== "unavailable"
+            ? ` value_${valueContext.binding}=row${valueContext.row},col${valueContext.col}`
+            : " value=unavailable"),
+        `label_cell=[row${row},col${col};span=${targetRow[col]!.rowSpan}x${targetRow[col]!.colSpan}] ${clipSourceText(targetRow[col]!.text, 1_200)}`,
+        valueContext.binding !== "unavailable"
+          ? formatRoleCell(
+              valueContext.binding === "bound" ? "value_cell" : "value_candidate_cell",
+              block.table.cells[valueContext.row]?.[valueContext.col],
+              valueContext.row,
+              valueContext.col,
+            )
+          : "value_cell=unavailable",
         ...(block.table.caption ? [`caption=${clipSourceText(block.table.caption, 240)}`] : []),
+        ...(before ? [`section_before=block${before.index} ${clipSourceText(before.text, 480)}`] : []),
+        ...(after ? [`section_after=block${after.index} ${clipSourceText(after.text, 480)}`] : []),
+        ...formatRelevantTableHeaders(block, row, [
+          col,
+          valueContext.binding === "unavailable" ? col : valueContext.col,
+        ]),
       ];
       for (let rowIndex = startRow; rowIndex <= endRow; rowIndex += 1) {
         const cells = block.table.cells[rowIndex] ?? [];
-        lines.push(`row${rowIndex}: ${cells.slice(0, 32).map((cell, colIndex) => {
-          const marker = rowIndex === row && colIndex === col ? " TARGET" : "";
-          return `[col${colIndex}${marker};span=${cell.rowSpan}x${cell.colSpan}] ${clipSourceText(cell.text, 600)}`;
-        }).join(" | ")}`);
+        lines.push(formatSourceRow(cells, rowIndex, {
+          labelRow: row,
+          labelCol: col,
+          valueRow: valueContext.binding === "unavailable" ? null : valueContext.row,
+          valueCol: valueContext.binding === "unavailable" ? null : valueContext.col,
+          valueMarker: valueContext.binding === "bound" ? "VALUE" : "VALUE_CANDIDATE",
+        }));
       }
       contexts.set(field.fieldInstanceId, {
         binding: "block_row_col",
         blockIndex: field.location.blockIndex,
         row,
         col,
+        labelRow: row,
+        labelCol: col,
+        ...(valueContext.binding !== "unavailable"
+          ? { valueRow: valueContext.row, valueCol: valueContext.col }
+          : {}),
+        valueBinding: valueContext.binding,
         text: clipSourceText(lines.join("\n"), 4_800),
       });
       continue;
@@ -880,6 +926,153 @@ export function buildRoundtripFieldSourceContexts(
     });
   }
   return contexts;
+}
+
+type TableValueContext =
+  | { binding: "bound" | "candidate"; row: number; col: number }
+  | { binding: "unavailable" };
+
+function resolveTableValueContext(
+  field: RoundtripFieldCandidate,
+  table: IRTable,
+  row: number,
+  labelCol: number,
+): TableValueContext {
+  const explicitTarget = field.location.target;
+  if (explicitTarget?.kind === "table_cell") {
+    const validated = validateExplicitTableTarget(table, explicitTarget);
+    return validated ? { binding: "bound", ...validated } : { binding: "unavailable" };
+  }
+  const rowCells = table.cells[row];
+  if (!rowCells) return { binding: "unavailable" };
+  const labelCell = rowCells[labelCol];
+  if (!labelCell) return { binding: "unavailable" };
+  const originalValue = field.originalValue.normalize("NFKC").trim();
+  if (originalValue && labelCell.text.normalize("NFKC").trim() === originalValue) {
+    return { binding: "bound", row, col: labelCol };
+  }
+  const adjacentCol = labelCol + 1;
+  const spanEndCol = labelCol + Math.max(1, labelCell.colSpan);
+  const candidates = [...new Set([adjacentCol, spanEndCol])].filter((candidate) => candidate < rowCells.length);
+  if (originalValue) {
+    const exact = candidates.filter((candidate) =>
+      rowCells[candidate]!.text.normalize("NFKC").trim() === originalValue);
+    if (exact.length === 1) return { binding: "bound", row, col: exact[0]! };
+    if (exact.length > 1) return { binding: "candidate", row, col: exact[0]! };
+  }
+  if (field.source === "rhwp-structural" && spanEndCol < rowCells.length) {
+    return { binding: "candidate", row, col: spanEndCol };
+  }
+  return adjacentCol < rowCells.length
+    ? { binding: "candidate", row, col: adjacentCol }
+    : { binding: "unavailable" };
+}
+
+function validateExplicitTableTarget(
+  table: IRTable,
+  target: NonNullable<RoundtripFieldCandidate["location"]["target"]>,
+): { row: number; col: number } | null {
+  const row = target.row;
+  const col = target.col;
+  if (
+    !Number.isSafeInteger(row)
+    || !Number.isSafeInteger(col)
+    || row === null
+    || col === null
+    || row < 0
+    || row >= table.cells.length
+    || col < 0
+    || col >= (table.cells[row]?.length ?? 0)
+  ) return null;
+  const cell = table.cells[row]![col]!;
+  const hasExpectedText = typeof target.expectedText === "string";
+  const hasExpectedHash = typeof target.expectedSha256 === "string" && target.expectedSha256.length > 0;
+  if (hasExpectedText) {
+    if (
+      !Number.isSafeInteger(target.textStart)
+      || !Number.isSafeInteger(target.textEnd)
+      || target.textStart < 0
+      || target.textEnd < target.textStart
+      || target.textEnd > cell.text.length
+      || cell.text.slice(target.textStart, target.textEnd) !== target.expectedText
+    ) return null;
+  }
+  if (
+    hasExpectedHash
+    && (!hasExpectedText
+      || createHash("sha256").update(target.expectedText).digest("hex") !== target.expectedSha256)
+  ) return null;
+  return { row, col };
+}
+
+function findNearbyTableContextBlock(
+  blocks: readonly IRBlock[],
+  tableBlockIndex: number,
+  direction: -1 | 1,
+): { index: number; text: string } | null {
+  for (let distance = 1; distance <= 2; distance += 1) {
+    const index = tableBlockIndex + direction * distance;
+    const candidate = blocks[index];
+    if (!candidate || candidate.type === "table") return null;
+    const text = blockText(candidate).trim();
+    if (text) return { index, text };
+  }
+  return null;
+}
+
+function formatRelevantTableHeaders(
+  block: IRBlock,
+  targetRow: number,
+  targetCols: readonly number[],
+): string[] {
+  if (block.type !== "table" || !block.table?.hasHeader || targetRow <= 0) return [];
+  const lines: string[] = [];
+  const headerRowCount = Math.min(2, targetRow, block.table.cells.length);
+  for (let rowIndex = 0; rowIndex < headerRowCount; rowIndex += 1) {
+    const cells = block.table.cells[rowIndex] ?? [];
+    const relevant = cells.flatMap((cell, colIndex) => {
+      if (!cell.text.trim()) return [];
+      const endCol = colIndex + Math.max(1, cell.colSpan) - 1;
+      if (!targetCols.some((targetCol) => targetCol >= colIndex && targetCol <= endCol)) return [];
+      return [`[col${colIndex};span=${cell.rowSpan}x${cell.colSpan}] ${clipSourceText(cell.text, 360)}`];
+    });
+    if (relevant.length > 0) {
+      lines.push(`column_header_row${rowIndex}: ${clipSourceText(relevant.join(" | "), 900)}`);
+    }
+  }
+  return lines;
+}
+
+function formatRoleCell(
+  role: string,
+  cell: { text: string; rowSpan: number; colSpan: number } | undefined,
+  row: number,
+  col: number,
+): string {
+  if (!cell) return `${role}=[row${row},col${col};missing]`;
+  return `${role}=[row${row},col${col};span=${cell.rowSpan}x${cell.colSpan}] ${clipSourceText(cell.text, 1_200)}`;
+}
+
+function formatSourceRow(
+  cells: readonly { text: string; rowSpan: number; colSpan: number }[],
+  rowIndex: number,
+  roles: {
+    labelRow: number;
+    labelCol: number;
+    valueRow: number | null;
+    valueCol: number | null;
+    valueMarker: "VALUE" | "VALUE_CANDIDATE";
+  },
+): string {
+  const rendered = cells.slice(0, 32).map((cell, colIndex) => {
+    const markers = [
+      rowIndex === roles.labelRow && colIndex === roles.labelCol ? "LABEL" : "",
+      rowIndex === roles.valueRow && colIndex === roles.valueCol ? roles.valueMarker : "",
+    ].filter(Boolean);
+    const marker = markers.length > 0 ? ` ${markers.join(",")}` : "";
+    return `[col${colIndex}${marker};span=${cell.rowSpan}x${cell.colSpan}] ${clipSourceText(cell.text, 240)}`;
+  }).join(" | ");
+  return `row${rowIndex}: ${clipSourceText(rendered, 760)}`;
 }
 
 function resolveFieldSourceContext(

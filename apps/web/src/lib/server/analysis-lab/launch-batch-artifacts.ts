@@ -743,7 +743,6 @@ function normalizeAnalysisLaunchManifestForPurpose(
     || (existingRunPolicy !== "skip_existing" && existingRunPolicy !== "rerun_exact_targets")
   );
   const supportedHistoricalOfflineContract = purpose === "completed-receipt-offline-consumer"
-    && terminalRepair === undefined
     && isSupportedCompletedReceiptOfflineContract({
       rawSourceKind: source.kind,
       rawAdoptionManifestSha256: source.adoptionManifestSha256,
@@ -753,6 +752,7 @@ function normalizeAnalysisLaunchManifestForPurpose(
       existingRunPolicy,
       adoptionManifestSha256,
       completedLaunch,
+      terminalRepair,
       planSha256,
       planArtifactSha256,
       transport: execution.transport,
@@ -767,9 +767,10 @@ function normalizeAnalysisLaunchManifestForPurpose(
     && execution.model === APPLICATION_ROUNDTRIP_ADOPTED_MODEL
     && execution.promptVersion === ANALYSIS_LAB_PROMPT_VERSION
     && execution.validatorVersion === DEEP_ANALYSIS_VALIDATOR_VERSION
-    && withApplicationRoundtrip
-    && roundtripModel === APPLICATION_ROUNDTRIP_ADOPTED_MODEL
-    && applicationFieldAnalysisVersion === APPLICATION_ROUNDTRIP_VERSION;
+    && (withApplicationRoundtrip
+      ? roundtripModel === APPLICATION_ROUNDTRIP_ADOPTED_MODEL
+        && applicationFieldAnalysisVersion === APPLICATION_ROUNDTRIP_VERSION
+      : roundtripModel === null && applicationFieldAnalysisVersion === null);
   if (
     purpose === "completed-receipt-offline-consumer"
       ? !supportedHistoricalOfflineContract && !supportedCurrentOfflineContract
@@ -814,6 +815,8 @@ function normalizeAnalysisLaunchManifestForPurpose(
 const COMPLETED_RECEIPT_OFFLINE_HISTORICAL_CONTRACTS = new Set([
   // exact19 종료 receipt의 v17 계약은 오프라인 재검증에만 보존한다.
   "current_inventory|skip_existing|lab-deep-v28|deep-analysis-validator-v22|kordoc-application-roundtrip-v17",
+  // 2026-09-15 terminal repair 6건의 종료 계약. 원 ancestry는 completed reader가 별도로 검증한다.
+  "current_inventory|rerun_exact_targets|lab-deep-v28|deep-analysis-validator-v22|kordoc-application-roundtrip-v17",
   "current_inventory|skip_existing|lab-deep-v28|deep-analysis-validator-v21|kordoc-application-roundtrip-v15",
   "formal_plan|skip_existing|lab-deep-v21|deep-analysis-validator-v14|kordoc-application-roundtrip-v9",
   "current_inventory|skip_existing|lab-deep-v22|deep-analysis-validator-v15|kordoc-application-roundtrip-v9",
@@ -854,6 +857,7 @@ function isSupportedCompletedReceiptOfflineContract(input: {
   readonly existingRunPolicy: unknown;
   readonly adoptionManifestSha256: string | null;
   readonly completedLaunch: AnalysisLaunchCompletedCurrentInventoryBinding | undefined;
+  readonly terminalRepair: AnalysisLaunchTerminalRepairBinding | undefined;
   readonly planSha256: string;
   readonly planArtifactSha256: string;
   readonly transport: unknown;
@@ -867,6 +871,18 @@ function isSupportedCompletedReceiptOfflineContract(input: {
     input.transport !== "claude-cli"
     || input.model !== APPLICATION_ROUNDTRIP_ADOPTED_MODEL
     || input.completedLaunch !== undefined
+  ) return false;
+  if (
+    input.terminalRepair !== undefined
+    && (
+      input.sourceKind !== "current_inventory"
+      || input.existingRunPolicy !== "rerun_exact_targets"
+    )
+  ) return false;
+  if (
+    input.sourceKind === "current_inventory"
+    && input.existingRunPolicy === "rerun_exact_targets"
+    && input.terminalRepair === undefined
   ) return false;
   const authoringGuidePrimaryOnly = input.sourceKind === "authoring_guide_adoption"
     && input.adoptionManifestSha256 !== null

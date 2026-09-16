@@ -4,6 +4,7 @@
 // ③ round 0 저효율의 거절 수락 임계 0.85(경계 구간은 uncertain → 재판정에서 회복)
 // ④ effort 미설정이면 현행과 100% 동일 동작
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import type { IRBlock } from "kordoc";
 import type { RoundtripFieldCandidate } from "@/lib/server/analysis-lab/application-roundtrip/contract";
 import {
@@ -86,7 +87,9 @@ try {
     assert.equal(structuralContext?.row, 17);
     assert.equal(structuralContext?.col, 1);
     assert.match(structuralContext?.text ?? "", /기업 구성 현황/);
-    assert.match(structuralContext?.text ?? "", /col1 TARGET.*공동대표\/대리/);
+    assert.match(structuralContext?.text ?? "", /col1 LABEL.*공동대표\/대리/);
+    assert.equal(structuralContext?.valueBinding, "candidate");
+    assert.match(structuralContext?.text ?? "", /col2 VALUE_CANDIDATE/);
 
     const bodies: Array<Record<string, unknown>> = [];
     const foreignEvidence = "공동대표 또는 각자대표로 구성된 기업의 경우 대표자 전원이 신청자격에 해당";
@@ -110,6 +113,11 @@ try {
       block_index: 106,
       row: 17,
       col: 1,
+      label_row: 17,
+      label_col: 1,
+      value_row: 17,
+      value_col: 2,
+      value_binding: "candidate",
     }, "요청은 후보의 exact block/row/col 결속을 전달");
     assert.equal(payload[0].surrounding_text, structuralContext?.text, "원문 문맥은 중복 없이 한 번만 전달");
     assert.equal(bodies.length, 2, "같은 짧은 인용 실패를 두 번 받은 후보는 세 번째 동일 재판정을 생략");
@@ -148,6 +156,217 @@ try {
     assert.equal(local.fields[0]?.llmDecision, "not_input", "해당 위치의 실제 구획 제목 negative는 확정 가능");
     assert.match(local.fields[0]?.inputSignals.join(" ") ?? "", /구조 위치 결속 확인/);
     console.log("✅ RHWP 후보 문맥 — block/row/col 결속 및 다른 위치 negative 차단");
+  }
+  // ---- original41 seq23 원문: 라벨/값 역할과 먼 머리글·인접 제목/범례 결속 -------
+  {
+    // source SHA256 fc26f6a21aa3f3b4578d7660757eac453a91ca8579523f16429f627d65cbc811
+    // 보관 IR의 block67~72와 세 미확정 후보에서 판정에 필요한 셀만 옮긴 회귀 fixture다.
+    const blocks: IRBlock[] = Array.from({ length: 74 }, () => ({ type: "paragraph", text: "" }));
+    blocks[66] = { type: "paragraph", text: "앞의 무관한 절" };
+    blocks[67] = { type: "paragraph", text: "□ 솔루션 기능 구성도 (예시)" };
+    const diagramRows = Array.from({ length: 54 }, () => tableRow(...Array.from({ length: 23 }, () => "")));
+    diagramRows[1]![7] = { text: "MES", colSpan: 10, rowSpan: 1 };
+    diagramRows[50]![10] = { text: "피크치 전력관리", colSpan: 2, rowSpan: 1 };
+    diagramRows[52]![10] = { text: "역률 모니터링", colSpan: 2, rowSpan: 1 };
+    blocks[68] = { type: "table", table: { rows: 54, cols: 23, hasHeader: true, cells: diagramRows } };
+    blocks[69] = { type: "heading", text: "※ 필요시 기 구축 솔루션의 기능 구성도는 별도 추가 가능", level: 3 };
+    blocks[70] = { type: "paragraph", text: "□ Application 시스템 기능 설명 (예시)" };
+    const functionRows = Array.from({ length: 55 }, () => tableRow("", "", "", "", "", ""));
+    functionRows[0] = [
+      { text: "모듈명", colSpan: 1, rowSpan: 2 },
+      { text: "기능명", colSpan: 1, rowSpan: 2 },
+      { text: "상세내역", colSpan: 1, rowSpan: 2 },
+      { text: "도입기업 필요 기능", colSpan: 2, rowSpan: 1 },
+      { text: "", colSpan: 1, rowSpan: 1 },
+      { text: "패키지\n內 미사용 기능*", colSpan: 1, rowSpan: 2 },
+    ];
+    functionRows[1] = tableRow("", "", "", "단위\n프로세스", "구분", "");
+    functionRows[53] = tableRow("", "암호변경", "사용자 암호변경관리", "", "추가", "-");
+    functionRows[54] = tableRow("", "공지사항관리", "공지사항 등록 및 조회관리", "", "추가", "-");
+    blocks[71] = { type: "table", table: { rows: 55, cols: 6, hasHeader: true, cells: functionRows } };
+    blocks[72] = {
+      type: "paragraph",
+      text: "* ➊기존 : 패키지에 포함된 기능, ➋추가 : 추가 개발이 필요한 기능, ➌수정 : 패키지에서 수정개발이 필요한 기능, ➍미사용 : 패키지에서 요구사항(필요기능)에 포함되지 않은 기능",
+    };
+    blocks[73] = { type: "paragraph", text: "뒤의 무관한 절" };
+
+    const powerField = {
+      ...candidate("4ed8d2d6af41c608c152cc00"),
+      label: "역률 모니터링",
+      displayLabel: "역률 모니터링",
+      normalizedLabel: "역률모니터링",
+      location: { blockIndex: 68, row: 52, col: 10, occurrence: 0, pageNumber: 1 },
+    };
+    const additionalFields = [53, 54].map((row, index) => ({
+      ...candidate(index === 0 ? "88129f462e5a6fb0e88e7810" : "e0d0adbbd007b920d18f1675"),
+      label: "추가",
+      displayLabel: "추가",
+      normalizedLabel: "추가",
+      originalValue: "-",
+      location: { blockIndex: 71, row, col: 4, occurrence: 25 + index, pageNumber: 1 },
+    }));
+    const contexts = buildRoundtripFieldSourceContexts(blocks, [powerField, ...additionalFields]);
+    const power = contexts.get(powerField.fieldInstanceId);
+    assert.equal(power?.labelCol, 10);
+    assert.equal(power?.valueCol, 11, "KorDoc originalValue의 인접 셀을 값 역할로 명시");
+    assert.equal(power?.valueBinding, "candidate", "빈 병합셀의 인접 좌표는 편집 결속이 아닌 진단 후보");
+    assert.match(power?.text ?? "", /label_cell=\[row52,col10;span=1x2\] 역률 모니터링/);
+    assert.match(power?.text ?? "", /value_candidate_cell=\[row52,col11;span=1x1\]/);
+    assert.match(power?.text ?? "", /section_before=block67 □ 솔루션 기능 구성도 \(예시\)/);
+    assert.match(power?.text ?? "", /column_header_row1: \[col7;span=1x10\] MES/);
+    assert.match(power?.text ?? "", /section_after=block69 ※ 필요시 기 구축 솔루션의 기능 구성도는 별도 추가 가능/);
+    assert.doesNotMatch(power?.text ?? "", /앞의 무관한 절|뒤의 무관한 절/);
+
+    for (const field of additionalFields) {
+      const context = contexts.get(field.fieldInstanceId);
+      assert.equal(context?.labelCol, 4);
+      assert.equal(context?.valueCol, 5);
+      assert.equal(context?.valueBinding, "bound", "유일한 exact originalValue '-' 셀은 검증 결속");
+      assert.match(context?.text ?? "", new RegExp(`label_cell=\\[row${field.location.row},col4;span=1x1\\] 추가`));
+      assert.match(context?.text ?? "", new RegExp(`value_cell=\\[row${field.location.row},col5;span=1x1\\] -`));
+      assert.match(context?.text ?? "", /section_before=block70 □ Application 시스템 기능 설명 \(예시\)/);
+      assert.match(context?.text ?? "", /column_header_row0: \[col3;span=1x2\] 도입기업 필요 기능/);
+      assert.match(context?.text ?? "", /column_header_row1: \[col4;span=1x1\] 구분/);
+      assert.match(context?.text ?? "", /section_after=block72 .*➋추가 : 추가 개발이 필요한 기능/);
+      assert.match(context?.text ?? "", /col4 LABEL.*추가.*col5 VALUE.*-/s);
+      assert.ok((context?.text.length ?? Infinity) <= 4_800, "제목·머리글·범례를 추가해도 기존 후보 문맥 상한 유지");
+      assert.doesNotMatch(context?.text ?? "", /앞의 무관한 절|뒤의 무관한 절/);
+    }
+    console.log("✅ original41 seq23 원문 — 라벨/값 역할 및 bounded 제목·머리글·범례 결속");
+  }
+  // ---- 값 좌표 provenance: 검증 결속 / 구조 후보 / invalid fail-closed ------------
+  {
+    const blocks: IRBlock[] = [
+      tableBlock([tableRow("라벨", "실제값")]),
+      {
+        type: "table",
+        table: {
+          rows: 1,
+          cols: 3,
+          hasHeader: false,
+          cells: [[
+            { text: "병합 라벨", colSpan: 2, rowSpan: 1 },
+            { text: "-", colSpan: 1, rowSpan: 1 },
+            { text: "-", colSpan: 1, rowSpan: 1 },
+          ]],
+        },
+      },
+      tableBlock([tableRow("기존값", "")]),
+      tableBlock([tableRow("문단형 입력", "")]),
+    ];
+    const sha256 = (value: string) => createHash("sha256").update(value).digest("hex");
+    const fields: RoundtripFieldCandidate[] = [
+      {
+        ...candidate("invalid-bounds"),
+        label: "라벨",
+        originalValue: "실제값",
+        location: {
+          blockIndex: 0,
+          row: 0,
+          col: 0,
+          occurrence: 0,
+          pageNumber: 1,
+          target: {
+            kind: "table_cell",
+            row: 99,
+            col: 1,
+            textStart: 0,
+            textEnd: 3,
+            expectedText: "실제값",
+            expectedSha256: sha256("실제값"),
+          },
+        },
+      },
+      {
+        ...candidate("invalid-hash"),
+        label: "라벨",
+        originalValue: "실제값",
+        location: {
+          blockIndex: 0,
+          row: 0,
+          col: 0,
+          occurrence: 0,
+          pageNumber: 1,
+          target: {
+            kind: "table_cell",
+            row: 0,
+            col: 1,
+            textStart: 0,
+            textEnd: 3,
+            expectedText: "실제값",
+            expectedSha256: "0".repeat(64),
+          },
+        },
+      },
+      {
+        ...candidate("duplicate-exact-value"),
+        label: "병합 라벨",
+        originalValue: "-",
+        location: { blockIndex: 1, row: 0, col: 0, occurrence: 0, pageNumber: 1 },
+      },
+      {
+        ...candidate("no-matching-value"),
+        label: "라벨",
+        originalValue: "추출값",
+        location: { blockIndex: 0, row: 0, col: 0, occurrence: 0, pageNumber: 1 },
+      },
+      {
+        ...candidate("same-cell-original-value"),
+        label: "기존값",
+        originalValue: "기존값",
+        location: { blockIndex: 2, row: 0, col: 0, occurrence: 0, pageNumber: 1 },
+      },
+      {
+        ...candidate("contextual-explicit-same-cell"),
+        label: "문단형 입력",
+        originalValue: "",
+        source: "contextual-region",
+        writeOperation: "replace_span",
+        location: {
+          blockIndex: 3,
+          row: 0,
+          col: 0,
+          occurrence: 0,
+          pageNumber: 1,
+          target: {
+            kind: "table_cell",
+            row: 0,
+            col: 0,
+            textStart: 0,
+            textEnd: "문단형 입력".length,
+            expectedText: "문단형 입력",
+            expectedSha256: sha256("문단형 입력"),
+          },
+        },
+      },
+    ];
+    const contexts = buildRoundtripFieldSourceContexts(blocks, fields);
+    for (const id of ["invalid-bounds", "invalid-hash"]) {
+      const context = contexts.get(id);
+      assert.equal(context?.valueBinding, "unavailable");
+      assert.equal(context?.valueRow, undefined);
+      assert.match(context?.text ?? "", /value_cell=unavailable/);
+      assert.doesNotMatch(context?.text ?? "", /VALUE(?:_CANDIDATE)?/);
+    }
+    const duplicate = contexts.get("duplicate-exact-value");
+    assert.equal(duplicate?.valueBinding, "candidate", "중복 exact 값은 임의 결속하지 않음");
+    assert.match(duplicate?.text ?? "", /value_candidate_cell=.*-/);
+    assert.doesNotMatch(duplicate?.text ?? "", /\sVALUE;/);
+
+    const noMatch = contexts.get("no-matching-value");
+    assert.equal(noMatch?.valueBinding, "candidate", "불일치 인접 셀은 진단 후보로만 전달");
+    assert.match(noMatch?.text ?? "", /value_candidate_cell=.*실제값/);
+
+    const sameCell = contexts.get("same-cell-original-value");
+    assert.equal(sameCell?.valueBinding, "bound");
+    assert.deepEqual([sameCell?.valueRow, sameCell?.valueCol], [0, 0]);
+    assert.match(sameCell?.text ?? "", /col0 LABEL,VALUE/);
+
+    const contextual = contexts.get("contextual-explicit-same-cell");
+    assert.equal(contextual?.valueBinding, "bound");
+    assert.deepEqual([contextual?.valueRow, contextual?.valueCol], [0, 0]);
+    assert.match(contextual?.text ?? "", /col0 LABEL,VALUE/);
+    console.log("✅ 값 좌표 provenance — 검증 결속/구조 후보 분리 및 invalid target fail-closed");
   }
   // ---- TECHFEST 원문 위치 3건: 실패 진단 전달 후 구조 결속 negative 회복 ------------
   {
