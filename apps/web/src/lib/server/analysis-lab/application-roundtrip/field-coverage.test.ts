@@ -17,6 +17,46 @@ assert.equal(unresolved.status, "review_required");
 assert.equal(unresolved.unresolvedCandidateCount, 1);
 assert.equal(unresolved.unresolvedCandidates[0]?.label, "추가 설명");
 
+const suspectedPlaceholder = field({
+  id: "suspected-placeholder",
+  label: "책임자",
+  recommendedInput: false,
+  signals: ["앞 라벨 “대표”의 값 placeholder 가능성"],
+});
+const suspectedPlaceholderCoverage = finalizeRoundtripFieldCoverage([suspectedPlaceholder]);
+assert.equal(
+  suspectedPlaceholderCoverage.status,
+  "review_required",
+  "가능성 신호만으로 빈 후보를 확정 거절 처리하면 안 된다",
+);
+assert.equal(suspectedPlaceholderCoverage.unresolvedCandidateCount, 1);
+assert.equal(suspectedPlaceholderCoverage.unresolvedCandidates[0]?.label, "책임자");
+
+const alternatingMetadataFields = extractLocatedRoundtripFields([{
+  type: "table",
+  table: {
+    rows: 1,
+    cols: 5,
+    hasHeader: false,
+    cells: [[
+      { text: "기본\n정보", colSpan: 1, rowSpan: 1 },
+      { text: "기업명", colSpan: 1, rowSpan: 1 },
+      { text: "", colSpan: 1, rowSpan: 1 },
+      { text: "대표자", colSpan: 1, rowSpan: 1 },
+      { text: "", colSpan: 1, rowSpan: 1 },
+    ]],
+  },
+}], "3".repeat(64)).fields;
+const alternatingMetadataCoverage = finalizeRoundtripFieldCoverage(alternatingMetadataFields);
+assert.equal(alternatingMetadataCoverage.status, "complete");
+assert.equal(alternatingMetadataCoverage.acceptedInputCount, 2);
+assert.equal(alternatingMetadataCoverage.anchorReadyInputCount, 2);
+assert.equal(
+  alternatingMetadataFields.find((candidate) => candidate.label === "기업명")?.recommendedInput,
+  true,
+  "독립 기업명 입력은 추출부터 coverage까지 유지해야 한다",
+);
+
 const unboundHighConfidenceNegative = field({
   id: "unbound-high-confidence-negative",
   label: "공동대표",

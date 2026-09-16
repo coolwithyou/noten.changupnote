@@ -129,7 +129,7 @@ test("완료된 v14 current inventory ancestry만 현행 v17 exact 재실행으�
         validatorVersion: DEEP_ANALYSIS_VALIDATOR_VERSION,
       },
     });
-    assert.equal(resealed.execution.applicationFieldAnalysisVersion, "kordoc-application-roundtrip-v19");
+    assert.equal(resealed.execution.applicationFieldAnalysisVersion, "kordoc-application-roundtrip-v20");
     assert.equal(resealed.execution.existingRunPolicy, "rerun_exact_targets");
     assert.deepEqual(resealed.source.completedLaunch, fixture.binding);
     assert.deepEqual(normalizeAnalysisLaunchManifest(resealed), resealed);

@@ -32,9 +32,12 @@ const REAL_RECEIPTS = [
   "35b10397e142b4bc851d0886acab3056fd615db4104a9d479664da64e2f30674",
   "4a227717747b93c430559d4828e222cc8db2d450b11097d2f13adf2e28256712",
   "1d51dc26eaff6bed4d49f696cca56c53f0e003352da9fa1cade21a96361fabd7",
+  "dbcdb3ff2897898bd75afe406481c42c248cbce01ad5110ddb77cd9639b18514",
+  "9b58644f25ee678975791e681198bcf7eb7d4a256d18d18d3d39e1a2002bb3f5",
+  "81e92656e094b6d6b4cbbd7a4bb2420a34792f813c5cd34f5bbaf6da4ce576f5",
 ] as const;
 
-test("실제 v15/v17 종료 receipts는 target 결과와 terminal repair ancestry를 보존한다", {
+test("실제 v15/v17/v19 종료 receipts는 target 결과와 terminal repair ancestry를 보존한다", {
   skip: !(await realReceiptsAvailable(process.cwd())),
 }, async () => {
   const loaded = await Promise.all(REAL_RECEIPTS.map((launchReceiptSha256) => (
@@ -47,6 +50,9 @@ test("실제 v15/v17 종료 receipts는 target 결과와 terminal repair ancestr
       "kordoc-application-roundtrip-v15",
       "kordoc-application-roundtrip-v17",
       "kordoc-application-roundtrip-v17",
+      "kordoc-application-roundtrip-v19",
+      "kordoc-application-roundtrip-v19",
+      "kordoc-application-roundtrip-v19",
     ],
   );
   assert.equal(loaded[0]!.receipt.stopReason, "systemic-failure");
@@ -57,7 +63,7 @@ test("실제 v15/v17 종료 receipts는 target 결과와 terminal repair ancestr
   assert.equal(loaded[2]!.receipt.summary.publishable, 5);
   assert.equal(loaded[3]!.receipt.summary.publishable, 15);
 
-  for (const index of [0, 2] as const) {
+  for (const index of [0, 2, 4, 5, 6] as const) {
     const source = loaded[index]!;
     const target = source.receipt.targets.find((candidate) => (
       candidate.status === "publishable" && candidate.featureReadiness?.authoring.status === "ready"
@@ -97,8 +103,15 @@ test("실제 v15/v17 종료 receipts는 target 결과와 terminal repair ancestr
         confirmedDuplicate: false,
       },
     } as Parameters<typeof classifyAnalysisLaunchPromotionReadiness>[0]);
-    assert.ok(readiness.disposition === "ready" || readiness.disposition === "conditional");
-    assert.deepEqual(readiness.reasons, []);
+    if (index === 4) {
+      // 실제 repair4 첫 작성 후보는 primary repair 차단 이력이 있다. 역사 호환성이 이를 우회하면 안 된다.
+      assert.equal(readiness.disposition, "held");
+      assert.deepEqual(readiness.reasons, ["blocking_new_issue_after_repair"]);
+    } else {
+      assert.ok(readiness.disposition === "ready" || readiness.disposition === "conditional",
+        `receipt ${REAL_RECEIPTS[index]}: ${JSON.stringify(readiness.reasons)}`);
+      assert.deepEqual(readiness.reasons, []);
+    }
     assert.equal(readiness.runFeatureReadiness.matching.status, "ready");
     assert.equal(readiness.runFeatureReadiness.authoring.status, "ready");
     assert.equal(readiness.authoringEvidenceStatus, "held");
@@ -122,6 +135,17 @@ test("현행 완료 계약은 읽되 live normalizer의 역사 계약 거부는 
       loaded.manifest.execution.applicationFieldAnalysisVersion,
       APPLICATION_ROUNDTRIP_VERSION,
     );
+
+    const priorV19 = await fixture(root, {
+      promptVersion: "lab-deep-v28",
+      validatorVersion: "deep-analysis-validator-v23",
+      applicationFieldAnalysisVersion: "kordoc-application-roundtrip-v19",
+    });
+    assert.throws(() => normalizeAnalysisLaunchManifest(priorV19.manifest), /launch source\/existing run 정책 결속/);
+    const priorLoaded = await readCompletedAnalysisLaunchArtifacts({
+      launchReceiptSha256: priorV19.receipt.sha256, repositoryRoot: root,
+    });
+    assert.equal(priorLoaded.manifest.execution.applicationFieldAnalysisVersion, "kordoc-application-roundtrip-v19");
 
     const historical = await fixture(root, {
       promptVersion: "lab-deep-v28",

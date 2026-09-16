@@ -1,0 +1,934 @@
+{
+  "schema": "company-field-followup-evidence-v1",
+  "verifiedAt": "2026-09-16T12:42:52.614261+00:00",
+  "baseCommit": "0a5438d973aef08b85e7c69b92862bfd2abbfbdc",
+  "scope": "Offline follow-up on the exact approved 35 results; this is not a live execution grant or release artifact.",
+  "versions": {
+    "applicationAnalysis": "kordoc-application-roundtrip-v20",
+    "fieldParser": "kordoc-rhwp-application-fields-v10"
+  },
+  "validation": {
+    "finishedAt": "2026-09-16T12:37:30.123862+00:00",
+    "sourceHashes": {
+      "apps/web/src/lib/server/analysis-lab/application-roundtrip/core.test.ts": "2ed97771a6c8496e4fb80b7cec3f71ef082d92f41012adb44c7ebc7d6eb4ceef",
+      "apps/web/src/lib/server/analysis-lab/application-roundtrip/field-coverage.test.ts": "85bdeba09c9a5f52eabd29c0dfaa2847d0266d7db56a00317858c2612dfb5c29",
+      "apps/web/src/lib/server/analysis-lab/completed-analysis-launch-reader.test.ts": "adbfd21e9304bf98ae015d54dc3c7a13f2400be107c0cdc76470bedfcf3d31a9",
+      "apps/web/src/lib/server/analysis-lab/current-inventory-launch.test.ts": "47439c2f2fd29fbbeb106eda74153e5e4c740e3cc34ab135714dabc5b67c04e5",
+      "apps/web/src/lib/server/analysis-lab/launch-batch-artifacts.ts": "2928477cc1acc46cc8e3d8bc3dcb5a275e039ae38b984316ca9a661c903088df",
+      "apps/web/src/lib/server/analysis-lab/launch-batch.test.ts": "1f406888ec1939e9ee6984a6b5ca80e739c8fa637e7057d8bd92a067dfd31b13",
+      "apps/web/src/lib/server/application-analysis/core.ts": "a48813b5884f830b969088bc7235d1bdb96de6c2fcc22987c4caabd386e71082",
+      "apps/web/src/lib/server/application-analysis/field-coverage.ts": "1dc725442cb149db8dda53371837f704e04031d2061b18999ed8b2f165858fac",
+      "apps/web/src/lib/server/documents/applicationAnalysisContract.ts": "e84295f864ecf06a076106b644ed9460e377fb8a60b9e7185863a1cdf53ba439",
+      "apps/web/src/lib/server/documents/applicationFieldVersion.test.ts": "16114deeb65fdd73afbe8fb603362d78e197de96607b68ae7d151637a90a5ba9",
+      "apps/web/src/lib/server/documents/applicationFieldVersion.ts": "7ed7bacbd1f6b135458ff45a60e19348ac0a1c299039df3d11720a8e5b09c4fd",
+      "apps/web/src/lib/server/productReadiness/productSeams.test.ts": "db0686bcccda96e7974cd271d3d9baaa94a01fff33432996c93cfc1ca68cf7b1"
+    },
+    "sourceUnchangedDuringGates": true,
+    "gates": [
+      {
+        "gate": "lab:roundtrip:test",
+        "exitCode": 0,
+        "seconds": 3.6,
+        "log": "spike-out/company-field-followup-20260916/lab-roundtrip-test-stable.log",
+        "sha256": "dda282e11d15fc986f4d87524be018dd5327f24334cd6191d2c34400251326de"
+      },
+      {
+        "gate": "lab:launch:test",
+        "exitCode": 0,
+        "seconds": 3.3,
+        "log": "spike-out/company-field-followup-20260916/lab-launch-test-stable.log",
+        "sha256": "596af6583ddae70583b4f43bc839795a2d7a42c6ed5da5c4af3078bcde6124a6"
+      },
+      {
+        "gate": "lab:release:test",
+        "exitCode": 0,
+        "seconds": 3.2,
+        "log": "spike-out/company-field-followup-20260916/lab-release-test-stable.log",
+        "sha256": "edf0b75f0a83dcd374dee3f52a1fa076fb5a85bd3a253da4a8d7a5689f43dc80"
+      },
+      {
+        "gate": "test",
+        "exitCode": 0,
+        "seconds": 77.8,
+        "log": "spike-out/company-field-followup-20260916/test-stable.log",
+        "sha256": "4e0aa1f2e58581fbe78fee6b9956a2ebf74efd9b4b3d8cbb93a3a21d490d8a85"
+      }
+    ]
+  },
+  "impact": {
+    "originalTargets": 35,
+    "applicationDocuments": 29,
+    "documentsWithNewUnresolved": 22,
+    "targetsWithNewUnresolved": 20,
+    "newlyUnresolvedCandidates": 237,
+    "priorAuthoringReadyTargetsNeedingRecheck": 11,
+    "publishablePriorAuthoringReadyTargetsNeedingRecheck": 10,
+    "interpretation": "237 newly unresolved candidates are not confirmed defects. Recheck uses existing v19 decisions, not fresh v20 model results. The old company decision is included in these counts; fresh IR extraction is separately verified."
+  },
+  "exactCompanyReplay": {
+    "irPath": "spike-out/quality-cause-20260915/seq23-ir.json",
+    "irSha256": "b11eaf4e00dacbe57c4d731461a75f48a95001b610b63e0306af98e862dcaf21",
+    "field": {
+      "fieldInstanceId": "8eb0f2ed483d21e2a47da3d7",
+      "label": "기업명",
+      "displayLabel": "기업명",
+      "normalizedLabel": "기업명",
+      "originalValue": "",
+      "type": "text",
+      "required": false,
+      "empty": true,
+      "recommendedInput": true,
+      "inputLikelihood": 0.95,
+      "inputSignals": [
+        "업체·담당자·과제 메타데이터 라벨"
+      ],
+      "sampleValue": "주식회사 창업노트랩",
+      "sampleReason": "기업·기관명 라벨 매핑",
+      "source": "kordoc-form",
+      "inputKind": "text",
+      "writeOperation": "kordoc_field",
+      "helperText": null,
+      "unit": null,
+      "options": [],
+      "analysisSource": "heuristic",
+      "llmConfidence": null,
+      "location": {
+        "blockIndex": 20,
+        "row": 0,
+        "col": 1,
+        "occurrence": 0,
+        "pageNumber": 1
+      }
+    }
+  },
+  "writerProof": {
+    "artifact": {
+      "path": "spike-out/company-field-followup-20260916/writer-proof/proof.json",
+      "sha256": "37076a9bce565668b8495d83433c1bf74dbab48f16071a21b0cb43d7ae55cd55"
+    },
+    "result": {
+      "schema": "company-field-writer-proof-v1",
+      "createdAt": "2026-09-16T12:40:28.076Z",
+      "gitHead": "0a5438d973aef08b85e7c69b92862bfd2abbfbdc",
+      "tools": {
+        "kordoc": "4.2.3",
+        "rhwpCore": "0.8.4"
+      },
+      "source": {
+        "path": "spike-out/quality-cause-20260915/seq23.hwp",
+        "expectedSha256": "fc26f6a21aa3f3b4578d7660757eac453a91ca8579523f16429f627d65cbc811",
+        "beforeSha256": "fc26f6a21aa3f3b4578d7660757eac453a91ca8579523f16429f627d65cbc811",
+        "afterProofSha256": "fc26f6a21aa3f3b4578d7660757eac453a91ca8579523f16429f627d65cbc811",
+        "bytesBefore": 1786368,
+        "bytesAfterProof": 1786368,
+        "unchanged": true,
+        "archivedIrPath": "spike-out/quality-cause-20260915/seq23-ir.json",
+        "archivedIrSourceSha256": "fc26f6a21aa3f3b4578d7660757eac453a91ca8579523f16429f627d65cbc811",
+        "archivedBlocksJsonSha256": "36172ac27d33365f4ea4a26d7f998548eb0dc140876e05ee445d5f621237b661",
+        "freshBlocksJsonSha256": "36172ac27d33365f4ea4a26d7f998548eb0dc140876e05ee445d5f621237b661",
+        "freshParseMatchesArchivedIr": true,
+        "blockCount": 180
+      },
+      "extraction": {
+        "fieldInstanceId": "8eb0f2ed483d21e2a47da3d7",
+        "label": "기업명",
+        "source": "kordoc-form",
+        "writeOperation": "kordoc_field",
+        "recommendedInput": true,
+        "inputLikelihood": 0.95,
+        "location": {
+          "blockIndex": 20,
+          "row": 0,
+          "col": 1,
+          "occurrence": 0,
+          "pageNumber": 1
+        },
+        "productOccurrenceValues": [
+          "주식회사 쿠노트검증 A7F3-20260916",
+          "상시"
+        ]
+      },
+      "write": {
+        "sampleValue": "주식회사 쿠노트검증 A7F3-20260916",
+        "outputPath": "spike-out/company-field-followup-20260916/writer-proof/seq23-company-field-proof.hwp",
+        "outputSha256": "c165c2f6fa1ed9d48b60a15b41d18e11effc956dda646bce2f6ff92f35aa7c9f",
+        "outputBytes": 1786368,
+        "differsFromSource": true,
+        "patchApplied": 1,
+        "patchSkipped": [],
+        "patchVerification": {
+          "added": 0,
+          "removed": 0,
+          "modified": 0,
+          "unchanged": 180
+        },
+        "intendedDiff": {
+          "added": 0,
+          "removed": 0,
+          "modified": 1,
+          "unchanged": 179
+        },
+        "reparsedDiff": {
+          "added": 0,
+          "removed": 0,
+          "modified": 1,
+          "unchanged": 179
+        },
+        "changedBlockIndexes": [
+          20
+        ],
+        "exactChangedCell": {
+          "blockIndex": 20,
+          "row": 0,
+          "col": 2,
+          "before": "",
+          "after": "주식회사 쿠노트검증 A7F3-20260916"
+        },
+        "targetRowBefore": [
+          "기본\n정보",
+          "기업명",
+          "",
+          "대표자",
+          ""
+        ],
+        "targetRowAfter": [
+          "기본\n정보",
+          "기업명",
+          "주식회사 쿠노트검증 A7F3-20260916",
+          "대표자",
+          ""
+        ],
+        "allOtherBlocksAndCellsEqual": true
+      },
+      "integrity": {
+        "baselineParagraphCount": 3833,
+        "finalParagraphCount": 3833,
+        "baselineIssueCount": 0,
+        "finalIssueCount": 0,
+        "repairedLineSegmentParagraphs": 0,
+        "logicalStreamCount": 28,
+        "changedLogicalStreams": [
+          {
+            "path": "/BodyText/Section0",
+            "beforeSha256": "62545e8b271b3ba1b35043bad40e97801f0d3a3b8d3fb5c1aa7dee06ee55e91b",
+            "afterSha256": "b43d412fd8e84e9ab21a7061d2e081978a12fd18eb6c5788e71b07ee66feda38",
+            "beforeBytes": 106385,
+            "afterBytes": 66684
+          }
+        ],
+        "onlyBodyTextStreamsChanged": true
+      },
+      "rhwp": {
+        "original": {
+          "pageCount": 41,
+          "targetNativeAddress": {
+            "section": 0,
+            "parentPara": 7,
+            "controlIndex": 0,
+            "labelCellIndex": 1,
+            "valueCellIndex": 2,
+            "representativeLabelCellIndex": 3
+          },
+          "targetRow": {
+            "basic": [
+              "기본",
+              "정보"
+            ],
+            "companyLabel": "기업명",
+            "companyValue": "",
+            "representativeLabel": "대표자",
+            "representativeValue": ""
+          },
+          "sampleMatches": [],
+          "companyLabelMatchCount": 11,
+          "exportVerify": {
+            "bytesLen": 1482752,
+            "pageCountBefore": 41,
+            "pageCountAfter": 41,
+            "recovered": true
+          }
+        },
+        "output": {
+          "pageCount": 41,
+          "targetNativeAddress": {
+            "section": 0,
+            "parentPara": 7,
+            "controlIndex": 0,
+            "labelCellIndex": 1,
+            "valueCellIndex": 2,
+            "representativeLabelCellIndex": 3
+          },
+          "targetRow": {
+            "basic": [
+              "기본",
+              "정보"
+            ],
+            "companyLabel": "기업명",
+            "companyValue": "주식회사 쿠노트검증 A7F3-20260916",
+            "representativeLabel": "대표자",
+            "representativeValue": ""
+          },
+          "sampleMatches": [
+            {
+              "sec": 0,
+              "para": 7,
+              "charOffset": 0,
+              "length": 24,
+              "cellContext": {
+                "parentPara": 7,
+                "ctrlIdx": 0,
+                "cellIdx": 2,
+                "cellPara": 0
+              }
+            }
+          ],
+          "companyLabelMatchCount": 11,
+          "exportVerify": {
+            "bytesLen": 1482752,
+            "pageCountBefore": 41,
+            "pageCountAfter": 41,
+            "recovered": true
+          }
+        },
+        "pageCountPreserved": true,
+        "targetValueCellExact": true,
+        "surroundingLabelsPreserved": true,
+        "uniqueSampleMatch": true
+      },
+      "sourceHashes": {
+        "coreSha256": "a48813b5884f830b969088bc7235d1bdb96de6c2fcc22987c4caabd386e71082",
+        "fillSha256": "c34d90872029540d87acb893c5881f6e35fad717b2971d5cdf1e2c8456ee2ef9",
+        "hwpIntegritySha256": "1d5c7b22343c259d722e90876e32fb7913403e7148697bedfd6c830c2b381ece"
+      },
+      "limits": {
+        "hancomDesktopVisualInspection": "UNEXECUTED",
+        "pixelLayoutComparison": "UNEXECUTED",
+        "reason": "로컬 구조·재파싱·RHWP 자기검증 범위이며 한글 데스크톱 앱을 열지 않았다."
+      }
+    }
+  },
+  "recheckTargets": [
+    {
+      "grantId": "6176af74-cbb0-44d9-b577-ce1e5345914d",
+      "title": "2026년 AI 기반 주파수 간섭분석 및 전파예측기술 개발사업 신규지원 대상과제 연장 공고",
+      "targetStatus": "held",
+      "priorAuthoringReady": false,
+      "newlyUnresolvedCandidates": 59,
+      "documents": [
+        {
+          "attachmentId": "eb8b11c6969d68b6abc7",
+          "analysisPath": "spike-out/analysis-lab/application-roundtrip/bizinfo__PBLN_000000000126450/roundtrip-2026-09-16T031741.284Z-7b3049/analysis.json",
+          "analysisSha256": "c4432323c8998a068f4e2d5576e6c1c6ab6347e46e0ca489a0fb3273f199a54a",
+          "priorStatus": "review_required",
+          "candidateCount": 59
+        }
+      ]
+    },
+    {
+      "grantId": "c8224507-8cfa-4bf6-ace4-f94310bad421",
+      "title": "[부산] 서구 2026년 청년 창업자 임차료 지원사업 참여 신청 재공고",
+      "targetStatus": "publishable",
+      "priorAuthoringReady": true,
+      "newlyUnresolvedCandidates": 4,
+      "documents": [
+        {
+          "attachmentId": "c22b18c7321836fbdb00",
+          "analysisPath": "spike-out/analysis-lab/application-roundtrip/bizinfo__PBLN_000000000126449/roundtrip-2026-09-16T032352.762Z-648e38/analysis.json",
+          "analysisSha256": "7ea2a5d901262b6f29e35d3ae3250d384f63d61a00479f9ae292cd2b53d91286",
+          "priorStatus": "partial",
+          "candidateCount": 4
+        }
+      ]
+    },
+    {
+      "grantId": "fc2a070e-c611-4d27-89a1-8b8239868c57",
+      "title": "2026년 관악S밸리 브릿지 데모데이(S-Boost Track) 및 투자자 매칭데이 참여기업 모집 공고",
+      "targetStatus": "publishable",
+      "priorAuthoringReady": true,
+      "newlyUnresolvedCandidates": 1,
+      "documents": [
+        {
+          "attachmentId": "df6d825d965c234658fc",
+          "analysisPath": "spike-out/analysis-lab/application-roundtrip/bizinfo__PBLN_000000000126443/roundtrip-2026-09-16T033024.952Z-fdacef/analysis.json",
+          "analysisSha256": "584e188273e3164d6e694c985f1eabaf1773cefc42c94931d26d66c1c6a38e1b",
+          "priorStatus": "partial",
+          "candidateCount": 1
+        }
+      ]
+    },
+    {
+      "grantId": "925bf2f1-6bbb-44b1-9dfe-27b3dc56ad9b",
+      "title": "[경북] 2026년 푸드테크 스마트 제조 기반 구축 사업 공고",
+      "targetStatus": "publishable",
+      "priorAuthoringReady": true,
+      "newlyUnresolvedCandidates": 48,
+      "documents": [
+        {
+          "attachmentId": "6543c78824b3667d843c",
+          "analysisPath": "spike-out/analysis-lab/application-roundtrip/bizinfo__PBLN_000000000126321/roundtrip-2026-09-16T033359.695Z-a35cf1/analysis.json",
+          "analysisSha256": "8e5f4375baa2f5611e192e2082c57ff1d495a7874009ddc742649c3188f2f576",
+          "priorStatus": "partial",
+          "candidateCount": 44
+        },
+        {
+          "attachmentId": "6d0f67de6355267d9757",
+          "analysisPath": "spike-out/analysis-lab/application-roundtrip/bizinfo__PBLN_000000000126321/roundtrip-2026-09-16T033359.695Z-a35cf1/analysis.json",
+          "analysisSha256": "8e5f4375baa2f5611e192e2082c57ff1d495a7874009ddc742649c3188f2f576",
+          "priorStatus": "partial",
+          "candidateCount": 4
+        }
+      ]
+    },
+    {
+      "grantId": "59e77d80-520a-4faf-83b5-900ad1aec3a4",
+      "title": "2026년 3차 KICET 기술이전조건부사업화지원사업 수혜기업 추가 모집 공고",
+      "targetStatus": "publishable",
+      "priorAuthoringReady": true,
+      "newlyUnresolvedCandidates": 10,
+      "documents": [
+        {
+          "attachmentId": "54a7d1623d68c14793e1",
+          "analysisPath": "spike-out/analysis-lab/application-roundtrip/bizinfo__PBLN_000000000126486/roundtrip-2026-09-16T034348.676Z-d86cae/analysis.json",
+          "analysisSha256": "58b9f05ddae21c32362de54b369eed94d7ced73aa2834eeaab3aa0395af555ac",
+          "priorStatus": "partial",
+          "candidateCount": 10
+        }
+      ]
+    },
+    {
+      "grantId": "71041583-9fe6-4fe3-a454-013304e9101d",
+      "title": "2026년 안산정보산업진흥센터(경기TP안산창업보육센터) 제3차 신규 입주자 모집 공고",
+      "targetStatus": "publishable",
+      "priorAuthoringReady": true,
+      "newlyUnresolvedCandidates": 20,
+      "documents": [
+        {
+          "attachmentId": "c69e634443a3167cb6d6",
+          "analysisPath": "spike-out/analysis-lab/application-roundtrip/kstartup__179172/roundtrip-2026-09-16T034502.976Z-7e73de/analysis.json",
+          "analysisSha256": "82b30212f65e4f2e2b0dc63681e2768ef4738d52ac89e3dd70ba80311e001829",
+          "priorStatus": "partial",
+          "candidateCount": 20
+        }
+      ]
+    },
+    {
+      "grantId": "7653abc1-3f8c-48ea-bbf1-9832319d875e",
+      "title": "2026년 과천시 창업지원센터 보육실 입주기업 모집 공고",
+      "targetStatus": "held",
+      "priorAuthoringReady": false,
+      "newlyUnresolvedCandidates": 3,
+      "documents": [
+        {
+          "attachmentId": "1dc7c7c05d548d95589e",
+          "analysisPath": "spike-out/analysis-lab/application-roundtrip/kstartup__179127/roundtrip-2026-09-16T034756.669Z-f743c7/analysis.json",
+          "analysisSha256": "6bc8cbef43fae18d23bc3a9cf9cc826bc03830d9fe57f7cc76c8a138cea6ee3e",
+          "priorStatus": "review_required",
+          "candidateCount": 3
+        }
+      ]
+    },
+    {
+      "grantId": "81423ffb-d8db-4a64-b30f-110f17ff9765",
+      "title": "2026년 과천시 지식정보타운 무상임대 입주기업(과천상상자이타워) 모집 공고",
+      "targetStatus": "publishable",
+      "priorAuthoringReady": true,
+      "newlyUnresolvedCandidates": 2,
+      "documents": [
+        {
+          "attachmentId": "8261f0c1a9b4b5e3e2f5",
+          "analysisPath": "spike-out/analysis-lab/application-roundtrip/kstartup__179227/roundtrip-2026-09-16T034929.234Z-384641/analysis.json",
+          "analysisSha256": "1a5f4c3f59a051610401835ae0054e5c85eae5c507196d4a6bb11262324b6e8e",
+          "priorStatus": "partial",
+          "candidateCount": 2
+        }
+      ]
+    },
+    {
+      "grantId": "c61d1f5c-2b31-481e-87c8-b0a7f837e724",
+      "title": "2026년 과천시 지식정보타운 무상임대 입주기업(과천크리에이션타워) 모집 공고",
+      "targetStatus": "failed",
+      "priorAuthoringReady": true,
+      "newlyUnresolvedCandidates": 2,
+      "documents": [
+        {
+          "attachmentId": "6472d65df89cdbbaffc1",
+          "analysisPath": "spike-out/analysis-lab/application-roundtrip/kstartup__179228/roundtrip-2026-09-16T035123.594Z-6eb6e4/analysis.json",
+          "analysisSha256": "59f740d7b05c793656912efef78d9fd11904433add8847c02f6ee84bf3d64363",
+          "priorStatus": "partial",
+          "candidateCount": 2
+        }
+      ]
+    },
+    {
+      "grantId": "20dc788e-03f3-4bea-ae0e-5dc866d8caf3",
+      "title": "2026년 스타트업 96 입주 예비창업자 모집",
+      "targetStatus": "publishable",
+      "priorAuthoringReady": true,
+      "newlyUnresolvedCandidates": 1,
+      "documents": [
+        {
+          "attachmentId": "43a563b23cd728b479a6",
+          "analysisPath": "spike-out/analysis-lab/application-roundtrip/kstartup__179199/roundtrip-2026-09-16T035749.551Z-25b1cc/analysis.json",
+          "analysisSha256": "789dea45bd4e0ef549cf935cbe13d7f73c9b63242b6a4939ce4cf4660ec91a8f",
+          "priorStatus": "partial",
+          "candidateCount": 1
+        }
+      ]
+    },
+    {
+      "grantId": "626501c7-74b2-4942-976b-7045a6bdb2cf",
+      "title": "[인천] 대ㆍ중ㆍ소기업 지역대기질 개선 상생협력 시범사업 참여기업 모집 공고",
+      "targetStatus": "publishable",
+      "priorAuthoringReady": true,
+      "newlyUnresolvedCandidates": 12,
+      "documents": [
+        {
+          "attachmentId": "efa104c27f7abf78bc44",
+          "analysisPath": "spike-out/analysis-lab/application-roundtrip/bizinfo__PBLN_000000000126502/roundtrip-2026-09-16T035939.442Z-0faef0/analysis.json",
+          "analysisSha256": "2c98a63a663a45a2d79f51b72f991cc8d3f4ec6f385cfea102bc0fbf25f28d24",
+          "priorStatus": "partial",
+          "candidateCount": 12
+        }
+      ]
+    },
+    {
+      "grantId": "661d4ffe-85bb-4fd7-8a07-2e8f25e917b8",
+      "title": "경기과학기술대학교 창업보육센터 입주기업 모집 7차",
+      "targetStatus": "held",
+      "priorAuthoringReady": false,
+      "newlyUnresolvedCandidates": 18,
+      "documents": [
+        {
+          "attachmentId": "b900d79ac751bc452634",
+          "analysisPath": "spike-out/analysis-lab/application-roundtrip/kstartup__179231/roundtrip-2026-09-16T040312.920Z-714b42/analysis.json",
+          "analysisSha256": "0a40a58f9ecf54b1845b66b427b1f7082816f629cb0729cdf9c4b3b5ce6235dd",
+          "priorStatus": "review_required",
+          "candidateCount": 9
+        },
+        {
+          "attachmentId": "b42fe800233010c0523a",
+          "analysisPath": "spike-out/analysis-lab/application-roundtrip/kstartup__179231/roundtrip-2026-09-16T040312.920Z-714b42/analysis.json",
+          "analysisSha256": "0a40a58f9ecf54b1845b66b427b1f7082816f629cb0729cdf9c4b3b5ce6235dd",
+          "priorStatus": "review_required",
+          "candidateCount": 9
+        }
+      ]
+    },
+    {
+      "grantId": "c4bf21e5-6ec7-47ec-adfc-95d0b72d1143",
+      "title": "2026년 서경대학교 창업보육센터 입주기업 모집(3차)",
+      "targetStatus": "held",
+      "priorAuthoringReady": false,
+      "newlyUnresolvedCandidates": 4,
+      "documents": [
+        {
+          "attachmentId": "7956ca69b769e4ec291c",
+          "analysisPath": "spike-out/analysis-lab/application-roundtrip/kstartup__179220/roundtrip-2026-09-16T040629.827Z-0336c8/analysis.json",
+          "analysisSha256": "edccc5eaaabb3ea245841360b0d33d22d805346abe7781805a70ace84e06a56f",
+          "priorStatus": "review_required",
+          "candidateCount": 4
+        }
+      ]
+    },
+    {
+      "grantId": "081e082c-2d69-4ba9-b09c-e37af7b9259d",
+      "title": "2026년 한라대학교 창업보육센터 9월 신규입주기업 모집 공고",
+      "targetStatus": "held",
+      "priorAuthoringReady": false,
+      "newlyUnresolvedCandidates": 10,
+      "documents": [
+        {
+          "attachmentId": "8bdb860a3810fccf61cc",
+          "analysisPath": "spike-out/analysis-lab/application-roundtrip/kstartup__179123/roundtrip-2026-09-16T040932.668Z-f03184/analysis.json",
+          "analysisSha256": "12e86a1ff638a008e47bd17a00099bebd873fbecee6654f5c4eb0a9c48e1d91a",
+          "priorStatus": "review_required",
+          "candidateCount": 10
+        }
+      ]
+    },
+    {
+      "grantId": "706fa257-21c1-4de8-898e-124dc74e4045",
+      "title": "2026년 스타 IR 데모데이 참여기업 모집공고(5차)",
+      "targetStatus": "held",
+      "priorAuthoringReady": false,
+      "newlyUnresolvedCandidates": 2,
+      "documents": [
+        {
+          "attachmentId": "587c6aca779a33c87bbf",
+          "analysisPath": "spike-out/analysis-lab/application-roundtrip/kstartup__179144/roundtrip-2026-09-16T041516.912Z-6f5165/analysis.json",
+          "analysisSha256": "2879ee4dbd31a802364e5bce081c4c10bc3800041c292c1b99da5ca0151d1f33",
+          "priorStatus": "review_required",
+          "candidateCount": 2
+        }
+      ]
+    },
+    {
+      "grantId": "afc1ccd8-e7cf-461b-81c8-207bb03c2969",
+      "title": "충북대학교 『글로벌(G)테크벤처센터(BI) 』 입주기업 모집",
+      "targetStatus": "held",
+      "priorAuthoringReady": false,
+      "newlyUnresolvedCandidates": 8,
+      "documents": [
+        {
+          "attachmentId": "ea78568c8cfcd30083ce",
+          "analysisPath": "spike-out/analysis-lab/application-roundtrip/kstartup__179147/roundtrip-2026-09-16T041706.892Z-00382b/analysis.json",
+          "analysisSha256": "4f815b9ad8cf0865806e13e37b2e70c9a49c2540dfc7e5699d610bafe447c686",
+          "priorStatus": "review_required",
+          "candidateCount": 8
+        }
+      ]
+    },
+    {
+      "grantId": "cb1fa91e-2656-45af-b42a-7320ca22749f",
+      "title": "한국공학대학교 창업보육센터 입주기업 모집공고",
+      "targetStatus": "held",
+      "priorAuthoringReady": false,
+      "newlyUnresolvedCandidates": 15,
+      "documents": [
+        {
+          "attachmentId": "db824c4659d0e085957c",
+          "analysisPath": "spike-out/analysis-lab/application-roundtrip/kstartup__179194/roundtrip-2026-09-16T041837.658Z-857288/analysis.json",
+          "analysisSha256": "b201c9879a2b98e40b3d8c97a7b903e20ed1ed5b66b9836e0baaae9dabdeea7f",
+          "priorStatus": "review_required",
+          "candidateCount": 15
+        }
+      ]
+    },
+    {
+      "grantId": "ccdd8402-3e93-4689-96a8-26a5d8e0c66c",
+      "title": "2026 고양시 F&B 성장지원 프로그램 with G-ROUND 877 참여기업 모집공고",
+      "targetStatus": "publishable",
+      "priorAuthoringReady": true,
+      "newlyUnresolvedCandidates": 2,
+      "documents": [
+        {
+          "attachmentId": "252a9f9c9a2ace2b925c",
+          "analysisPath": "spike-out/analysis-lab/application-roundtrip/kstartup__179204/roundtrip-2026-09-16T042041.743Z-3b50c1/analysis.json",
+          "analysisSha256": "d5faa21cd7f913ff412a32d82b607ea1199375edbe6263d41950a62b0f098906",
+          "priorStatus": "complete",
+          "candidateCount": 2
+        }
+      ]
+    },
+    {
+      "grantId": "d47093e7-d46a-4d06-afaa-b99c907e264a",
+      "title": "2026 협성대학교 창업보육센터 하반기 신규 입주기업 모집 공고",
+      "targetStatus": "publishable",
+      "priorAuthoringReady": true,
+      "newlyUnresolvedCandidates": 13,
+      "documents": [
+        {
+          "attachmentId": "d544ff314b73b2b7688c",
+          "analysisPath": "spike-out/analysis-lab/application-roundtrip/kstartup__179178/roundtrip-2026-09-16T042233.890Z-011ffd/analysis.json",
+          "analysisSha256": "d6a1afbc7c1fee99d99930444164413c07f40536de9e822c652a675439c11cca",
+          "priorStatus": "partial",
+          "candidateCount": 13
+        }
+      ]
+    },
+    {
+      "grantId": "fa439dda-93e1-4d9e-9fe0-66c8e986c85f",
+      "title": "호서대학교 서울창업보육센터 신규입주모집 공고",
+      "targetStatus": "held",
+      "priorAuthoringReady": false,
+      "newlyUnresolvedCandidates": 3,
+      "documents": [
+        {
+          "attachmentId": "78df61852b01ef198691",
+          "analysisPath": "spike-out/analysis-lab/application-roundtrip/kstartup__179168/roundtrip-2026-09-16T042636.405Z-fb55b8/analysis.json",
+          "analysisSha256": "68149f5c1b48e84e349388b2876511a738ae0eae727f38532f0213ee40e2960b",
+          "priorStatus": "review_required",
+          "candidateCount": 3
+        }
+      ]
+    }
+  ],
+  "originalArtifactHashes": [
+    {
+      "path": "spike-out/analysis-lab/bizinfo__PBLN_000000000126450/run-2026-09-16T031737.486Z-3f4ef7.json",
+      "sha256": "55f904ba1056a3d580a9489203eb952844cc5d6c3e66fcd2a58ad8417cb9c957"
+    },
+    {
+      "path": "spike-out/analysis-lab/application-roundtrip/bizinfo__PBLN_000000000126450/roundtrip-2026-09-16T031741.284Z-7b3049/analysis.json",
+      "sha256": "c4432323c8998a068f4e2d5576e6c1c6ab6347e46e0ca489a0fb3273f199a54a"
+    },
+    {
+      "path": "spike-out/analysis-lab/bizinfo__PBLN_000000000126449/run-2026-09-16T032352.135Z-cfec4f.json",
+      "sha256": "b662e7bb993d2cc735cc692f1443dfbdcb3b5c29da43a7c070f2b5960bd8b680"
+    },
+    {
+      "path": "spike-out/analysis-lab/application-roundtrip/bizinfo__PBLN_000000000126449/roundtrip-2026-09-16T032352.762Z-648e38/analysis.json",
+      "sha256": "7ea2a5d901262b6f29e35d3ae3250d384f63d61a00479f9ae292cd2b53d91286"
+    },
+    {
+      "path": "spike-out/analysis-lab/bizinfo__PBLN_000000000126451/run-2026-09-16T032807.882Z-87b77c.json",
+      "sha256": "1c4b3d90c1b1bdebdf66c4b8330bbfb12b312da051d53ea78b9e87b6d59789b4"
+    },
+    {
+      "path": "spike-out/analysis-lab/bizinfo__PBLN_000000000126443/run-2026-09-16T033024.569Z-17e20d.json",
+      "sha256": "9073c6520da93cb647540db4b58daa58b871481436972b6b6c4365300ce8e876"
+    },
+    {
+      "path": "spike-out/analysis-lab/application-roundtrip/bizinfo__PBLN_000000000126443/roundtrip-2026-09-16T033024.952Z-fdacef/analysis.json",
+      "sha256": "584e188273e3164d6e694c985f1eabaf1773cefc42c94931d26d66c1c6a38e1b"
+    },
+    {
+      "path": "spike-out/analysis-lab/bizinfo__PBLN_000000000126321/run-2026-09-16T033358.886Z-c7628a.json",
+      "sha256": "055adb40042cfe15f3d05c306d4b7fb289d74a907ee457ff6865ba64f9218fbd"
+    },
+    {
+      "path": "spike-out/analysis-lab/application-roundtrip/bizinfo__PBLN_000000000126321/roundtrip-2026-09-16T033359.695Z-a35cf1/analysis.json",
+      "sha256": "8e5f4375baa2f5611e192e2082c57ff1d495a7874009ddc742649c3188f2f576"
+    },
+    {
+      "path": "spike-out/analysis-lab/kstartup__179181/run-2026-09-16T034014.548Z-d6a190.json",
+      "sha256": "46eec0aafb6fa472451dbddc9b39382710bac66c9c95d72234f4fe074ef148cb"
+    },
+    {
+      "path": "spike-out/analysis-lab/kstartup__179088/run-2026-09-16T034054.351Z-e413a4.json",
+      "sha256": "8a80a0c99a67f648b85c3937c5a994b2da4ec87df0e31f5e4451118aa15688c3"
+    },
+    {
+      "path": "spike-out/analysis-lab/kstartup__179262/run-2026-09-16T034208.997Z-dc4412.json",
+      "sha256": "7cb1f3307c890871f8218f4aa1705b087effa5b91eafe2792b8445bd6daf9cb9"
+    },
+    {
+      "path": "spike-out/analysis-lab/bizinfo__PBLN_000000000126486/run-2026-09-16T034348.229Z-d187db.json",
+      "sha256": "ba8a29a94f38b5ff5aed7015ad778c21d029bac48706bbd61fd848f36aa4f0a2"
+    },
+    {
+      "path": "spike-out/analysis-lab/application-roundtrip/bizinfo__PBLN_000000000126486/roundtrip-2026-09-16T034348.676Z-d86cae/analysis.json",
+      "sha256": "58b9f05ddae21c32362de54b369eed94d7ced73aa2834eeaab3aa0395af555ac"
+    },
+    {
+      "path": "spike-out/analysis-lab/kstartup__179172/run-2026-09-16T034502.308Z-12343e.json",
+      "sha256": "dce4df6c44055717a27e1b1ec675ee6a37085faf7c74050e91324d9185369318"
+    },
+    {
+      "path": "spike-out/analysis-lab/application-roundtrip/kstartup__179172/roundtrip-2026-09-16T034502.976Z-7e73de/analysis.json",
+      "sha256": "82b30212f65e4f2e2b0dc63681e2768ef4738d52ac89e3dd70ba80311e001829"
+    },
+    {
+      "path": "spike-out/analysis-lab/kstartup__179158/run-2026-09-16T034724.725Z-256e30.json",
+      "sha256": "c68882ed12d7b7a404decf5a6da3df2e57a81c0778c8b8c325eed94e92d3ce8a"
+    },
+    {
+      "path": "spike-out/analysis-lab/application-roundtrip/kstartup__179158/roundtrip-2026-09-16T034725.012Z-c98a7c/analysis.json",
+      "sha256": "cb64353df0904eb4be02b9acb9fb81b4d5017bf90a0df435c1eb200952dbc06c"
+    },
+    {
+      "path": "spike-out/analysis-lab/kstartup__179127/run-2026-09-16T034756.130Z-f465d3.json",
+      "sha256": "80b5fd300766a924d7198ad3999d6e83cd905c7749220468d9c8c38d11ebb0f1"
+    },
+    {
+      "path": "spike-out/analysis-lab/application-roundtrip/kstartup__179127/roundtrip-2026-09-16T034756.669Z-f743c7/analysis.json",
+      "sha256": "6bc8cbef43fae18d23bc3a9cf9cc826bc03830d9fe57f7cc76c8a138cea6ee3e"
+    },
+    {
+      "path": "spike-out/analysis-lab/kstartup__179227/run-2026-09-16T034928.689Z-c226b6.json",
+      "sha256": "9e77d0bbc8c57138de5bbfd3c34898ca108baad1907384f4b3d1a9861e5cff61"
+    },
+    {
+      "path": "spike-out/analysis-lab/application-roundtrip/kstartup__179227/roundtrip-2026-09-16T034929.234Z-384641/analysis.json",
+      "sha256": "1a5f4c3f59a051610401835ae0054e5c85eae5c507196d4a6bb11262324b6e8e"
+    },
+    {
+      "path": "spike-out/analysis-lab/kstartup__179228/run-2026-09-16T035123.020Z-eca3ca.json",
+      "sha256": "38719c2b8227a9469d85a4184221ccbf445e3341e5c53575100afe03d52b7d11"
+    },
+    {
+      "path": "spike-out/analysis-lab/application-roundtrip/kstartup__179228/roundtrip-2026-09-16T035123.594Z-6eb6e4/analysis.json",
+      "sha256": "59f740d7b05c793656912efef78d9fd11904433add8847c02f6ee84bf3d64363"
+    },
+    {
+      "path": "spike-out/analysis-lab/kstartup__179134/run-2026-09-16T035509.637Z-02519e.json",
+      "sha256": "c3719b662e08cafb1f6c13c4bc3b15c1edc855c21f99266889cd01f61c073ad6"
+    },
+    {
+      "path": "spike-out/analysis-lab/kstartup__179185/run-2026-09-16T035553.332Z-d7a7fe.json",
+      "sha256": "159a0373cae2c23e35dd0e37baebece21c3f75fa79d2e4b3e78ec5a2222dfc67"
+    },
+    {
+      "path": "spike-out/analysis-lab/kstartup__179128/run-2026-09-16T035635.344Z-cfb782.json",
+      "sha256": "81a1ebd66bfa2cbb978d8bf9bd26095c2d7d2d83a7ca4d11aab28502c571acd5"
+    },
+    {
+      "path": "spike-out/analysis-lab/kstartup__179199/run-2026-09-16T035748.953Z-842cd7.json",
+      "sha256": "92fccae7d170b55171732dd6b5986de859c8dfa7d91e11c8198f2abe2cde1c13"
+    },
+    {
+      "path": "spike-out/analysis-lab/application-roundtrip/kstartup__179199/roundtrip-2026-09-16T035749.551Z-25b1cc/analysis.json",
+      "sha256": "789dea45bd4e0ef549cf935cbe13d7f73c9b63242b6a4939ce4cf4660ec91a8f"
+    },
+    {
+      "path": "spike-out/analysis-lab/bizinfo__PBLN_000000000126502/run-2026-09-16T035937.977Z-cfcdeb.json",
+      "sha256": "5e2c30a50a803a8944d1bdf8786fc394584a5dc42608b376ea0840f134f078de"
+    },
+    {
+      "path": "spike-out/analysis-lab/application-roundtrip/bizinfo__PBLN_000000000126502/roundtrip-2026-09-16T035939.442Z-0faef0/analysis.json",
+      "sha256": "2c98a63a663a45a2d79f51b72f991cc8d3f4ec6f385cfea102bc0fbf25f28d24"
+    },
+    {
+      "path": "spike-out/analysis-lab/kstartup__179231/run-2026-09-16T040312.267Z-fc7d17.json",
+      "sha256": "914414286482a4ac1bcb2e7dfc6c1b76cde90c4552992f42cf29bd527567121a"
+    },
+    {
+      "path": "spike-out/analysis-lab/application-roundtrip/kstartup__179231/roundtrip-2026-09-16T040312.920Z-714b42/analysis.json",
+      "sha256": "0a40a58f9ecf54b1845b66b427b1f7082816f629cb0729cdf9c4b3b5ce6235dd"
+    },
+    {
+      "path": "spike-out/analysis-lab/kstartup__179259/run-2026-09-16T040545.245Z-dc1937.json",
+      "sha256": "d4fabd91404af38a9feaf2e8ca8d58588de987bebfa3b983b5c80550fc2e6784"
+    },
+    {
+      "path": "spike-out/analysis-lab/kstartup__179220/run-2026-09-16T040629.286Z-563ff3.json",
+      "sha256": "9d67c602d8768997edecfd5cc008f5750db55a399590afb5d59e9a8a46e398e0"
+    },
+    {
+      "path": "spike-out/analysis-lab/application-roundtrip/kstartup__179220/roundtrip-2026-09-16T040629.827Z-0336c8/analysis.json",
+      "sha256": "edccc5eaaabb3ea245841360b0d33d22d805346abe7781805a70ace84e06a56f"
+    },
+    {
+      "path": "spike-out/analysis-lab/bizinfo__PBLN_000000000126487/run-2026-09-16T040803.319Z-6da469.json",
+      "sha256": "53e257027cec8559cdafd19727a9848624054f755bbd8cced8e9da6f8442d40d"
+    },
+    {
+      "path": "spike-out/analysis-lab/application-roundtrip/bizinfo__PBLN_000000000126487/roundtrip-2026-09-16T040803.751Z-40687b/analysis.json",
+      "sha256": "7ecedc0a467f24e1e6b388d730da4c16cba35ea816da24e82673ae89a20230a0"
+    },
+    {
+      "path": "spike-out/analysis-lab/kstartup__179123/run-2026-09-16T040932.400Z-eb1663.json",
+      "sha256": "680947c4d365f9b8a8f894f57ada6da96879e48542a61adebf31dc76f10c1248"
+    },
+    {
+      "path": "spike-out/analysis-lab/application-roundtrip/kstartup__179123/roundtrip-2026-09-16T040932.668Z-f03184/analysis.json",
+      "sha256": "12e86a1ff638a008e47bd17a00099bebd873fbecee6654f5c4eb0a9c48e1d91a"
+    },
+    {
+      "path": "spike-out/analysis-lab/kstartup__179255/run-2026-09-16T041059.540Z-6a0ce4.json",
+      "sha256": "d9aa146a75fd24fce4a312c2f1362350ae672acf4663878b5034ac000655c1bf"
+    },
+    {
+      "path": "spike-out/analysis-lab/application-roundtrip/kstartup__179255/roundtrip-2026-09-16T041059.831Z-21f9ae/analysis.json",
+      "sha256": "f8c42a500991eeea3c2e2cd38e6903a84e1141bb0050a1a8c2da404930eb76d7"
+    },
+    {
+      "path": "spike-out/analysis-lab/kstartup__179226/run-2026-09-16T041153.563Z-99194a.json",
+      "sha256": "f7d4c0811a339092158d4718f83a04bfc32c466c0883621f1b3abd87451a3de4"
+    },
+    {
+      "path": "spike-out/analysis-lab/application-roundtrip/kstartup__179226/roundtrip-2026-09-16T041154.129Z-5cd5df/analysis.json",
+      "sha256": "e06bf4ea35e48f6a88ba58884ff248bbfeda196dd4b1a414a4f07977ef540f54"
+    },
+    {
+      "path": "spike-out/analysis-lab/kstartup__179230/run-2026-09-16T041416.010Z-01dbaf.json",
+      "sha256": "5bce421bda1558fc4733305049604a83f2cfffd5218472709a38c4a3f5b8f4f2"
+    },
+    {
+      "path": "spike-out/analysis-lab/application-roundtrip/kstartup__179230/roundtrip-2026-09-16T041416.303Z-585f11/analysis.json",
+      "sha256": "2e069c70f3ddc2f5782f82a990223c0c7e7764fec004bd0abe33eef53ab60c44"
+    },
+    {
+      "path": "spike-out/analysis-lab/kstartup__179144/run-2026-09-16T041516.471Z-29ed15.json",
+      "sha256": "319726c25477f211f2c16eada3cabacaa1d7cd0b9b61c39811e9890370a41fb8"
+    },
+    {
+      "path": "spike-out/analysis-lab/application-roundtrip/kstartup__179144/roundtrip-2026-09-16T041516.912Z-6f5165/analysis.json",
+      "sha256": "2879ee4dbd31a802364e5bce081c4c10bc3800041c292c1b99da5ca0151d1f33"
+    },
+    {
+      "path": "spike-out/analysis-lab/bizinfo__PBLN_000000000126489/run-2026-09-16T041614.590Z-433b8f.json",
+      "sha256": "3abce0eabce8f0195770ee7258a5a36cb6d8ee75d6ec846e3a87113741942ec7"
+    },
+    {
+      "path": "spike-out/analysis-lab/application-roundtrip/bizinfo__PBLN_000000000126489/roundtrip-2026-09-16T041614.996Z-764157/analysis.json",
+      "sha256": "7ef7972da2d1c67d027bb00f0b26c9234bc49d567e744024adbf25093e1a1c89"
+    },
+    {
+      "path": "spike-out/analysis-lab/kstartup__179147/run-2026-09-16T041706.273Z-d8e7c1.json",
+      "sha256": "784f4f757dfeaf53292cfb8557dd98cbbad4fa3d90a65df82121023075cd4866"
+    },
+    {
+      "path": "spike-out/analysis-lab/application-roundtrip/kstartup__179147/roundtrip-2026-09-16T041706.892Z-00382b/analysis.json",
+      "sha256": "4f815b9ad8cf0865806e13e37b2e70c9a49c2540dfc7e5699d610bafe447c686"
+    },
+    {
+      "path": "spike-out/analysis-lab/kstartup__179194/run-2026-09-16T041837.231Z-7ea760.json",
+      "sha256": "7b21796d6af954ec86b55abbbf2ab608bea4405b90c8ee2f02e97f7c1282a57a"
+    },
+    {
+      "path": "spike-out/analysis-lab/application-roundtrip/kstartup__179194/roundtrip-2026-09-16T041837.658Z-857288/analysis.json",
+      "sha256": "b201c9879a2b98e40b3d8c97a7b903e20ed1ed5b66b9836e0baaae9dabdeea7f"
+    },
+    {
+      "path": "spike-out/analysis-lab/kstartup__179204/run-2026-09-16T042041.234Z-c31c5a.json",
+      "sha256": "44eff407f3aa3964d233795b56dfc4d84d9d5245dabc1ab0639e22fd657a4403"
+    },
+    {
+      "path": "spike-out/analysis-lab/application-roundtrip/kstartup__179204/roundtrip-2026-09-16T042041.743Z-3b50c1/analysis.json",
+      "sha256": "d5faa21cd7f913ff412a32d82b607ea1199375edbe6263d41950a62b0f098906"
+    },
+    {
+      "path": "spike-out/analysis-lab/kstartup__179178/run-2026-09-16T042233.310Z-be09f1.json",
+      "sha256": "f8d59eefed5dc68e3b319f1d471eb4922b2451623e9bdf065b6dac6a0fd6a562"
+    },
+    {
+      "path": "spike-out/analysis-lab/application-roundtrip/kstartup__179178/roundtrip-2026-09-16T042233.890Z-011ffd/analysis.json",
+      "sha256": "d6a1afbc7c1fee99d99930444164413c07f40536de9e822c652a675439c11cca"
+    },
+    {
+      "path": "spike-out/analysis-lab/kstartup__179168/run-2026-09-16T042635.700Z-3344c0.json",
+      "sha256": "029bd9a36d1c13ddd804e04d6951bf31639e248757eb8f2f2c9fc31ae87f488c"
+    },
+    {
+      "path": "spike-out/analysis-lab/application-roundtrip/kstartup__179168/roundtrip-2026-09-16T042636.405Z-fb55b8/analysis.json",
+      "sha256": "68149f5c1b48e84e349388b2876511a738ae0eae727f38532f0213ee40e2960b"
+    },
+    {
+      "path": "spike-out/analysis-lab/kstartup__179184/run-2026-09-16T042742.800Z-85f319.json",
+      "sha256": "bdd48ae511b226cc6d05af16d7d450bc41aaf7250f1e8783967b9c636b65dfac"
+    },
+    {
+      "path": "spike-out/analysis-lab/application-roundtrip/kstartup__179184/roundtrip-2026-09-16T042743.576Z-8b9082/analysis.json",
+      "sha256": "2e889c6e8cb72f1fbc35271158f8045a4bed3d682460d82404755aa9352b224a"
+    }
+  ],
+  "diagnosticArtifacts": [
+    {
+      "path": "spike-out/company-field-followup-20260916/stable-gates.json",
+      "sha256": "556bf7fcf028c3e22f8df5a4507b1c5bf1b2b2e287cc328ea97b45e68ff4614b"
+    },
+    {
+      "path": "spike-out/company-field-followup-20260916/impact-replay.json",
+      "sha256": "2213d6b8876868cfcd77f2d6af6b3b961062c3140eae28906bac61000463e996"
+    },
+    {
+      "path": "spike-out/company-field-followup-20260916/recheck-targets.json",
+      "sha256": "44c5836ff74e81587f4812ed6cbbdf2cfe3d4c58c558e4cff31cc10b9ae4de05"
+    },
+    {
+      "path": "spike-out/company-field-followup-20260916/replay.ts",
+      "sha256": "5f7d51afef0e382f3932992a62e8ff23dd975f54b8d34a458eda14b744773b9f"
+    },
+    {
+      "path": "spike-out/company-field-followup-20260916/writer-proof/README.md",
+      "sha256": "49f8c57143d7bcdd48b04a7ba7be26a4343b927bf614a48d215f05d3260fa666"
+    }
+  ],
+  "execution": {
+    "liveModelCalls": 0,
+    "dbWrites": 0,
+    "r2Writes": 0,
+    "releaseApprovals": 0,
+    "promotions": 0,
+    "deployments": 0,
+    "historicalArtifactsModified": 0
+  },
+  "limits": [
+    "No current eligibility or production runtime check in this follow-up.",
+    "No live regeneration of the 20 recheck targets.",
+    "Hancom desktop visual and pixel comparison UNEXECUTED.",
+    "Authenticated browser authoring and download UAT UNEXECUTED.",
+    "Diagnostic local artifacts are hash-bound references and are not committed binary attachments."
+  ]
+}

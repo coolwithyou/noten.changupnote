@@ -10,6 +10,7 @@ assert.equal(classifyApplicationFieldMap([APPLICATION_FIELD_PARSER_VERSION]), "c
 assert.equal(classifyApplicationFieldMap(["kordoc-rhwp-application-fields-v1"]), "stale_automated");
 assert.equal(classifyApplicationFieldMap(["kordoc-rhwp-application-fields-v2"]), "stale_automated");
 assert.equal(classifyApplicationFieldMap(["kordoc-rhwp-application-fields-v8"]), "stale_automated");
+assert.equal(classifyApplicationFieldMap(["kordoc-rhwp-application-fields-v9"]), "stale_automated");
 assert.equal(classifyApplicationFieldMap(["reconcile-v0"]), "protected");
 assert.equal(
   classifyApplicationFieldMap(["reconcile-v0", "kordoc-rhwp-application-fields-v1"]),

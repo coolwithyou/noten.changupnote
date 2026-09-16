@@ -31,6 +31,8 @@ const UNSUPPORTED_NESTED_MEDIA_REJECTION_SIGNAL =
 const FIXED_TABLE_ROLE_REJECTION_SIGNAL =
   "다열 표의 병합 분류·집계 라벨을 고정 구조로 안전 제외";
 const MATRIX_AGGREGATE_ROLE = /^(?:(?:총|소|누|합)?계)$/u;
+const EXPLICIT_EXAMPLE_OWNER_LABEL = /^(?:예시|예제|작성예)$/u;
+const CANONICAL_LEAF_METADATA_LABEL = /^(?:회사명|기업명|업체명|단체명|상호|법인명|기관명|대표자|대표자명|대표자성명|성명|이름|신청인|신청인명|담당자|담당자명|책임자|책임자명|사업자등록번호|법인등록번호|법인번호|주민등록번호|연락처|전화|전화번호|휴대폰|휴대전화|이메일|전자우편|주소|소재지)$/iu;
 
 export interface RoleClassification {
   role: RoundtripDocumentRole;
@@ -636,6 +638,7 @@ function suppressValueCellDuplicates(fields: RoundtripFieldCandidate[], blocks: 
       ));
     if (!owner) continue;
     if (isEmptyMetadataSubfieldOfRowSpanningGroup(candidate, owner, blocks)) continue;
+    if (isIndependentCanonicalMetadataInput(candidate, owner, blocks)) continue;
     // KorDoc이 한 행의 다음 입력 라벨을 앞 필드의 값으로 묶는 경우가 있다. 실제 빈 메타데이터
     // 입력칸까지 placeholder 중복으로 지우지 않고, 뒤 단계가 앞의 잘못된 후보만 제거하게 둔다.
     if (
@@ -649,6 +652,47 @@ function suppressValueCellDuplicates(fields: RoundtripFieldCandidate[], blocks: 
       candidate.inputSignals.push(SPAN_AWARE_PLACEHOLDER_REJECTION_SIGNAL);
     }
   }
+}
+
+/**
+ * KorDoc이 `기본정보 | 기업명 | 빈칸 | 대표자 | 빈칸` 같은 교대형 행에서 기업명을 앞 셀의
+ * 값으로도 읽을 수 있다. 정확한 label→blank 쌍이 같은 행에서 두 번 확인되는 경우에만
+ * 뒤 라벨을 독립 입력으로 보존한다. 단일 쌍·예시·머리글에는 이 예외를 적용하지 않는다.
+ */
+function isIndependentCanonicalMetadataInput(
+  candidate: RoundtripFieldCandidate,
+  owner: RoundtripFieldCandidate,
+  blocks: readonly IRBlock[],
+): boolean {
+  if (
+    candidate.source !== "kordoc-form"
+    || !candidate.recommendedInput
+    || !candidate.empty
+    || candidate.originalValue.trim() !== ""
+    || normalizeRoundtripLabel(owner.originalValue) !== candidate.normalizedLabel
+    || EXPLICIT_EXAMPLE_OWNER_LABEL.test(normalizeRoundtripLabel(owner.label))
+    || !CANONICAL_LEAF_METADATA_LABEL.test(candidate.normalizedLabel)
+  ) return false;
+
+  const row = blocks[candidate.location.blockIndex]?.table?.cells[candidate.location.row];
+  const labelCell = row?.[candidate.location.col];
+  if (
+    !row
+    || !labelCell
+    || normalizeRoundtripLabel(labelCell.text) !== candidate.normalizedLabel
+    || !hasEmptyValueCell(row, candidate.location.col, labelCell)
+  ) return false;
+
+  return row.some((cell, colIndex) => (
+    colIndex !== candidate.location.col
+    && CANONICAL_LEAF_METADATA_LABEL.test(normalizeRoundtripLabel(cell.text))
+    && hasEmptyValueCell(row, colIndex, cell)
+  ));
+}
+
+function hasEmptyValueCell(row: readonly IRCell[], labelCol: number, labelCell: IRCell): boolean {
+  const valueCell = row[labelCol + Math.max(1, labelCell.colSpan)];
+  return valueCell !== undefined && valueCell.text.trim() === "";
 }
 
 function suppressUnsupportedNestedMediaCandidates(

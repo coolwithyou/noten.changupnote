@@ -1,5 +1,5 @@
-// v9는 구조화된 값 예시 TARGET을 native whole-cell exact binding으로 보존한다.
-export const APPLICATION_FIELD_PARSER_VERSION = "kordoc-rhwp-application-fields-v9";
+// v10은 독립 메타데이터 값 슬롯을 보존하고 의심 placeholder를 미확정 상태로 남긴다.
+export const APPLICATION_FIELD_PARSER_VERSION = "kordoc-rhwp-application-fields-v10";
 export const APPLICATION_FIELD_PARSER_PREFIX = "kordoc-rhwp-application-fields-";
 
 export function isAutomatedApplicationFieldParserVersion(value: string): boolean {

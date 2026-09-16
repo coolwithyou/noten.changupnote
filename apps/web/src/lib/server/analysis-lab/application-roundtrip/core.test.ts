@@ -214,6 +214,84 @@ for (const placeholderLabel of ["금: 백만원", "은행 지점\n( 담당자 �
   assert.equal(placeholder.recommendedInput, false, `${placeholderLabel} 안내문 자체를 앵커로 쓰면 안 된다`);
   assert.match(placeholder.inputSignals.join(" "), /앞 라벨/);
 }
+assert.equal(
+  fixedPlaceholderFields.some((candidate) => candidate.label === "금: 백만원" && candidate.recommendedInput),
+  false,
+  "단위 placeholder를 독립 입력으로 보존하면 안 된다",
+);
+
+const alternatingMetadataFields = extractLocatedRoundtripFields([{
+  type: "table",
+  table: {
+    rows: 1,
+    cols: 5,
+    hasHeader: false,
+    cells: [[
+      { text: "기본\n정보", colSpan: 1, rowSpan: 1 },
+      { text: "기업명", colSpan: 1, rowSpan: 1 },
+      { text: "", colSpan: 1, rowSpan: 1 },
+      { text: "대표자", colSpan: 1, rowSpan: 1 },
+      { text: "", colSpan: 1, rowSpan: 1 },
+    ]],
+  },
+}], "1".repeat(64)).fields;
+const basicInformation = alternatingMetadataFields.find((candidate) => candidate.label === "기본\n정보");
+const companyName = alternatingMetadataFields.find((candidate) => candidate.label === "기업명");
+const representative = alternatingMetadataFields.find((candidate) => candidate.label === "대표자");
+assert.equal(basicInformation?.originalValue, "기업명", "KorDoc의 앞 라벨 값 오인 조건을 재현해야 한다");
+assert.equal(basicInformation?.recommendedInput, false, "기본정보 구획 라벨 자체를 입력으로 승격하지 않는다");
+assert.equal(companyName?.empty, true);
+assert.equal(companyName?.recommendedInput, true, "독립 기업명→빈칸 쌍을 보존해야 한다");
+assert.doesNotMatch(companyName?.inputSignals.join(" ") ?? "", /값 placeholder/);
+assert.equal(representative?.recommendedInput, true, "같은 행의 대표자→빈칸 쌍도 유지해야 한다");
+
+const duplicateNegativeCases = [
+  {
+    name: "예시 분류값",
+    row: ["(예시)", "기존", "", "추가", ""],
+    candidateLabel: "기존",
+  },
+  {
+    name: "canonical metadata 작성예",
+    row: ["(작성 예)", "기업명", "", "대표자", ""],
+    candidateLabel: "기업명",
+  },
+  {
+    name: "머리글 연쇄",
+    row: ["구분", "기업명", "대표자"],
+    candidateLabel: "기업명",
+  },
+  {
+    name: "단일 canonical 쌍",
+    row: ["대표", "책임자", "", "", "자필 서명 필수"],
+    candidateLabel: "책임자",
+  },
+  {
+    name: "독립 빈칸 없음",
+    row: ["기본정보", "기업명", "기입 완료", "대표자", ""],
+    candidateLabel: "기업명",
+  },
+  {
+    name: "suffix 관계만 존재",
+    row: ["상생기업명", "", "기업명", "", "대표자", ""],
+    candidateLabel: "기업명",
+  },
+] as const;
+for (const negative of duplicateNegativeCases) {
+  const fields = extractLocatedRoundtripFields([{
+    type: "table",
+    table: {
+      rows: 1,
+      cols: negative.row.length,
+      hasHeader: negative.name === "머리글 연쇄",
+      cells: [negative.row.map((text) => ({ text, colSpan: 1, rowSpan: 1 }))],
+    },
+  }], "2".repeat(64)).fields;
+  const candidate = fields.find((field) => field.label === negative.candidateLabel);
+  assert.ok(candidate, `${negative.name} 후보를 재현해야 한다`);
+  assert.equal(candidate.recommendedInput, false, `${negative.name}을 독립 입력으로 자동 보존하면 안 된다`);
+  assert.match(candidate.inputSignals.join(" "), /앞 라벨/, `${negative.name} 중복 억제 근거를 유지해야 한다`);
+}
 
 {
   const sourceSha256 = "5d9ad6200091e341c945f1c746b1512ded6f2d85f0aa21bd6f0eac5b566fe22c";

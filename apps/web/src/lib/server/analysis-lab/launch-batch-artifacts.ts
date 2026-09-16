@@ -813,6 +813,9 @@ function normalizeAnalysisLaunchManifestForPurpose(
 }
 
 const COMPLETED_RECEIPT_OFFLINE_HISTORICAL_CONTRACTS = new Set([
+  // 2026-09-16 신규30/복구5 종료 계약. v20 필드 누락 수정의 live 권한으로 승계하지 않는다.
+  "current_inventory|skip_existing|lab-deep-v28|deep-analysis-validator-v23|kordoc-application-roundtrip-v19",
+  "current_inventory|rerun_exact_targets|lab-deep-v28|deep-analysis-validator-v23|kordoc-application-roundtrip-v19",
   // exact19 종료 receipt의 v17 계약은 오프라인 재검증에만 보존한다.
   "current_inventory|skip_existing|lab-deep-v28|deep-analysis-validator-v22|kordoc-application-roundtrip-v17",
   // 2026-09-15 terminal repair 6건의 종료 계약. 원 ancestry는 completed reader가 별도로 검증한다.
