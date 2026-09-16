@@ -731,7 +731,6 @@ function normalizeAnalysisLaunchManifestForPurpose(
     analysisMode === "application_only"
       ? sourceKind !== "current_inventory"
         || completedLaunch === undefined
-        || terminalRepair !== undefined
         || primaryReuseTargets.length !== targets.length
         || targets.some((target) => target.reviewRepair || target.applicationRoundtripReuse)
       : primaryReuseTargets.length !== 0

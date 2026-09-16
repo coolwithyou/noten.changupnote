@@ -685,6 +685,28 @@ test("terminal-repair completed source는 v2에서만 전체 ancestry와 선택 
   const result = buildCurrentInventoryLaunchManifest(args);
   assert.equal(result.targets.length, 1);
   assert.deepEqual(result.source.terminalRepair, terminalRepair);
+  const primaryReuse = {
+    schema: "analysis-launch-primary-reuse-v1" as const,
+    sourceSequence: 1,
+    sourceLabRunId: "run-2026-09-16T120000.000Z-a1b2c3",
+    sourceLabRunArtifactPath: "spike-out/runs/1.json",
+    sourceLabRunArtifactSha256: "7".repeat(64),
+    sourceLaunchReceiptSha256: completedV2.terminalReceiptSha256,
+  };
+  const applicationOnly = buildCurrentInventoryLaunchManifest({
+    ...args,
+    analysisMode: "application_only",
+    primaryReuse: [primaryReuse],
+  });
+  assert.equal(applicationOnly.execution.analysisMode, "application_only");
+  assert.deepEqual(applicationOnly.source.terminalRepair, terminalRepair);
+  assert.deepEqual(applicationOnly.targets[0]?.primaryReuse, primaryReuse);
+  const missingCompletedLaunch = structuredClone(applicationOnly) as any;
+  delete missingCompletedLaunch.source.completedLaunch;
+  assert.throws(
+    () => normalizeAnalysisLaunchManifest(missingCompletedLaunch),
+    /terminal repair source 범위/,
+  );
   assert.throws(() => buildCurrentInventoryLaunchManifest({
     ...args,
     completedLaunch: {
