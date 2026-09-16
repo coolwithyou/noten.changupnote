@@ -112,13 +112,30 @@ export interface AnalysisLaunchManifest {
   readonly targets: readonly AnalysisLaunchManifestTarget[];
 }
 
-export interface AnalysisLaunchCompletedCurrentInventoryBinding {
+export interface AnalysisLaunchCompletedCurrentInventoryBindingV1 {
   readonly schema: "analysis-launch-completed-current-inventory-v1";
   readonly inventorySha256: string;
   readonly sourceManifestSha256: string;
   readonly sourceGrantSha256: string;
   readonly terminalReceiptSha256: string;
 }
+
+/**
+ * 완료된 원 launch의 일부만 현행 계약으로 다시 봉인한다. 새 manifest sequence는 0부터
+ * 다시 부여하고, 이 배열이 각 target을 원 manifest sequence에 exact 결속한다.
+ */
+export interface AnalysisLaunchCompletedCurrentInventoryBindingV2 {
+  readonly schema: "analysis-launch-completed-current-inventory-v2";
+  readonly inventorySha256: string;
+  readonly sourceManifestSha256: string;
+  readonly sourceGrantSha256: string;
+  readonly terminalReceiptSha256: string;
+  readonly selectedOriginalSequences: readonly number[];
+}
+
+export type AnalysisLaunchCompletedCurrentInventoryBinding =
+  | AnalysisLaunchCompletedCurrentInventoryBindingV1
+  | AnalysisLaunchCompletedCurrentInventoryBindingV2;
 
 export interface AnalysisLaunchTerminalRepairBinding {
   readonly schema: "analysis-launch-terminal-repair-v1";
@@ -654,9 +671,18 @@ function normalizeAnalysisLaunchManifestForPurpose(
     : normalizeCompletedCurrentInventoryBinding(source.completedLaunch);
   const terminalRepair = source.terminalRepair === undefined ? undefined
     : normalizeTerminalRepairBinding(source.terminalRepair);
-  if (terminalRepair && (sourceKind !== "current_inventory" || completedLaunch
-    || terminalRepair.originalSequences.length !== targets.length)) {
+  if (terminalRepair && (
+    sourceKind !== "current_inventory"
+    || (!completedLaunch && terminalRepair.originalSequences.length !== targets.length)
+    || completedLaunch?.schema === "analysis-launch-completed-current-inventory-v1"
+  )) {
     throw new Error("terminal repair source 범위가 잘못됐습니다.");
+  }
+  if (
+    completedLaunch?.schema === "analysis-launch-completed-current-inventory-v2"
+    && completedLaunch.selectedOriginalSequences.length !== targets.length
+  ) {
+    throw new Error("completed current inventory 선택 범위가 targets와 다릅니다.");
   }
   if (
     sourceKind !== "independent_review_repair"
@@ -947,11 +973,13 @@ function normalizeCompletedCurrentInventoryBinding(
   value: unknown,
 ): AnalysisLaunchCompletedCurrentInventoryBinding {
   const binding = object(value, "manifest.source.completedLaunch");
-  if (binding.schema !== "analysis-launch-completed-current-inventory-v1") {
+  if (
+    binding.schema !== "analysis-launch-completed-current-inventory-v1"
+    && binding.schema !== "analysis-launch-completed-current-inventory-v2"
+  ) {
     throw new Error("completed current inventory launch schema가 다릅니다.");
   }
-  return Object.freeze({
-    schema: "analysis-launch-completed-current-inventory-v1",
+  const common = {
     inventorySha256: exactSha(String(binding.inventorySha256), "completedLaunch.inventorySha256"),
     sourceManifestSha256: exactSha(
       String(binding.sourceManifestSha256),
@@ -965,6 +993,32 @@ function normalizeCompletedCurrentInventoryBinding(
       String(binding.terminalReceiptSha256),
       "completedLaunch.terminalReceiptSha256",
     ),
+  };
+  if (binding.schema === "analysis-launch-completed-current-inventory-v1") {
+    if (binding.selectedOriginalSequences !== undefined) {
+      throw new Error("completed current inventory v1에는 선택 sequence를 결속할 수 없습니다.");
+    }
+    return Object.freeze({
+      schema: "analysis-launch-completed-current-inventory-v1",
+      ...common,
+    });
+  }
+  if (!Array.isArray(binding.selectedOriginalSequences) || binding.selectedOriginalSequences.length < 1) {
+    throw new Error("completed current inventory v2 선택 sequence가 없습니다.");
+  }
+  const selectedOriginalSequences = binding.selectedOriginalSequences.map(
+    (value, index) => integer(value, `selectedOriginalSequences[${index}]`),
+  );
+  if (
+    selectedOriginalSequences.some((sequence) => sequence < 0)
+    || new Set(selectedOriginalSequences).size !== selectedOriginalSequences.length
+  ) {
+    throw new Error("completed current inventory v2 선택 sequence가 잘못됐거나 중복됐습니다.");
+  }
+  return Object.freeze({
+    schema: "analysis-launch-completed-current-inventory-v2",
+    ...common,
+    selectedOriginalSequences: Object.freeze(selectedOriginalSequences),
   });
 }
 

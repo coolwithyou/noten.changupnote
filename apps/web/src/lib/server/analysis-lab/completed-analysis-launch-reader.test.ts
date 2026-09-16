@@ -235,6 +235,80 @@ test("unknown tuple, modified SHA, unfinished receipt와 target drift를 fail-cl
       }),
       /receipt target이 manifest exact target과 다릅니다/,
     );
+
+    const malformedSubsetManifest = {
+      ...incomplete.manifest,
+      source: {
+        ...incomplete.manifest.source,
+        completedLaunch: {
+          schema: "analysis-launch-completed-current-inventory-v2",
+          inventorySha256: incomplete.manifest.source.planArtifactSha256,
+          sourceManifestSha256: "7".repeat(64),
+          sourceGrantSha256: "8".repeat(64),
+          terminalReceiptSha256: "9".repeat(64),
+          selectedOriginalSequences: [-1],
+        },
+      },
+      execution: {
+        ...incomplete.manifest.execution,
+        existingRunPolicy: "rerun_exact_targets",
+      },
+    } as unknown as AnalysisLaunchManifest;
+    const malformedManifestStored = await writeAnalysisLaunchArtifact(
+      "manifests",
+      malformedSubsetManifest,
+      root,
+    );
+    const malformedGrant = await writeAnalysisLaunchArtifact("grants", createAnalysisLaunchGrant({
+      manifestSha256: malformedManifestStored.sha256,
+      targetCount: 1,
+      approvedBy: "reader-test",
+      now: new Date("2026-09-16T00:00:05.000Z"),
+    }), root);
+    const malformedReceipt = await writeAnalysisLaunchArtifact("receipts", {
+      ...incomplete.receiptValue,
+      manifestSha256: malformedManifestStored.sha256,
+      grantSha256: malformedGrant.sha256,
+    }, root);
+    await assert.rejects(
+      () => readCompletedAnalysisLaunchArtifacts({
+        launchReceiptSha256: malformedReceipt.sha256,
+        repositoryRoot: root,
+      }),
+      /completed current inventory v2 선택 sequence/,
+    );
+
+    // 문법상 유효해도 ancestry 파일이 없으면 소비하지 않는다. completedLaunch 검증
+    // 분기를 생략한 reader는 이 receipt를 그대로 반환하므로 별도로 회귀를 고정한다.
+    const missingAncestryManifest = await writeAnalysisLaunchArtifact("manifests", {
+      ...malformedSubsetManifest,
+      source: {
+        ...malformedSubsetManifest.source,
+        completedLaunch: {
+          ...malformedSubsetManifest.source.completedLaunch!,
+          schema: "analysis-launch-completed-current-inventory-v2",
+          selectedOriginalSequences: [0],
+        },
+      },
+    } as AnalysisLaunchManifest, root);
+    const missingAncestryGrant = await writeAnalysisLaunchArtifact("grants", createAnalysisLaunchGrant({
+      manifestSha256: missingAncestryManifest.sha256,
+      targetCount: 1,
+      approvedBy: "reader-test",
+      now: new Date("2026-09-16T00:00:05.000Z"),
+    }), root);
+    const missingAncestryReceipt = await writeAnalysisLaunchArtifact("receipts", {
+      ...incomplete.receiptValue,
+      manifestSha256: missingAncestryManifest.sha256,
+      grantSha256: missingAncestryGrant.sha256,
+    }, root);
+    await assert.rejects(
+      () => readCompletedAnalysisLaunchArtifacts({
+        launchReceiptSha256: missingAncestryReceipt.sha256,
+        repositoryRoot: root,
+      }),
+      /ENOENT/,
+    );
   } finally {
     await rm(root, { recursive: true, force: true });
   }

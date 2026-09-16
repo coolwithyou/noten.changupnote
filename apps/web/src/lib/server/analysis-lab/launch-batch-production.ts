@@ -46,7 +46,8 @@ import { classifyLabRunOutcome } from "./run-outcome";
 import { findMonorepoRoot, labRunFilePath } from "./run-store";
 import {
   buildCurrentInventoryLaunchManifest,
-  readAndVerifyCompletedCurrentInventoryLaunch,
+  MISSING_WORKSPACE_FIELDS_POLICY,
+  readAndVerifyCompletedCurrentInventoryLaunchDetails,
   verifyCurrentInventoryLaunchBinding,
   type CurrentLaunchInventory,
 } from "./current-inventory-launch";
@@ -94,7 +95,7 @@ interface CompletedCurrentInventoryLaunchPreparationDependencies {
   readonly repositoryRoot: string;
   readonly now: () => Date;
   readonly readProvenance: typeof readCurrentDeepRepairExecutionProvenance;
-  readonly readCompletedLaunch: typeof readAndVerifyCompletedCurrentInventoryLaunch;
+  readonly readCompletedLaunch: typeof readAndVerifyCompletedCurrentInventoryLaunchDetails;
   readonly verifyTarget: typeof verifyCurrentInventoryLaunchTarget;
   readonly prepareTarget: (grantId: string) => Promise<{
     readonly grantId: string;
@@ -116,6 +117,7 @@ export async function prepareCompletedCurrentInventoryLaunchManifest(input: {
   readonly sourceManifestSha256: string;
   readonly sourceGrantSha256: string;
   readonly terminalReceiptSha256: string;
+  readonly selectedOriginalSequences?: readonly number[];
   readonly concurrency: number;
 }, dependencyOverrides: Partial<CompletedCurrentInventoryLaunchPreparationDependencies> = {}): Promise<{
   readonly manifest: AnalysisLaunchManifest;
@@ -126,7 +128,7 @@ export async function prepareCompletedCurrentInventoryLaunchManifest(input: {
     repositoryRoot: findMonorepoRoot(),
     now: () => new Date(),
     readProvenance: readCurrentDeepRepairExecutionProvenance,
-    readCompletedLaunch: readAndVerifyCompletedCurrentInventoryLaunch,
+    readCompletedLaunch: readAndVerifyCompletedCurrentInventoryLaunchDetails,
     verifyTarget: verifyCurrentInventoryLaunchTarget,
     prepareTarget: async (grantId) => {
       const prepared = await prepareLabAnalysis(grantId);
@@ -141,27 +143,51 @@ export async function prepareCompletedCurrentInventoryLaunchManifest(input: {
     ),
     ...dependencyOverrides,
   };
-  const completedLaunch: AnalysisLaunchCompletedCurrentInventoryBinding = Object.freeze({
-    schema: "analysis-launch-completed-current-inventory-v1",
-    inventorySha256: input.inventorySha256,
-    sourceManifestSha256: input.sourceManifestSha256,
-    sourceGrantSha256: input.sourceGrantSha256,
-    terminalReceiptSha256: input.terminalReceiptSha256,
-  });
+  const completedLaunch: AnalysisLaunchCompletedCurrentInventoryBinding = input.selectedOriginalSequences
+    ? Object.freeze({
+        schema: "analysis-launch-completed-current-inventory-v2",
+        inventorySha256: input.inventorySha256,
+        sourceManifestSha256: input.sourceManifestSha256,
+        sourceGrantSha256: input.sourceGrantSha256,
+        terminalReceiptSha256: input.terminalReceiptSha256,
+        selectedOriginalSequences: validateSelectedOriginalSequences(
+          input.selectedOriginalSequences,
+        ),
+      })
+    : Object.freeze({
+        schema: "analysis-launch-completed-current-inventory-v1",
+        inventorySha256: input.inventorySha256,
+        sourceManifestSha256: input.sourceManifestSha256,
+        sourceGrantSha256: input.sourceGrantSha256,
+        terminalReceiptSha256: input.terminalReceiptSha256,
+      });
   const initialProvenance = await dependencies.readProvenance({
     repositoryRoot: dependencies.repositoryRoot,
   });
-  const inventory = await dependencies.readCompletedLaunch(
+  const completed = await dependencies.readCompletedLaunch(
     dependencies.repositoryRoot,
     completedLaunch,
   );
-  const preparedTargets = await prepareCurrentInventoryResealTargets(inventory, dependencies);
-  const finalPreparedTargets = await prepareCurrentInventoryResealTargets(inventory, dependencies);
+  const inventory = completed.inventory;
+  const selectedTargets = selectCompletedCurrentInventoryTargets(inventory, completedLaunch);
+  const eligibilityInventory = completedLaunch.schema === "analysis-launch-completed-current-inventory-v2"
+    ? completedResealEligibilityInventory(inventory)
+    : inventory;
+  const preparedTargets = await prepareCurrentInventoryResealTargets(
+    eligibilityInventory,
+    selectedTargets,
+    dependencies,
+  );
+  const finalPreparedTargets = await prepareCurrentInventoryResealTargets(
+    eligibilityInventory,
+    selectedTargets,
+    dependencies,
+  );
   if (!encodeCanonical(preparedTargets).equals(encodeCanonical(finalPreparedTargets))) {
     throw new Error("current inventory 재봉인 준비 중 입력/첨부가 변경됐습니다.");
   }
-  for (const target of inventory.targets) {
-    await dependencies.verifyTarget(inventory, target.grantId);
+  for (const target of selectedTargets) {
+    await dependencies.verifyTarget(eligibilityInventory, target.grantId);
   }
   await dependencies.readCompletedLaunch(
     dependencies.repositoryRoot,
@@ -181,6 +207,9 @@ export async function prepareCompletedCurrentInventoryLaunchManifest(input: {
     provenance: finalProvenance,
     concurrency: input.concurrency,
     completedLaunch,
+    ...(completed.sourceManifest.source.terminalRepair
+      ? { terminalRepair: completed.sourceManifest.source.terminalRepair }
+      : {}),
     now: dependencies.now(),
   });
   const stored = await dependencies.writeManifest(manifest, dependencies.repositoryRoot);
@@ -189,10 +218,11 @@ export async function prepareCompletedCurrentInventoryLaunchManifest(input: {
 
 async function prepareCurrentInventoryResealTargets(
   inventory: CurrentLaunchInventory,
+  selectedTargets: CurrentLaunchInventory["targets"],
   dependencies: CompletedCurrentInventoryLaunchPreparationDependencies,
 ) {
   const preparedTargets = [];
-  for (const target of inventory.targets) {
+  for (const target of selectedTargets) {
     await dependencies.verifyTarget(inventory, target.grantId);
     const prepared = await dependencies.prepareTarget(target.grantId);
     if (
@@ -205,6 +235,44 @@ async function prepareCurrentInventoryResealTargets(
     preparedTargets.push(prepared);
   }
   return preparedTargets;
+}
+
+function validateSelectedOriginalSequences(sequences: readonly number[]): readonly number[] {
+  if (sequences.length < 1 || sequences.length > 100
+    || sequences.some((sequence) => !Number.isSafeInteger(sequence) || sequence < 0)
+    || new Set(sequences).size !== sequences.length) {
+    throw new Error("재봉인 선택 sequence는 중복 없는 0 이상 정수 1~100개여야 합니다.");
+  }
+  return Object.freeze([...sequences]);
+}
+
+function selectCompletedCurrentInventoryTargets(
+  inventory: CurrentLaunchInventory,
+  binding: AnalysisLaunchCompletedCurrentInventoryBinding,
+): CurrentLaunchInventory["targets"] {
+  if (binding.schema === "analysis-launch-completed-current-inventory-v1") {
+    return inventory.targets;
+  }
+  return Object.freeze(binding.selectedOriginalSequences.map((originalSequence, sequence) => {
+    const target = inventory.targets[originalSequence];
+    if (!target || target.sequence !== originalSequence) {
+      throw new Error("재봉인 선택 sequence가 원 completed inventory 범위를 벗어났습니다.");
+    }
+    return Object.freeze({ ...target, sequence });
+  }));
+}
+
+/** completed reseal은 현행 지원 조건을 다시 읽되 과거 field-repair의 필드 0개 조건은 승계하지 않는다. */
+function completedResealEligibilityInventory(
+  inventory: CurrentLaunchInventory,
+): CurrentLaunchInventory {
+  return inventory.policy === MISSING_WORKSPACE_FIELDS_POLICY
+    ? Object.freeze({
+        ...inventory,
+        seriesId: `current-reseal-${inventory.seriesId.replace(/^current-field-repair-/u, "")}`,
+        policy: "open-visible-current-period-unseen-v1" as const,
+      })
+    : inventory;
 }
 
 export async function approveAnalysisLaunchManifest(input: {
@@ -442,7 +510,13 @@ export async function runApprovedAnalysisLaunchBatch(input: {
           try {
             if (currentInventory) {
               const { verifyCurrentInventoryLaunchTarget } = await import("./current-inventory-launch-production");
-              await verifyCurrentInventoryLaunchTarget(currentInventory, grantId);
+              await verifyCurrentInventoryLaunchTarget(
+                manifest.source.completedLaunch?.schema
+                  === "analysis-launch-completed-current-inventory-v2"
+                  ? completedResealEligibilityInventory(currentInventory)
+                  : currentInventory,
+                grantId,
+              );
             }
             if (target.applicationRoundtripReuse) {
               await verifyIndependentReviewApplicationRoundtripReuseBinding({

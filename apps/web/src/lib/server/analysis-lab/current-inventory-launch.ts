@@ -6,6 +6,7 @@ import {
   encodeCanonical,
   normalizeAnalysisLaunchGrant,
   normalizeAnalysisLaunchReceipt,
+  normalizeCompletedAnalysisLaunchManifestForOfflineConsumption,
   normalizeCompletedCurrentInventorySourceManifest,
   readAnalysisLaunchArtifact,
   type AnalysisLaunchCompletedCurrentInventoryBinding,
@@ -102,10 +103,17 @@ export function buildCurrentInventoryLaunchManifest(input: {
   const inventory = validateCurrentLaunchInventory(input.inventory);
   if ((inventory.policy === TERMINAL_REPAIR_POLICY) !== Boolean(input.terminalRepair)) throw new Error("terminal repair ancestry가 필요합니다.");
   if (sha(encodeCanonical(inventory)) !== input.inventorySha256) throw new Error("current inventory SHA가 다릅니다.");
+  const projectedTargets = completedLaunchProjectionTargets(inventory, input.completedLaunch);
+  const projectedInventory = {
+    ...inventory,
+    targets: projectedTargets,
+    planSha256: input.inventorySha256,
+    planArtifactSha256: input.inventorySha256,
+  };
   const manifest = createCurrentInventoryAnalysisLaunchManifest({
-    inventory: { ...inventory, planSha256: input.inventorySha256, planArtifactSha256: input.inventorySha256 },
-    sequenceFrom: 0, sequenceTo: inventory.targets.length - 1,
-    preparedTargets: input.preparedTargets ?? inventory.targets,
+    inventory: projectedInventory,
+    sequenceFrom: 0, sequenceTo: projectedTargets.length - 1,
+    preparedTargets: input.preparedTargets ?? projectedTargets,
     provenance: input.provenance, withApplicationRoundtrip: true,
     concurrency: input.concurrency, now: input.now,
     ...(input.completedLaunch ? { completedLaunch: input.completedLaunch } : {}),
@@ -119,11 +127,39 @@ export function buildCurrentInventoryLaunchManifest(input: {
 
 /** grant/실행에서 inventory를 다시 읽어 임의 target 대체와 봉인 파일 손상을 거부한다. */
 export async function verifyCurrentInventoryLaunchBinding(root: string, manifest: AnalysisLaunchManifest) {
+  return verifyCurrentInventoryLaunchBindingWithContext(root, manifest, {
+    completedManifestSha256s: new Set(),
+    depth: 0,
+  });
+}
+
+const MAX_COMPLETED_LAUNCH_ANCESTRY_DEPTH = 16;
+interface CompletedLaunchAncestryContext {
+  readonly completedManifestSha256s: ReadonlySet<string>;
+  readonly depth: number;
+}
+
+async function verifyCurrentInventoryLaunchBindingWithContext(
+  root: string,
+  manifest: AnalysisLaunchManifest,
+  context: CompletedLaunchAncestryContext,
+) {
   if (manifest.source.kind !== "current_inventory") return null;
   const inventory = await readCurrentLaunchInventory(root, manifest.source.planArtifactSha256);
   assertCurrentInventoryManifestBinding(manifest, inventory);
   if (manifest.source.completedLaunch) {
-    await readAndVerifyCompletedCurrentInventoryLaunch(root, manifest.source.completedLaunch, inventory);
+    const completed = await readAndVerifyCompletedCurrentInventoryLaunchDetailsWithContext(
+      root,
+      manifest.source.completedLaunch,
+      inventory,
+      context,
+    );
+    const expectedTerminalRepair = completed.sourceManifest.source.terminalRepair;
+    if (Boolean(manifest.source.terminalRepair) !== Boolean(expectedTerminalRepair)
+      || (manifest.source.terminalRepair && expectedTerminalRepair
+        && !encodeCanonical(manifest.source.terminalRepair).equals(encodeCanonical(expectedTerminalRepair)))) {
+      throw new Error("완료 launch의 terminal repair ancestry가 새 manifest에 그대로 결속되지 않았습니다.");
+    }
   }
   if ((inventory.policy === TERMINAL_REPAIR_POLICY) !== Boolean(manifest.source.terminalRepair)) throw new Error("terminal repair inventory 정책이 다릅니다.");
   if (manifest.source.terminalRepair) {
@@ -141,19 +177,27 @@ export function assertCurrentInventoryManifestBinding(
   manifest: AnalysisLaunchManifest,
   inventory: CurrentLaunchInventory,
 ): void {
+  const expectedTargets = completedLaunchProjectionTargets(inventory, manifest.source.completedLaunch);
   if (manifest.source.planSha256 !== manifest.source.planArtifactSha256
     || manifest.source.seriesId !== inventory.seriesId || manifest.execution.model !== inventory.model
-    || manifest.source.sequenceFrom !== 0 || manifest.targets.length !== inventory.targets.length) {
+    || manifest.source.sequenceFrom !== 0 || manifest.targets.length !== expectedTargets.length) {
     throw new Error("launch와 current inventory 범위가 다릅니다.");
   }
-  assertCurrentInventoryManifestTargets(manifest, inventory);
+  if (
+    manifest.source.completedLaunch?.schema === "analysis-launch-completed-current-inventory-v2"
+    && manifest.source.terminalRepair
+    && manifest.source.terminalRepair.originalSequences.length !== inventory.targets.length
+  ) {
+    throw new Error("완료 terminal repair ancestry 전체 범위가 원 inventory와 다릅니다.");
+  }
+  assertCurrentInventoryManifestTargets(manifest, expectedTargets);
 }
 
 function assertCurrentInventoryManifestTargets(
   manifest: AnalysisLaunchManifest,
-  inventory: CurrentLaunchInventory,
+  expectedTargets: CurrentLaunchInventory["targets"],
 ): void {
-  for (const [index, target] of inventory.targets.entries()) {
+  for (const [index, target] of expectedTargets.entries()) {
     const actual = manifest.targets[index];
     if (!actual || actual.sequence !== target.sequence || actual.grantId !== target.grantId
       || actual.stratum !== target.stratum || actual.inputSha256 !== target.inputSha256
@@ -169,13 +213,61 @@ export async function readAndVerifyCompletedCurrentInventoryLaunch(
   binding: AnalysisLaunchCompletedCurrentInventoryBinding,
   expectedInventory?: CurrentLaunchInventory,
 ): Promise<CurrentLaunchInventory> {
+  return (await readAndVerifyCompletedCurrentInventoryLaunchDetails(
+    root,
+    binding,
+    expectedInventory,
+  )).inventory;
+}
+
+export interface VerifiedCompletedCurrentInventoryLaunch {
+  readonly inventory: CurrentLaunchInventory;
+  readonly sourceManifest: AnalysisLaunchManifest;
+}
+
+export async function readAndVerifyCompletedCurrentInventoryLaunchDetails(
+  root: string,
+  binding: AnalysisLaunchCompletedCurrentInventoryBinding,
+  expectedInventory?: CurrentLaunchInventory,
+): Promise<VerifiedCompletedCurrentInventoryLaunch> {
+  return readAndVerifyCompletedCurrentInventoryLaunchDetailsWithContext(
+    root,
+    binding,
+    expectedInventory,
+    { completedManifestSha256s: new Set(), depth: 0 },
+  );
+}
+
+async function readAndVerifyCompletedCurrentInventoryLaunchDetailsWithContext(
+  root: string,
+  binding: AnalysisLaunchCompletedCurrentInventoryBinding,
+  expectedInventory: CurrentLaunchInventory | undefined,
+  context: CompletedLaunchAncestryContext,
+): Promise<VerifiedCompletedCurrentInventoryLaunch> {
+  if (context.depth >= MAX_COMPLETED_LAUNCH_ANCESTRY_DEPTH) {
+    throw new Error("completed current inventory ancestry 깊이가 허용 범위를 넘었습니다.");
+  }
+  if (context.completedManifestSha256s.has(binding.sourceManifestSha256)) {
+    throw new Error("completed current inventory ancestry에 순환이 있습니다.");
+  }
+  const nextManifestSha256s = new Set(context.completedManifestSha256s);
+  nextManifestSha256s.add(binding.sourceManifestSha256);
+  const nextContext = {
+    completedManifestSha256s: nextManifestSha256s,
+    depth: context.depth + 1,
+  };
   const inventory = await readCurrentLaunchInventory(root, binding.inventorySha256);
   if (expectedInventory && !encodeCanonical(expectedInventory).equals(encodeCanonical(inventory))) {
     throw new Error("재봉인 ancestry inventory가 새 manifest inventory와 다릅니다.");
   }
-  const sourceManifest = normalizeCompletedCurrentInventorySourceManifest(
-    await readAnalysisLaunchArtifact("manifests", binding.sourceManifestSha256, root),
+  const rawSourceManifest = await readAnalysisLaunchArtifact(
+    "manifests",
+    binding.sourceManifestSha256,
+    root,
   );
+  const sourceManifest = binding.schema === "analysis-launch-completed-current-inventory-v2"
+    ? normalizeCompletedCurrentInventorySubsetSource(rawSourceManifest)
+    : normalizeCompletedCurrentInventorySourceManifest(rawSourceManifest);
   const sourceGrant = normalizeAnalysisLaunchGrant(
     await readAnalysisLaunchArtifact("grants", binding.sourceGrantSha256, root),
   );
@@ -195,7 +287,7 @@ export async function readAndVerifyCompletedCurrentInventoryLaunch(
   ) {
     throw new Error("완료 current inventory launch ancestry 결속이 다릅니다.");
   }
-  assertCurrentInventoryManifestBinding(sourceManifest, inventory);
+  await verifyCurrentInventoryLaunchBindingWithContext(root, sourceManifest, nextContext);
   for (const [index, sourceTarget] of sourceManifest.targets.entries()) {
     const receiptTarget = receipt.targets[index];
     if (
@@ -206,7 +298,76 @@ export async function readAndVerifyCompletedCurrentInventoryLaunch(
       throw new Error("완료 launch receipt target이 manifest와 다릅니다.");
     }
   }
-  return inventory;
+  if (binding.schema === "analysis-launch-completed-current-inventory-v2") {
+    assertCompletedSubsetWasExecutedBySource({
+      binding,
+      inventory,
+      sourceManifest,
+      receipt,
+    });
+  }
+  return Object.freeze({ inventory, sourceManifest });
+}
+
+function assertCompletedSubsetWasExecutedBySource(input: {
+  readonly binding: Extract<AnalysisLaunchCompletedCurrentInventoryBinding, {
+    readonly schema: "analysis-launch-completed-current-inventory-v2";
+  }>;
+  readonly inventory: CurrentLaunchInventory;
+  readonly sourceManifest: AnalysisLaunchManifest;
+  readonly receipt: ReturnType<typeof normalizeAnalysisLaunchReceipt>;
+}): void {
+  const sourceOriginalSequences = input.sourceManifest.source.completedLaunch?.schema
+      === "analysis-launch-completed-current-inventory-v2"
+    ? input.sourceManifest.source.completedLaunch.selectedOriginalSequences
+    : input.sourceManifest.targets.map((target) => target.sequence);
+  for (const originalSequence of input.binding.selectedOriginalSequences) {
+    const sourceIndex = sourceOriginalSequences.indexOf(originalSequence);
+    const inventoryTarget = input.inventory.targets[originalSequence];
+    const sourceTarget = sourceIndex < 0 ? undefined : input.sourceManifest.targets[sourceIndex];
+    const receiptTarget = sourceIndex < 0 ? undefined : input.receipt.targets[sourceIndex];
+    if (
+      !inventoryTarget
+      || !sourceTarget
+      || !receiptTarget
+      || sourceTarget.grantId !== inventoryTarget.grantId
+      || sourceTarget.inputSha256 !== inventoryTarget.inputSha256
+      || sourceTarget.attachmentManifestSha256 !== inventoryTarget.attachmentManifestSha256
+      || receiptTarget.sequence !== sourceTarget.sequence
+      || receiptTarget.grantId !== sourceTarget.grantId
+      || receiptTarget.status === "skipped"
+    ) {
+      throw new Error("재봉인 선택 target은 원 completed manifest와 terminal receipt에서 exact 실행돼야 합니다.");
+    }
+  }
+}
+
+function normalizeCompletedCurrentInventorySubsetSource(value: unknown): AnalysisLaunchManifest {
+  try {
+    return normalizeCompletedAnalysisLaunchManifestForOfflineConsumption(value);
+  } catch {
+    return normalizeCompletedCurrentInventorySourceManifest(value);
+  }
+}
+
+function completedLaunchProjectionTargets(
+  inventory: CurrentLaunchInventory,
+  completedLaunch: AnalysisLaunchCompletedCurrentInventoryBinding | undefined,
+): CurrentLaunchInventory["targets"] {
+  if (!completedLaunch || completedLaunch.schema === "analysis-launch-completed-current-inventory-v1") {
+    return inventory.targets;
+  }
+  const selected = completedLaunch.selectedOriginalSequences.map((originalSequence, sequence) => {
+    const target = inventory.targets[originalSequence];
+    if (!target || target.sequence !== originalSequence) {
+      throw new Error("completed current inventory 선택 sequence가 원 inventory 범위를 벗어났습니다.");
+    }
+    return Object.freeze({ ...target, sequence });
+  });
+  if (new Set(completedLaunch.selectedOriginalSequences).size !== selected.length) {
+    throw new Error("completed current inventory 선택 sequence가 중복됐습니다.");
+  }
+  return Object.freeze(selected);
 }
 
 function sha(bytes: Buffer) { return createHash("sha256").update(bytes).digest("hex"); }

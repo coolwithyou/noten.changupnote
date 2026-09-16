@@ -1029,6 +1029,22 @@ test("launch CLI는 prepare/grant/run의 권한 단계를 분리한다", () => {
     terminalReceiptSha256: SHA_D,
     concurrency: 1,
   });
+  assert.deepEqual(parseAnalysisLaunchCliArgs("prepare", [
+    `--reseal-current-inventory=${SHA_A}`,
+    `--source-manifest=${SHA_B}`,
+    `--source-grant=${SHA_C}`,
+    `--terminal-receipt=${SHA_D}`,
+    "--selected-sequences=0,3,16",
+    "--concurrency=1",
+  ]), {
+    kind: "prepare-current-inventory-reseal",
+    inventorySha256: SHA_A,
+    sourceManifestSha256: SHA_B,
+    sourceGrantSha256: SHA_C,
+    terminalReceiptSha256: SHA_D,
+    selectedOriginalSequences: [0, 3, 16],
+    concurrency: 1,
+  });
   for (const args of [
     [`--reseal-current-inventory=${SHA_A}`, `--source-manifest=${SHA_B}`,
       `--source-grant=${SHA_C}`, "--concurrency=1"],
@@ -1037,6 +1053,12 @@ test("launch CLI는 prepare/grant/run의 권한 단계를 분리한다", () => {
       "--series=deep-v24"],
     [`--reseal-current-inventory=${SHA_A}`, `--source-manifest=${SHA_B}`,
       `--source-grant=${SHA_C}`, `--terminal-receipt=${SHA_D}`, "--concurrency=5"],
+    [`--reseal-current-inventory=${SHA_A}`, `--source-manifest=${SHA_B}`,
+      `--source-grant=${SHA_C}`, `--terminal-receipt=${SHA_D}`,
+      "--selected-sequences=0,0", "--concurrency=1"],
+    [`--reseal-current-inventory=${SHA_A}`, `--source-manifest=${SHA_B}`,
+      `--source-grant=${SHA_C}`, `--terminal-receipt=${SHA_D}`,
+      "--selected-sequences=0-2", "--concurrency=1"],
   ]) assert.throws(() => parseAnalysisLaunchCliArgs("prepare", args));
   assert.equal(parseAnalysisLaunchCliArgs("grant", [
     `--manifest=${SHA_A}`,

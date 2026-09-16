@@ -50,7 +50,7 @@ export async function readCompletedAnalysisLaunchArtifacts(input: {
   ) {
     throw new Error("launch receipt target이 manifest exact target과 다릅니다.");
   }
-  if (manifest.source.terminalRepair) {
+  if (manifest.source.terminalRepair || manifest.source.completedLaunch) {
     const { verifyCurrentInventoryLaunchBinding } = await import("./current-inventory-launch");
     await verifyCurrentInventoryLaunchBinding(input.repositoryRoot, manifest);
   }

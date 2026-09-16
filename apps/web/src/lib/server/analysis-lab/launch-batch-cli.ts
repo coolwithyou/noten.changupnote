@@ -15,7 +15,7 @@ import {
 
 const SHA256 = /^[a-f0-9]{64}$/;
 const USAGE = `pnpm lab:launch:prepare -- --series=${ACTIVE_DEEP_REPAIR_SERIES_ID} --sequences=0-${ACTIVE_DEEP_REPAIR_TARGET_COUNT - 1} --concurrency=2
-pnpm lab:launch:prepare -- --reseal-current-inventory=<sha256> --source-manifest=<sha256> --source-grant=<sha256> --terminal-receipt=<sha256> --concurrency=1
+pnpm lab:launch:prepare -- --reseal-current-inventory=<sha256> --source-manifest=<sha256> --source-grant=<sha256> --terminal-receipt=<sha256> [--selected-sequences=<n[,n...]>] --concurrency=1
 pnpm lab:launch:grant -- --manifest=<sha256> --approved-by=<actor>
 pnpm lab:launch -- --grant=<sha256> [--retry-errors [--retry-sequences=<n[,n-m...]>]]`;
 
@@ -36,6 +36,7 @@ export type AnalysisLaunchCliArgs =
       readonly sourceManifestSha256: string;
       readonly sourceGrantSha256: string;
       readonly terminalReceiptSha256: string;
+      readonly selectedOriginalSequences?: readonly number[];
       readonly concurrency: number;
     }
   | { readonly kind: "grant"; readonly manifestSha256: string; readonly approvedBy: string }
@@ -63,6 +64,16 @@ function parseRetrySequences(value: string | undefined): readonly number[] | nul
     }
   }
   if (sequences.length === 0) throw usageError();
+  return sequences;
+}
+
+function parseSelectedSequences(value: string | undefined): readonly number[] | undefined {
+  if (value === undefined) return undefined;
+  if (!/^\d+(?:,\d+)*$/u.test(value)) throw usageError();
+  const sequences = value.split(",").map(Number);
+  if (sequences.length > 100
+    || sequences.some((sequence) => !Number.isSafeInteger(sequence))
+    || new Set(sequences).size !== sequences.length) throw usageError();
   return sequences;
 }
 
@@ -95,16 +106,19 @@ export function parseAnalysisLaunchCliArgs(
         "--source-manifest",
         "--source-grant",
         "--terminal-receipt",
+        "--selected-sequences",
         "--concurrency",
       ]);
       if (
         flags.size > 0
-        || values.size !== allowedResealValues.size
+        || (values.size !== allowedResealValues.size
+          && values.size !== allowedResealValues.size - 1)
         || [...values.keys()].some((key) => !allowedResealValues.has(key))
       ) throw usageError();
       const sourceManifestSha256 = values.get("--source-manifest");
       const sourceGrantSha256 = values.get("--source-grant");
       const terminalReceiptSha256 = values.get("--terminal-receipt");
+      const selectedOriginalSequences = parseSelectedSequences(values.get("--selected-sequences"));
       const concurrency = Number(values.get("--concurrency"));
       if (
         !SHA256.test(resealInventorySha256)
@@ -119,6 +133,7 @@ export function parseAnalysisLaunchCliArgs(
         sourceManifestSha256,
         sourceGrantSha256,
         terminalReceiptSha256,
+        ...(selectedOriginalSequences ? { selectedOriginalSequences } : {}),
         concurrency,
       };
     }
@@ -180,6 +195,9 @@ async function main(command: Command, argv: readonly string[]): Promise<void> {
         sourceManifestSha256: parsed.sourceManifestSha256,
         sourceGrantSha256: parsed.sourceGrantSha256,
         terminalReceiptSha256: parsed.terminalReceiptSha256,
+        ...(parsed.selectedOriginalSequences
+          ? { selectedOriginalSequences: parsed.selectedOriginalSequences }
+          : {}),
         concurrency: parsed.concurrency,
       });
       console.log(JSON.stringify({

@@ -8,6 +8,7 @@ import test from "node:test";
 import {
   CURRENT_INVENTORY_SCHEMA, buildCurrentInventoryLaunchManifest,
   MISSING_WORKSPACE_FIELDS_POLICY,
+  TERMINAL_REPAIR_POLICY,
   currentLaunchInventoryPath, readCurrentLaunchInventory, storeCurrentLaunchInventory,
   readAndVerifyCompletedCurrentInventoryLaunch,
   validateCurrentLaunchInventory, verifyCurrentInventoryLaunchBinding,
@@ -51,12 +52,20 @@ function manifest(value = inventory()) {
       validatorVersion: DEEP_ANALYSIS_VALIDATOR_VERSION } });
 }
 
-async function completedLaunchFixture(root: string, value = inventory(2)) {
+async function completedLaunchFixture(
+  root: string,
+  value = inventory(2),
+  contract: "v14" | "v19" = "v14",
+) {
   const storedInventory = await storeCurrentLaunchInventory(root, value);
   const sourceManifest = structuredClone(manifest(value)) as any;
-  sourceManifest.execution.promptVersion = "lab-deep-v26";
-  sourceManifest.execution.validatorVersion = "deep-analysis-validator-v19";
-  sourceManifest.execution.applicationFieldAnalysisVersion = "kordoc-application-roundtrip-v14";
+  sourceManifest.execution.promptVersion = contract === "v14" ? "lab-deep-v26" : "lab-deep-v28";
+  sourceManifest.execution.validatorVersion = contract === "v14"
+    ? "deep-analysis-validator-v19"
+    : "deep-analysis-validator-v23";
+  sourceManifest.execution.applicationFieldAnalysisVersion = contract === "v14"
+    ? "kordoc-application-roundtrip-v14"
+    : "kordoc-application-roundtrip-v19";
   const storedManifest = await writeAnalysisLaunchArtifact("manifests", sourceManifest, root);
   const sourceGrant = createAnalysisLaunchGrant({
     manifestSha256: storedManifest.sha256,
@@ -305,6 +314,294 @@ test("재봉인 production prepare는 current input/source/provenance를 봉인 
     }), /실행 코드가 변경/);
     assert.equal(writes, 0);
   } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("완료된 v19 launch의 명시 sequence 부분집합만 v2 ancestry로 재봉인한다", async () => {
+  const root = await mkdtemp(join(tmpdir(), "cunote-current-reseal-subset-"));
+  try {
+    const fixture = await completedLaunchFixture(root, inventory(4), "v19");
+    const provenance = {
+      gitSha: "2".repeat(40),
+      packageRuntimeSha256: "f".repeat(64),
+      validatorVersion: DEEP_ANALYSIS_VALIDATOR_VERSION,
+    };
+    const verifiedGrantIds: string[] = [];
+    const preparedGrantIds: string[] = [];
+    const result = await prepareCompletedCurrentInventoryLaunchManifest({
+      inventorySha256: fixture.binding.inventorySha256,
+      sourceManifestSha256: fixture.binding.sourceManifestSha256,
+      sourceGrantSha256: fixture.binding.sourceGrantSha256,
+      terminalReceiptSha256: fixture.binding.terminalReceiptSha256,
+      selectedOriginalSequences: [1, 3],
+      concurrency: 1,
+    }, {
+      repositoryRoot: root,
+      now: () => new Date("2026-09-16T12:00:00.000Z"),
+      readProvenance: async () => provenance,
+      verifyTarget: async (current, grantId) => {
+        verifiedGrantIds.push(grantId);
+        assert.ok(current.targets.some((target) => target.grantId === grantId));
+      },
+      prepareTarget: async (grantId) => {
+        preparedGrantIds.push(grantId);
+        const target = fixture.value.targets.find((item) => item.grantId === grantId)!;
+        return { grantId, inputSha256: target.inputSha256,
+          attachmentManifestSha256: target.attachmentManifestSha256 };
+      },
+    });
+    assert.deepEqual(result.manifest.targets.map((target) => ({
+      sequence: target.sequence,
+      grantId: target.grantId,
+    })), [
+      { sequence: 0, grantId: id(1) },
+      { sequence: 1, grantId: id(3) },
+    ]);
+    assert.deepEqual(result.manifest.source.completedLaunch, {
+      ...fixture.binding,
+      schema: "analysis-launch-completed-current-inventory-v2",
+      selectedOriginalSequences: [1, 3],
+    });
+    assert.deepEqual(preparedGrantIds, [id(1), id(3), id(1), id(3)]);
+    assert.deepEqual(verifiedGrantIds, [id(1), id(3), id(1), id(3), id(1), id(3)]);
+    assert.deepEqual(await verifyCurrentInventoryLaunchBinding(root, result.manifest), fixture.value);
+
+    const substituted = structuredClone(result.manifest) as any;
+    substituted.targets[0].grantId = id(0);
+    await assert.rejects(
+      () => verifyCurrentInventoryLaunchBinding(root, substituted),
+      /launch target이 current inventory와 다릅니다/,
+    );
+    assert.throws(() => normalizeAnalysisLaunchManifest({
+      ...result.manifest,
+      source: {
+        ...result.manifest.source,
+        completedLaunch: {
+          ...result.manifest.source.completedLaunch,
+          selectedOriginalSequences: [1, 1],
+        },
+      },
+    }), /중복/);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("부분 재봉인은 범위 밖·중복 sequence를 쓰기 전에 거부한다", async () => {
+  const root = await mkdtemp(join(tmpdir(), "cunote-current-reseal-subset-invalid-"));
+  try {
+    const fixture = await completedLaunchFixture(root, inventory(2), "v19");
+    const provenance = { gitSha: "2".repeat(40), packageRuntimeSha256: "f".repeat(64),
+      validatorVersion: DEEP_ANALYSIS_VALIDATOR_VERSION };
+    let writes = 0;
+    const overrides = {
+      repositoryRoot: root,
+      readProvenance: async () => provenance,
+      verifyTarget: async () => {},
+      prepareTarget: async () => { throw new Error("prepare must not run"); },
+      writeManifest: async () => { writes += 1; throw new Error("write must not run"); },
+    };
+    const base = {
+      inventorySha256: fixture.binding.inventorySha256,
+      sourceManifestSha256: fixture.binding.sourceManifestSha256,
+      sourceGrantSha256: fixture.binding.sourceGrantSha256,
+      terminalReceiptSha256: fixture.binding.terminalReceiptSha256,
+      concurrency: 1,
+    };
+    await assert.rejects(() => prepareCompletedCurrentInventoryLaunchManifest({
+      ...base, selectedOriginalSequences: [2],
+    }, overrides), /원 completed manifest와 terminal receipt에서 exact 실행/);
+    await assert.rejects(() => prepareCompletedCurrentInventoryLaunchManifest({
+      ...base, selectedOriginalSequences: [1, 1],
+    }, overrides), /중복 없는/);
+    assert.equal(writes, 0);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("v2 source가 이미 줄인 범위 밖의 원 inventory target을 후속 재봉인으로 확대하지 않는다", async () => {
+  const root = await mkdtemp(join(tmpdir(), "cunote-current-reseal-no-expansion-"));
+  try {
+    const fixture = await completedLaunchFixture(root, inventory(3), "v19");
+    const provenance = { gitSha: "2".repeat(40), packageRuntimeSha256: "f".repeat(64),
+      validatorVersion: DEEP_ANALYSIS_VALIDATOR_VERSION };
+    const first = await prepareCompletedCurrentInventoryLaunchManifest({
+      inventorySha256: fixture.binding.inventorySha256,
+      sourceManifestSha256: fixture.binding.sourceManifestSha256,
+      sourceGrantSha256: fixture.binding.sourceGrantSha256,
+      terminalReceiptSha256: fixture.binding.terminalReceiptSha256,
+      selectedOriginalSequences: [0],
+      concurrency: 1,
+    }, {
+      repositoryRoot: root,
+      readProvenance: async () => provenance,
+      verifyTarget: async () => {},
+      prepareTarget: async (grantId) => ({ grantId, inputSha256: "b".repeat(64),
+        attachmentManifestSha256: "c".repeat(64) }),
+    });
+    const firstGrant = await writeAnalysisLaunchArtifact("grants", createAnalysisLaunchGrant({
+      manifestSha256: first.manifestSha256,
+      targetCount: 1,
+      approvedBy: "test-reviewer",
+      now: new Date("2026-09-16T12:01:00.000Z"),
+    }), root);
+    const firstReceipt: AnalysisLaunchReceipt = {
+      schema: "analysis-launch-receipt-v1",
+      grantSha256: firstGrant.sha256,
+      manifestSha256: first.manifestSha256,
+      startedAt: "2026-09-16T12:02:00.000Z",
+      finishedAt: "2026-09-16T12:03:00.000Z",
+      lifecycle: "finished",
+      stopReason: "completed",
+      systemicFailure: null,
+      summary: { publishable: 1, held: 0, failed: 0, skipped: 0 },
+      targets: [{
+        sequence: 0,
+        grantId: id(0),
+        status: "publishable",
+        runArtifactPath: "spike-out/runs/subset-0.json",
+        runArtifactSha256: digest({ subset: 0 }),
+        applicationRoundtripStatus: "complete",
+        applicationDocumentCount: 1,
+        fieldReadyDocumentCount: 1,
+        recognizedFieldCount: 1,
+        error: null,
+      }],
+    };
+    const firstReceiptStored = await writeAnalysisLaunchArtifact("receipts", firstReceipt, root);
+    const successorBinding: AnalysisLaunchCompletedCurrentInventoryBinding = {
+      schema: "analysis-launch-completed-current-inventory-v2",
+      inventorySha256: fixture.binding.inventorySha256,
+      sourceManifestSha256: first.manifestSha256,
+      sourceGrantSha256: firstGrant.sha256,
+      terminalReceiptSha256: firstReceiptStored.sha256,
+      selectedOriginalSequences: [1],
+    };
+    await assert.rejects(
+      () => readAndVerifyCompletedCurrentInventoryLaunch(root, successorBinding),
+      /원 completed manifest와 terminal receipt에서 exact 실행/,
+    );
+    const skippedReceiptStored = await writeAnalysisLaunchArtifact("receipts", {
+      ...firstReceipt,
+      summary: { publishable: 0, held: 0, failed: 0, skipped: 1 },
+      targets: [{
+        ...firstReceipt.targets[0]!,
+        status: "skipped",
+        runArtifactPath: null,
+        runArtifactSha256: null,
+        applicationRoundtripStatus: null,
+        applicationDocumentCount: null,
+        fieldReadyDocumentCount: null,
+        recognizedFieldCount: null,
+      }],
+    }, root);
+    await assert.rejects(
+      () => readAndVerifyCompletedCurrentInventoryLaunch(root, {
+        ...successorBinding,
+        terminalReceiptSha256: skippedReceiptStored.sha256,
+        selectedOriginalSequences: [0],
+      }),
+      /원 completed manifest와 terminal receipt에서 exact 실행/,
+    );
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("부분 재봉인의 현재조건 확인은 과거 missing-fields 0개 gate를 승계하지 않는다", async () => {
+  const root = await mkdtemp(join(tmpdir(), "cunote-current-reseal-field-policy-"));
+  try {
+    const value: CurrentLaunchInventory = {
+      ...inventory(2),
+      seriesId: "current-field-repair-20260916",
+      policy: MISSING_WORKSPACE_FIELDS_POLICY,
+    };
+    const fixture = await completedLaunchFixture(root, value, "v19");
+    const provenance = { gitSha: "2".repeat(40), packageRuntimeSha256: "f".repeat(64),
+      validatorVersion: DEEP_ANALYSIS_VALIDATOR_VERSION };
+    const seenPolicies: string[] = [];
+    await prepareCompletedCurrentInventoryLaunchManifest({
+      inventorySha256: fixture.binding.inventorySha256,
+      sourceManifestSha256: fixture.binding.sourceManifestSha256,
+      sourceGrantSha256: fixture.binding.sourceGrantSha256,
+      terminalReceiptSha256: fixture.binding.terminalReceiptSha256,
+      selectedOriginalSequences: [1],
+      concurrency: 1,
+    }, {
+      repositoryRoot: root,
+      readProvenance: async () => provenance,
+      verifyTarget: async (current) => { seenPolicies.push(current.policy); },
+      prepareTarget: async (grantId) => {
+        const target = value.targets[1]!;
+        return { grantId, inputSha256: target.inputSha256,
+          attachmentManifestSha256: target.attachmentManifestSha256 };
+      },
+    });
+    assert.deepEqual(seenPolicies, Array(3).fill("open-visible-current-period-unseen-v1"));
+
+    const v1Fixture = await completedLaunchFixture(root, value, "v14");
+    const v1Policies: string[] = [];
+    await prepareCompletedCurrentInventoryLaunchManifest({
+      inventorySha256: v1Fixture.binding.inventorySha256,
+      sourceManifestSha256: v1Fixture.binding.sourceManifestSha256,
+      sourceGrantSha256: v1Fixture.binding.sourceGrantSha256,
+      terminalReceiptSha256: v1Fixture.binding.terminalReceiptSha256,
+      concurrency: 1,
+    }, {
+      repositoryRoot: root,
+      readProvenance: async () => provenance,
+      verifyTarget: async (current) => { v1Policies.push(current.policy); },
+      prepareTarget: async (grantId) => {
+        const target = value.targets.find((item) => item.grantId === grantId)!;
+        return { grantId, inputSha256: target.inputSha256,
+          attachmentManifestSha256: target.attachmentManifestSha256 };
+      },
+    });
+    assert.deepEqual(v1Policies, Array(6).fill(MISSING_WORKSPACE_FIELDS_POLICY));
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("terminal-repair completed source는 v2에서만 전체 ancestry와 선택 subset을 함께 결속한다", () => {
+  const value: CurrentLaunchInventory = {
+    ...inventory(3),
+    seriesId: "current-terminal-repair-20260916",
+    policy: TERMINAL_REPAIR_POLICY,
+  };
+  const terminalRepair = {
+    schema: "analysis-launch-terminal-repair-v1" as const,
+    sourceManifestSha256: "1".repeat(64),
+    sourceGrantSha256: "2".repeat(64),
+    receiptSha256s: ["3".repeat(64)],
+    originalSequences: [4, 6, 9],
+  };
+  const completedV2: AnalysisLaunchCompletedCurrentInventoryBinding = {
+    schema: "analysis-launch-completed-current-inventory-v2",
+    inventorySha256: digest(value),
+    sourceManifestSha256: "4".repeat(64),
+    sourceGrantSha256: "5".repeat(64),
+    terminalReceiptSha256: "6".repeat(64),
+    selectedOriginalSequences: [1],
+  };
+  const args = {
+    inventory: value,
+    inventorySha256: digest(value),
+    completedLaunch: completedV2,
+    terminalRepair,
+    preparedTargets: [{ grantId: id(1), inputSha256: "b".repeat(64),
+      attachmentManifestSha256: "c".repeat(64) }],
+    concurrency: 1,
+    now: new Date(),
+    provenance: { gitSha: "2".repeat(40), packageRuntimeSha256: "e".repeat(64),
+      validatorVersion: DEEP_ANALYSIS_VALIDATOR_VERSION },
+  };
+  const result = buildCurrentInventoryLaunchManifest(args);
+  assert.equal(result.targets.length, 1);
+  assert.deepEqual(result.source.terminalRepair, terminalRepair);
+  assert.throws(() => buildCurrentInventoryLaunchManifest({
+    ...args,
+    completedLaunch: {
+      schema: "analysis-launch-completed-current-inventory-v1",
+      inventorySha256: completedV2.inventorySha256,
+      sourceManifestSha256: completedV2.sourceManifestSha256,
+      sourceGrantSha256: completedV2.sourceGrantSha256,
+      terminalReceiptSha256: completedV2.terminalReceiptSha256,
+    },
+    preparedTargets: value.targets,
+  }), /terminal repair source 범위/);
 });
 
 test("재봉인 target의 input/attachment drift와 수동 rerun policy 삽입을 거부한다", async () => {
