@@ -1,0 +1,153 @@
+{
+  "schema": "company-field-deployment-v1",
+  "verifiedAt": "2026-09-16T13:18:08.287758+00:00",
+  "sourceCommit": "11232482a47c58ffd17c0696d682473a0ba61ea1",
+  "sourceManifestSha256": "3cc9159c05c97a993239b37fe16d49242066d9a463261e14e97a23fc0cc66682",
+  "project": "NOTEN/changupnote",
+  "authenticatedActor": "noten-dev",
+  "rootDirectory": "apps/web",
+  "deploymentId": "dpl_DeQza8keEKUSAcSbyYS1MxQWKNH2",
+  "url": "https://changupnote-2krq8mosl-noten.vercel.app",
+  "state": "READY",
+  "productionAlias": "https://changupnote.com",
+  "aliasDeploymentId": "dpl_DeQza8keEKUSAcSbyYS1MxQWKNH2",
+  "verifiedGitSha": "11232482a47c58ffd17c0696d682473a0ba61ea1",
+  "candidateSmoke": {
+    "home": 200,
+    "login": 200,
+    "anonymousDraft": 401
+  },
+  "liveSmoke": {
+    "observedAt": "2026-09-16T13:17:19.867322+00:00",
+    "client": "curl",
+    "checks": [
+      {
+        "url": "https://changupnote.com/",
+        "status": 200,
+        "exitCode": 0
+      },
+      {
+        "url": "https://www.changupnote.com/",
+        "status": 200,
+        "exitCode": 0
+      },
+      {
+        "url": "https://changupnote.com/login",
+        "status": 200,
+        "exitCode": 0
+      },
+      {
+        "url": "https://changupnote.com/api/web/document-drafts/00000000-0000-0000-0000-000000000000",
+        "status": 401,
+        "exitCode": 0
+      }
+    ]
+  },
+  "buildLog": {
+    "path": "spike-out/company-field-deploy-rerun-20260916/successor-deploy.log",
+    "sha256": "4263db83c001165b504dcc30c120cecfe50928b04cc9f033132b041b2f3fb935"
+  },
+  "promoteLog": {
+    "path": "spike-out/company-field-deploy-rerun-20260916/successor-promote.log",
+    "sha256": "dfb73effcb33088eb2717625254b731319c684629534946dbbd992c97c0bdd27"
+  },
+  "clientDifference": "Python urllib returned403; curl returned200/200/200/401. Raw failed probe preserved locally. No Cloudflare settings changed.",
+  "gcp": "UNEXECUTED: cunote-codex-dev base authentication expired. The company-field fix executes in web/local application analysis; main worker and input preparation are isolated from Kordoc. Serving-monitor version migration needs a separate active-release compatibility check.",
+  "limits": [
+    "No authenticated end-to-end authoring UAT",
+    "No service analysis promotion",
+    "Existing Cloudflare allowlist remains enabled; production deployment does not mean public launch"
+  ],
+  "activeServingReadOnlyVerification": {
+    "path": "spike-out/company-field-deploy-rerun-20260916/active-serving-compatibility.json",
+    "sha256": "b253afbeb225d04d5f622a202fe41aa701c3654a007bca9f874245185da36e71",
+    "matchingGrants": 5,
+    "criteria": 46,
+    "authoringReady": 1,
+    "authoringUnverified": 4,
+    "readerErrors": 0,
+    "dtoSha256": "d3188d4c0210c7c615d7d0551c3f4e4679a4c40ca552ff62a70b7eca1dd0b2d1",
+    "unchangedFromPreviousSnapshot": true,
+    "authenticatedHttpUat": "UNEXECUTED"
+  },
+  "previousDeployment": {
+    "sourceCommit": "deac07e2616e094e4e2b3e919fe4f1b6cd7241eb",
+    "sourceManifestSha256": "c23209879321d0f163a3e36caec89bad6b197b5361b499d46b40f52a67ba6835",
+    "deploymentId": "dpl_Fg2boXX6uEukbaj2wENWxyMwgZyx",
+    "url": "https://changupnote-ayvlgvvql-noten.vercel.app",
+    "state": "READY",
+    "aliasDeploymentId": "dpl_Fg2boXX6uEukbaj2wENWxyMwgZyx",
+    "verifiedGitSha": "deac07e2616e094e4e2b3e919fe4f1b6cd7241eb",
+    "liveSmoke": {
+      "observedAt": "2026-09-16T12:55:29.221485+00:00",
+      "client": "curl",
+      "checks": [
+        {
+          "url": "https://changupnote.com/",
+          "status": 200,
+          "exitCode": 0
+        },
+        {
+          "url": "https://www.changupnote.com/",
+          "status": 200,
+          "exitCode": 0
+        },
+        {
+          "url": "https://changupnote.com/login",
+          "status": 200,
+          "exitCode": 0
+        },
+        {
+          "url": "https://changupnote.com/api/web/document-drafts/00000000-0000-0000-0000-000000000000",
+          "status": 401,
+          "exitCode": 0
+        }
+      ]
+    },
+    "buildLog": {
+      "path": "spike-out/company-field-deploy-rerun-20260916/deploy.log",
+      "sha256": "03d7bb88a73206f6332ac1b27f2b312d9d7c34f4ea7d0210e2a0439f07089aa1"
+    },
+    "promoteLog": {
+      "path": "spike-out/company-field-deploy-rerun-20260916/promote.log",
+      "sha256": "cec41f5a02ec733f1c2d79c82a2eadb4dda79085ad6d1fe6e02e07ca1aa3f448"
+    }
+  },
+  "codeGates": {
+    "finishedAt": "2026-09-16T13:07:45.340787+00:00",
+    "sourceHashes": {
+      "apps/web/src/lib/server/analysis-lab/completed-analysis-launch-reader.test.ts": "5a6109947741b49049094656bd0bcac7ff05365fe54eef9a9fc5a7164e71e84c",
+      "apps/web/src/lib/server/analysis-lab/completed-analysis-launch-reader.ts": "9d1e41d401af6e76380cc1571c7888d67d0fbf8b9be45a1c60ff1f509217476e",
+      "apps/web/src/lib/server/analysis-lab/current-inventory-launch.test.ts": "2018a562f49e9baabe25af74e79dd3f0335ea45b45cbd024d33036a385b43af7",
+      "apps/web/src/lib/server/analysis-lab/current-inventory-launch.ts": "1c64768d49c6a81d9801d539d9bff76dddecbdfd957e101bbb5f1e664f73477c",
+      "apps/web/src/lib/server/analysis-lab/launch-batch-artifacts.ts": "c86900398cb51a36aa6dc33f747eb5d1b08486525995ef670af5b378e1a48bed",
+      "apps/web/src/lib/server/analysis-lab/launch-batch-cli.ts": "f6e0b779f19c21af84aaa123cf9526a60bbd577eeb6881361e4b448f3a3195fe",
+      "apps/web/src/lib/server/analysis-lab/launch-batch-production.ts": "a92e3ed5c54a1252a77ac91bef42253d842a1ddf45541fa773afe793087ccda2",
+      "apps/web/src/lib/server/analysis-lab/launch-batch.test.ts": "e616eeddb539ce2b2962a3b0a1ca223d3a420cf7914ba3db38a4c9fad29e0eff"
+    },
+    "sourceUnchangedDuringGates": true,
+    "gates": [
+      {
+        "gate": "lab:launch:test",
+        "exitCode": 0,
+        "seconds": 3.8,
+        "log": "spike-out/company-field-deploy-rerun-20260916/lab-launch-test-stable.log",
+        "sha256": "105ccd2a090c13487ba727305c8104889fdd15d416842fc672a7fc9ce5f8041c"
+      },
+      {
+        "gate": "lab:release:test",
+        "exitCode": 0,
+        "seconds": 3.6,
+        "log": "spike-out/company-field-deploy-rerun-20260916/lab-release-test-stable.log",
+        "sha256": "04069ba3721f7afacab61f146e765e21689c9cb5181e8e5ef3d4760294b5aa51"
+      },
+      {
+        "gate": "test",
+        "exitCode": 0,
+        "seconds": 77.3,
+        "log": "spike-out/company-field-deploy-rerun-20260916/test-stable.log",
+        "sha256": "d1e85e729b1da3882d668b5177dfeb77c462d981dba81485fb6a0021dbaec85a"
+      }
+    ]
+  }
+}

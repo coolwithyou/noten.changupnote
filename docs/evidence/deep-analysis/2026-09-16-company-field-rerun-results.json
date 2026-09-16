@@ -1,0 +1,1884 @@
+{
+  "schema": "company-field-rerun-results-v1",
+  "verifiedAt": "2026-09-16T13:58:09.748105+00:00",
+  "sourceCommit": "11232482a47c58ffd17c0696d682473a0ba61ea1",
+  "applicationContract": "kordoc-application-roundtrip-v20",
+  "transport": "claude-cli",
+  "model": "claude-opus-5",
+  "concurrency": 1,
+  "summary": {
+    "requested": 20,
+    "executed": 18,
+    "heldBeforeExecutionForSourceDrift": 2,
+    "terminalStatus": {
+      "held": 17,
+      "failed": 1
+    },
+    "matchingFeatureReady": 17,
+    "primaryValidationOutcome": {
+      "publishable": 17,
+      "null": 1
+    },
+    "authoringReady": 0,
+    "applicationUnresolvedCount": 238,
+    "oldSuspectCandidateTransitions": {
+      "pending": 22,
+      "recommended": 1,
+      "unresolved": 214
+    }
+  },
+  "cohorts": [
+    {
+      "scope": "repair1",
+      "manifestSha256": "a1b2c30b192a80d75b7758b44627125e54a5e7c46c0f55d36968c072556bf201",
+      "grantSha256": "f09d8c4476e20d288da1665efc4f400617a98cce9348c307be064fcfe7bc9bea",
+      "receipt": {
+        "path": "spike-out/analysis-lab/launch/receipts/f27eb8d14f3970b62796906c4aa6732a06ae63d27051755cd4a0d95e5e1372c6.json",
+        "sha256": "f27eb8d14f3970b62796906c4aa6732a06ae63d27051755cd4a0d95e5e1372c6"
+      },
+      "targetCount": 1,
+      "summary": {
+        "failed": 0,
+        "held": 1,
+        "publishable": 0,
+        "skipped": 0
+      },
+      "startedAt": "2026-09-16T13:09:07.005460+00:00",
+      "finishedAt": "2026-09-16T13:15:40.668627+00:00"
+    },
+    {
+      "scope": "repair4",
+      "manifestSha256": "23ac561423d40a2e035f3f7ecb84321f8d2aa516ea353a418d21de652ab80d44",
+      "grantSha256": "90ec33ce739ecd6d5c42f1b5cdfe01eea2f1f04227f1ed683b826841aa3c606d",
+      "receipt": {
+        "path": "spike-out/analysis-lab/launch/receipts/9c8e06d4c764d01cbf3da6a937ecc3eb4cf90d60f27fd7cae286dcc34bd090c1.json",
+        "sha256": "9c8e06d4c764d01cbf3da6a937ecc3eb4cf90d60f27fd7cae286dcc34bd090c1"
+      },
+      "targetCount": 3,
+      "summary": {
+        "failed": 1,
+        "held": 2,
+        "publishable": 0,
+        "skipped": 0
+      },
+      "startedAt": "2026-09-16T13:15:40.669012+00:00",
+      "finishedAt": "2026-09-16T13:29:18.942400+00:00"
+    },
+    {
+      "scope": "new30",
+      "manifestSha256": "984e8db4b0c95a5f08a0fd72310f8dfaa3ea462386d93ed5882b2a750272bacb",
+      "grantSha256": "d9ddd12a8b06a39f3ea811bd78c02264ce225c46279c907ea9470d8e8507d2c1",
+      "receipt": {
+        "path": "spike-out/analysis-lab/launch/receipts/462c655789a269a8c17312216c9331dbf2d4cdcf17ec15fb21efc9cae6a8705e.json",
+        "sha256": "462c655789a269a8c17312216c9331dbf2d4cdcf17ec15fb21efc9cae6a8705e"
+      },
+      "targetCount": 14,
+      "summary": {
+        "failed": 0,
+        "held": 14,
+        "publishable": 0,
+        "skipped": 0
+      },
+      "startedAt": "2026-09-16T13:29:18.942891+00:00",
+      "finishedAt": "2026-09-16T13:56:58.365144+00:00"
+    }
+  ],
+  "heldBeforeExecution": [
+    {
+      "scope": "new30",
+      "inventorySha256": "622b69bcd9c1152da3f8bfca7f2a8aee3dd4fae44e4eaa1663804b0cd30f3dc7",
+      "inventoryObservedAt": "2026-09-16T02:58:30.508Z",
+      "inventoryPolicy": "open-visible-current-period-unseen-v1",
+      "originalSequence": 3,
+      "grantId": "59e77d80-520a-4faf-83b5-900ad1aec3a4",
+      "expectedSourceRevisionSha256": "8e80c9bef6de78d1cba5249ce390bb8f8b25cc5ac0f1024edcf0add2bee74b0f",
+      "verification": "failed",
+      "error": "current inventory target 원천이 변경됐습니다."
+    },
+    {
+      "scope": "new30",
+      "inventorySha256": "622b69bcd9c1152da3f8bfca7f2a8aee3dd4fae44e4eaa1663804b0cd30f3dc7",
+      "inventoryObservedAt": "2026-09-16T02:58:30.508Z",
+      "inventoryPolicy": "open-visible-current-period-unseen-v1",
+      "originalSequence": 13,
+      "grantId": "626501c7-74b2-4942-976b-7045a6bdb2cf",
+      "expectedSourceRevisionSha256": "11dafe87c578d2d2b30b7ad269de4cc6ca339aef18c950f13dd23cbe721ad474",
+      "verification": "failed",
+      "error": "current inventory target 원천이 변경됐습니다."
+    }
+  ],
+  "companyField": {
+    "fieldInstanceId": "8eb0f2ed483d21e2a47da3d7",
+    "grantId": "925bf2f1-6bbb-44b1-9dfe-27b3dc56ad9b",
+    "old": {
+      "attachmentId": "6543c78824b3667d843c",
+      "recommendedInput": false,
+      "analysisSource": "heuristic",
+      "llmDecision": null,
+      "llmConfidence": null,
+      "inputLikelihood": 0.15,
+      "location": {
+        "blockIndex": 20,
+        "row": 0,
+        "col": 1,
+        "occurrence": 0,
+        "pageNumber": 1
+      },
+      "inputSignals": [
+        "업체·담당자·과제 메타데이터 라벨",
+        "앞 라벨 “기본\n정보”의 값 placeholder 가능성"
+      ]
+    },
+    "new": {
+      "present": true,
+      "attachmentId": "6543c78824b3667d843c",
+      "recommendedInput": true,
+      "analysisSource": "heuristic",
+      "llmDecision": null,
+      "llmConfidence": null,
+      "inputLikelihood": 0.95,
+      "location": {
+        "blockIndex": 20,
+        "row": 0,
+        "col": 1,
+        "occurrence": 0,
+        "pageNumber": 1
+      },
+      "inputSignals": [
+        "업체·담당자·과제 메타데이터 라벨"
+      ]
+    }
+  },
+  "companyUnresolvedOfflineReview": {
+    "candidateCount": 47,
+    "structuredNonInputCandidates": 24,
+    "needsTargetedReview": 23,
+    "coverageWasNotChanged": true,
+    "notProductAdjudication": true
+  },
+  "targetComparisons": [
+    {
+      "grantId": "6176af74-cbb0-44d9-b577-ce1e5345914d",
+      "title": "2026년 AI 기반 주파수 간섭분석 및 전파예측기술 개발사업 신규지원 대상과제 연장 공고",
+      "state": "compared",
+      "old": {
+        "receiptStatus": "held",
+        "primaryValidationOutcome": "publishable",
+        "matchingReadiness": "conditional",
+        "primaryProjectionVerification": null,
+        "applicationStatus": "review_required",
+        "authoringReady": false,
+        "authoringStatus": "held",
+        "recognizedFieldCount": 0,
+        "fieldReadyDocumentCount": 0,
+        "applicationDocumentCount": null,
+        "documentCount": 1,
+        "missingAttachmentIds": [],
+        "incompleteAttachmentIds": [],
+        "coverageStatusCounts": {
+          "review_required": 1
+        },
+        "coverageUnresolvedCount": 2,
+        "structuralWarningCount": 27,
+        "rawEmptyCandidateCount": 543,
+        "candidateFieldCount": 1127,
+        "recommendedInputCount": 354,
+        "documents": [
+          {
+            "attachmentId": "eb8b11c6969d68b6abc7",
+            "filename": "3. 첨부자료__10__붙임1. (필수) 연구개발계획서.hwp",
+            "role": "application_form",
+            "coverageStatus": "review_required",
+            "coverageUnresolvedCount": 2,
+            "structuralWarningCount": 27,
+            "candidateFieldCount": 1127,
+            "recommendedInputCount": 354
+          }
+        ],
+        "error": "field_analysis_held: 지원 양식에서 안전하게 인식된 입력 필드를 확보하지 못했습니다."
+      },
+      "new": {
+        "receiptStatus": "held",
+        "primaryValidationOutcome": "publishable",
+        "matchingReadiness": "conditional",
+        "primaryProjectionVerification": "verified",
+        "applicationStatus": "review_required",
+        "authoringReady": false,
+        "authoringStatus": "held",
+        "recognizedFieldCount": 0,
+        "fieldReadyDocumentCount": 0,
+        "applicationDocumentCount": 1,
+        "documentCount": 1,
+        "missingAttachmentIds": [],
+        "incompleteAttachmentIds": [],
+        "coverageStatusCounts": {
+          "review_required": 1
+        },
+        "coverageUnresolvedCount": 61,
+        "structuralWarningCount": 27,
+        "rawEmptyCandidateCount": 543,
+        "candidateFieldCount": 1127,
+        "recommendedInputCount": 369,
+        "documents": [
+          {
+            "attachmentId": "eb8b11c6969d68b6abc7",
+            "filename": "3. 첨부자료__10__붙임1. (필수) 연구개발계획서.hwp",
+            "role": "application_form",
+            "coverageStatus": "review_required",
+            "coverageUnresolvedCount": 61,
+            "structuralWarningCount": 27,
+            "candidateFieldCount": 1127,
+            "recommendedInputCount": 369
+          }
+        ],
+        "error": "field_analysis_held: 지원 양식에서 안전하게 인식된 입력 필드를 확보하지 못했습니다."
+      },
+      "delta": {
+        "recognizedFieldCount": 0,
+        "coverageUnresolvedCount": 59,
+        "structuralWarningCount": 0,
+        "rawEmptyCandidateCount": 0,
+        "candidateFieldCount": 0,
+        "recommendedInputCount": 15
+      }
+    },
+    {
+      "grantId": "c8224507-8cfa-4bf6-ace4-f94310bad421",
+      "title": "[부산] 서구 2026년 청년 창업자 임차료 지원사업 참여 신청 재공고",
+      "state": "compared",
+      "old": {
+        "receiptStatus": "publishable",
+        "primaryValidationOutcome": "publishable",
+        "matchingReadiness": "conditional",
+        "primaryProjectionVerification": null,
+        "applicationStatus": "partial",
+        "authoringReady": true,
+        "authoringStatus": "ready",
+        "recognizedFieldCount": 27,
+        "fieldReadyDocumentCount": 1,
+        "applicationDocumentCount": null,
+        "documentCount": 1,
+        "missingAttachmentIds": [],
+        "incompleteAttachmentIds": [],
+        "coverageStatusCounts": {
+          "partial": 1
+        },
+        "coverageUnresolvedCount": 0,
+        "structuralWarningCount": 1,
+        "rawEmptyCandidateCount": 34,
+        "candidateFieldCount": 50,
+        "recommendedInputCount": 27,
+        "documents": [
+          {
+            "attachmentId": "c22b18c7321836fbdb00",
+            "filename": "[붙임1]+신청서식(2026년서구청년창업자임차료지원사업).hwpx",
+            "role": "application_form",
+            "coverageStatus": "partial",
+            "coverageUnresolvedCount": 0,
+            "structuralWarningCount": 1,
+            "candidateFieldCount": 50,
+            "recommendedInputCount": 27
+          }
+        ],
+        "error": null
+      },
+      "new": {
+        "receiptStatus": "failed",
+        "primaryValidationOutcome": null,
+        "matchingReadiness": null,
+        "primaryProjectionVerification": "verified",
+        "applicationStatus": "review_required",
+        "authoringReady": false,
+        "authoringStatus": "held",
+        "recognizedFieldCount": 0,
+        "fieldReadyDocumentCount": 0,
+        "applicationDocumentCount": 1,
+        "documentCount": 1,
+        "missingAttachmentIds": [],
+        "incompleteAttachmentIds": [],
+        "coverageStatusCounts": {
+          "review_required": 1
+        },
+        "coverageUnresolvedCount": 4,
+        "structuralWarningCount": 1,
+        "rawEmptyCandidateCount": 34,
+        "candidateFieldCount": 50,
+        "recommendedInputCount": 27,
+        "documents": [
+          {
+            "attachmentId": "c22b18c7321836fbdb00",
+            "filename": "[붙임1]+신청서식(2026년서구청년창업자임차료지원사업).hwpx",
+            "role": "application_form",
+            "coverageStatus": "review_required",
+            "coverageUnresolvedCount": 4,
+            "structuralWarningCount": 1,
+            "candidateFieldCount": 50,
+            "recommendedInputCount": 27
+          }
+        ],
+        "error": "로컬 딥분석이 validator 교정 2회 뒤에도 실패했습니다 (종료=repair_limit): source_incomplete:$.source_limitations[0], source_incomplete:$.source_limitations[1], semantic_misattribution:$.criteria[3]"
+      },
+      "delta": {
+        "recognizedFieldCount": -27,
+        "coverageUnresolvedCount": 4,
+        "structuralWarningCount": 0,
+        "rawEmptyCandidateCount": 0,
+        "candidateFieldCount": 0,
+        "recommendedInputCount": 0
+      }
+    },
+    {
+      "grantId": "fc2a070e-c611-4d27-89a1-8b8239868c57",
+      "title": "2026년 관악S밸리 브릿지 데모데이(S-Boost Track) 및 투자자 매칭데이 참여기업 모집 공고",
+      "state": "compared",
+      "old": {
+        "receiptStatus": "publishable",
+        "primaryValidationOutcome": "publishable",
+        "matchingReadiness": "conditional",
+        "primaryProjectionVerification": null,
+        "applicationStatus": "partial",
+        "authoringReady": true,
+        "authoringStatus": "ready",
+        "recognizedFieldCount": 16,
+        "fieldReadyDocumentCount": 1,
+        "applicationDocumentCount": null,
+        "documentCount": 1,
+        "missingAttachmentIds": [],
+        "incompleteAttachmentIds": [],
+        "coverageStatusCounts": {
+          "partial": 1
+        },
+        "coverageUnresolvedCount": 0,
+        "structuralWarningCount": 2,
+        "rawEmptyCandidateCount": 21,
+        "candidateFieldCount": 23,
+        "recommendedInputCount": 16,
+        "documents": [
+          {
+            "attachmentId": "df6d825d965c234658fc",
+            "filename": "[붙임1] 2026 관악S밸리 데모데이 및 투자자 매칭데이(S-Boost Track) 참가 신청서 및 개인정보 수집·이용·제공 동의서.hwpx",
+            "role": "application_form",
+            "coverageStatus": "partial",
+            "coverageUnresolvedCount": 0,
+            "structuralWarningCount": 2,
+            "candidateFieldCount": 23,
+            "recommendedInputCount": 16
+          }
+        ],
+        "error": null
+      },
+      "new": {
+        "receiptStatus": "held",
+        "primaryValidationOutcome": "publishable",
+        "matchingReadiness": "conditional",
+        "primaryProjectionVerification": "verified",
+        "applicationStatus": "review_required",
+        "authoringReady": false,
+        "authoringStatus": "held",
+        "recognizedFieldCount": 0,
+        "fieldReadyDocumentCount": 0,
+        "applicationDocumentCount": 1,
+        "documentCount": 1,
+        "missingAttachmentIds": [],
+        "incompleteAttachmentIds": [],
+        "coverageStatusCounts": {
+          "review_required": 1
+        },
+        "coverageUnresolvedCount": 1,
+        "structuralWarningCount": 2,
+        "rawEmptyCandidateCount": 21,
+        "candidateFieldCount": 23,
+        "recommendedInputCount": 11,
+        "documents": [
+          {
+            "attachmentId": "df6d825d965c234658fc",
+            "filename": "[붙임1] 2026 관악S밸리 데모데이 및 투자자 매칭데이(S-Boost Track) 참가 신청서 및 개인정보 수집·이용·제공 동의서.hwpx",
+            "role": "application_form",
+            "coverageStatus": "review_required",
+            "coverageUnresolvedCount": 1,
+            "structuralWarningCount": 2,
+            "candidateFieldCount": 23,
+            "recommendedInputCount": 11
+          }
+        ],
+        "error": "field_analysis_held: 지원 양식에서 안전하게 인식된 입력 필드를 확보하지 못했습니다."
+      },
+      "delta": {
+        "recognizedFieldCount": -16,
+        "coverageUnresolvedCount": 1,
+        "structuralWarningCount": 0,
+        "rawEmptyCandidateCount": 0,
+        "candidateFieldCount": 0,
+        "recommendedInputCount": -5
+      }
+    },
+    {
+      "grantId": "925bf2f1-6bbb-44b1-9dfe-27b3dc56ad9b",
+      "title": "[경북] 2026년 푸드테크 스마트 제조 기반 구축 사업 공고",
+      "state": "compared",
+      "old": {
+        "receiptStatus": "publishable",
+        "primaryValidationOutcome": "publishable",
+        "matchingReadiness": "conditional",
+        "primaryProjectionVerification": null,
+        "applicationStatus": "partial",
+        "authoringReady": true,
+        "authoringStatus": "ready",
+        "recognizedFieldCount": 328,
+        "fieldReadyDocumentCount": 2,
+        "applicationDocumentCount": null,
+        "documentCount": 2,
+        "missingAttachmentIds": [],
+        "incompleteAttachmentIds": [],
+        "coverageStatusCounts": {
+          "partial": 2
+        },
+        "coverageUnresolvedCount": 0,
+        "structuralWarningCount": 17,
+        "rawEmptyCandidateCount": 379,
+        "candidateFieldCount": 828,
+        "recommendedInputCount": 328,
+        "documents": [
+          {
+            "attachmentId": "6543c78824b3667d843c",
+            "filename": "(붙임일체) 2026년 푸드테크 스마트제조 기반 구축 사업공고__02__(계획서)2026년 푸드테크 스마트 제조 기반 구축 사업계획서.hwp",
+            "role": "application_form",
+            "coverageStatus": "partial",
+            "coverageUnresolvedCount": 0,
+            "structuralWarningCount": 15,
+            "candidateFieldCount": 668,
+            "recommendedInputCount": 239
+          },
+          {
+            "attachmentId": "6d0f67de6355267d9757",
+            "filename": "(붙임일체) 2026년 푸드테크 스마트제조 기반 구축 사업공고__03__(서식)2026년 푸드테크 스마트 제조 기반 구축 사업 서식.hwp",
+            "role": "application_form",
+            "coverageStatus": "partial",
+            "coverageUnresolvedCount": 0,
+            "structuralWarningCount": 2,
+            "candidateFieldCount": 160,
+            "recommendedInputCount": 89
+          }
+        ],
+        "error": null
+      },
+      "new": {
+        "receiptStatus": "held",
+        "primaryValidationOutcome": "publishable",
+        "matchingReadiness": "conditional",
+        "primaryProjectionVerification": "verified",
+        "applicationStatus": "review_required",
+        "authoringReady": false,
+        "authoringStatus": "held",
+        "recognizedFieldCount": 0,
+        "fieldReadyDocumentCount": 0,
+        "applicationDocumentCount": 2,
+        "documentCount": 2,
+        "missingAttachmentIds": [],
+        "incompleteAttachmentIds": [],
+        "coverageStatusCounts": {
+          "review_required": 2
+        },
+        "coverageUnresolvedCount": 47,
+        "structuralWarningCount": 17,
+        "rawEmptyCandidateCount": 379,
+        "candidateFieldCount": 828,
+        "recommendedInputCount": 326,
+        "documents": [
+          {
+            "attachmentId": "6543c78824b3667d843c",
+            "filename": "(붙임일체) 2026년 푸드테크 스마트제조 기반 구축 사업공고__02__(계획서)2026년 푸드테크 스마트 제조 기반 구축 사업계획서.hwp",
+            "role": "application_form",
+            "coverageStatus": "review_required",
+            "coverageUnresolvedCount": 43,
+            "structuralWarningCount": 15,
+            "candidateFieldCount": 668,
+            "recommendedInputCount": 241
+          },
+          {
+            "attachmentId": "6d0f67de6355267d9757",
+            "filename": "(붙임일체) 2026년 푸드테크 스마트제조 기반 구축 사업공고__03__(서식)2026년 푸드테크 스마트 제조 기반 구축 사업 서식.hwp",
+            "role": "application_form",
+            "coverageStatus": "review_required",
+            "coverageUnresolvedCount": 4,
+            "structuralWarningCount": 2,
+            "candidateFieldCount": 160,
+            "recommendedInputCount": 85
+          }
+        ],
+        "error": "field_analysis_held: 지원 양식에서 안전하게 인식된 입력 필드를 확보하지 못했습니다."
+      },
+      "delta": {
+        "recognizedFieldCount": -328,
+        "coverageUnresolvedCount": 47,
+        "structuralWarningCount": 0,
+        "rawEmptyCandidateCount": 0,
+        "candidateFieldCount": 0,
+        "recommendedInputCount": -2
+      }
+    },
+    {
+      "grantId": "59e77d80-520a-4faf-83b5-900ad1aec3a4",
+      "title": "2026년 3차 KICET 기술이전조건부사업화지원사업 수혜기업 추가 모집 공고",
+      "state": "pending",
+      "old": {
+        "receiptStatus": "publishable",
+        "primaryValidationOutcome": "publishable",
+        "matchingReadiness": "conditional",
+        "primaryProjectionVerification": null,
+        "applicationStatus": "partial",
+        "authoringReady": true,
+        "authoringStatus": "ready",
+        "recognizedFieldCount": 43,
+        "fieldReadyDocumentCount": 1,
+        "applicationDocumentCount": null,
+        "documentCount": 1,
+        "missingAttachmentIds": [],
+        "incompleteAttachmentIds": [],
+        "coverageStatusCounts": {
+          "partial": 1
+        },
+        "coverageUnresolvedCount": 0,
+        "structuralWarningCount": 19,
+        "rawEmptyCandidateCount": 52,
+        "candidateFieldCount": 80,
+        "recommendedInputCount": 43,
+        "documents": [
+          {
+            "attachmentId": "54a7d1623d68c14793e1",
+            "filename": "[붙임]20263차KICET기술이전조건부사업화지원사업신청양식1.hwp",
+            "role": "application_form",
+            "coverageStatus": "partial",
+            "coverageUnresolvedCount": 0,
+            "structuralWarningCount": 19,
+            "candidateFieldCount": 80,
+            "recommendedInputCount": 43
+          }
+        ],
+        "error": null
+      },
+      "new": null,
+      "delta": null
+    },
+    {
+      "grantId": "71041583-9fe6-4fe3-a454-013304e9101d",
+      "title": "2026년 안산정보산업진흥센터(경기TP안산창업보육센터) 제3차 신규 입주자 모집 공고",
+      "state": "compared",
+      "old": {
+        "receiptStatus": "publishable",
+        "primaryValidationOutcome": "publishable",
+        "matchingReadiness": "ready",
+        "primaryProjectionVerification": null,
+        "applicationStatus": "partial",
+        "authoringReady": true,
+        "authoringStatus": "ready",
+        "recognizedFieldCount": 71,
+        "fieldReadyDocumentCount": 1,
+        "applicationDocumentCount": null,
+        "documentCount": 1,
+        "missingAttachmentIds": [],
+        "incompleteAttachmentIds": [],
+        "coverageStatusCounts": {
+          "partial": 1
+        },
+        "coverageUnresolvedCount": 0,
+        "structuralWarningCount": 5,
+        "rawEmptyCandidateCount": 98,
+        "candidateFieldCount": 184,
+        "recommendedInputCount": 71,
+        "documents": [
+          {
+            "attachmentId": "c69e634443a3167cb6d6",
+            "filename": "(붙임2) 입주신청 서식.hwp",
+            "role": "application_form",
+            "coverageStatus": "partial",
+            "coverageUnresolvedCount": 0,
+            "structuralWarningCount": 5,
+            "candidateFieldCount": 184,
+            "recommendedInputCount": 71
+          }
+        ],
+        "error": null
+      },
+      "new": {
+        "receiptStatus": "held",
+        "primaryValidationOutcome": "publishable",
+        "matchingReadiness": "conditional",
+        "primaryProjectionVerification": "verified",
+        "applicationStatus": "review_required",
+        "authoringReady": false,
+        "authoringStatus": "held",
+        "recognizedFieldCount": 0,
+        "fieldReadyDocumentCount": 0,
+        "applicationDocumentCount": 1,
+        "documentCount": 1,
+        "missingAttachmentIds": [],
+        "incompleteAttachmentIds": [],
+        "coverageStatusCounts": {
+          "review_required": 1
+        },
+        "coverageUnresolvedCount": 22,
+        "structuralWarningCount": 5,
+        "rawEmptyCandidateCount": 98,
+        "candidateFieldCount": 184,
+        "recommendedInputCount": 73,
+        "documents": [
+          {
+            "attachmentId": "c69e634443a3167cb6d6",
+            "filename": "(붙임2) 입주신청 서식.hwp",
+            "role": "application_form",
+            "coverageStatus": "review_required",
+            "coverageUnresolvedCount": 22,
+            "structuralWarningCount": 5,
+            "candidateFieldCount": 184,
+            "recommendedInputCount": 73
+          }
+        ],
+        "error": "field_analysis_held: 지원 양식에서 안전하게 인식된 입력 필드를 확보하지 못했습니다."
+      },
+      "delta": {
+        "recognizedFieldCount": -71,
+        "coverageUnresolvedCount": 22,
+        "structuralWarningCount": 0,
+        "rawEmptyCandidateCount": 0,
+        "candidateFieldCount": 0,
+        "recommendedInputCount": 2
+      }
+    },
+    {
+      "grantId": "7653abc1-3f8c-48ea-bbf1-9832319d875e",
+      "title": "2026년 과천시 창업지원센터 보육실 입주기업 모집 공고",
+      "state": "compared",
+      "old": {
+        "receiptStatus": "held",
+        "primaryValidationOutcome": "publishable",
+        "matchingReadiness": "conditional",
+        "primaryProjectionVerification": null,
+        "applicationStatus": "review_required",
+        "authoringReady": false,
+        "authoringStatus": "held",
+        "recognizedFieldCount": 0,
+        "fieldReadyDocumentCount": 0,
+        "applicationDocumentCount": null,
+        "documentCount": 1,
+        "missingAttachmentIds": [],
+        "incompleteAttachmentIds": [],
+        "coverageStatusCounts": {
+          "review_required": 1
+        },
+        "coverageUnresolvedCount": 1,
+        "structuralWarningCount": 12,
+        "rawEmptyCandidateCount": 32,
+        "candidateFieldCount": 51,
+        "recommendedInputCount": 28,
+        "documents": [
+          {
+            "attachmentId": "1dc7c7c05d548d95589e",
+            "filename": "(붙임1) 2026년 과천시창업지원센터 보육실 입주신청서 및 사업계획서.hwp",
+            "role": "application_form",
+            "coverageStatus": "review_required",
+            "coverageUnresolvedCount": 1,
+            "structuralWarningCount": 12,
+            "candidateFieldCount": 51,
+            "recommendedInputCount": 28
+          }
+        ],
+        "error": "field_analysis_held: 지원 양식에서 안전하게 인식된 입력 필드를 확보하지 못했습니다."
+      },
+      "new": {
+        "receiptStatus": "held",
+        "primaryValidationOutcome": "publishable",
+        "matchingReadiness": "conditional",
+        "primaryProjectionVerification": "verified",
+        "applicationStatus": "review_required",
+        "authoringReady": false,
+        "authoringStatus": "held",
+        "recognizedFieldCount": 0,
+        "fieldReadyDocumentCount": 0,
+        "applicationDocumentCount": 1,
+        "documentCount": 1,
+        "missingAttachmentIds": [],
+        "incompleteAttachmentIds": [],
+        "coverageStatusCounts": {
+          "review_required": 1
+        },
+        "coverageUnresolvedCount": 4,
+        "structuralWarningCount": 12,
+        "rawEmptyCandidateCount": 32,
+        "candidateFieldCount": 51,
+        "recommendedInputCount": 27,
+        "documents": [
+          {
+            "attachmentId": "1dc7c7c05d548d95589e",
+            "filename": "(붙임1) 2026년 과천시창업지원센터 보육실 입주신청서 및 사업계획서.hwp",
+            "role": "application_form",
+            "coverageStatus": "review_required",
+            "coverageUnresolvedCount": 4,
+            "structuralWarningCount": 12,
+            "candidateFieldCount": 51,
+            "recommendedInputCount": 27
+          }
+        ],
+        "error": "field_analysis_held: 지원 양식에서 안전하게 인식된 입력 필드를 확보하지 못했습니다."
+      },
+      "delta": {
+        "recognizedFieldCount": 0,
+        "coverageUnresolvedCount": 3,
+        "structuralWarningCount": 0,
+        "rawEmptyCandidateCount": 0,
+        "candidateFieldCount": 0,
+        "recommendedInputCount": -1
+      }
+    },
+    {
+      "grantId": "81423ffb-d8db-4a64-b30f-110f17ff9765",
+      "title": "2026년 과천시 지식정보타운 무상임대 입주기업(과천상상자이타워) 모집 공고",
+      "state": "compared",
+      "old": {
+        "receiptStatus": "publishable",
+        "primaryValidationOutcome": "publishable",
+        "matchingReadiness": "conditional",
+        "primaryProjectionVerification": null,
+        "applicationStatus": "partial",
+        "authoringReady": true,
+        "authoringStatus": "ready",
+        "recognizedFieldCount": 33,
+        "fieldReadyDocumentCount": 2,
+        "applicationDocumentCount": null,
+        "documentCount": 1,
+        "missingAttachmentIds": [],
+        "incompleteAttachmentIds": [],
+        "coverageStatusCounts": {
+          "partial": 1
+        },
+        "coverageUnresolvedCount": 0,
+        "structuralWarningCount": 12,
+        "rawEmptyCandidateCount": 32,
+        "candidateFieldCount": 50,
+        "recommendedInputCount": 30,
+        "documents": [
+          {
+            "attachmentId": "8261f0c1a9b4b5e3e2f5",
+            "filename": "(붙임1)2026년 과천시 무상임대공간(과천상상자이타워) 입주신청서 및 사업계획서.hwp",
+            "role": "application_form",
+            "coverageStatus": "partial",
+            "coverageUnresolvedCount": 0,
+            "structuralWarningCount": 12,
+            "candidateFieldCount": 50,
+            "recommendedInputCount": 30
+          }
+        ],
+        "error": null
+      },
+      "new": {
+        "receiptStatus": "held",
+        "primaryValidationOutcome": "publishable",
+        "matchingReadiness": "conditional",
+        "primaryProjectionVerification": "verified",
+        "applicationStatus": "review_required",
+        "authoringReady": false,
+        "authoringStatus": "held",
+        "recognizedFieldCount": 3,
+        "fieldReadyDocumentCount": 1,
+        "applicationDocumentCount": 2,
+        "documentCount": 1,
+        "missingAttachmentIds": [],
+        "incompleteAttachmentIds": [],
+        "coverageStatusCounts": {
+          "review_required": 1
+        },
+        "coverageUnresolvedCount": 2,
+        "structuralWarningCount": 12,
+        "rawEmptyCandidateCount": 32,
+        "candidateFieldCount": 50,
+        "recommendedInputCount": 29,
+        "documents": [
+          {
+            "attachmentId": "8261f0c1a9b4b5e3e2f5",
+            "filename": "(붙임1)2026년 과천시 무상임대공간(과천상상자이타워) 입주신청서 및 사업계획서.hwp",
+            "role": "application_form",
+            "coverageStatus": "review_required",
+            "coverageUnresolvedCount": 2,
+            "structuralWarningCount": 12,
+            "candidateFieldCount": 50,
+            "recommendedInputCount": 29
+          }
+        ],
+        "error": "field_analysis_held: 지원 양식에서 안전하게 인식된 입력 필드를 확보하지 못했습니다."
+      },
+      "delta": {
+        "recognizedFieldCount": -30,
+        "coverageUnresolvedCount": 2,
+        "structuralWarningCount": 0,
+        "rawEmptyCandidateCount": 0,
+        "candidateFieldCount": 0,
+        "recommendedInputCount": -1
+      }
+    },
+    {
+      "grantId": "c61d1f5c-2b31-481e-87c8-b0a7f837e724",
+      "title": "2026년 과천시 지식정보타운 무상임대 입주기업(과천크리에이션타워) 모집 공고",
+      "state": "compared",
+      "old": {
+        "receiptStatus": "failed",
+        "primaryValidationOutcome": null,
+        "matchingReadiness": null,
+        "primaryProjectionVerification": null,
+        "applicationStatus": "partial",
+        "authoringReady": true,
+        "authoringStatus": "ready",
+        "recognizedFieldCount": 33,
+        "fieldReadyDocumentCount": 2,
+        "applicationDocumentCount": null,
+        "documentCount": 1,
+        "missingAttachmentIds": [],
+        "incompleteAttachmentIds": [],
+        "coverageStatusCounts": {
+          "partial": 1
+        },
+        "coverageUnresolvedCount": 0,
+        "structuralWarningCount": 12,
+        "rawEmptyCandidateCount": 32,
+        "candidateFieldCount": 50,
+        "recommendedInputCount": 30,
+        "documents": [
+          {
+            "attachmentId": "6472d65df89cdbbaffc1",
+            "filename": "(붙임1)2026년 과천시 무상임대공간(과천크리에이션타워) 입주신청서 및 사업계획서.hwp",
+            "role": "application_form",
+            "coverageStatus": "partial",
+            "coverageUnresolvedCount": 0,
+            "structuralWarningCount": 12,
+            "candidateFieldCount": 50,
+            "recommendedInputCount": 30
+          }
+        ],
+        "error": "로컬 딥분석이 validator 교정 2회 뒤에도 실패했습니다 (종료=repair_limit): source_incomplete:$.source_limitations[0], source_incomplete:$.source_limitations[1], semantic_misattribution:$.criteria[0]"
+      },
+      "new": {
+        "receiptStatus": "held",
+        "primaryValidationOutcome": "publishable",
+        "matchingReadiness": "ready",
+        "primaryProjectionVerification": "verified",
+        "applicationStatus": "review_required",
+        "authoringReady": false,
+        "authoringStatus": "held",
+        "recognizedFieldCount": 3,
+        "fieldReadyDocumentCount": 1,
+        "applicationDocumentCount": 2,
+        "documentCount": 1,
+        "missingAttachmentIds": [],
+        "incompleteAttachmentIds": [],
+        "coverageStatusCounts": {
+          "review_required": 1
+        },
+        "coverageUnresolvedCount": 2,
+        "structuralWarningCount": 12,
+        "rawEmptyCandidateCount": 32,
+        "candidateFieldCount": 50,
+        "recommendedInputCount": 30,
+        "documents": [
+          {
+            "attachmentId": "6472d65df89cdbbaffc1",
+            "filename": "(붙임1)2026년 과천시 무상임대공간(과천크리에이션타워) 입주신청서 및 사업계획서.hwp",
+            "role": "application_form",
+            "coverageStatus": "review_required",
+            "coverageUnresolvedCount": 2,
+            "structuralWarningCount": 12,
+            "candidateFieldCount": 50,
+            "recommendedInputCount": 30
+          }
+        ],
+        "error": "field_analysis_held: 지원 양식에서 안전하게 인식된 입력 필드를 확보하지 못했습니다."
+      },
+      "delta": {
+        "recognizedFieldCount": -30,
+        "coverageUnresolvedCount": 2,
+        "structuralWarningCount": 0,
+        "rawEmptyCandidateCount": 0,
+        "candidateFieldCount": 0,
+        "recommendedInputCount": 0
+      }
+    },
+    {
+      "grantId": "20dc788e-03f3-4bea-ae0e-5dc866d8caf3",
+      "title": "2026년 스타트업 96 입주 예비창업자 모집",
+      "state": "compared",
+      "old": {
+        "receiptStatus": "publishable",
+        "primaryValidationOutcome": "publishable",
+        "matchingReadiness": "ready",
+        "primaryProjectionVerification": null,
+        "applicationStatus": "partial",
+        "authoringReady": true,
+        "authoringStatus": "ready",
+        "recognizedFieldCount": 19,
+        "fieldReadyDocumentCount": 1,
+        "applicationDocumentCount": null,
+        "documentCount": 1,
+        "missingAttachmentIds": [],
+        "incompleteAttachmentIds": [],
+        "coverageStatusCounts": {
+          "partial": 1
+        },
+        "coverageUnresolvedCount": 0,
+        "structuralWarningCount": 16,
+        "rawEmptyCandidateCount": 20,
+        "candidateFieldCount": 27,
+        "recommendedInputCount": 19,
+        "documents": [
+          {
+            "attachmentId": "43a563b23cd728b479a6",
+            "filename": "붙임2. 입주신청서 등 양식.hwp",
+            "role": "application_form",
+            "coverageStatus": "partial",
+            "coverageUnresolvedCount": 0,
+            "structuralWarningCount": 16,
+            "candidateFieldCount": 27,
+            "recommendedInputCount": 19
+          }
+        ],
+        "error": null
+      },
+      "new": {
+        "receiptStatus": "held",
+        "primaryValidationOutcome": "publishable",
+        "matchingReadiness": "conditional",
+        "primaryProjectionVerification": "verified",
+        "applicationStatus": "review_required",
+        "authoringReady": false,
+        "authoringStatus": "held",
+        "recognizedFieldCount": 0,
+        "fieldReadyDocumentCount": 0,
+        "applicationDocumentCount": 1,
+        "documentCount": 1,
+        "missingAttachmentIds": [],
+        "incompleteAttachmentIds": [],
+        "coverageStatusCounts": {
+          "review_required": 1
+        },
+        "coverageUnresolvedCount": 1,
+        "structuralWarningCount": 16,
+        "rawEmptyCandidateCount": 20,
+        "candidateFieldCount": 27,
+        "recommendedInputCount": 19,
+        "documents": [
+          {
+            "attachmentId": "43a563b23cd728b479a6",
+            "filename": "붙임2. 입주신청서 등 양식.hwp",
+            "role": "application_form",
+            "coverageStatus": "review_required",
+            "coverageUnresolvedCount": 1,
+            "structuralWarningCount": 16,
+            "candidateFieldCount": 27,
+            "recommendedInputCount": 19
+          }
+        ],
+        "error": "field_analysis_held: 지원 양식에서 안전하게 인식된 입력 필드를 확보하지 못했습니다."
+      },
+      "delta": {
+        "recognizedFieldCount": -19,
+        "coverageUnresolvedCount": 1,
+        "structuralWarningCount": 0,
+        "rawEmptyCandidateCount": 0,
+        "candidateFieldCount": 0,
+        "recommendedInputCount": 0
+      }
+    },
+    {
+      "grantId": "626501c7-74b2-4942-976b-7045a6bdb2cf",
+      "title": "[인천] 대ㆍ중ㆍ소기업 지역대기질 개선 상생협력 시범사업 참여기업 모집 공고",
+      "state": "pending",
+      "old": {
+        "receiptStatus": "publishable",
+        "primaryValidationOutcome": "publishable",
+        "matchingReadiness": "conditional",
+        "primaryProjectionVerification": null,
+        "applicationStatus": "partial",
+        "authoringReady": true,
+        "authoringStatus": "ready",
+        "recognizedFieldCount": 54,
+        "fieldReadyDocumentCount": 1,
+        "applicationDocumentCount": null,
+        "documentCount": 1,
+        "missingAttachmentIds": [],
+        "incompleteAttachmentIds": [],
+        "coverageStatusCounts": {
+          "partial": 1
+        },
+        "coverageUnresolvedCount": 0,
+        "structuralWarningCount": 3,
+        "rawEmptyCandidateCount": 70,
+        "candidateFieldCount": 125,
+        "recommendedInputCount": 54,
+        "documents": [
+          {
+            "attachmentId": "efa104c27f7abf78bc44",
+            "filename": "붙임파일 모음__06__(붙임 1)사업 참여 신청서 및 관련 제출서류 서식.hwpx",
+            "role": "application_form",
+            "coverageStatus": "partial",
+            "coverageUnresolvedCount": 0,
+            "structuralWarningCount": 3,
+            "candidateFieldCount": 125,
+            "recommendedInputCount": 54
+          }
+        ],
+        "error": null
+      },
+      "new": null,
+      "delta": null
+    },
+    {
+      "grantId": "661d4ffe-85bb-4fd7-8a07-2e8f25e917b8",
+      "title": "경기과학기술대학교 창업보육센터 입주기업 모집 7차",
+      "state": "compared",
+      "old": {
+        "receiptStatus": "held",
+        "primaryValidationOutcome": "publishable",
+        "matchingReadiness": "conditional",
+        "primaryProjectionVerification": null,
+        "applicationStatus": "review_required",
+        "authoringReady": false,
+        "authoringStatus": "held",
+        "recognizedFieldCount": 0,
+        "fieldReadyDocumentCount": 0,
+        "applicationDocumentCount": null,
+        "documentCount": 2,
+        "missingAttachmentIds": [],
+        "incompleteAttachmentIds": [],
+        "coverageStatusCounts": {
+          "review_required": 2
+        },
+        "coverageUnresolvedCount": 6,
+        "structuralWarningCount": 4,
+        "rawEmptyCandidateCount": 153,
+        "candidateFieldCount": 213,
+        "recommendedInputCount": 117,
+        "documents": [
+          {
+            "attachmentId": "b900d79ac751bc452634",
+            "filename": "경기과학기술대학교 창업보육센터 입주신청 서식(일반).hwp",
+            "role": "application_form",
+            "coverageStatus": "review_required",
+            "coverageUnresolvedCount": 3,
+            "structuralWarningCount": 2,
+            "candidateFieldCount": 106,
+            "recommendedInputCount": 58
+          },
+          {
+            "attachmentId": "b42fe800233010c0523a",
+            "filename": "경기과학기술대학교 창업보육센터 입주신청 서식(바이오헬스케어 분야).hwp",
+            "role": "application_form",
+            "coverageStatus": "review_required",
+            "coverageUnresolvedCount": 3,
+            "structuralWarningCount": 2,
+            "candidateFieldCount": 107,
+            "recommendedInputCount": 59
+          }
+        ],
+        "error": "field_analysis_held: 지원 양식에서 안전하게 인식된 입력 필드를 확보하지 못했습니다."
+      },
+      "new": {
+        "receiptStatus": "held",
+        "primaryValidationOutcome": "publishable",
+        "matchingReadiness": "conditional",
+        "primaryProjectionVerification": "verified",
+        "applicationStatus": "review_required",
+        "authoringReady": false,
+        "authoringStatus": "held",
+        "recognizedFieldCount": 0,
+        "fieldReadyDocumentCount": 0,
+        "applicationDocumentCount": 2,
+        "documentCount": 2,
+        "missingAttachmentIds": [],
+        "incompleteAttachmentIds": [],
+        "coverageStatusCounts": {
+          "review_required": 2
+        },
+        "coverageUnresolvedCount": 24,
+        "structuralWarningCount": 4,
+        "rawEmptyCandidateCount": 153,
+        "candidateFieldCount": 213,
+        "recommendedInputCount": 116,
+        "documents": [
+          {
+            "attachmentId": "b900d79ac751bc452634",
+            "filename": "경기과학기술대학교 창업보육센터 입주신청 서식(일반).hwp",
+            "role": "application_form",
+            "coverageStatus": "review_required",
+            "coverageUnresolvedCount": 12,
+            "structuralWarningCount": 2,
+            "candidateFieldCount": 106,
+            "recommendedInputCount": 57
+          },
+          {
+            "attachmentId": "b42fe800233010c0523a",
+            "filename": "경기과학기술대학교 창업보육센터 입주신청 서식(바이오헬스케어 분야).hwp",
+            "role": "application_form",
+            "coverageStatus": "review_required",
+            "coverageUnresolvedCount": 12,
+            "structuralWarningCount": 2,
+            "candidateFieldCount": 107,
+            "recommendedInputCount": 59
+          }
+        ],
+        "error": "field_analysis_held: 지원 양식에서 안전하게 인식된 입력 필드를 확보하지 못했습니다."
+      },
+      "delta": {
+        "recognizedFieldCount": 0,
+        "coverageUnresolvedCount": 18,
+        "structuralWarningCount": 0,
+        "rawEmptyCandidateCount": 0,
+        "candidateFieldCount": 0,
+        "recommendedInputCount": -1
+      }
+    },
+    {
+      "grantId": "c4bf21e5-6ec7-47ec-adfc-95d0b72d1143",
+      "title": "2026년 서경대학교 창업보육센터 입주기업 모집(3차)",
+      "state": "compared",
+      "old": {
+        "receiptStatus": "held",
+        "primaryValidationOutcome": "publishable",
+        "matchingReadiness": "conditional",
+        "primaryProjectionVerification": null,
+        "applicationStatus": "review_required",
+        "authoringReady": false,
+        "authoringStatus": "held",
+        "recognizedFieldCount": 0,
+        "fieldReadyDocumentCount": 0,
+        "applicationDocumentCount": null,
+        "documentCount": 1,
+        "missingAttachmentIds": [],
+        "incompleteAttachmentIds": [],
+        "coverageStatusCounts": {
+          "review_required": 1
+        },
+        "coverageUnresolvedCount": 3,
+        "structuralWarningCount": 14,
+        "rawEmptyCandidateCount": 39,
+        "candidateFieldCount": 78,
+        "recommendedInputCount": 39,
+        "documents": [
+          {
+            "attachmentId": "7956ca69b769e4ec291c",
+            "filename": "(양식) 서경대학교 창업보육센터_2026년 입주 신청서 및 사업계획서.hwp",
+            "role": "mixed_form",
+            "coverageStatus": "review_required",
+            "coverageUnresolvedCount": 3,
+            "structuralWarningCount": 14,
+            "candidateFieldCount": 78,
+            "recommendedInputCount": 39
+          }
+        ],
+        "error": "field_analysis_held: 지원 양식에서 안전하게 인식된 입력 필드를 확보하지 못했습니다."
+      },
+      "new": {
+        "receiptStatus": "held",
+        "primaryValidationOutcome": "publishable",
+        "matchingReadiness": "conditional",
+        "primaryProjectionVerification": "verified",
+        "applicationStatus": "review_required",
+        "authoringReady": false,
+        "authoringStatus": "held",
+        "recognizedFieldCount": 0,
+        "fieldReadyDocumentCount": 0,
+        "applicationDocumentCount": 1,
+        "documentCount": 1,
+        "missingAttachmentIds": [],
+        "incompleteAttachmentIds": [],
+        "coverageStatusCounts": {
+          "review_required": 1
+        },
+        "coverageUnresolvedCount": 7,
+        "structuralWarningCount": 14,
+        "rawEmptyCandidateCount": 39,
+        "candidateFieldCount": 78,
+        "recommendedInputCount": 39,
+        "documents": [
+          {
+            "attachmentId": "7956ca69b769e4ec291c",
+            "filename": "(양식) 서경대학교 창업보육센터_2026년 입주 신청서 및 사업계획서.hwp",
+            "role": "mixed_form",
+            "coverageStatus": "review_required",
+            "coverageUnresolvedCount": 7,
+            "structuralWarningCount": 14,
+            "candidateFieldCount": 78,
+            "recommendedInputCount": 39
+          }
+        ],
+        "error": "field_analysis_held: 지원 양식에서 안전하게 인식된 입력 필드를 확보하지 못했습니다."
+      },
+      "delta": {
+        "recognizedFieldCount": 0,
+        "coverageUnresolvedCount": 4,
+        "structuralWarningCount": 0,
+        "rawEmptyCandidateCount": 0,
+        "candidateFieldCount": 0,
+        "recommendedInputCount": 0
+      }
+    },
+    {
+      "grantId": "081e082c-2d69-4ba9-b09c-e37af7b9259d",
+      "title": "2026년 한라대학교 창업보육센터 9월 신규입주기업 모집 공고",
+      "state": "compared",
+      "old": {
+        "receiptStatus": "held",
+        "primaryValidationOutcome": "publishable",
+        "matchingReadiness": "conditional",
+        "primaryProjectionVerification": null,
+        "applicationStatus": "review_required",
+        "authoringReady": false,
+        "authoringStatus": "held",
+        "recognizedFieldCount": 0,
+        "fieldReadyDocumentCount": 0,
+        "applicationDocumentCount": null,
+        "documentCount": 1,
+        "missingAttachmentIds": [],
+        "incompleteAttachmentIds": [],
+        "coverageStatusCounts": {
+          "review_required": 1
+        },
+        "coverageUnresolvedCount": 2,
+        "structuralWarningCount": 0,
+        "rawEmptyCandidateCount": 65,
+        "candidateFieldCount": 101,
+        "recommendedInputCount": 56,
+        "documents": [
+          {
+            "attachmentId": "8bdb860a3810fccf61cc",
+            "filename": "한라대학교창업보육센터 입주신청서_202609.hwp",
+            "role": "application_form",
+            "coverageStatus": "review_required",
+            "coverageUnresolvedCount": 2,
+            "structuralWarningCount": 0,
+            "candidateFieldCount": 101,
+            "recommendedInputCount": 56
+          }
+        ],
+        "error": "field_analysis_held: 지원 양식에서 안전하게 인식된 입력 필드를 확보하지 못했습니다."
+      },
+      "new": {
+        "receiptStatus": "held",
+        "primaryValidationOutcome": "publishable",
+        "matchingReadiness": "conditional",
+        "primaryProjectionVerification": "verified",
+        "applicationStatus": "review_required",
+        "authoringReady": false,
+        "authoringStatus": "held",
+        "recognizedFieldCount": 0,
+        "fieldReadyDocumentCount": 0,
+        "applicationDocumentCount": 1,
+        "documentCount": 1,
+        "missingAttachmentIds": [],
+        "incompleteAttachmentIds": [],
+        "coverageStatusCounts": {
+          "review_required": 1
+        },
+        "coverageUnresolvedCount": 12,
+        "structuralWarningCount": 0,
+        "rawEmptyCandidateCount": 65,
+        "candidateFieldCount": 101,
+        "recommendedInputCount": 55,
+        "documents": [
+          {
+            "attachmentId": "8bdb860a3810fccf61cc",
+            "filename": "한라대학교창업보육센터 입주신청서_202609.hwp",
+            "role": "application_form",
+            "coverageStatus": "review_required",
+            "coverageUnresolvedCount": 12,
+            "structuralWarningCount": 0,
+            "candidateFieldCount": 101,
+            "recommendedInputCount": 55
+          }
+        ],
+        "error": "field_analysis_held: 지원 양식에서 안전하게 인식된 입력 필드를 확보하지 못했습니다."
+      },
+      "delta": {
+        "recognizedFieldCount": 0,
+        "coverageUnresolvedCount": 10,
+        "structuralWarningCount": 0,
+        "rawEmptyCandidateCount": 0,
+        "candidateFieldCount": 0,
+        "recommendedInputCount": -1
+      }
+    },
+    {
+      "grantId": "706fa257-21c1-4de8-898e-124dc74e4045",
+      "title": "2026년 스타 IR 데모데이 참여기업 모집공고(5차)",
+      "state": "compared",
+      "old": {
+        "receiptStatus": "held",
+        "primaryValidationOutcome": "publishable",
+        "matchingReadiness": "conditional",
+        "primaryProjectionVerification": null,
+        "applicationStatus": "review_required",
+        "authoringReady": false,
+        "authoringStatus": "held",
+        "recognizedFieldCount": 0,
+        "fieldReadyDocumentCount": 0,
+        "applicationDocumentCount": null,
+        "documentCount": 1,
+        "missingAttachmentIds": [],
+        "incompleteAttachmentIds": [],
+        "coverageStatusCounts": {
+          "review_required": 1
+        },
+        "coverageUnresolvedCount": 1,
+        "structuralWarningCount": 0,
+        "rawEmptyCandidateCount": 16,
+        "candidateFieldCount": 37,
+        "recommendedInputCount": 15,
+        "documents": [
+          {
+            "attachmentId": "587c6aca779a33c87bbf",
+            "filename": "2026년 스타 IR데모데이 신청서_별첨_양식.hwp",
+            "role": "application_form",
+            "coverageStatus": "review_required",
+            "coverageUnresolvedCount": 1,
+            "structuralWarningCount": 0,
+            "candidateFieldCount": 37,
+            "recommendedInputCount": 15
+          }
+        ],
+        "error": "field_analysis_held: 지원 양식에서 안전하게 인식된 입력 필드를 확보하지 못했습니다."
+      },
+      "new": {
+        "receiptStatus": "held",
+        "primaryValidationOutcome": "publishable",
+        "matchingReadiness": "ready",
+        "primaryProjectionVerification": "verified",
+        "applicationStatus": "review_required",
+        "authoringReady": false,
+        "authoringStatus": "held",
+        "recognizedFieldCount": 0,
+        "fieldReadyDocumentCount": 0,
+        "applicationDocumentCount": 1,
+        "documentCount": 1,
+        "missingAttachmentIds": [],
+        "incompleteAttachmentIds": [],
+        "coverageStatusCounts": {
+          "review_required": 1
+        },
+        "coverageUnresolvedCount": 3,
+        "structuralWarningCount": 0,
+        "rawEmptyCandidateCount": 16,
+        "candidateFieldCount": 37,
+        "recommendedInputCount": 15,
+        "documents": [
+          {
+            "attachmentId": "587c6aca779a33c87bbf",
+            "filename": "2026년 스타 IR데모데이 신청서_별첨_양식.hwp",
+            "role": "application_form",
+            "coverageStatus": "review_required",
+            "coverageUnresolvedCount": 3,
+            "structuralWarningCount": 0,
+            "candidateFieldCount": 37,
+            "recommendedInputCount": 15
+          }
+        ],
+        "error": "field_analysis_held: 지원 양식에서 안전하게 인식된 입력 필드를 확보하지 못했습니다."
+      },
+      "delta": {
+        "recognizedFieldCount": 0,
+        "coverageUnresolvedCount": 2,
+        "structuralWarningCount": 0,
+        "rawEmptyCandidateCount": 0,
+        "candidateFieldCount": 0,
+        "recommendedInputCount": 0
+      }
+    },
+    {
+      "grantId": "afc1ccd8-e7cf-461b-81c8-207bb03c2969",
+      "title": "충북대학교 『글로벌(G)테크벤처센터(BI) 』 입주기업 모집",
+      "state": "compared",
+      "old": {
+        "receiptStatus": "held",
+        "primaryValidationOutcome": "publishable",
+        "matchingReadiness": "conditional",
+        "primaryProjectionVerification": null,
+        "applicationStatus": "review_required",
+        "authoringReady": false,
+        "authoringStatus": "held",
+        "recognizedFieldCount": 0,
+        "fieldReadyDocumentCount": 0,
+        "applicationDocumentCount": null,
+        "documentCount": 1,
+        "missingAttachmentIds": [],
+        "incompleteAttachmentIds": [],
+        "coverageStatusCounts": {
+          "review_required": 1
+        },
+        "coverageUnresolvedCount": 3,
+        "structuralWarningCount": 0,
+        "rawEmptyCandidateCount": 85,
+        "candidateFieldCount": 161,
+        "recommendedInputCount": 76,
+        "documents": [
+          {
+            "attachmentId": "ea78568c8cfcd30083ce",
+            "filename": "2.(제출필수)_글로벌 G테크벤처센터 입주신청서(사업계획서 포함).hwp",
+            "role": "application_form",
+            "coverageStatus": "review_required",
+            "coverageUnresolvedCount": 3,
+            "structuralWarningCount": 0,
+            "candidateFieldCount": 161,
+            "recommendedInputCount": 76
+          }
+        ],
+        "error": "field_analysis_held: 지원 양식에서 안전하게 인식된 입력 필드를 확보하지 못했습니다."
+      },
+      "new": {
+        "receiptStatus": "held",
+        "primaryValidationOutcome": "publishable",
+        "matchingReadiness": "conditional",
+        "primaryProjectionVerification": "verified",
+        "applicationStatus": "review_required",
+        "authoringReady": false,
+        "authoringStatus": "held",
+        "recognizedFieldCount": 0,
+        "fieldReadyDocumentCount": 0,
+        "applicationDocumentCount": 1,
+        "documentCount": 1,
+        "missingAttachmentIds": [],
+        "incompleteAttachmentIds": [],
+        "coverageStatusCounts": {
+          "review_required": 1
+        },
+        "coverageUnresolvedCount": 11,
+        "structuralWarningCount": 0,
+        "rawEmptyCandidateCount": 85,
+        "candidateFieldCount": 161,
+        "recommendedInputCount": 76,
+        "documents": [
+          {
+            "attachmentId": "ea78568c8cfcd30083ce",
+            "filename": "2.(제출필수)_글로벌 G테크벤처센터 입주신청서(사업계획서 포함).hwp",
+            "role": "application_form",
+            "coverageStatus": "review_required",
+            "coverageUnresolvedCount": 11,
+            "structuralWarningCount": 0,
+            "candidateFieldCount": 161,
+            "recommendedInputCount": 76
+          }
+        ],
+        "error": "field_analysis_held: 지원 양식에서 안전하게 인식된 입력 필드를 확보하지 못했습니다."
+      },
+      "delta": {
+        "recognizedFieldCount": 0,
+        "coverageUnresolvedCount": 8,
+        "structuralWarningCount": 0,
+        "rawEmptyCandidateCount": 0,
+        "candidateFieldCount": 0,
+        "recommendedInputCount": 0
+      }
+    },
+    {
+      "grantId": "cb1fa91e-2656-45af-b42a-7320ca22749f",
+      "title": "한국공학대학교 창업보육센터 입주기업 모집공고",
+      "state": "compared",
+      "old": {
+        "receiptStatus": "held",
+        "primaryValidationOutcome": "publishable",
+        "matchingReadiness": "conditional",
+        "primaryProjectionVerification": null,
+        "applicationStatus": "review_required",
+        "authoringReady": false,
+        "authoringStatus": "held",
+        "recognizedFieldCount": 0,
+        "fieldReadyDocumentCount": 0,
+        "applicationDocumentCount": null,
+        "documentCount": 1,
+        "missingAttachmentIds": [],
+        "incompleteAttachmentIds": [],
+        "coverageStatusCounts": {
+          "review_required": 1
+        },
+        "coverageUnresolvedCount": 3,
+        "structuralWarningCount": 2,
+        "rawEmptyCandidateCount": 138,
+        "candidateFieldCount": 217,
+        "recommendedInputCount": 114,
+        "documents": [
+          {
+            "attachmentId": "db824c4659d0e085957c",
+            "filename": "붙임2_입주신청서_및_사업계획서(2026).hwp",
+            "role": "application_form",
+            "coverageStatus": "review_required",
+            "coverageUnresolvedCount": 3,
+            "structuralWarningCount": 2,
+            "candidateFieldCount": 217,
+            "recommendedInputCount": 114
+          }
+        ],
+        "error": "field_analysis_held: 지원 양식에서 안전하게 인식된 입력 필드를 확보하지 못했습니다."
+      },
+      "new": {
+        "receiptStatus": "held",
+        "primaryValidationOutcome": "publishable",
+        "matchingReadiness": "conditional",
+        "primaryProjectionVerification": "verified",
+        "applicationStatus": "review_required",
+        "authoringReady": false,
+        "authoringStatus": "held",
+        "recognizedFieldCount": 0,
+        "fieldReadyDocumentCount": 0,
+        "applicationDocumentCount": 1,
+        "documentCount": 1,
+        "missingAttachmentIds": [],
+        "incompleteAttachmentIds": [],
+        "coverageStatusCounts": {
+          "review_required": 1
+        },
+        "coverageUnresolvedCount": 18,
+        "structuralWarningCount": 2,
+        "rawEmptyCandidateCount": 138,
+        "candidateFieldCount": 217,
+        "recommendedInputCount": 115,
+        "documents": [
+          {
+            "attachmentId": "db824c4659d0e085957c",
+            "filename": "붙임2_입주신청서_및_사업계획서(2026).hwp",
+            "role": "application_form",
+            "coverageStatus": "review_required",
+            "coverageUnresolvedCount": 18,
+            "structuralWarningCount": 2,
+            "candidateFieldCount": 217,
+            "recommendedInputCount": 115
+          }
+        ],
+        "error": "field_analysis_held: 지원 양식에서 안전하게 인식된 입력 필드를 확보하지 못했습니다."
+      },
+      "delta": {
+        "recognizedFieldCount": 0,
+        "coverageUnresolvedCount": 15,
+        "structuralWarningCount": 0,
+        "rawEmptyCandidateCount": 0,
+        "candidateFieldCount": 0,
+        "recommendedInputCount": 1
+      }
+    },
+    {
+      "grantId": "ccdd8402-3e93-4689-96a8-26a5d8e0c66c",
+      "title": "2026 고양시 F&B 성장지원 프로그램 with G-ROUND 877 참여기업 모집공고",
+      "state": "compared",
+      "old": {
+        "receiptStatus": "publishable",
+        "primaryValidationOutcome": "publishable",
+        "matchingReadiness": "ready",
+        "primaryProjectionVerification": null,
+        "applicationStatus": "complete",
+        "authoringReady": true,
+        "authoringStatus": "ready",
+        "recognizedFieldCount": 18,
+        "fieldReadyDocumentCount": 1,
+        "applicationDocumentCount": null,
+        "documentCount": 1,
+        "missingAttachmentIds": [],
+        "incompleteAttachmentIds": [],
+        "coverageStatusCounts": {
+          "complete": 1
+        },
+        "coverageUnresolvedCount": 0,
+        "structuralWarningCount": 0,
+        "rawEmptyCandidateCount": 16,
+        "candidateFieldCount": 43,
+        "recommendedInputCount": 18,
+        "documents": [
+          {
+            "attachmentId": "252a9f9c9a2ace2b925c",
+            "filename": "2026 고양시 F&B 성장지원 프로그램 with G-ROUND 877 참여기업 모집공고_별첨_양식.hwp",
+            "role": "application_form",
+            "coverageStatus": "complete",
+            "coverageUnresolvedCount": 0,
+            "structuralWarningCount": 0,
+            "candidateFieldCount": 43,
+            "recommendedInputCount": 18
+          }
+        ],
+        "error": null
+      },
+      "new": {
+        "receiptStatus": "held",
+        "primaryValidationOutcome": "publishable",
+        "matchingReadiness": "ready",
+        "primaryProjectionVerification": "verified",
+        "applicationStatus": "review_required",
+        "authoringReady": false,
+        "authoringStatus": "held",
+        "recognizedFieldCount": 0,
+        "fieldReadyDocumentCount": 0,
+        "applicationDocumentCount": 1,
+        "documentCount": 1,
+        "missingAttachmentIds": [],
+        "incompleteAttachmentIds": [],
+        "coverageStatusCounts": {
+          "review_required": 1
+        },
+        "coverageUnresolvedCount": 2,
+        "structuralWarningCount": 0,
+        "rawEmptyCandidateCount": 16,
+        "candidateFieldCount": 43,
+        "recommendedInputCount": 18,
+        "documents": [
+          {
+            "attachmentId": "252a9f9c9a2ace2b925c",
+            "filename": "2026 고양시 F&B 성장지원 프로그램 with G-ROUND 877 참여기업 모집공고_별첨_양식.hwp",
+            "role": "application_form",
+            "coverageStatus": "review_required",
+            "coverageUnresolvedCount": 2,
+            "structuralWarningCount": 0,
+            "candidateFieldCount": 43,
+            "recommendedInputCount": 18
+          }
+        ],
+        "error": "field_analysis_held: 지원 양식에서 안전하게 인식된 입력 필드를 확보하지 못했습니다."
+      },
+      "delta": {
+        "recognizedFieldCount": -18,
+        "coverageUnresolvedCount": 2,
+        "structuralWarningCount": 0,
+        "rawEmptyCandidateCount": 0,
+        "candidateFieldCount": 0,
+        "recommendedInputCount": 0
+      }
+    },
+    {
+      "grantId": "d47093e7-d46a-4d06-afaa-b99c907e264a",
+      "title": "2026 협성대학교 창업보육센터 하반기 신규 입주기업 모집 공고",
+      "state": "compared",
+      "old": {
+        "receiptStatus": "publishable",
+        "primaryValidationOutcome": "publishable",
+        "matchingReadiness": "ready",
+        "primaryProjectionVerification": null,
+        "applicationStatus": "partial",
+        "authoringReady": true,
+        "authoringStatus": "ready",
+        "recognizedFieldCount": 59,
+        "fieldReadyDocumentCount": 1,
+        "applicationDocumentCount": null,
+        "documentCount": 1,
+        "missingAttachmentIds": [],
+        "incompleteAttachmentIds": [],
+        "coverageStatusCounts": {
+          "partial": 1
+        },
+        "coverageUnresolvedCount": 0,
+        "structuralWarningCount": 1,
+        "rawEmptyCandidateCount": 63,
+        "candidateFieldCount": 151,
+        "recommendedInputCount": 59,
+        "documents": [
+          {
+            "attachmentId": "d544ff314b73b2b7688c",
+            "filename": "입주신청서.hwp",
+            "role": "application_form",
+            "coverageStatus": "partial",
+            "coverageUnresolvedCount": 0,
+            "structuralWarningCount": 1,
+            "candidateFieldCount": 151,
+            "recommendedInputCount": 59
+          }
+        ],
+        "error": null
+      },
+      "new": {
+        "receiptStatus": "held",
+        "primaryValidationOutcome": "publishable",
+        "matchingReadiness": "conditional",
+        "primaryProjectionVerification": "verified",
+        "applicationStatus": "review_required",
+        "authoringReady": false,
+        "authoringStatus": "held",
+        "recognizedFieldCount": 0,
+        "fieldReadyDocumentCount": 0,
+        "applicationDocumentCount": 1,
+        "documentCount": 1,
+        "missingAttachmentIds": [],
+        "incompleteAttachmentIds": [],
+        "coverageStatusCounts": {
+          "review_required": 1
+        },
+        "coverageUnresolvedCount": 13,
+        "structuralWarningCount": 1,
+        "rawEmptyCandidateCount": 63,
+        "candidateFieldCount": 151,
+        "recommendedInputCount": 59,
+        "documents": [
+          {
+            "attachmentId": "d544ff314b73b2b7688c",
+            "filename": "입주신청서.hwp",
+            "role": "application_form",
+            "coverageStatus": "review_required",
+            "coverageUnresolvedCount": 13,
+            "structuralWarningCount": 1,
+            "candidateFieldCount": 151,
+            "recommendedInputCount": 59
+          }
+        ],
+        "error": "field_analysis_held: 지원 양식에서 안전하게 인식된 입력 필드를 확보하지 못했습니다."
+      },
+      "delta": {
+        "recognizedFieldCount": -59,
+        "coverageUnresolvedCount": 13,
+        "structuralWarningCount": 0,
+        "rawEmptyCandidateCount": 0,
+        "candidateFieldCount": 0,
+        "recommendedInputCount": 0
+      }
+    },
+    {
+      "grantId": "fa439dda-93e1-4d9e-9fe0-66c8e986c85f",
+      "title": "호서대학교 서울창업보육센터 신규입주모집 공고",
+      "state": "compared",
+      "old": {
+        "receiptStatus": "held",
+        "primaryValidationOutcome": "publishable",
+        "matchingReadiness": "conditional",
+        "primaryProjectionVerification": null,
+        "applicationStatus": "review_required",
+        "authoringReady": false,
+        "authoringStatus": "held",
+        "recognizedFieldCount": 0,
+        "fieldReadyDocumentCount": 0,
+        "applicationDocumentCount": null,
+        "documentCount": 1,
+        "missingAttachmentIds": [],
+        "incompleteAttachmentIds": [],
+        "coverageStatusCounts": {
+          "review_required": 1
+        },
+        "coverageUnresolvedCount": 1,
+        "structuralWarningCount": 13,
+        "rawEmptyCandidateCount": 70,
+        "candidateFieldCount": 96,
+        "recommendedInputCount": 63,
+        "documents": [
+          {
+            "attachmentId": "78df61852b01ef198691",
+            "filename": "호서대학교 서울BI 입주신청서_양식.hwp",
+            "role": "application_form",
+            "coverageStatus": "review_required",
+            "coverageUnresolvedCount": 1,
+            "structuralWarningCount": 13,
+            "candidateFieldCount": 96,
+            "recommendedInputCount": 63
+          }
+        ],
+        "error": "field_analysis_held: 지원 양식에서 안전하게 인식된 입력 필드를 확보하지 못했습니다."
+      },
+      "new": {
+        "receiptStatus": "held",
+        "primaryValidationOutcome": "publishable",
+        "matchingReadiness": "conditional",
+        "primaryProjectionVerification": "verified",
+        "applicationStatus": "review_required",
+        "authoringReady": false,
+        "authoringStatus": "held",
+        "recognizedFieldCount": 0,
+        "fieldReadyDocumentCount": 0,
+        "applicationDocumentCount": 1,
+        "documentCount": 1,
+        "missingAttachmentIds": [],
+        "incompleteAttachmentIds": [],
+        "coverageStatusCounts": {
+          "review_required": 1
+        },
+        "coverageUnresolvedCount": 4,
+        "structuralWarningCount": 13,
+        "rawEmptyCandidateCount": 70,
+        "candidateFieldCount": 96,
+        "recommendedInputCount": 63,
+        "documents": [
+          {
+            "attachmentId": "78df61852b01ef198691",
+            "filename": "호서대학교 서울BI 입주신청서_양식.hwp",
+            "role": "application_form",
+            "coverageStatus": "review_required",
+            "coverageUnresolvedCount": 4,
+            "structuralWarningCount": 13,
+            "candidateFieldCount": 96,
+            "recommendedInputCount": 63
+          }
+        ],
+        "error": "field_analysis_held: 지원 양식에서 안전하게 인식된 입력 필드를 확보하지 못했습니다."
+      },
+      "delta": {
+        "recognizedFieldCount": 0,
+        "coverageUnresolvedCount": 3,
+        "structuralWarningCount": 0,
+        "rawEmptyCandidateCount": 0,
+        "candidateFieldCount": 0,
+        "recommendedInputCount": 0
+      }
+    }
+  ],
+  "originalArtifactsVerifiedUnchanged": 62,
+  "runtimeAfterExecution": {
+    "observedAt": "2026-09-16T13:57:57.750Z",
+    "runtime": {
+      "controlKey": "global",
+      "mode": "paused",
+      "generation": 427,
+      "changedBy": "lab:launch",
+      "changeReason": "로컬 구독 분석 권한 해제",
+      "localOwnerId": null,
+      "localLeaseExpiresAt": null,
+      "createdAt": "2026-08-05T14:21:42.217Z",
+      "updatedAt": "2026-09-16T13:56:58.292Z",
+      "databaseObservedAt": "2026-09-16T13:57:57.738Z",
+      "activeDeepLeases": 0,
+      "activeApplicationLeases": 0
+    }
+  },
+  "requestObservations": {
+    "authority": "unsealed_local_observation",
+    "byStage": {
+      "application": 62,
+      "primary": 18,
+      "repair": 10
+    },
+    "byOutcome": {
+      "fulfilled": 90
+    },
+    "isBillingEvidence": false
+  },
+  "evidence": [
+    {
+      "path": "spike-out/company-field-deploy-rerun-20260916/final-comparison.json",
+      "sha256": "e12c6abcda0976d5ff39000940acf120c9d1efc6227baf5bac13fe363c9dc0f1"
+    },
+    {
+      "path": "spike-out/company-field-deploy-rerun-20260916/completed-rerun-verification.json",
+      "sha256": "59d08ce74927a1b1ba6a5e3f0b8e2a1e4d844ae650e22fc41c8b616f4eff413e"
+    },
+    {
+      "path": "spike-out/company-field-deploy-rerun-20260916/final-runtime.json",
+      "sha256": "d755c392755951d879fae6931c4e8ca9bd3d88ab738d4004eff6edcaa4904645"
+    },
+    {
+      "path": "spike-out/company-field-deploy-rerun-20260916/rerun-authorization.json",
+      "sha256": "6df2576c3a8c9c219008384223fe0dcefd3f64fa5a463a799db3c2f4abf012ec"
+    },
+    {
+      "path": "spike-out/company-field-deploy-rerun-20260916/current-inventory-target-verification.json",
+      "sha256": "ba165b5a5833c5aa9816c916c616f6a5dbf43cab5357064ecd1aaee00e251bcf"
+    },
+    {
+      "path": "spike-out/company-field-deploy-rerun-20260916/company-unresolved-feedback.json",
+      "sha256": "8764508f48eae2f76894afc8a4d9d79c37527d19e94fffbcf2d51b4246325286"
+    },
+    {
+      "path": "spike-out/company-field-deploy-rerun-20260916/primary-failure-feedback.json",
+      "sha256": "83b68843583dafd306aa11b7a41b2f6a3d593cb0011dbc18114ce8fffb02e01b"
+    }
+  ],
+  "limits": [
+    "Model results are local artifacts; no service analysis promotion performed.",
+    "Cloudflare allowlist remains enabled.",
+    "Authenticated end-to-end authoring and Hancom visual validation unexecuted.",
+    "GCP job deployment unexecuted due to expired dedicated base-account authentication.",
+    "Offline candidate review is diagnostic only and does not change live coverage or authoring readiness."
+  ]
+}
