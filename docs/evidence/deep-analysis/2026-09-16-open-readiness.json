@@ -235,6 +235,38 @@
     {
       "path": "spike-out/open-readiness-20260916/new19-failed4-v19-prepare.json",
       "sha256": "e0485db9e81da789dde4bd48e8eb0caa6a4f5aba0bb5d741657f939eb944ae74"
+    },
+    {
+      "path": "spike-out/open-readiness-20260916/gates-repair.json",
+      "sha256": "56bb42158fcddfae66c44947dcd72b129406ffb34389dd700c54db3742258b1c"
+    },
+    {
+      "path": "spike-out/open-readiness-20260916/seq23-held1-v19-successor-prepare.json",
+      "sha256": "aad5ecc034771ae2d5d5706c66b3a853f11ea0ccc8dcd8889b2d5ded2d076262"
+    },
+    {
+      "path": "spike-out/open-readiness-20260916/new30-prepare.json",
+      "sha256": "1b18ef50239496da4864b93f361f5edd01ba0934f607513595b89ad5fbd61a59"
+    },
+    {
+      "path": "spike-out/open-readiness-20260916/new30-input-ready-scope.json",
+      "sha256": "1426e389fa29f7c0f0be9295484ac88c34b3c3d1b175bdefe826f995e62cdabc"
+    },
+    {
+      "path": "spike-out/open-readiness-20260916/new105-input-after-recovery.json",
+      "sha256": "919e941a1cb1c2f42948f0736132c605e0ca96909160d2a25d949132dc5c4215"
+    },
+    {
+      "path": "spike-out/open-readiness-20260916/new105-recovery-triage.json",
+      "sha256": "961c61dcf56a6e3f89464a8df397f469857e535ba04451bb8b3ff55c24beef1d"
+    },
+    {
+      "path": "spike-out/open-readiness-20260916/conversion-recovery-summary.json",
+      "sha256": "48e407a85f746420f6b8c9f4f63a596d1ad351221ecbc9889e98b21d5b893931"
+    },
+    {
+      "path": "spike-out/open-readiness-20260916/final-runtime.json",
+      "sha256": "fd42730a656d2eaec583a41521fa416ad8251dc13fecada376a8d7fb6259a909"
     }
   ],
   "implementation": {
@@ -296,7 +328,7 @@
     "deployments": 0,
     "wafChanges": 0,
     "inputRecoveryDbR2Writes": true,
-    "inputRecoveryStatus": "in_progress",
+    "inputRecoveryStatus": "bounded_recovery_finished_with_remaining_work",
     "authenticatedUat": "UNEXECUTED",
     "finalSourceCommit": "8e74c084c6b64260d47a231c2e561b9577400fa9",
     "finalGates": [
@@ -381,6 +413,49 @@
       ],
       "modelCalls": 0,
       "dbR2Writes": true
-    }
+    },
+    "new105AfterRecovery": {
+      "withMissingAttachmentMarkdown": 75,
+      "withoutMissingAttachmentMarkdown": 30,
+      "missingDiagnostics": 99,
+      "totalChars": 734878,
+      "inputChanged": 75,
+      "triage": {
+        "noMissing": 30,
+        "pdfDocx": 37,
+        "imageTextOrSourceComparison": 36,
+        "zipContainerVerification": 2
+      }
+    },
+    "conversionRecovery": {
+      "uniqueSurfaces": 193,
+      "previewReady": 89,
+      "pending": 104,
+      "failed": 0,
+      "pendingTimeouts": {
+        "queued": 87,
+        "httpRequest": 17
+      }
+    },
+    "new30Manifest": "8093236b7f89a78c52c43c6dc5b4837f973866f2f09d45a1bad7d99ae8c06d6f",
+    "finalRuntime": {
+      "observedAt": "2026-09-16T02:59:41.925Z",
+      "runtime": {
+        "controlKey": "global",
+        "mode": "paused",
+        "generation": 415,
+        "changedBy": "lab:launch",
+        "changeReason": "로컬 구독 분석 권한 해제",
+        "localOwnerId": null,
+        "localLeaseExpiresAt": null,
+        "createdAt": "2026-08-05T14:21:42.217Z",
+        "updatedAt": "2026-09-15T12:51:34.343Z",
+        "databaseObservedAt": "2026-09-16T02:59:41.906Z",
+        "activeDeepLeases": 0,
+        "activeApplicationLeases": 0
+      }
+    },
+    "cloudRunConfigurationRead": "UNEXECUTED: dedicated account reauthentication required",
+    "userExactModelApproval": "pending"
   }
 }
