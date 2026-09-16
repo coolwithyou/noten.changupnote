@@ -1,0 +1,91 @@
+{
+  "schema": "exact19-seq0-application-only-contract-evidence-v1",
+  "observedAt": "2026-09-16T14:46:53Z",
+  "scopeCorrection": {
+    "exact19Aggregate": {
+      "publishable": 18,
+      "held": 1,
+      "failed": 0,
+      "remainingOriginalSequence": 0,
+      "remainingSourceId": "PBLN_000000000126450"
+    },
+    "separateCurrentInventoryExact14ManifestSha256": "76105bfdca2598889c5c50d8b703dc4c301abd82e88cb66f13d76a5f93a1fd8a",
+    "separateCurrentInventoryExact14IncludedInExact19": false
+  },
+  "exact19Evidence": {
+    "originalReceiptSha256": "1d51dc26eaff6bed4d49f696cca56c53f0e003352da9fa1cade21a96361fabd7",
+    "originalReceiptSummary": {
+      "publishable": 15,
+      "held": 2,
+      "failed": 2,
+      "skipped": 0
+    },
+    "repairInventorySha256": "40b253e12223808b79c4fee2f9f33e83918888b0848827cb9200c368b13e5b00",
+    "repairManifestSha256": "d06199dd22c9c81be0b40c3e740fcb003e5456d3b39add5633f55cf015e0b37e",
+    "repairGrantSha256": "bae25afd6ca18bf6d6df66d246c79fb66886537cae7cd79e3db1ebf0808fdf39",
+    "repairReceiptSha256": "dbcdb3ff2897898bd75afe406481c42c248cbce01ad5110ddb77cd9639b18514",
+    "repairReceiptStopReason": "completed",
+    "repairReceiptSystemicFailure": null,
+    "repairReceiptSummary": {
+      "publishable": 3,
+      "held": 1,
+      "failed": 0,
+      "skipped": 0
+    },
+    "replacedOriginalSequences": [0, 1, 2, 16]
+  },
+  "seq0PrimaryReuse": {
+    "repairSequence": 0,
+    "originalExact19Sequence": 0,
+    "grantId": "6176af74-cbb0-44d9-b577-ce1e5345914d",
+    "sourceId": "PBLN_000000000126450",
+    "inputSha256": "050e75ee59aba7468ac1a4f66e3681a6641fea1146d675db15e4dc5d68e7faa1",
+    "attachmentManifestSha256": "f48f7278e01f7ce716dcb3dc73d36dffcc4ef0feda75616f8359188d5b197bc9",
+    "sourceRunArtifactPath": "spike-out/analysis-lab/bizinfo__PBLN_000000000126450/run-2026-09-16T031737.486Z-3f4ef7.json",
+    "sourceRunArtifactSha256": "55f904ba1056a3d580a9489203eb952844cc5d6c3e66fcd2a58ad8417cb9c957",
+    "sourceRunId": "run-2026-09-16T031737.486Z-3f4ef7",
+    "transport": "claude-cli",
+    "model": "claude-opus-5",
+    "promptVersion": "lab-deep-v28",
+    "primaryValidationOutcome": "publishable",
+    "matchingReadiness": "conditional",
+    "primaryRepairProvenancePresent": true,
+    "primaryRepairTerminationReason": "accepted",
+    "primaryMatchingProjectionVerified": true,
+    "applicationRoundtripStatus": "review_required",
+    "fieldReadyDocumentCount": 0,
+    "terminalTargetStatus": "held",
+    "terminalError": "field_analysis_held: 지원 양식에서 안전하게 인식된 입력 필드를 확보하지 못했습니다."
+  },
+  "prepareAttempt": {
+    "selectedOriginalSequences": [0],
+    "applicationOnly": true,
+    "concurrency": 1,
+    "packageRuntimeFreshnessPassed": true,
+    "exitCode": 1,
+    "error": "application-only primary 재사용 결속이 잘못됐습니다.",
+    "newManifestWritten": false,
+    "newGrantIssued": false,
+    "modelCalls": 0,
+    "launchStarted": false,
+    "runtimeWrites": 0
+  },
+  "blockedSeam": {
+    "builderFile": "apps/web/src/lib/server/analysis-lab/launch-batch-production.ts",
+    "builderLines": "205-223",
+    "builderBehavior": "completed repair launch의 primary reuse를 만들고 terminalRepair ancestry도 새 manifest에 보존한다.",
+    "normalizerFile": "apps/web/src/lib/server/analysis-lab/launch-batch-artifacts.ts",
+    "normalizerLines": "729-739",
+    "normalizerBehavior": "analysisMode=application_only이면 terminalRepair가 존재하는 manifest를 거부한다.",
+    "classification": "contract_seam_missing_terminal_repair_application_only",
+    "dataEligibilityPassedBeforeSeam": true
+  },
+  "preservation": {
+    "separateExact14ManifestContentSha256Matches": true,
+    "separateExact14GrantCount": 0,
+    "separateExact14StatusCount": 0,
+    "separateExact14ReceiptCount": 0,
+    "successfulReceiptsMutated": false,
+    "existingManifestsMutated": false
+  }
+}
