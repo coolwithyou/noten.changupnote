@@ -38,6 +38,16 @@ export interface AnalysisLaunchManifestTarget {
     readonly taskInstruction: string;
   };
   readonly applicationRoundtripReuse?: AnalysisLaunchApplicationRoundtripReuseBinding;
+  readonly primaryReuse?: AnalysisLaunchPrimaryReuseBinding;
+}
+
+export interface AnalysisLaunchPrimaryReuseBinding {
+  readonly schema: "analysis-launch-primary-reuse-v1";
+  readonly sourceSequence: number;
+  readonly sourceLabRunId: string;
+  readonly sourceLabRunArtifactPath: string;
+  readonly sourceLabRunArtifactSha256: string;
+  readonly sourceLaunchReceiptSha256: string;
 }
 
 interface AnalysisLaunchApplicationRoundtripReuseBindingCommon {
@@ -96,6 +106,7 @@ export interface AnalysisLaunchManifest {
     readonly sequenceTo: number;
   };
   readonly execution: {
+    readonly analysisMode?: "primary_and_application" | "application_only";
     readonly transport: "claude-cli";
     readonly model: string;
     readonly promptVersion: string;
@@ -236,6 +247,7 @@ interface AnalysisLaunchManifestPreparationInput {
     readonly validatorVersion: string;
   };
   readonly withApplicationRoundtrip: boolean;
+  readonly analysisMode?: AnalysisLaunchManifest["execution"]["analysisMode"];
   readonly roundtripModel?: string;
   readonly concurrency: number;
   readonly now: Date;
@@ -515,6 +527,7 @@ function createAnalysisLaunchManifestFromInventory(
       ),
       gitShaAtPreparation: exactGitSha(input.provenance.gitSha),
       withApplicationRoundtrip: input.withApplicationRoundtrip,
+      analysisMode: input.analysisMode ?? "primary_and_application",
       roundtripModel,
       applicationFieldAnalysisVersion: input.withApplicationRoundtrip
         ? APPLICATION_ROUNDTRIP_VERSION
@@ -617,6 +630,12 @@ function normalizeAnalysisLaunchManifestForPurpose(
           target.applicationRoundtripReuse,
           `targets[${index}].applicationRoundtripReuse`,
         );
+    const primaryReuse = target.primaryReuse === undefined
+      ? undefined
+      : normalizeAnalysisLaunchPrimaryReuseBinding(
+          target.primaryReuse,
+          `targets[${index}].primaryReuse`,
+        );
     return Object.freeze({
       sequence,
       grantId: exactUuid(target.grantId, "grantId"),
@@ -628,6 +647,7 @@ function normalizeAnalysisLaunchManifestForPurpose(
       changedSinceInventory,
       ...(reviewRepair ? { reviewRepair } : {}),
       ...(applicationRoundtripReuse ? { applicationRoundtripReuse } : {}),
+      ...(primaryReuse ? { primaryReuse } : {}),
     });
   });
   if (new Set(targets.map((target) => target.grantId)).size !== targets.length) {
@@ -639,6 +659,12 @@ function normalizeAnalysisLaunchManifestForPurpose(
     throw new Error("launch manifest source sequence 범위가 targets와 다릅니다.");
   }
   const withApplicationRoundtrip = execution.withApplicationRoundtrip === true;
+  const analysisMode = execution.analysisMode === undefined
+    ? "primary_and_application"
+    : execution.analysisMode;
+  if (analysisMode !== "primary_and_application" && analysisMode !== "application_only") {
+    throw new Error("launch analysisMode가 잘못됐습니다.");
+  }
   const roundtripModel = execution.roundtripModel === null
     ? null
     : requireNonEmpty(execution.roundtripModel, "roundtripModel");
@@ -699,6 +725,26 @@ function normalizeAnalysisLaunchManifestForPurpose(
         ))
   ) {
     throw new Error("독립 검수 primary repair 외 launch에는 검증된 failed primary provenance 없이 Kordoc exact 재사용을 결속할 수 없습니다.");
+  }
+  const primaryReuseTargets = targets.filter((target) => target.primaryReuse !== undefined);
+  if (
+    analysisMode === "application_only"
+      ? sourceKind !== "current_inventory"
+        || completedLaunch === undefined
+        || terminalRepair !== undefined
+        || primaryReuseTargets.length !== targets.length
+        || targets.some((target) => target.reviewRepair || target.applicationRoundtripReuse)
+      : primaryReuseTargets.length !== 0
+  ) {
+    throw new Error("application-only primary 재사용 결속이 잘못됐습니다.");
+  }
+  if (
+    analysisMode === "application_only"
+    && targets.some((target) => (
+      target.primaryReuse?.sourceLaunchReceiptSha256 !== completedLaunch?.terminalReceiptSha256
+    ))
+  ) {
+    throw new Error("application-only primary 재사용 receipt가 completed launch와 다릅니다.");
   }
   const reusedRoundtripRunIds = targets.flatMap(
     (target) => target.applicationRoundtripReuse?.sourceRoundtripRunId ?? [],
@@ -829,6 +875,7 @@ function normalizeAnalysisLaunchManifestForPurpose(
       packageRuntimeSha256: exactSha(String(execution.packageRuntimeSha256), "packageRuntimeSha256"),
       gitShaAtPreparation: exactGitSha(execution.gitShaAtPreparation),
       withApplicationRoundtrip,
+      analysisMode,
       roundtripModel,
       applicationFieldAnalysisVersion,
       concurrency,
@@ -1485,6 +1532,35 @@ function normalizeLaunchReviewRepair(
     reviewModel: requireNonEmpty(record.reviewModel, `${field}.reviewModel`),
     blockingCount,
     taskInstruction: requireNonEmpty(record.taskInstruction, `${field}.taskInstruction`),
+  });
+}
+
+export function normalizeAnalysisLaunchPrimaryReuseBinding(
+  value: unknown,
+  field: string,
+): AnalysisLaunchPrimaryReuseBinding {
+  const record = object(value, field);
+  if (record.schema !== "analysis-launch-primary-reuse-v1") {
+    throw new Error(`${field}.schema가 잘못됐습니다.`);
+  }
+  const sourceSequence = integer(record.sourceSequence, `${field}.sourceSequence`);
+  if (sourceSequence < 0) throw new Error(`${field}.sourceSequence는 0 이상이어야 합니다.`);
+  return Object.freeze({
+    schema: "analysis-launch-primary-reuse-v1",
+    sourceSequence,
+    sourceLabRunId: requireNonEmpty(record.sourceLabRunId, `${field}.sourceLabRunId`),
+    sourceLabRunArtifactPath: repositoryRelativePath(
+      record.sourceLabRunArtifactPath,
+      `${field}.sourceLabRunArtifactPath`,
+    ),
+    sourceLabRunArtifactSha256: exactSha(
+      String(record.sourceLabRunArtifactSha256),
+      `${field}.sourceLabRunArtifactSha256`,
+    ),
+    sourceLaunchReceiptSha256: exactSha(
+      String(record.sourceLaunchReceiptSha256),
+      `${field}.sourceLaunchReceiptSha256`,
+    ),
   });
 }
 

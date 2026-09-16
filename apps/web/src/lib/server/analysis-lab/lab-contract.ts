@@ -347,6 +347,15 @@ export interface LabRun {
   primaryRepairProvenance?: LabPrimaryRepairProvenance;
   /** 구 런에는 없으며 부재는 verified가 아니라 unverified로 읽는다. */
   primaryMatchingProjection?: LabPrimaryMatchingProjectionSnapshot;
+  /** application-only launch가 재사용한 완료 receipt의 exact primary artifact provenance. */
+  primaryReuse?: {
+    schema: "analysis-launch-primary-reuse-v1";
+    sourceSequence: number;
+    sourceLabRunId: string;
+    sourceLabRunArtifactPath: string;
+    sourceLabRunArtifactSha256: string;
+    sourceLaunchReceiptSha256: string;
+  };
   /** 완료된 독립 검수의 blocking 판정을 Opus 재분석에 되먹임한 로컬 루프 provenance. */
   reviewRepair?: {
     sourceRunId: string;

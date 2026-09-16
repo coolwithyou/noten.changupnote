@@ -92,6 +92,16 @@ assert.doesNotMatch(
   /MatchingProjection|matchingProjection/,
   "primary 품질 try/catch 안에서 진단 예외를 primary error로 바꾸지 않는다",
 );
+const primaryReuseBranch = rawPrimarySource.indexOf("if (reusedPrimaryRun)");
+const livePrimaryCall = rawPrimarySource.indexOf("runValidatedLabPrimary({");
+assert.ok(primaryReuseBranch >= 0 && livePrimaryCall > primaryReuseBranch);
+const primaryReuseBranchEnd = rawPrimarySource.indexOf("\n    try {", primaryReuseBranch);
+assert.ok(primaryReuseBranchEnd > primaryReuseBranch && livePrimaryCall > primaryReuseBranchEnd);
+assert.doesNotMatch(
+  rawPrimarySource.slice(primaryReuseBranch, primaryReuseBranchEnd),
+  /await bindingPromise|runValidatedLabPrimary/,
+  "application-only primary 재사용은 live primary binding·모델 호출 전에 종결해야 한다",
+);
 assert.match(
   internalSource.slice(projectionSeamStart, pairStart),
   /const primary = await runPrimary\(\);[\s\S]*capturePrimaryMatchingProjectionSnapshot/,

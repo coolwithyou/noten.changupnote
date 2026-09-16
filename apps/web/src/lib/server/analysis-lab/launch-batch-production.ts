@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { readdir, readFile } from "node:fs/promises";
-import { dirname, relative, sep } from "node:path";
+import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { getCunoteDb } from "@/lib/server/db/client";
 import { readDeepAnalysisRuntimeAdmissionSnapshot } from "@/lib/server/deep-analysis/runtimeControl";
 import { classifyAnalysisFeatureReadiness } from "@/lib/server/analysis-serving/analysisFeatureReadiness";
@@ -44,6 +44,7 @@ import {
 } from "./launch-status";
 import { classifyLabRunOutcome } from "./run-outcome";
 import { findMonorepoRoot, labRunFilePath } from "./run-store";
+import type { LabRun } from "./lab-contract";
 import {
   buildCurrentInventoryLaunchManifest,
   MISSING_WORKSPACE_FIELDS_POLICY,
@@ -118,6 +119,7 @@ export async function prepareCompletedCurrentInventoryLaunchManifest(input: {
   readonly sourceGrantSha256: string;
   readonly terminalReceiptSha256: string;
   readonly selectedOriginalSequences?: readonly number[];
+  readonly applicationOnly?: boolean;
   readonly concurrency: number;
 }, dependencyOverrides: Partial<CompletedCurrentInventoryLaunchPreparationDependencies> = {}): Promise<{
   readonly manifest: AnalysisLaunchManifest;
@@ -200,6 +202,14 @@ export async function prepareCompletedCurrentInventoryLaunchManifest(input: {
   if (!encodeCanonical(initialProvenance).equals(encodeCanonical(finalProvenance))) {
     throw new Error("current inventory 재봉인 준비 중 실행 코드가 변경됐습니다.");
   }
+  const primaryReuse = input.applicationOnly
+    ? await buildCompletedLaunchPrimaryReuseBindings({
+        repositoryRoot: dependencies.repositoryRoot,
+        completed,
+        selectedTargets,
+        receiptSha256: input.terminalReceiptSha256,
+      })
+    : undefined;
   const manifest = buildCurrentInventoryLaunchManifest({
     inventory,
     inventorySha256: input.inventorySha256,
@@ -207,6 +217,7 @@ export async function prepareCompletedCurrentInventoryLaunchManifest(input: {
     provenance: finalProvenance,
     concurrency: input.concurrency,
     completedLaunch,
+    ...(input.applicationOnly ? { analysisMode: "application_only" as const, primaryReuse: primaryReuse! } : {}),
     ...(completed.sourceManifest.source.terminalRepair
       ? { terminalRepair: completed.sourceManifest.source.terminalRepair }
       : {}),
@@ -214,6 +225,51 @@ export async function prepareCompletedCurrentInventoryLaunchManifest(input: {
   });
   const stored = await dependencies.writeManifest(manifest, dependencies.repositoryRoot);
   return Object.freeze({ manifest, manifestSha256: stored.sha256, path: stored.path });
+}
+
+async function buildCompletedLaunchPrimaryReuseBindings(input: {
+  readonly repositoryRoot: string;
+  readonly completed: Awaited<ReturnType<typeof readAndVerifyCompletedCurrentInventoryLaunchDetails>>;
+  readonly selectedTargets: CurrentLaunchInventory["targets"];
+  readonly receiptSha256: string;
+}) {
+  const bindings = [];
+  for (const target of input.selectedTargets) {
+    const receiptTarget = input.completed.receipt.targets.find((item) => item.grantId === target.grantId);
+    if (!receiptTarget?.runArtifactPath || !receiptTarget.runArtifactSha256) {
+      throw new Error(`application-only source run artifact가 없습니다: ${target.grantId}`);
+    }
+    const absolutePath = resolve(input.repositoryRoot, receiptTarget.runArtifactPath);
+    const relativePath = relative(input.repositoryRoot, absolutePath);
+    if (relativePath.startsWith("..") || isAbsolute(relativePath)) {
+      throw new Error(`application-only source run 경로가 저장소 밖입니다: ${target.grantId}`);
+    }
+    const bytes = await readFile(absolutePath);
+    const artifactSha256 = createHash("sha256").update(bytes).digest("hex");
+    if (artifactSha256 !== receiptTarget.runArtifactSha256) {
+      throw new Error(`application-only source run SHA가 receipt와 다릅니다: ${target.grantId}`);
+    }
+    const run = JSON.parse(bytes.toString("utf8")) as LabRun;
+    if (
+      run.grantId !== target.grantId
+      || run.inputSha256 !== target.inputSha256
+      || run.attachmentManifestSha256 !== target.attachmentManifestSha256
+      || classifyLabRunOutcome(run) !== "publishable"
+      || (run.matchingReadiness !== "ready" && run.matchingReadiness !== "conditional")
+      || run.primaryMatchingProjection?.verification !== "verified"
+    ) {
+      throw new Error(`application-only source primary가 재사용 조건을 충족하지 않습니다: ${target.grantId}`);
+    }
+    bindings.push(Object.freeze({
+      schema: "analysis-launch-primary-reuse-v1" as const,
+      sourceSequence: receiptTarget.sequence,
+      sourceLabRunId: run.runId,
+      sourceLabRunArtifactPath: relativePath.split(sep).join("/"),
+      sourceLabRunArtifactSha256: artifactSha256,
+      sourceLaunchReceiptSha256: input.receiptSha256,
+    }));
+  }
+  return Object.freeze(bindings);
 }
 
 async function prepareCurrentInventoryResealTargets(
@@ -468,6 +524,7 @@ export async function runApprovedAnalysisLaunchBatch(input: {
       model: manifest.execution.model,
       transport: "claude-cli",
       promptVersion: manifest.execution.promptVersion,
+      analysisMode: manifest.execution.analysisMode ?? "primary_and_application",
       withApplicationRoundtrip: manifest.execution.withApplicationRoundtrip,
       roundtripModel: manifest.execution.roundtripModel,
       targets: new Map(manifest.targets.map((target) => [target.grantId, target])),
@@ -541,6 +598,7 @@ export async function runApprovedAnalysisLaunchBatch(input: {
               ...(target.applicationRoundtripReuse ? {
                 exactApplicationRoundtripReuse: target.applicationRoundtripReuse,
               } : {}),
+              ...(target.primaryReuse ? { exactPrimaryReuse: target.primaryReuse } : {}),
             });
             const absolutePath = labRunFilePath(run.source, run.sourceId, run.runId);
             const artifactBytes = await readFile(absolutePath);

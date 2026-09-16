@@ -15,7 +15,7 @@ import {
 
 const SHA256 = /^[a-f0-9]{64}$/;
 const USAGE = `pnpm lab:launch:prepare -- --series=${ACTIVE_DEEP_REPAIR_SERIES_ID} --sequences=0-${ACTIVE_DEEP_REPAIR_TARGET_COUNT - 1} --concurrency=2
-pnpm lab:launch:prepare -- --reseal-current-inventory=<sha256> --source-manifest=<sha256> --source-grant=<sha256> --terminal-receipt=<sha256> [--selected-sequences=<n[,n...]>] --concurrency=1
+pnpm lab:launch:prepare -- --reseal-current-inventory=<sha256> --source-manifest=<sha256> --source-grant=<sha256> --terminal-receipt=<sha256> [--selected-sequences=<n[,n...]>] [--application-only] --concurrency=1
 pnpm lab:launch:grant -- --manifest=<sha256> --approved-by=<actor>
 pnpm lab:launch -- --grant=<sha256> [--retry-errors [--retry-sequences=<n[,n-m...]>]]`;
 
@@ -37,6 +37,7 @@ export type AnalysisLaunchCliArgs =
       readonly sourceGrantSha256: string;
       readonly terminalReceiptSha256: string;
       readonly selectedOriginalSequences?: readonly number[];
+      readonly applicationOnly: boolean;
       readonly concurrency: number;
     }
   | { readonly kind: "grant"; readonly manifestSha256: string; readonly approvedBy: string }
@@ -109,8 +110,9 @@ export function parseAnalysisLaunchCliArgs(
         "--selected-sequences",
         "--concurrency",
       ]);
+      const allowedResealFlags = new Set(["--application-only"]);
       if (
-        flags.size > 0
+        [...flags].some((flag) => !allowedResealFlags.has(flag))
         || (values.size !== allowedResealValues.size
           && values.size !== allowedResealValues.size - 1)
         || [...values.keys()].some((key) => !allowedResealValues.has(key))
@@ -134,6 +136,7 @@ export function parseAnalysisLaunchCliArgs(
         sourceGrantSha256,
         terminalReceiptSha256,
         ...(selectedOriginalSequences ? { selectedOriginalSequences } : {}),
+        applicationOnly: flags.has("--application-only"),
         concurrency,
       };
     }
@@ -198,6 +201,7 @@ async function main(command: Command, argv: readonly string[]): Promise<void> {
         ...(parsed.selectedOriginalSequences
           ? { selectedOriginalSequences: parsed.selectedOriginalSequences }
           : {}),
+        applicationOnly: parsed.applicationOnly,
         concurrency: parsed.concurrency,
       });
       console.log(JSON.stringify({
@@ -205,6 +209,7 @@ async function main(command: Command, argv: readonly string[]): Promise<void> {
         liveExecutionAuthorized: false,
         sourceKind: result.manifest.source.kind,
         existingRunPolicy: result.manifest.execution.existingRunPolicy,
+        analysisMode: result.manifest.execution.analysisMode,
         manifestSha256: result.manifestSha256,
         targetCount: result.manifest.targets.length,
         path: result.path,

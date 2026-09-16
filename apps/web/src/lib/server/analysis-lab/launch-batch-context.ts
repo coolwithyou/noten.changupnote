@@ -1,7 +1,9 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import {
   normalizeAnalysisLaunchApplicationRoundtripReuseBinding,
+  normalizeAnalysisLaunchPrimaryReuseBinding,
   type AnalysisLaunchApplicationRoundtripReuseBinding,
+  type AnalysisLaunchPrimaryReuseBinding,
 } from "./launch-batch-artifacts";
 
 export interface AnalysisLaunchTargetBinding {
@@ -15,6 +17,7 @@ export interface AnalysisLaunchTargetBinding {
     readonly taskInstruction: string;
   };
   readonly applicationRoundtripReuse?: AnalysisLaunchApplicationRoundtripReuseBinding;
+  readonly primaryReuse?: AnalysisLaunchPrimaryReuseBinding;
 }
 
 export interface AnalysisLaunchBatchExecutionBinding {
@@ -24,6 +27,7 @@ export interface AnalysisLaunchBatchExecutionBinding {
   readonly model: string;
   readonly transport: "claude-cli";
   readonly promptVersion: string;
+  readonly analysisMode?: "primary_and_application" | "application_only";
   readonly withApplicationRoundtrip: boolean;
   readonly roundtripModel: string | null;
   readonly targets: ReadonlyMap<string, AnalysisLaunchTargetBinding>;
@@ -64,6 +68,10 @@ function normalizeBinding(
   ) {
     throw new Error("launch batch source kind가 잘못됐습니다.");
   }
+  const analysisMode = binding.analysisMode ?? "primary_and_application";
+  if (analysisMode !== "primary_and_application" && analysisMode !== "application_only") {
+    throw new Error("launch batch analysisMode가 잘못됐습니다.");
+  }
   if (
     binding.withApplicationRoundtrip
       ? !binding.roundtripModel?.trim()
@@ -103,6 +111,12 @@ function normalizeBinding(
           target.applicationRoundtripReuse,
           `${grantId}.applicationRoundtripReuse`,
         );
+    const primaryReuse = target.primaryReuse === undefined
+      ? undefined
+      : normalizeAnalysisLaunchPrimaryReuseBinding(
+          target.primaryReuse,
+          `${grantId}.primaryReuse`,
+        );
     if (
       applicationRoundtripReuse
       && (
@@ -115,15 +129,19 @@ function normalizeBinding(
     ) {
       throw new Error(`launch batch ${grantId}.applicationRoundtripReuse 결속이 잘못됐습니다.`);
     }
+    if ((analysisMode === "application_only") !== Boolean(primaryReuse)) {
+      throw new Error(`launch batch ${grantId}.primaryReuse 결속이 잘못됐습니다.`);
+    }
     targets.set(grantId, Object.freeze({
       grantId,
       inputSha256: target.inputSha256,
       attachmentManifestSha256: target.attachmentManifestSha256,
       ...(reviewRepair ? { reviewRepair: Object.freeze({ ...reviewRepair }) } : {}),
       ...(applicationRoundtripReuse ? { applicationRoundtripReuse } : {}),
+      ...(primaryReuse ? { primaryReuse } : {}),
     }));
   }
-  return Object.freeze({ ...binding, targets });
+  return Object.freeze({ ...binding, analysisMode, targets });
 }
 
 function assertSha256(value: string, field: string): void {

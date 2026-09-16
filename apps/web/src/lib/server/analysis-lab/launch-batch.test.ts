@@ -791,6 +791,68 @@ test("launch capability는 cohort target만 열고 target source drift는 그 ta
   });
 });
 
+test("application-only capability는 exact primary reuse 없이는 generic primary 경로를 열지 않는다", async () => {
+  const primaryReuse = {
+    schema: "analysis-launch-primary-reuse-v1" as const,
+    sourceSequence: 0,
+    sourceLabRunId: "run-2026-09-16T120000.000Z-a1b2c3",
+    sourceLabRunArtifactPath: "spike-out/analysis-lab/bizinfo__source/run.json",
+    sourceLabRunArtifactSha256: SHA_A,
+    sourceLaunchReceiptSha256: SHA_B,
+  };
+  await withAnalysisLaunchBatchExecution({
+    grantSha256: SHA_D,
+    manifestSha256: SHA_C,
+    sourceKind: "current_inventory",
+    model: "claude-opus-5",
+    transport: "claude-cli",
+    promptVersion: ANALYSIS_LAB_PROMPT_VERSION,
+    analysisMode: "application_only",
+    withApplicationRoundtrip: true,
+    roundtripModel: "claude-opus-5",
+    targets: new Map([[GRANT_0, {
+      grantId: GRANT_0,
+      inputSha256: SHA_A,
+      attachmentManifestSha256: SHA_B,
+      primaryReuse,
+    }]]),
+  }, async () => {
+    const binding = currentAnalysisLaunchBatchExecutionBinding();
+    assert.ok(binding);
+    const exact = {
+      transport: "claude-cli" as const,
+      model: "claude-opus-5",
+      withApplicationRoundtrip: true,
+      roundtripModel: "claude-opus-5",
+      exactPrimaryReuse: primaryReuse,
+    };
+    assert.equal(hasLaunchBatchExecutionViolation(GRANT_0, exact, binding), false);
+    const { exactPrimaryReuse: _omitted, ...withoutPrimaryReuse } = exact;
+    assert.equal(hasLaunchBatchExecutionViolation(GRANT_0, withoutPrimaryReuse, binding), true);
+    assert.equal(hasLaunchBatchExecutionViolation(GRANT_0, {
+      ...exact,
+      exactPrimaryReuse: { ...primaryReuse, sourceLabRunArtifactSha256: SHA_D },
+    }, binding), true);
+  });
+  assert.throws(() => withAnalysisLaunchBatchExecution({
+    grantSha256: SHA_D,
+    manifestSha256: SHA_C,
+    sourceKind: "current_inventory",
+    model: "claude-opus-5",
+    transport: "claude-cli",
+    promptVersion: ANALYSIS_LAB_PROMPT_VERSION,
+    analysisMode: "primary_and_application",
+    withApplicationRoundtrip: true,
+    roundtripModel: "claude-opus-5",
+    targets: new Map([[GRANT_0, {
+      grantId: GRANT_0,
+      inputSha256: SHA_A,
+      attachmentManifestSha256: SHA_B,
+      primaryReuse,
+    }]]),
+  }, async () => undefined), /primaryReuse 결속/);
+});
+
 test("launch capability는 manifest에 exact 결속된 독립 검수 복구 지시만 허용한다", async () => {
   const reviewRepair = {
     sourceRunId: "run-source",
@@ -1027,6 +1089,7 @@ test("launch CLI는 prepare/grant/run의 권한 단계를 분리한다", () => {
     sourceManifestSha256: SHA_B,
     sourceGrantSha256: SHA_C,
     terminalReceiptSha256: SHA_D,
+    applicationOnly: false,
     concurrency: 1,
   });
   assert.deepEqual(parseAnalysisLaunchCliArgs("prepare", [
@@ -1035,6 +1098,7 @@ test("launch CLI는 prepare/grant/run의 권한 단계를 분리한다", () => {
     `--source-grant=${SHA_C}`,
     `--terminal-receipt=${SHA_D}`,
     "--selected-sequences=0,3,16",
+    "--application-only",
     "--concurrency=1",
   ]), {
     kind: "prepare-current-inventory-reseal",
@@ -1043,6 +1107,7 @@ test("launch CLI는 prepare/grant/run의 권한 단계를 분리한다", () => {
     sourceGrantSha256: SHA_C,
     terminalReceiptSha256: SHA_D,
     selectedOriginalSequences: [0, 3, 16],
+    applicationOnly: true,
     concurrency: 1,
   });
   for (const args of [

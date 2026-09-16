@@ -7,6 +7,8 @@
 // (transport/model)를 쓴다 — 미지정 시 기존 env 경로와 100% 동일하다.
 // 실패해도 error 를 담은 LabRun 을 저장·반환한다(입력 메타 보존). DB에는 어떤 쓰기도 하지 않는다.
 import { createHash } from "node:crypto";
+import { readFile } from "node:fs/promises";
+import { isAbsolute, relative, resolve } from "node:path";
 import { and, eq } from "drizzle-orm";
 import { getCunoteDb } from "@/lib/server/db/client";
 import * as schema from "@/lib/server/db/schema";
@@ -30,7 +32,11 @@ import {
   assertAnalysisLabLiveExecutionAdmitted,
 } from "./analysis-execution-admission";
 import { currentAnalysisLaunchBatchExecutionBinding } from "./launch-batch-context";
-import type { AnalysisLaunchApplicationRoundtripReuseBinding } from "./launch-batch-artifacts";
+import {
+  normalizeAnalysisLaunchPrimaryReuseBinding,
+  type AnalysisLaunchApplicationRoundtripReuseBinding,
+  type AnalysisLaunchPrimaryReuseBinding,
+} from "./launch-batch-artifacts";
 import { prepareApplicationRoundtripReuse } from "./application-roundtrip/reuse";
 import { appendAnalysisExecutionSidecarEvent } from "./analysis-request-observation";
 import { computeLabDimensionDiffs } from "./diff";
@@ -41,7 +47,8 @@ import {
   type LabAssembledInputWithAttachmentManifest,
   type LabInputArchive,
 } from "./input";
-import { buildLabRunId, saveLabRun } from "./run-store";
+import { buildLabRunId, findMonorepoRoot, saveLabRun } from "./run-store";
+import { classifyLabRunOutcome } from "./run-outcome";
 import {
   runValidatedLabPrimary,
   ValidatedLabPrimaryError,
@@ -71,6 +78,8 @@ export interface LabAnalysisOverrides {
   reuseApplicationRoundtripRunId?: string;
   /** 독립 검수 primary repair launch가 manifest에 봉인한 Kordoc exact 재사용 결속. */
   exactApplicationRoundtripReuse?: AnalysisLaunchApplicationRoundtripReuseBinding;
+  /** 완료 receipt의 publishable primary를 exact bytes로 재사용하고 application만 새로 실행한다. */
+  exactPrimaryReuse?: AnalysisLaunchPrimaryReuseBinding;
   /** 미지정 시 ANALYSIS_LAB_ROUNDTRIP_MODEL 또는 딥 분석 모델을 상속한다. */
   roundtripModel?: string;
   /** 완료된 독립 검수의 검증된 blocker만 재분석 지시로 전달한다. */
@@ -376,6 +385,16 @@ async function executePreparedLabAnalysisInternal(
   opts?.signal?.throwIfAborted();
   const roundtripModel = opts?.roundtripModel
     ?? (process.env.ANALYSIS_LAB_ROUNDTRIP_MODEL?.trim() || requestedModel);
+  const reusedPrimaryRun = opts?.exactPrimaryReuse
+    ? await readExactPrimaryReuse({
+        binding: opts.exactPrimaryReuse,
+        grantId,
+        inputSha256: input.inputSha256,
+        attachmentManifestSha256: input.attachmentManifestSha256,
+        model: requestedModel,
+        promptVersion: ANALYSIS_LAB_PROMPT_VERSION,
+      })
+    : null;
   // 딥분석 모델을 시작하기 전에 원본 SHA·Kordoc 버전·모델·transport를 검증한다.
   // fail-closed 하면 잘못된 재사용 때문에 비싼 primary를 돌린 뒤 발견하는 일이 없다.
   const roundtripReuseRunId = opts?.exactApplicationRoundtripReuse?.sourceRoundtripRunId
@@ -430,7 +449,20 @@ async function executePreparedLabAnalysisInternal(
     matchingReadiness?: NonNullable<LabRun["matchingReadiness"]>;
     /** 패스별 validator 계측(2026-08-11 T4) — validator 최종 실패에도 보존한다. */
     passes?: NonNullable<LabRun["primaryPasses"]>;
+    reusedRun?: LabRun;
   }> => {
+    if (reusedPrimaryRun) {
+      return {
+        extraction: null,
+        error: null,
+        repairCount: reusedPrimaryRun.primaryRepairCount ?? 0,
+        repairProvenance: reusedPrimaryRun.primaryRepairProvenance!,
+        outcome: "publishable",
+        matchingReadiness: reusedPrimaryRun.matchingReadiness!,
+        ...(reusedPrimaryRun.primaryPasses ? { passes: reusedPrimaryRun.primaryPasses } : {}),
+        reusedRun: reusedPrimaryRun,
+      };
+    }
     try {
       const binding = await bindingPromise;
       const validated = await runValidatedLabPrimary({
@@ -500,7 +532,8 @@ async function executePreparedLabAnalysisInternal(
   // Kordoc 형제 Promise는 이 함수의 해소를 기다리지 않으므로 진단 시점도 Kordoc과 분리된다.
   const runPrimaryWithMatchingProjection = async () => {
     const primary = await runPrimary();
-    const primaryExtractionAvailable = primary.extraction !== null;
+    const primaryCriteria = primary.reusedRun?.criteria ?? primary.extraction?.criteria ?? [];
+    const primaryExtractionAvailable = primary.reusedRun !== undefined || primary.extraction !== null;
     return {
       ...primary,
       matchingProjection: capturePrimaryMatchingProjectionSnapshot({
@@ -511,7 +544,7 @@ async function executePreparedLabAnalysisInternal(
           sourceId: grant.sourceId,
           inputSha256: input.inputSha256,
           attachmentManifestSha256: input.attachmentManifestSha256,
-          criteria: primary.extraction?.criteria ?? [],
+          criteria: primaryCriteria,
         }),
         primaryExtractionAvailable,
       }),
@@ -581,6 +614,7 @@ async function executePreparedLabAnalysisInternal(
     primary = await runPrimaryWithMatchingProjection();
   }
   const { extraction, error } = primary;
+  const reused = primary.reusedRun;
 
   const run: LabRun = {
     runId,
@@ -590,7 +624,7 @@ async function executePreparedLabAnalysisInternal(
     title: grant.title,
     // 실패(error) 런에도 오버라이드 모델을 기록한다 — extraction 이 없으면 env 폴백 전에
     // 오버라이드가 우선해야 provenance 가 실제 요청 모델과 일치한다.
-    model: extraction?.model ?? requestedModel,
+    model: reused?.model ?? extraction?.model ?? requestedModel,
     transport,
     promptVersion: ANALYSIS_LAB_PROMPT_VERSION,
     startedAt: startedAt.toISOString(),
@@ -599,17 +633,17 @@ async function executePreparedLabAnalysisInternal(
     inputTotalChars: input.totalChars,
     inputSha256: input.inputSha256,
     attachmentManifestSha256: input.attachmentManifestSha256,
-    usage: extraction?.usage ?? null,
-    costUsd: extraction?.costUsd ?? null,
-    analysisMarkdown: extraction?.analysisMarkdown ?? "",
-    programIntent: extraction?.programIntent ?? null,
-    criteria: extraction?.criteria ?? [],
-    axisAssessments: extraction?.axisAssessments ?? [],
-    taxonomyProposals: extraction?.taxonomyProposals ?? [],
-    ...(extraction?.sourceLimitations
-      ? { sourceLimitations: extraction.sourceLimitations }
+    usage: reused ? null : extraction?.usage ?? null,
+    costUsd: reused ? null : extraction?.costUsd ?? null,
+    analysisMarkdown: reused?.analysisMarkdown ?? extraction?.analysisMarkdown ?? "",
+    programIntent: reused?.programIntent ?? extraction?.programIntent ?? null,
+    criteria: reused?.criteria ?? extraction?.criteria ?? [],
+    axisAssessments: reused?.axisAssessments ?? extraction?.axisAssessments ?? [],
+    taxonomyProposals: reused?.taxonomyProposals ?? extraction?.taxonomyProposals ?? [],
+    ...((reused?.sourceLimitations ?? extraction?.sourceLimitations)
+      ? { sourceLimitations: reused?.sourceLimitations ?? extraction!.sourceLimitations }
       : {}),
-    dimensionDiffs: computeLabDimensionDiffs({
+    dimensionDiffs: reused?.dimensionDiffs ?? computeLabDimensionDiffs({
       current: [...currentCriteria],
       proposed: extraction?.criteria ?? [],
       assessments: extraction?.axisAssessments ?? [],
@@ -620,6 +654,7 @@ async function executePreparedLabAnalysisInternal(
     ...(primary.matchingReadiness ? { matchingReadiness: primary.matchingReadiness } : {}),
     ...(primary.passes ? { primaryPasses: primary.passes } : {}),
     primaryMatchingProjection: primary.matchingProjection,
+    ...(opts?.exactPrimaryReuse ? { primaryReuse: opts.exactPrimaryReuse } : {}),
     ...(opts?.reviewRepair ? { reviewRepair: opts.reviewRepair } : {}),
     ...(applicationRoundtrip !== undefined ? { applicationRoundtrip } : {}),
     error,
@@ -645,6 +680,7 @@ function hasReceiptBoundDeepOnlyViolation(opts: LabAnalysisOverrides | undefined
   return opts?.withApplicationRoundtrip === true
     || opts?.reuseApplicationRoundtripRunId !== undefined
     || opts?.exactApplicationRoundtripReuse !== undefined
+    || opts?.exactPrimaryReuse !== undefined
     || opts?.roundtripModel !== undefined
     || opts?.taskInstruction !== undefined
     || opts?.reviewRepair !== undefined;
@@ -661,6 +697,11 @@ export function hasLaunchBatchExecutionViolation(
       opts?.exactApplicationRoundtripReuse,
       binding.targets.get(grantId)?.applicationRoundtripReuse,
     )
+    || !sameExactPrimaryReuse(
+      opts?.exactPrimaryReuse,
+      binding.targets.get(grantId)?.primaryReuse,
+    )
+    || (opts?.exactPrimaryReuse !== undefined) !== ((binding.analysisMode ?? "primary_and_application") === "application_only")
     || (opts?.withApplicationRoundtrip === true) !== binding.withApplicationRoundtrip
     || (opts?.roundtripModel ?? null) !== binding.roundtripModel
   ) {
@@ -709,6 +750,57 @@ function sameExactApplicationRoundtripReuse(
       entry.attachmentId === right.parsedMarkdown[index]?.attachmentId
       && entry.sha256 === right.parsedMarkdown[index]?.sha256
     ));
+}
+
+function sameExactPrimaryReuse(
+  left: AnalysisLaunchPrimaryReuseBinding | undefined,
+  right: AnalysisLaunchPrimaryReuseBinding | undefined,
+): boolean {
+  if (left === undefined || right === undefined) return left === right;
+  return left.schema === right.schema
+    && left.sourceSequence === right.sourceSequence
+    && left.sourceLabRunId === right.sourceLabRunId
+    && left.sourceLabRunArtifactPath === right.sourceLabRunArtifactPath
+    && left.sourceLabRunArtifactSha256 === right.sourceLabRunArtifactSha256
+    && left.sourceLaunchReceiptSha256 === right.sourceLaunchReceiptSha256;
+}
+
+async function readExactPrimaryReuse(input: {
+  readonly binding: AnalysisLaunchPrimaryReuseBinding;
+  readonly grantId: string;
+  readonly inputSha256: string;
+  readonly attachmentManifestSha256: string;
+  readonly model: string;
+  readonly promptVersion: string;
+}): Promise<LabRun> {
+  const binding = normalizeAnalysisLaunchPrimaryReuseBinding(input.binding, "exactPrimaryReuse");
+  const root = findMonorepoRoot();
+  const absolutePath = resolve(root, binding.sourceLabRunArtifactPath);
+  const relativePath = relative(root, absolutePath);
+  if (relativePath.startsWith("..") || isAbsolute(relativePath)) {
+    throw new Error("application-only source primary 경로가 저장소 밖입니다.");
+  }
+  const bytes = await readFile(absolutePath);
+  if (createHash("sha256").update(bytes).digest("hex") !== binding.sourceLabRunArtifactSha256) {
+    throw new Error("application-only source primary artifact SHA가 다릅니다.");
+  }
+  const run = JSON.parse(bytes.toString("utf8")) as LabRun;
+  if (
+    run.runId !== binding.sourceLabRunId
+    || run.grantId !== input.grantId
+    || run.inputSha256 !== input.inputSha256
+    || run.attachmentManifestSha256 !== input.attachmentManifestSha256
+    || run.model !== input.model
+    || run.transport !== "claude-cli"
+    || run.promptVersion !== input.promptVersion
+    || classifyLabRunOutcome(run) !== "publishable"
+    || (run.matchingReadiness !== "ready" && run.matchingReadiness !== "conditional")
+    || !run.primaryRepairProvenance
+    || run.primaryMatchingProjection?.verification !== "verified"
+  ) {
+    throw new Error("application-only source primary가 exact 재사용 조건과 다릅니다.");
+  }
+  return run;
 }
 
 function numericMetadataValue(

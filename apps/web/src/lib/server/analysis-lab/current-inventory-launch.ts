@@ -5,17 +5,21 @@ import {
   createCurrentInventoryAnalysisLaunchManifest,
   encodeCanonical,
   normalizeAnalysisLaunchGrant,
+  normalizeAnalysisLaunchManifest,
   normalizeAnalysisLaunchReceipt,
   normalizeCompletedAnalysisLaunchManifestForOfflineConsumption,
   normalizeCompletedCurrentInventorySourceManifest,
   readAnalysisLaunchArtifact,
   type AnalysisLaunchCompletedCurrentInventoryBinding,
+  type AnalysisLaunchPrimaryReuseBinding,
   type AnalysisLaunchTerminalRepairBinding,
   type AnalysisLaunchManifest,
   type AnalysisLaunchPreparedTarget,
   type AnalysisLaunchPlanTarget,
 } from "./launch-batch-artifacts";
 import { writeImmutableBytesAtomic } from "./immutable-artifact-fs";
+import type { LabRun } from "./lab-contract";
+import { classifyLabRunOutcome } from "./run-outcome";
 import { readTerminalRepairSource } from "./terminal-repair-source";
 
 export const CURRENT_INVENTORY_SCHEMA = "analysis-current-inventory-v1" as const;
@@ -99,6 +103,8 @@ export function buildCurrentInventoryLaunchManifest(input: {
   readonly completedLaunch?: AnalysisLaunchCompletedCurrentInventoryBinding;
   readonly terminalRepair?: AnalysisLaunchTerminalRepairBinding;
   readonly preparedTargets?: readonly AnalysisLaunchPreparedTarget[];
+  readonly analysisMode?: AnalysisLaunchManifest["execution"]["analysisMode"];
+  readonly primaryReuse?: readonly AnalysisLaunchPrimaryReuseBinding[];
 }): AnalysisLaunchManifest {
   const inventory = validateCurrentLaunchInventory(input.inventory);
   if ((inventory.policy === TERMINAL_REPAIR_POLICY) !== Boolean(input.terminalRepair)) throw new Error("terminal repair ancestry가 필요합니다.");
@@ -110,7 +116,7 @@ export function buildCurrentInventoryLaunchManifest(input: {
     planSha256: input.inventorySha256,
     planArtifactSha256: input.inventorySha256,
   };
-  const manifest = createCurrentInventoryAnalysisLaunchManifest({
+  const baseManifest = createCurrentInventoryAnalysisLaunchManifest({
     inventory: projectedInventory,
     sequenceFrom: 0, sequenceTo: projectedTargets.length - 1,
     preparedTargets: input.preparedTargets ?? projectedTargets,
@@ -119,6 +125,22 @@ export function buildCurrentInventoryLaunchManifest(input: {
     ...(input.completedLaunch ? { completedLaunch: input.completedLaunch } : {}),
     ...(input.terminalRepair ? { terminalRepair: input.terminalRepair } : {}),
   });
+  if ((input.primaryReuse?.length ?? 0) !== (input.analysisMode === "application_only" ? projectedTargets.length : 0)) {
+    throw new Error("application-only primary 재사용 target 수가 다릅니다.");
+  }
+  const manifest = input.primaryReuse
+    ? normalizeAnalysisLaunchManifest({
+        ...baseManifest,
+        execution: {
+          ...baseManifest.execution,
+          analysisMode: input.analysisMode,
+        },
+        targets: baseManifest.targets.map((target, index) => ({
+          ...target,
+          primaryReuse: input.primaryReuse![index],
+        })),
+      })
+    : baseManifest;
   if (input.completedLaunch && manifest.targets.some((target) => target.changedSinceInventory)) {
     throw new Error("완료 launch 재봉인 target의 현재 입력/첨부가 원본 inventory와 다릅니다.");
   }
@@ -160,6 +182,7 @@ async function verifyCurrentInventoryLaunchBindingWithContext(
         && !encodeCanonical(manifest.source.terminalRepair).equals(encodeCanonical(expectedTerminalRepair)))) {
       throw new Error("완료 launch의 terminal repair ancestry가 새 manifest에 그대로 결속되지 않았습니다.");
     }
+    await verifyApplicationOnlyPrimaryReuse(root, manifest, completed);
   }
   if ((inventory.policy === TERMINAL_REPAIR_POLICY) !== Boolean(manifest.source.terminalRepair)) throw new Error("terminal repair inventory 정책이 다릅니다.");
   if (manifest.source.terminalRepair) {
@@ -171,6 +194,49 @@ async function verifyCurrentInventoryLaunchBindingWithContext(
     }
   }
   return inventory;
+}
+
+async function verifyApplicationOnlyPrimaryReuse(
+  root: string,
+  manifest: AnalysisLaunchManifest,
+  completed: VerifiedCompletedCurrentInventoryLaunch,
+): Promise<void> {
+  if (manifest.execution.analysisMode !== "application_only") return;
+  for (const target of manifest.targets) {
+    const reuse = target.primaryReuse;
+    const receiptTarget = completed.receipt.targets.find((item) => item.grantId === target.grantId);
+    if (
+      !reuse
+      || !receiptTarget?.runArtifactPath
+      || !receiptTarget.runArtifactSha256
+      || reuse.sourceSequence !== receiptTarget.sequence
+      || reuse.sourceLabRunArtifactPath !== receiptTarget.runArtifactPath
+      || reuse.sourceLabRunArtifactSha256 !== receiptTarget.runArtifactSha256
+      || reuse.sourceLaunchReceiptSha256 !== manifest.source.completedLaunch?.terminalReceiptSha256
+    ) {
+      throw new Error("application-only primary 재사용이 완료 receipt와 다릅니다.");
+    }
+    const bytes = await readFile(join(root, reuse.sourceLabRunArtifactPath));
+    if (sha(bytes) !== reuse.sourceLabRunArtifactSha256) {
+      throw new Error("application-only primary 재사용 artifact SHA가 다릅니다.");
+    }
+    const run = JSON.parse(bytes.toString("utf8")) as LabRun;
+    if (
+      run.runId !== reuse.sourceLabRunId
+      || run.grantId !== target.grantId
+      || run.inputSha256 !== target.inputSha256
+      || run.attachmentManifestSha256 !== target.attachmentManifestSha256
+      || run.model !== manifest.execution.model
+      || run.transport !== manifest.execution.transport
+      || run.promptVersion !== manifest.execution.promptVersion
+      || classifyLabRunOutcome(run) !== "publishable"
+      || (run.matchingReadiness !== "ready" && run.matchingReadiness !== "conditional")
+      || !run.primaryRepairProvenance
+      || run.primaryMatchingProjection?.verification !== "verified"
+    ) {
+      throw new Error("application-only primary 재사용 run 계약이 다릅니다.");
+    }
+  }
 }
 
 export function assertCurrentInventoryManifestBinding(
@@ -204,7 +270,10 @@ function assertCurrentInventoryManifestTargets(
       || actual.attachmentManifestSha256 !== target.attachmentManifestSha256
       || actual.inventoryInputSha256 !== target.inputSha256
       || actual.inventoryAttachmentManifestSha256 !== target.attachmentManifestSha256
-      || actual.changedSinceInventory || actual.reviewRepair || actual.applicationRoundtripReuse) throw new Error("launch target이 current inventory와 다릅니다.");
+      || actual.changedSinceInventory || actual.reviewRepair || actual.applicationRoundtripReuse
+      || (manifest.execution.analysisMode === "application_only") !== Boolean(actual.primaryReuse)) {
+      throw new Error("launch target이 current inventory와 다릅니다.");
+    }
   }
 }
 
@@ -223,6 +292,7 @@ export async function readAndVerifyCompletedCurrentInventoryLaunch(
 export interface VerifiedCompletedCurrentInventoryLaunch {
   readonly inventory: CurrentLaunchInventory;
   readonly sourceManifest: AnalysisLaunchManifest;
+  readonly receipt: ReturnType<typeof normalizeAnalysisLaunchReceipt>;
 }
 
 export async function readAndVerifyCompletedCurrentInventoryLaunchDetails(
@@ -306,7 +376,7 @@ async function readAndVerifyCompletedCurrentInventoryLaunchDetailsWithContext(
       receipt,
     });
   }
-  return Object.freeze({ inventory, sourceManifest });
+  return Object.freeze({ inventory, sourceManifest, receipt });
 }
 
 function assertCompletedSubsetWasExecutedBySource(input: {

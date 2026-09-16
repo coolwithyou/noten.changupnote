@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import "./terminal-repair-source.test";
 import { createHash } from "node:crypto";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -74,6 +74,41 @@ async function completedLaunchFixture(
     now: new Date("2026-09-09T20:01:00.000Z"),
   });
   const storedGrant = await writeAnalysisLaunchArtifact("grants", sourceGrant, root);
+  const runArtifacts: Array<{ path: string; sha256: string }> = [];
+  await mkdir(join(root, "spike-out", "runs"), { recursive: true });
+  for (const target of value.targets) {
+    const run = {
+      runId: `run-2026-09-09T2002${String(target.sequence).padStart(2, "0")}.000Z-a1b2c3`,
+      grantId: target.grantId,
+      source: "bizinfo",
+      sourceId: `source-${target.sequence}`,
+      title: `공고 ${target.sequence}`,
+      model: "claude-opus-5",
+      transport: "claude-cli",
+      promptVersion: contract === "v14" ? "lab-deep-v26" : "lab-deep-v28",
+      startedAt: "2026-09-09T20:02:00.000Z",
+      durationMs: 1,
+      inputBlocks: [], inputTotalChars: 1,
+      inputSha256: target.inputSha256,
+      attachmentManifestSha256: target.attachmentManifestSha256,
+      usage: null, costUsd: null, analysisMarkdown: "# 분석",
+      programIntent: null, criteria: [], axisAssessments: [], taxonomyProposals: [],
+      dimensionDiffs: [], primaryRepairCount: 0,
+      primaryRepairProvenance: {
+        deterministicPrimaryRepairCount: 0, modelPrimaryRepairCount: 0,
+        newIssueAfterRepairCount: 0, blockingNewIssueAfterRepairCount: 0,
+        sourceIncompleteIssueAfterRepairCount: 0, terminationReason: "publishable",
+      },
+      primaryValidationOutcome: "publishable",
+      matchingReadiness: "conditional",
+      primaryMatchingProjection: { verification: "verified" },
+      error: null,
+    };
+    const bytes = Buffer.from(`${JSON.stringify(run)}\n`);
+    const path = `spike-out/runs/${target.sequence}.json`;
+    await writeFile(join(root, path), bytes);
+    runArtifacts.push({ path, sha256: createHash("sha256").update(bytes).digest("hex") });
+  }
   const receipt: AnalysisLaunchReceipt = {
     schema: "analysis-launch-receipt-v1",
     grantSha256: storedGrant.sha256,
@@ -88,8 +123,8 @@ async function completedLaunchFixture(
       sequence: target.sequence,
       grantId: target.grantId,
       status: "publishable" as const,
-      runArtifactPath: `spike-out/runs/${target.sequence}.json`,
-      runArtifactSha256: digest({ run: target.sequence }),
+      runArtifactPath: runArtifacts[target.sequence]!.path,
+      runArtifactSha256: runArtifacts[target.sequence]!.sha256,
       applicationRoundtripStatus: "complete",
       applicationDocumentCount: 1,
       fieldReadyDocumentCount: 1,
@@ -381,6 +416,65 @@ test("완료된 v19 launch의 명시 sequence 부분집합만 v2 ancestry로 재
         },
       },
     }), /중복/);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("application-only 재봉인은 완료 receipt의 publishable primary bytes를 exact 결속한다", async () => {
+  const root = await mkdtemp(join(tmpdir(), "cunote-current-application-only-"));
+  try {
+    const fixture = await completedLaunchFixture(root, inventory(2), "v19");
+    const provenance = {
+      gitSha: "2".repeat(40),
+      packageRuntimeSha256: "f".repeat(64),
+      validatorVersion: DEEP_ANALYSIS_VALIDATOR_VERSION,
+    };
+    const result = await prepareCompletedCurrentInventoryLaunchManifest({
+      inventorySha256: fixture.binding.inventorySha256,
+      sourceManifestSha256: fixture.binding.sourceManifestSha256,
+      sourceGrantSha256: fixture.binding.sourceGrantSha256,
+      terminalReceiptSha256: fixture.binding.terminalReceiptSha256,
+      selectedOriginalSequences: [1],
+      applicationOnly: true,
+      concurrency: 1,
+    }, {
+      repositoryRoot: root,
+      now: () => new Date("2026-09-16T15:00:00.000Z"),
+      readProvenance: async () => provenance,
+      verifyTarget: async () => {},
+      prepareTarget: async (grantId) => {
+        const target = fixture.value.targets[1]!;
+        return { grantId, inputSha256: target.inputSha256,
+          attachmentManifestSha256: target.attachmentManifestSha256 };
+      },
+    });
+    assert.equal(result.manifest.execution.analysisMode, "application_only");
+    assert.equal(result.manifest.targets.length, 1);
+    assert.deepEqual(result.manifest.targets[0]?.primaryReuse, {
+      schema: "analysis-launch-primary-reuse-v1",
+      sourceSequence: 1,
+      sourceLabRunId: "run-2026-09-09T200201.000Z-a1b2c3",
+      sourceLabRunArtifactPath: "spike-out/runs/1.json",
+      sourceLabRunArtifactSha256: fixture.receipt.targets[1]!.runArtifactSha256,
+      sourceLaunchReceiptSha256: fixture.binding.terminalReceiptSha256,
+    });
+    assert.deepEqual(await verifyCurrentInventoryLaunchBinding(root, result.manifest), fixture.value);
+
+    const malformed = structuredClone(result.manifest) as any;
+    malformed.targets[0].primaryReuse.sourceLaunchReceiptSha256 = "0".repeat(64);
+    assert.throws(() => normalizeAnalysisLaunchManifest(malformed), /receipt/);
+
+    const wrongSequence = structuredClone(result.manifest) as any;
+    wrongSequence.targets[0].primaryReuse.sourceSequence = 0;
+    await assert.rejects(
+      verifyCurrentInventoryLaunchBinding(root, normalizeAnalysisLaunchManifest(wrongSequence)),
+      /완료 receipt/,
+    );
+    const wrongRunId = structuredClone(result.manifest) as any;
+    wrongRunId.targets[0].primaryReuse.sourceLabRunId = "run-wrong";
+    await assert.rejects(
+      verifyCurrentInventoryLaunchBinding(root, normalizeAnalysisLaunchManifest(wrongRunId)),
+      /run 계약/,
+    );
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
