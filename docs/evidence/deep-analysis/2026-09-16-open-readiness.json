@@ -1,0 +1,386 @@
+{
+  "schema": "open-readiness-audit-v1",
+  "observedAt": "2026-09-16T01:58:50.773Z",
+  "kstDate": "2026-09-16",
+  "runtime": {
+    "controlKey": "global",
+    "mode": "paused",
+    "generation": 415,
+    "changedBy": "lab:launch",
+    "changeReason": "로컬 구독 분석 권한 해제",
+    "localOwnerId": null,
+    "localLeaseExpiresAt": null,
+    "createdAt": "2026-08-05T14:21:42.217Z",
+    "updatedAt": "2026-09-15T12:51:34.343Z",
+    "databaseObservedAt": "2026-09-16T01:58:51.150Z",
+    "activeDeepLeases": 0,
+    "activeApplicationLeases": 0
+  },
+  "historyCount": 824,
+  "openVisibleRows": 2174,
+  "periods": {
+    "closed": 1627,
+    "eligible": 545
+  },
+  "summary": {
+    "currentEligible": 545,
+    "bySource": {
+      "kstartup": 238,
+      "bizinfo": 307
+    },
+    "closingToday": 22,
+    "newUnseen": 105,
+    "offlineReuseCurrent": 264,
+    "localRecentStatuses": {
+      "publishable": 55,
+      "held": 3,
+      "failed": 2
+    },
+    "matchingServing": 5,
+    "servingAuthoring": {
+      "unverified": 4,
+      "ready": 1
+    },
+    "unserved": 540,
+    "localPublishableUnserved": 55,
+    "reuseUnserved": 263,
+    "otherHistoricalCurrent": 116
+  },
+  "productReport": {
+    "version": "product-readiness-v1",
+    "asOf": "2026-09-16T01:58:50.773Z",
+    "source": "database",
+    "supply": {
+      "activeVisibleInventory": 1494,
+      "matchingServing": 5,
+      "notInMatchingServing": 1489,
+      "oldestUnservedCollectionAgeHours": 1937.4485933333333,
+      "unservedMissingCollectionTime": 0,
+      "note": "저장소의 활성·노출 정책 범위입니다. 미노출은 승격 대기·조건 부족 등 여러 원인일 수 있습니다. 수집 후 경과 시간은 승격 지연 시간이 아닙니다."
+    },
+    "authoring": {
+      "signals": {
+        "unknown": 4,
+        "ai_draft": 1,
+        "web_form_guide": 0,
+        "manual_form": 0,
+        "template_fill": 0
+      },
+      "evidence": "announcement_metadata_only",
+      "note": "공고 메타데이터의 작성 방식 신호이며 실제 편집·저장·다운로드 성공 건수가 아닙니다. 기능 준비는 각 작성 화면에서 별도로 확인합니다."
+    },
+    "promotionToExposureLatency": {
+      "status": "unavailable",
+      "reason": "노출 영수증을 조회하지 않은 보고서입니다. DB 관측이 활성화된 경우에만 최초 수신 지연을 별도로 집계합니다."
+    }
+  },
+  "surfaceCounts": {
+    "hwp/pending": 150,
+    "pdf/preview_ready": 118,
+    "hwp/preview_ready": 224,
+    "hwpx/preview_ready": 34,
+    "hwp/fields_ready": 19,
+    "hwpx/fields_ready": 4,
+    "hwpx/pending": 118,
+    "pdf/pending": 91,
+    "docx/pending": 5,
+    "docx/preview_ready": 7,
+    "pdf/failed": 1
+  },
+  "inputEvidence": [
+    {
+      "path": "spike-out/reuse-binding-20260915/final-41-outcome.json",
+      "sha256": "06c30ce1df03e9bfb471f41f2a6ff342d3bb54ed9352c486377c041f7defac76"
+    },
+    {
+      "path": "spike-out/quality-cause-20260915/terminal-repair-live-result-292b3dd.json",
+      "sha256": "4487874d484487714df5a6cdebff99f2a7eb5aa6056e7d13d0a166fdda6a5158"
+    },
+    {
+      "path": "spike-out/analysis-lab/launch/receipts/1d51dc26eaff6bed4d49f696cca56c53f0e003352da9fa1cade21a96361fabd7.json",
+      "sha256": "1d51dc26eaff6bed4d49f696cca56c53f0e003352da9fa1cade21a96361fabd7"
+    }
+  ],
+  "verifiedRunHashes": 60,
+  "modelCalls": 0,
+  "serviceWrites": 0,
+  "limitations": [
+    "Current eligibility is DB calendar-day policy, not live source deadline verification.",
+    "Local artifacts are not current source or release admission verification.",
+    "Authoring readiness is provenance, not authenticated user editing/download UAT."
+  ],
+  "sourceCommit": "b58220a13e9fae03e03481eecb47e102bc03c05c",
+  "remoteMainObserved": "292b3dd03c54812fcee0b13ed185f63138fd73cf",
+  "localPublishableAuthoring": {
+    "ready": 41,
+    "held": 14
+  },
+  "releasePrecheck": {
+    "observedAt": "2026-09-16T02:00:48.518Z",
+    "results": [
+      {
+        "receiptSha256": "0129b8cfabfad7ba6507b03f035f2255a086b63a8f6b1feac38db75ca09657cf",
+        "manifestSha256": "7108f40c76a15d9e340776d04b6fe9aeaf01a0a4e9dae38a2f5fb505a8f1e074",
+        "summary": {
+          "publishable": 31,
+          "held": 2,
+          "failed": 3,
+          "skipped": 5
+        },
+        "manifestConsumer": "launch source/existing run 정책 결속이 잘못됐습니다.",
+        "reviewManifestCount": 0,
+        "reviewAggregateCount": 0
+      },
+      {
+        "receiptSha256": "35b10397e142b4bc851d0886acab3056fd615db4104a9d479664da64e2f30674",
+        "manifestSha256": "7108f40c76a15d9e340776d04b6fe9aeaf01a0a4e9dae38a2f5fb505a8f1e074",
+        "summary": {
+          "publishable": 4,
+          "held": 2,
+          "failed": 0,
+          "skipped": 35
+        },
+        "manifestConsumer": "launch source/existing run 정책 결속이 잘못됐습니다.",
+        "reviewManifestCount": 0,
+        "reviewAggregateCount": 0
+      },
+      {
+        "receiptSha256": "4a227717747b93c430559d4828e222cc8db2d450b11097d2f13adf2e28256712",
+        "manifestSha256": "51b6d453aae839d257fdc7dcb14d57b8af82fc486ea5bf8964867f1e968c65d3",
+        "summary": {
+          "publishable": 5,
+          "held": 1,
+          "failed": 0,
+          "skipped": 0
+        },
+        "manifestConsumer": "launch source/existing run 정책 결속이 잘못됐습니다.",
+        "reviewManifestCount": 0,
+        "reviewAggregateCount": 0
+      },
+      {
+        "receiptSha256": "1d51dc26eaff6bed4d49f696cca56c53f0e003352da9fa1cade21a96361fabd7",
+        "manifestSha256": "8f3374df984d0459ac2bb712ba77b29ae81502a9898606e0bbf414f812334924",
+        "summary": {
+          "publishable": 15,
+          "held": 2,
+          "failed": 2,
+          "skipped": 0
+        },
+        "manifestConsumer": "launch source/existing run 정책 결속이 잘못됐습니다.",
+        "reviewManifestCount": 0,
+        "reviewAggregateCount": 0
+      }
+    ],
+    "previousGateLogSha256": "7eb70bcb5da28a42740bd4a14b6fe418955bc1f96b6f2470ad0220b2f7752ffe",
+    "modelCalls": 0,
+    "serviceWrites": 0
+  },
+  "accessObservation": {
+    "publicHomepageHttpStatusFromCurrentMachine": 200,
+    "cloudflareAllowlistEnabled": true,
+    "restrictedHosts": [
+      "changupnote.com",
+      "www.changupnote.com",
+      "dev.changupnote.com",
+      "ops.changupnote.com",
+      "dev.ops.changupnote.com"
+    ],
+    "authenticatedJourneyExecuted": false
+  },
+  "artifacts": [
+    {
+      "path": "spike-out/open-readiness-20260916/snapshot.json",
+      "sha256": "8b085f4f555eaf7fb36c21be52524a12b177932eb269278df2b890830401fb48"
+    },
+    {
+      "path": "spike-out/open-readiness-20260916/release-precheck.json",
+      "sha256": "9e63e4823151a9f9a766f2ad8f7c74e1cb73d01f9a92135101a008d1dcff4c4d"
+    },
+    {
+      "path": "spike-out/open-readiness-20260916/today-actions.csv",
+      "sha256": "40ad35769b659203e2efedb45f1e52384f38c6b667969fe1a577c3c286d5c104"
+    },
+    {
+      "path": "spike-out/open-readiness-20260916/snapshot.ts",
+      "sha256": "c0a3a25814695d7a9508844a1c2536fda7a8ebc94e638f58a49e9d4876dbf27a"
+    },
+    {
+      "path": "spike-out/open-readiness-20260916/release-precheck.ts",
+      "sha256": "399d159d49a3a715c061efcf0f3673fbc284f4627222b69b5defcdc415d3462c"
+    },
+    {
+      "path": "spike-out/open-readiness-20260916/current-bindings-v2.json",
+      "sha256": "d2be943f32263c19b0b0c5360688bb7f4c368d89d91cb107e3d6adfe845e3d59"
+    },
+    {
+      "path": "spike-out/open-readiness-20260916/inventory-triage-report-v2.json",
+      "sha256": "3db5fb9f7c9c2dd4b39825388b4557e8248ff2603f544f0649b89d9729970b91"
+    },
+    {
+      "path": "spike-out/open-readiness-20260916/authoring41-review-preparation.json",
+      "sha256": "80ff86776d51b7611c8cf61950c7d4a0434922bbc24a243b98f30228a6aa4a7f"
+    },
+    {
+      "path": "spike-out/open-readiness-20260916/new105-input-precheck.json",
+      "sha256": "a1f0b4432b3cbaa82cc0b349f529e319018080c1bd12f0557b03769d565235e7"
+    },
+    {
+      "path": "spike-out/open-readiness-20260916/recovered-input-canary.json",
+      "sha256": "f668700cc96ff5517ce4e67edcfc9aa376965e4fc8cbd3775a7daca4e7705340"
+    },
+    {
+      "path": "spike-out/open-readiness-20260916/recovered-input-after-pdf.json",
+      "sha256": "221a7c625f83e5a2a210bbdedd5776e2c3a1302e08e45dee87377089bd484521"
+    },
+    {
+      "path": "spike-out/open-readiness-20260916/new19-failed4-v19-prepare.json",
+      "sha256": "e0485db9e81da789dde4bd48e8eb0caa6a4f5aba0bb5d741657f939eb944ae74"
+    }
+  ],
+  "implementation": {
+    "sourceCommit": "b76096662f20e187a4af28ea21c4fc786cc32f6e",
+    "applicationContract": "kordoc-application-roundtrip-v19",
+    "gates": [
+      {
+        "command": "pnpm lab:release:test",
+        "exitCode": 0,
+        "seconds": 3.7,
+        "path": "spike-out/open-readiness-20260916/gate-lab-release-test.log",
+        "sha256": "c16f170eafd3d0d668b8081c4e0241643ba49dde48470ad9dd8beef887ace071"
+      },
+      {
+        "command": "pnpm lab:launch:test",
+        "exitCode": 0,
+        "seconds": 3.5,
+        "path": "spike-out/open-readiness-20260916/gate-lab-launch-test.log",
+        "sha256": "5f38bbd08ac700d209e73cc044579e1a505655f4709900fe0dadb541a2be46a1"
+      },
+      {
+        "command": "pnpm lab:roundtrip:test",
+        "exitCode": 0,
+        "seconds": 3.7,
+        "path": "spike-out/open-readiness-20260916/gate-lab-roundtrip-test.log",
+        "sha256": "dda282e11d15fc986f4d87524be018dd5327f24334cd6191d2c34400251326de"
+      },
+      {
+        "command": "pnpm test",
+        "exitCode": 0,
+        "seconds": 76.7,
+        "path": "spike-out/open-readiness-20260916/gate-test.log",
+        "sha256": "367811d338c710f717650861bdbccaf350b4c87c6d6557ccc6a3c5860eeed375"
+      }
+    ],
+    "reuse264": {
+      "verifiedFinalSidecarAncestry": 264,
+      "sourceRevisionSame": 244,
+      "sourceRevisionChanged": 20,
+      "historicalFieldReadySourceSame": 98,
+      "currentAuthoringReadiness": "unverified"
+    },
+    "recent60": {
+      "sourceRevisionSame": 56,
+      "sourceRevisionChanged": 4,
+      "publishable55SourceRevisionSame": 55,
+      "historicalAuthoringReady": 41,
+      "independentReviewPacketPrepared": 41,
+      "currentAuthoringReadyNotImplied": true
+    },
+    "new105BeforeRecovery": {
+      "prepared": 105,
+      "withMissingAttachmentMarkdown": 94,
+      "missingDiagnostics": 247
+    },
+    "new19RepairManifestV19": "d06199dd22c9c81be0b40c3e740fcb003e5456d3b39add5633f55cf015e0b37e",
+    "modelCalls": 0,
+    "promotionWrites": 0,
+    "deployments": 0,
+    "wafChanges": 0,
+    "inputRecoveryDbR2Writes": true,
+    "inputRecoveryStatus": "in_progress",
+    "authenticatedUat": "UNEXECUTED",
+    "finalSourceCommit": "8e74c084c6b64260d47a231c2e561b9577400fa9",
+    "finalGates": [
+      {
+        "command": "pnpm lab:release:test",
+        "exitCode": 0,
+        "seconds": 3.5,
+        "path": "spike-out/open-readiness-20260916/gate-repair-lab-release-test.log",
+        "sha256": "0dd2c991d0aa6a79cc62b4579a59ad72a0188ce73325fe4f66b852a79644475f"
+      },
+      {
+        "command": "pnpm lab:launch:test",
+        "exitCode": 0,
+        "seconds": 3.4,
+        "path": "spike-out/open-readiness-20260916/gate-repair-lab-launch-test.log",
+        "sha256": "bd00b848326cc7929c424ffabeb059e88162d232ba41e952f4697b4121d4446f"
+      },
+      {
+        "command": "pnpm lab:launch:terminal-repair:test",
+        "exitCode": 0,
+        "seconds": 0.8,
+        "path": "spike-out/open-readiness-20260916/gate-repair-lab-launch-terminal-repair-test.log",
+        "sha256": "bedb41a6445febfe8c6c6e47f874c12d015d59f1b62e3b2594138aba5f4e03ee"
+      },
+      {
+        "command": "pnpm test",
+        "exitCode": 0,
+        "seconds": 72.9,
+        "path": "spike-out/open-readiness-20260916/gate-repair-test.log",
+        "sha256": "7e1e990075d7cd1dd04f36c29c7d828ec54bc98170f695689df08042b9e965e8"
+      }
+    ],
+    "seq23RepairManifestV19": "d2b7532c66ce8d41e28e7caed8890cbab9fb18be350826f22023d24ed3fe5bd9",
+    "archiveRecovery": {
+      "observedAt": "2026-09-16T02:40:45.422021+00:00",
+      "targetCount": 84,
+      "failedTargets": 0,
+      "archivedFiles": 198,
+      "convertedFiles": 143,
+      "fileFailures": 0,
+      "artifacts": [
+        {
+          "path": "spike-out/open-readiness-20260916/bizinfo-archive-canary-write.json",
+          "sha256": "a1a9a8f9dc2a28f55c133a7477db3c36f9bef83d921ac631e5f1beee4617a50b"
+        },
+        {
+          "path": "spike-out/open-readiness-20260916/kstartup-archive-canary-write.json",
+          "sha256": "3652e696b441405c6af8d5b8c16af5880ad2d5be99de88ca4f6408bd7652d7b5"
+        },
+        {
+          "path": "spike-out/open-readiness-20260916/kstartup-recovery-01.json",
+          "sha256": "0f9ff7556efe486d1e43ed04d4aa7c1b0f0e6dbd09e2a0864b894ebd467af7d3"
+        },
+        {
+          "path": "spike-out/open-readiness-20260916/kstartup-recovery-02.json",
+          "sha256": "4c7b0cad093be76b384cbf91a57ee297191d81a83eefda509e5f69d87669d99b"
+        },
+        {
+          "path": "spike-out/open-readiness-20260916/kstartup-recovery-03.json",
+          "sha256": "54eb8f5e35b079094a77835c693cc86a812544e3f70083fac0fb452833a7acc3"
+        },
+        {
+          "path": "spike-out/open-readiness-20260916/kstartup-recovery-04.json",
+          "sha256": "bc6874d28b214fcc60e03ab8cab74222d20967de133dbb8d4de1dfdeb31e55ff"
+        },
+        {
+          "path": "spike-out/open-readiness-20260916/kstartup-recovery-05.json",
+          "sha256": "ba7b1f7ad1fff3f0b5388fe73a8073ca1b96e22b2d728f33d87e4211a67438d9"
+        },
+        {
+          "path": "spike-out/open-readiness-20260916/kstartup-recovery-06.json",
+          "sha256": "03a73b5a18b94e508126592e96ef17f245b1c355c4192614f05c89092318234d"
+        },
+        {
+          "path": "spike-out/open-readiness-20260916/kstartup-recovery-07.json",
+          "sha256": "cfc9bf400389b7d50f564ea26577097f185171b30d7a74e2110ef83ffa66537a"
+        },
+        {
+          "path": "spike-out/open-readiness-20260916/kstartup-recovery-08.json",
+          "sha256": "c903113016fe1ed062debf273f9a945666791a60d4c2d9bc0878d40701a8a3a1"
+        }
+      ],
+      "modelCalls": 0,
+      "dbR2Writes": true
+    }
+  }
+}
