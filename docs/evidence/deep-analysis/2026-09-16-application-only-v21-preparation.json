@@ -1,0 +1,163 @@
+{
+  "schema": "application-only-v21-preparation-evidence-v1",
+  "observedAt": "2026-09-16T14:39:57.281Z",
+  "ownership": {
+    "operator": "current monitoring session",
+    "originalCoordinatorState": "completed",
+    "followupOperatorState": "completed",
+    "canonicalHandoffSection": 29
+  },
+  "sourceChange": {
+    "coverageV21Commit": "18ac0da1f003405f02cd2d9714275ba83f4f3d0f",
+    "applicationOnlyCommit": "cf77b1e73beab3031ab83a9079f23735fa0bf7f8",
+    "coverageEventFingerprint": "dc3277f45f7e27ce46d82f5fc6f24e730640b1ff56c54d0f3b1c2cd3e6fb88ba",
+    "preparedEventFingerprint": "67743e3abb5144b05b5f15f58027986921f797ffa1acd445dc61f86d57f2e2ae"
+  },
+  "offlineReplay": {
+    "completedTargets": 18,
+    "allDocumentAdditionalCandidates": 235,
+    "applicationAdditionalCandidates": 228,
+    "referenceDocumentAdditionalCandidates": 7,
+    "structuralRevived": 0,
+    "originalArtifactsUnchanged": 62,
+    "modelCalls": 0,
+    "primaryReruns": 0,
+    "readinessPromoted": false
+  },
+  "implementation": {
+    "analysisMode": "application_only",
+    "primaryReuseSchema": "analysis-launch-primary-reuse-v1",
+    "primaryModelCallSuppressed": true,
+    "sourceReceiptVerifiedBeforeGrant": true,
+    "sourceArtifactBytesVerifiedBeforeGrant": true,
+    "sourceArtifactBytesVerifiedBeforeExecution": true,
+    "ordinaryLaunchRejectsPrimaryReuse": true,
+    "applicationOnlyRequiresPrimaryReuseForEveryTarget": true
+  },
+  "gates": [
+    {
+      "gate": "pnpm --filter @cunote/web typecheck",
+      "exitCode": 0
+    },
+    {
+      "gate": "pnpm lab:launch:test",
+      "exitCode": 0,
+      "nodeTestCounts": [26, 8, 18]
+    },
+    {
+      "gate": "pnpm test:document-agent",
+      "exitCode": 0
+    },
+    {
+      "gate": "analyze-prepared.test.ts",
+      "exitCode": 0
+    },
+    {
+      "gate": "pnpm verify:package-runtime-freshness",
+      "exitCode": 0
+    },
+    {
+      "gate": "git diff --check",
+      "exitCode": 0
+    }
+  ],
+  "realHwp": {
+    "grantId": "6176af74-cbb0-44d9-b577-ce1e5345914d",
+    "sourceId": "PBLN_000000000126450",
+    "sourceSha256": "e7bd958a93a9fac98407a5ce0aa481f95798841fd85bdffba84d5df13869e4c8",
+    "sourceByteLength": 538112,
+    "fieldInstanceId": "4f59569e78f58593435ca08c",
+    "sourceOccurrence": 1,
+    "nativeAnchor": {
+      "section": 0,
+      "parentPara": 609,
+      "controlIndex": 0,
+      "labelCellIndex": 21,
+      "valueCellIndex": 22
+    },
+    "replacement": "7",
+    "pageCountBefore": 65,
+    "pageCountAfter": 65,
+    "reopenedText": "7",
+    "exportedSha256": "bc6553a2bc766f7b9698246f4e55dd80dd37fb4751995bd811409ba23f71f4df",
+    "hancomVisualUat": {
+      "status": "passed",
+      "application": "Hancom Office HWP Viewer",
+      "observedPage": 41,
+      "expectedCellValueVisible": true,
+      "adjacentWeight100Preserved": true,
+      "layoutPreserved": true,
+      "screenshotSha256": "a7f68900efea2db61566a4896eea2451f64ae8a0645d4c7d93473242b9c473fa"
+    },
+    "modelCalls": 0,
+    "databaseWrites": 0,
+    "r2Writes": 0
+  },
+  "manifest": {
+    "sha256": "76105bfdca2598889c5c50d8b703dc4c301abd82e88cb66f13d76a5f93a1fd8a",
+    "preparedAt": "2026-09-16T14:38:14.377Z",
+    "inventorySha256": "622b69bcd9c1152da3f8bfca7f2a8aee3dd4fae44e4eaa1663804b0cd30f3dc7",
+    "sourceManifestSha256": "984e8db4b0c95a5f08a0fd72310f8dfaa3ea462386d93ed5882b2a750272bacb",
+    "sourceGrantSha256": "d9ddd12a8b06a39f3ea811bd78c02264ce225c46279c907ea9470d8e8507d2c1",
+    "sourceReceiptSha256": "462c655789a269a8c17312216c9331dbf2d4cdcf17ec15fb21efc9cae6a8705e",
+    "selectedOriginalSequences": [4, 6, 7, 8, 12, 14, 16, 18, 22, 24, 25, 26, 27, 28],
+    "targetCount": 14,
+    "primaryReuseCount": 14,
+    "applicationFieldAnalysisVersion": "kordoc-application-roundtrip-v21",
+    "transport": "claude-cli",
+    "model": "claude-opus-5",
+    "concurrency": 1,
+    "gitShaAtPreparation": "cf77b1e73beab3031ab83a9079f23735fa0bf7f8",
+    "packageRuntimeSha256": "34f5e88511d02e459531c409fa63a18d64e78cc8fbb3300cef6d7de8bfb74456",
+    "matchingGrants": [],
+    "liveExecutionAuthorized": false
+  },
+  "runtime": {
+    "observedAt": "2026-09-16T14:38:59.257Z",
+    "mode": "paused",
+    "generation": 427,
+    "localOwnerId": null,
+    "localLeaseExpiresAt": null,
+    "activeDeepLeases": 0,
+    "activeApplicationLeases": 0
+  },
+  "precheck": {
+    "coverageEventAcknowledged": true,
+    "preparedEventAcknowledged": true,
+    "finalStatus": "unchanged",
+    "pendingFingerprint": null,
+    "stateSha256": "c94a509bbe41b9588b2bebb46d0f524369b3811f3cbd480d62fe30d115ffa036"
+  },
+  "artifacts": [
+    {
+      "path": "spike-out/application-only-v21-20260916/manifest-verification.json",
+      "sha256": "510ff2cbfc4a1d37e974d3af0b509afc498c3f448f6c477ba4b79b14fb0f3758"
+    },
+    {
+      "path": "spike-out/application-only-v21-20260916/runtime.json",
+      "sha256": "c770486d5eb049de79e7a38c1bae61619fc391be2742444c4e773bfeb2bc294a"
+    },
+    {
+      "path": "spike-out/coverage-v21-20260916/verify-real-hwp.ts",
+      "sha256": "2e25299548b3fb459a9aecb1b32069679b4317fa7bf827fc875a261cae173e5b"
+    },
+    {
+      "path": "spike-out/coverage-v21-20260916/seq0-short-label-v21.hwp",
+      "sha256": "bc6553a2bc766f7b9698246f4e55dd80dd37fb4751995bd811409ba23f71f4df"
+    },
+    {
+      "path": "spike-out/coverage-v21-20260916/hancom-page41-short-label-v21.png",
+      "sha256": "a7f68900efea2db61566a4896eea2451f64ae8a0645d4c7d93473242b9c473fa"
+    }
+  ],
+  "executionBoundary": {
+    "modelCalls": 0,
+    "newGrantIssued": false,
+    "launchStarted": false,
+    "primaryReruns": 0,
+    "runtimeWrites": 0,
+    "promotionWrites": 0,
+    "deployment": false,
+    "requiredNext": "Explicit approval of manifest 76105bfdca2598889c5c50d8b703dc4c301abd82e88cb66f13d76a5f93a1fd8a before grant and live application-only launch."
+  }
+}
