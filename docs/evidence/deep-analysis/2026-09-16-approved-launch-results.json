@@ -1,0 +1,1516 @@
+{
+  "schema": "open-launch-execution-evidence-v1",
+  "scope": "Approved new30 + repair5 + existing41 review; no service promotion/deployment/WAF",
+  "sourceCommit": "1fb3f3338a7ed67a4021195658f06ec8a4fb9510",
+  "authorization": {
+    "path": "spike-out/open-launch-20260916/deep/authorization.json",
+    "sha256": "65a56ead8531d314e3bf05af09166a6b0053223840b2cbd0ad1cb6b0b7593820"
+  },
+  "deepVerification": {
+    "path": "spike-out/open-launch-20260916/verified-completed.json",
+    "sha256": "44fe20d495d96b1d548e484059bbded8de4ce3b39348dae2ae805d9a8281b141"
+  },
+  "deepSummary": {
+    "approved": 35,
+    "terminalReceiptTargets": 35,
+    "statuses": {
+      "held": 9,
+      "publishable": 24,
+      "failed": 2
+    },
+    "matchingReady": 33,
+    "authoringReady": 14,
+    "fieldReadyTargets": 14,
+    "publishableFieldReadyTargets": 13,
+    "publishableAuthoringReady": 13,
+    "noApplicableForm": 12
+  },
+  "cohorts": [
+    {
+      "scope": "repair4",
+      "state": "finished",
+      "manifestSha256": "d06199dd22c9c81be0b40c3e740fcb003e5456d3b39add5633f55cf015e0b37e",
+      "grantSha256": "bae25afd6ca18bf6d6df66d246c79fb66886537cae7cd79e3db1ebf0808fdf39",
+      "receiptSha256": "dbcdb3ff2897898bd75afe406481c42c248cbce01ad5110ddb77cd9639b18514",
+      "stopReason": "completed",
+      "systemicFailure": null,
+      "summary": {
+        "failed": 0,
+        "held": 1,
+        "publishable": 3,
+        "skipped": 0
+      },
+      "startedAt": "2026-09-16T03:17:34.968Z",
+      "finishedAt": "2026-09-16T03:33:56.496Z"
+    },
+    {
+      "scope": "repair1",
+      "state": "finished",
+      "manifestSha256": "d2b7532c66ce8d41e28e7caed8890cbab9fb18be350826f22023d24ed3fe5bd9",
+      "grantSha256": "73dfcb876d17113d11d8372ea5acca06fcb4850f636fcd439e5cbec36af8278d",
+      "receiptSha256": "9b58644f25ee678975791e681198bcf7eb7d4a256d18d18d3d39e1a2002bb3f5",
+      "stopReason": "completed",
+      "systemicFailure": null,
+      "summary": {
+        "failed": 0,
+        "held": 0,
+        "publishable": 1,
+        "skipped": 0
+      },
+      "startedAt": "2026-09-16T03:33:57.589Z",
+      "finishedAt": "2026-09-16T03:40:12.490Z"
+    },
+    {
+      "scope": "new30",
+      "state": "finished",
+      "manifestSha256": "8093236b7f89a78c52c43c6dc5b4837f973866f2f09d45a1bad7d99ae8c06d6f",
+      "grantSha256": "926f13a90dc0c0cede96d922b5066d740364bf4673b443a3fb16ce2d4fffa4ab",
+      "receiptSha256": "81e92656e094b6d6b4cbbd7a4bb2420a34792f813c5cd34f5bbaf6da4ce576f5",
+      "stopReason": "completed",
+      "systemicFailure": null,
+      "summary": {
+        "failed": 2,
+        "held": 8,
+        "publishable": 20,
+        "skipped": 0
+      },
+      "startedAt": "2026-09-16T03:40:13.462Z",
+      "finishedAt": "2026-09-16T04:28:39.653Z"
+    }
+  ],
+  "targets": [
+    {
+      "scope": "repair4",
+      "sequence": 0,
+      "grantId": "6176af74-cbb0-44d9-b577-ce1e5345914d",
+      "title": "2026년 AI 기반 주파수 간섭분석 및 전파예측기술 개발사업 신규지원 대상과제 연장 공고",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000126450",
+      "status": "held",
+      "featureReadiness": {
+        "authoring": {
+          "reasons": [
+            "application_field_analysis_held"
+          ],
+          "sourceDisposition": "held",
+          "status": "held"
+        },
+        "matching": {
+          "reasons": [],
+          "sourceDisposition": "conditional",
+          "status": "ready"
+        },
+        "schema": "analysis-feature-readiness-v1"
+      },
+      "applicationRoundtripStatus": "review_required",
+      "fieldReadyDocumentCount": 0,
+      "recognizedFieldCount": 0,
+      "runArtifactPath": "spike-out/analysis-lab/bizinfo__PBLN_000000000126450/run-2026-09-16T031737.486Z-3f4ef7.json",
+      "runArtifactSha256": "55f904ba1056a3d580a9489203eb952844cc5d6c3e66fcd2a58ad8417cb9c957",
+      "error": "field_analysis_held: 지원 양식에서 안전하게 인식된 입력 필드를 확보하지 못했습니다."
+    },
+    {
+      "scope": "repair4",
+      "sequence": 1,
+      "grantId": "c8224507-8cfa-4bf6-ace4-f94310bad421",
+      "title": "[부산] 서구 2026년 청년 창업자 임차료 지원사업 참여 신청 재공고",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000126449",
+      "status": "publishable",
+      "featureReadiness": {
+        "authoring": {
+          "reasons": [],
+          "sourceDisposition": "ready",
+          "status": "ready"
+        },
+        "matching": {
+          "reasons": [],
+          "sourceDisposition": "conditional",
+          "status": "ready"
+        },
+        "schema": "analysis-feature-readiness-v1"
+      },
+      "applicationRoundtripStatus": "partial",
+      "fieldReadyDocumentCount": 1,
+      "recognizedFieldCount": 27,
+      "runArtifactPath": "spike-out/analysis-lab/bizinfo__PBLN_000000000126449/run-2026-09-16T032352.135Z-cfec4f.json",
+      "runArtifactSha256": "b662e7bb993d2cc735cc692f1443dfbdcb3b5c29da43a7c070f2b5960bd8b680",
+      "error": null
+    },
+    {
+      "scope": "repair4",
+      "sequence": 2,
+      "grantId": "cc22d3e3-b731-4de9-84b4-5148e85fea20",
+      "title": "2026년 공급기업 다변화 지원사업 참여기업 모집(원전 생태계 고도화 지원사업)",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000126451",
+      "status": "publishable",
+      "featureReadiness": {
+        "authoring": {
+          "reasons": [
+            "application_field_analysis_not_applicable"
+          ],
+          "sourceDisposition": "not_applicable",
+          "status": "held"
+        },
+        "matching": {
+          "reasons": [],
+          "sourceDisposition": "conditional",
+          "status": "ready"
+        },
+        "schema": "analysis-feature-readiness-v1"
+      },
+      "applicationRoundtripStatus": "not_applicable",
+      "fieldReadyDocumentCount": 0,
+      "recognizedFieldCount": 0,
+      "runArtifactPath": "spike-out/analysis-lab/bizinfo__PBLN_000000000126451/run-2026-09-16T032807.882Z-87b77c.json",
+      "runArtifactSha256": "1c4b3d90c1b1bdebdf66c4b8330bbfb12b312da051d53ea78b9e87b6d59789b4",
+      "error": null
+    },
+    {
+      "scope": "repair4",
+      "sequence": 3,
+      "grantId": "fc2a070e-c611-4d27-89a1-8b8239868c57",
+      "title": "2026년 관악S밸리 브릿지 데모데이(S-Boost Track) 및 투자자 매칭데이 참여기업 모집 공고",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000126443",
+      "status": "publishable",
+      "featureReadiness": {
+        "authoring": {
+          "reasons": [],
+          "sourceDisposition": "ready",
+          "status": "ready"
+        },
+        "matching": {
+          "reasons": [],
+          "sourceDisposition": "conditional",
+          "status": "ready"
+        },
+        "schema": "analysis-feature-readiness-v1"
+      },
+      "applicationRoundtripStatus": "partial",
+      "fieldReadyDocumentCount": 1,
+      "recognizedFieldCount": 16,
+      "runArtifactPath": "spike-out/analysis-lab/bizinfo__PBLN_000000000126443/run-2026-09-16T033024.569Z-17e20d.json",
+      "runArtifactSha256": "9073c6520da93cb647540db4b58daa58b871481436972b6b6c4365300ce8e876",
+      "error": null
+    },
+    {
+      "scope": "repair1",
+      "sequence": 0,
+      "grantId": "925bf2f1-6bbb-44b1-9dfe-27b3dc56ad9b",
+      "title": "[경북] 2026년 푸드테크 스마트 제조 기반 구축 사업 공고",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000126321",
+      "status": "publishable",
+      "featureReadiness": {
+        "authoring": {
+          "reasons": [],
+          "sourceDisposition": "ready",
+          "status": "ready"
+        },
+        "matching": {
+          "reasons": [],
+          "sourceDisposition": "conditional",
+          "status": "ready"
+        },
+        "schema": "analysis-feature-readiness-v1"
+      },
+      "applicationRoundtripStatus": "partial",
+      "fieldReadyDocumentCount": 2,
+      "recognizedFieldCount": 328,
+      "runArtifactPath": "spike-out/analysis-lab/bizinfo__PBLN_000000000126321/run-2026-09-16T033358.886Z-c7628a.json",
+      "runArtifactSha256": "055adb40042cfe15f3d05c306d4b7fb289d74a907ee457ff6865ba64f9218fbd",
+      "error": null
+    },
+    {
+      "scope": "new30",
+      "sequence": 0,
+      "grantId": "1820fa57-61ff-4224-acf7-c17defeb96a2",
+      "title": "K-이커머스 미국 진출의 모든 것: 크라우드펀딩부터 Shopify·글로벌 결제까지 세미나 참여기업 모집",
+      "source": "kstartup",
+      "sourceId": "179181",
+      "status": "publishable",
+      "featureReadiness": {
+        "authoring": {
+          "reasons": [
+            "application_field_analysis_not_applicable"
+          ],
+          "sourceDisposition": "not_applicable",
+          "status": "held"
+        },
+        "matching": {
+          "reasons": [],
+          "sourceDisposition": "conditional",
+          "status": "ready"
+        },
+        "schema": "analysis-feature-readiness-v1"
+      },
+      "applicationRoundtripStatus": "not_applicable",
+      "fieldReadyDocumentCount": 0,
+      "recognizedFieldCount": 0,
+      "runArtifactPath": "spike-out/analysis-lab/kstartup__179181/run-2026-09-16T034014.548Z-d6a190.json",
+      "runArtifactSha256": "46eec0aafb6fa472451dbddc9b39382710bac66c9c95d72234f4fe074ef148cb",
+      "error": null
+    },
+    {
+      "scope": "new30",
+      "sequence": 1,
+      "grantId": "538ace56-826a-4069-ade9-616ca20e1b77",
+      "title": "「성남하이테크밸리 복합문화센터」 (예비)창업기업 입주 모집",
+      "source": "kstartup",
+      "sourceId": "179088",
+      "status": "publishable",
+      "featureReadiness": {
+        "authoring": {
+          "reasons": [
+            "application_field_analysis_not_applicable"
+          ],
+          "sourceDisposition": "not_applicable",
+          "status": "held"
+        },
+        "matching": {
+          "reasons": [],
+          "sourceDisposition": "conditional",
+          "status": "ready"
+        },
+        "schema": "analysis-feature-readiness-v1"
+      },
+      "applicationRoundtripStatus": "not_applicable",
+      "fieldReadyDocumentCount": 0,
+      "recognizedFieldCount": 0,
+      "runArtifactPath": "spike-out/analysis-lab/kstartup__179088/run-2026-09-16T034054.351Z-e413a4.json",
+      "runArtifactSha256": "8a80a0c99a67f648b85c3937c5a994b2da4ec87df0e31f5e4451118aa15688c3",
+      "error": null
+    },
+    {
+      "scope": "new30",
+      "sequence": 2,
+      "grantId": "9a95b799-b544-4dc2-9342-cc897529a32b",
+      "title": "한양대학교 ERICA 분야별 전문가 1:1상담회(경영파트) 모집",
+      "source": "kstartup",
+      "sourceId": "179262",
+      "status": "failed",
+      "featureReadiness": {
+        "authoring": {
+          "reasons": [
+            "application_field_analysis_not_applicable"
+          ],
+          "sourceDisposition": "not_applicable",
+          "status": "held"
+        },
+        "matching": {
+          "reasons": [
+            "primary_failed",
+            "matching_readiness_unverified"
+          ],
+          "sourceDisposition": "unverified",
+          "status": "held"
+        },
+        "schema": "analysis-feature-readiness-v1"
+      },
+      "applicationRoundtripStatus": "not_applicable",
+      "fieldReadyDocumentCount": 0,
+      "recognizedFieldCount": 0,
+      "runArtifactPath": "spike-out/analysis-lab/kstartup__179262/run-2026-09-16T034208.997Z-dc4412.json",
+      "runArtifactSha256": "7cb1f3307c890871f8218f4aa1705b087effa5b91eafe2792b8445bd6daf9cb9",
+      "error": "로컬 딥분석이 validator 교정 2회 뒤에도 실패했습니다 (종료=repair_limit): source_incomplete:$.source_limitations[0], source_incomplete:$.source_limitations[1], semantic_misattribution:$.criteria[2].value.list_semantics"
+    },
+    {
+      "scope": "new30",
+      "sequence": 3,
+      "grantId": "59e77d80-520a-4faf-83b5-900ad1aec3a4",
+      "title": "2026년 3차 KICET 기술이전조건부사업화지원사업 수혜기업 추가 모집 공고",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000126486",
+      "status": "publishable",
+      "featureReadiness": {
+        "authoring": {
+          "reasons": [],
+          "sourceDisposition": "ready",
+          "status": "ready"
+        },
+        "matching": {
+          "reasons": [],
+          "sourceDisposition": "conditional",
+          "status": "ready"
+        },
+        "schema": "analysis-feature-readiness-v1"
+      },
+      "applicationRoundtripStatus": "partial",
+      "fieldReadyDocumentCount": 1,
+      "recognizedFieldCount": 43,
+      "runArtifactPath": "spike-out/analysis-lab/bizinfo__PBLN_000000000126486/run-2026-09-16T034348.229Z-d187db.json",
+      "runArtifactSha256": "ba8a29a94f38b5ff5aed7015ad778c21d029bac48706bbd61fd848f36aa4f0a2",
+      "error": null
+    },
+    {
+      "scope": "new30",
+      "sequence": 4,
+      "grantId": "71041583-9fe6-4fe3-a454-013304e9101d",
+      "title": "2026년 안산정보산업진흥센터(경기TP안산창업보육센터) 제3차 신규 입주자 모집 공고",
+      "source": "kstartup",
+      "sourceId": "179172",
+      "status": "publishable",
+      "featureReadiness": {
+        "authoring": {
+          "reasons": [],
+          "sourceDisposition": "ready",
+          "status": "ready"
+        },
+        "matching": {
+          "reasons": [],
+          "sourceDisposition": "ready",
+          "status": "ready"
+        },
+        "schema": "analysis-feature-readiness-v1"
+      },
+      "applicationRoundtripStatus": "partial",
+      "fieldReadyDocumentCount": 1,
+      "recognizedFieldCount": 71,
+      "runArtifactPath": "spike-out/analysis-lab/kstartup__179172/run-2026-09-16T034502.308Z-12343e.json",
+      "runArtifactSha256": "dce4df6c44055717a27e1b1ec675ee6a37085faf7c74050e91324d9185369318",
+      "error": null
+    },
+    {
+      "scope": "new30",
+      "sequence": 5,
+      "grantId": "a35d77a3-486b-477d-b197-def5d921b90f",
+      "title": "2026 서울AI로봇쇼 피지컬 AI 포럼 참관객 모집",
+      "source": "kstartup",
+      "sourceId": "179158",
+      "status": "publishable",
+      "featureReadiness": {
+        "authoring": {
+          "reasons": [
+            "application_field_analysis_not_applicable"
+          ],
+          "sourceDisposition": "not_applicable",
+          "status": "held"
+        },
+        "matching": {
+          "reasons": [],
+          "sourceDisposition": "conditional",
+          "status": "ready"
+        },
+        "schema": "analysis-feature-readiness-v1"
+      },
+      "applicationRoundtripStatus": "not_applicable",
+      "fieldReadyDocumentCount": 0,
+      "recognizedFieldCount": 0,
+      "runArtifactPath": "spike-out/analysis-lab/kstartup__179158/run-2026-09-16T034724.725Z-256e30.json",
+      "runArtifactSha256": "c68882ed12d7b7a404decf5a6da3df2e57a81c0778c8b8c325eed94e92d3ce8a",
+      "error": null
+    },
+    {
+      "scope": "new30",
+      "sequence": 6,
+      "grantId": "7653abc1-3f8c-48ea-bbf1-9832319d875e",
+      "title": "2026년 과천시 창업지원센터 보육실 입주기업 모집 공고",
+      "source": "kstartup",
+      "sourceId": "179127",
+      "status": "held",
+      "featureReadiness": {
+        "authoring": {
+          "reasons": [
+            "application_field_analysis_held"
+          ],
+          "sourceDisposition": "held",
+          "status": "held"
+        },
+        "matching": {
+          "reasons": [],
+          "sourceDisposition": "conditional",
+          "status": "ready"
+        },
+        "schema": "analysis-feature-readiness-v1"
+      },
+      "applicationRoundtripStatus": "review_required",
+      "fieldReadyDocumentCount": 0,
+      "recognizedFieldCount": 0,
+      "runArtifactPath": "spike-out/analysis-lab/kstartup__179127/run-2026-09-16T034756.130Z-f465d3.json",
+      "runArtifactSha256": "80b5fd300766a924d7198ad3999d6e83cd905c7749220468d9c8c38d11ebb0f1",
+      "error": "field_analysis_held: 지원 양식에서 안전하게 인식된 입력 필드를 확보하지 못했습니다."
+    },
+    {
+      "scope": "new30",
+      "sequence": 7,
+      "grantId": "81423ffb-d8db-4a64-b30f-110f17ff9765",
+      "title": "2026년 과천시 지식정보타운 무상임대 입주기업(과천상상자이타워) 모집 공고",
+      "source": "kstartup",
+      "sourceId": "179227",
+      "status": "publishable",
+      "featureReadiness": {
+        "authoring": {
+          "reasons": [],
+          "sourceDisposition": "ready",
+          "status": "ready"
+        },
+        "matching": {
+          "reasons": [],
+          "sourceDisposition": "conditional",
+          "status": "ready"
+        },
+        "schema": "analysis-feature-readiness-v1"
+      },
+      "applicationRoundtripStatus": "partial",
+      "fieldReadyDocumentCount": 2,
+      "recognizedFieldCount": 33,
+      "runArtifactPath": "spike-out/analysis-lab/kstartup__179227/run-2026-09-16T034928.689Z-c226b6.json",
+      "runArtifactSha256": "9e77d0bbc8c57138de5bbfd3c34898ca108baad1907384f4b3d1a9861e5cff61",
+      "error": null
+    },
+    {
+      "scope": "new30",
+      "sequence": 8,
+      "grantId": "c61d1f5c-2b31-481e-87c8-b0a7f837e724",
+      "title": "2026년 과천시 지식정보타운 무상임대 입주기업(과천크리에이션타워) 모집 공고",
+      "source": "kstartup",
+      "sourceId": "179228",
+      "status": "failed",
+      "featureReadiness": {
+        "authoring": {
+          "reasons": [],
+          "sourceDisposition": "ready",
+          "status": "ready"
+        },
+        "matching": {
+          "reasons": [
+            "primary_failed",
+            "matching_readiness_unverified"
+          ],
+          "sourceDisposition": "unverified",
+          "status": "held"
+        },
+        "schema": "analysis-feature-readiness-v1"
+      },
+      "applicationRoundtripStatus": "partial",
+      "fieldReadyDocumentCount": 2,
+      "recognizedFieldCount": 33,
+      "runArtifactPath": "spike-out/analysis-lab/kstartup__179228/run-2026-09-16T035123.020Z-eca3ca.json",
+      "runArtifactSha256": "38719c2b8227a9469d85a4184221ccbf445e3341e5c53575100afe03d52b7d11",
+      "error": "로컬 딥분석이 validator 교정 2회 뒤에도 실패했습니다 (종료=repair_limit): source_incomplete:$.source_limitations[0], source_incomplete:$.source_limitations[1], semantic_misattribution:$.criteria[0]"
+    },
+    {
+      "scope": "new30",
+      "sequence": 9,
+      "grantId": "08ae7e9f-a932-48ce-b25b-ed5099aca836",
+      "title": "청년 창업 인사이트 밋업",
+      "source": "kstartup",
+      "sourceId": "179134",
+      "status": "publishable",
+      "featureReadiness": {
+        "authoring": {
+          "reasons": [
+            "application_field_analysis_not_applicable"
+          ],
+          "sourceDisposition": "not_applicable",
+          "status": "held"
+        },
+        "matching": {
+          "reasons": [],
+          "sourceDisposition": "conditional",
+          "status": "ready"
+        },
+        "schema": "analysis-feature-readiness-v1"
+      },
+      "applicationRoundtripStatus": "not_applicable",
+      "fieldReadyDocumentCount": 0,
+      "recognizedFieldCount": 0,
+      "runArtifactPath": "spike-out/analysis-lab/kstartup__179134/run-2026-09-16T035509.637Z-02519e.json",
+      "runArtifactSha256": "c3719b662e08cafb1f6c13c4bc3b15c1edc855c21f99266889cd01f61c073ad6",
+      "error": null
+    },
+    {
+      "scope": "new30",
+      "sequence": 10,
+      "grantId": "e5d7b4f6-22da-441f-9e4b-8f11237dc83a",
+      "title": "2026 고양시 청년 창업가 네트워킹 및 선배 창업가 특강",
+      "source": "kstartup",
+      "sourceId": "179185",
+      "status": "publishable",
+      "featureReadiness": {
+        "authoring": {
+          "reasons": [
+            "application_field_analysis_not_applicable"
+          ],
+          "sourceDisposition": "not_applicable",
+          "status": "held"
+        },
+        "matching": {
+          "reasons": [],
+          "sourceDisposition": "conditional",
+          "status": "ready"
+        },
+        "schema": "analysis-feature-readiness-v1"
+      },
+      "applicationRoundtripStatus": "not_applicable",
+      "fieldReadyDocumentCount": 0,
+      "recognizedFieldCount": 0,
+      "runArtifactPath": "spike-out/analysis-lab/kstartup__179185/run-2026-09-16T035553.332Z-d7a7fe.json",
+      "runArtifactSha256": "159a0373cae2c23e35dd0e37baebece21c3f75fa79d2e4b3e78ec5a2222dfc67",
+      "error": null
+    },
+    {
+      "scope": "new30",
+      "sequence": 11,
+      "grantId": "e7dae1da-6c69-4f70-8226-208d93400008",
+      "title": "2026 강원권 LIPS 민간운영사 연합 INVESTOR DAY 9월 참여기업 모집",
+      "source": "kstartup",
+      "sourceId": "179128",
+      "status": "publishable",
+      "featureReadiness": {
+        "authoring": {
+          "reasons": [
+            "application_field_analysis_not_applicable"
+          ],
+          "sourceDisposition": "not_applicable",
+          "status": "held"
+        },
+        "matching": {
+          "reasons": [],
+          "sourceDisposition": "conditional",
+          "status": "ready"
+        },
+        "schema": "analysis-feature-readiness-v1"
+      },
+      "applicationRoundtripStatus": "not_applicable",
+      "fieldReadyDocumentCount": 0,
+      "recognizedFieldCount": 0,
+      "runArtifactPath": "spike-out/analysis-lab/kstartup__179128/run-2026-09-16T035635.344Z-cfb782.json",
+      "runArtifactSha256": "81a1ebd66bfa2cbb978d8bf9bd26095c2d7d2d83a7ca4d11aab28502c571acd5",
+      "error": null
+    },
+    {
+      "scope": "new30",
+      "sequence": 12,
+      "grantId": "20dc788e-03f3-4bea-ae0e-5dc866d8caf3",
+      "title": "2026년 스타트업 96 입주 예비창업자 모집",
+      "source": "kstartup",
+      "sourceId": "179199",
+      "status": "publishable",
+      "featureReadiness": {
+        "authoring": {
+          "reasons": [],
+          "sourceDisposition": "ready",
+          "status": "ready"
+        },
+        "matching": {
+          "reasons": [],
+          "sourceDisposition": "ready",
+          "status": "ready"
+        },
+        "schema": "analysis-feature-readiness-v1"
+      },
+      "applicationRoundtripStatus": "partial",
+      "fieldReadyDocumentCount": 1,
+      "recognizedFieldCount": 19,
+      "runArtifactPath": "spike-out/analysis-lab/kstartup__179199/run-2026-09-16T035748.953Z-842cd7.json",
+      "runArtifactSha256": "92fccae7d170b55171732dd6b5986de859c8dfa7d91e11c8198f2abe2cde1c13",
+      "error": null
+    },
+    {
+      "scope": "new30",
+      "sequence": 13,
+      "grantId": "626501c7-74b2-4942-976b-7045a6bdb2cf",
+      "title": "[인천] 대ㆍ중ㆍ소기업 지역대기질 개선 상생협력 시범사업 참여기업 모집 공고",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000126502",
+      "status": "publishable",
+      "featureReadiness": {
+        "authoring": {
+          "reasons": [],
+          "sourceDisposition": "ready",
+          "status": "ready"
+        },
+        "matching": {
+          "reasons": [],
+          "sourceDisposition": "conditional",
+          "status": "ready"
+        },
+        "schema": "analysis-feature-readiness-v1"
+      },
+      "applicationRoundtripStatus": "partial",
+      "fieldReadyDocumentCount": 1,
+      "recognizedFieldCount": 54,
+      "runArtifactPath": "spike-out/analysis-lab/bizinfo__PBLN_000000000126502/run-2026-09-16T035937.977Z-cfcdeb.json",
+      "runArtifactSha256": "5e2c30a50a803a8944d1bdf8786fc394584a5dc42608b376ea0840f134f078de",
+      "error": null
+    },
+    {
+      "scope": "new30",
+      "sequence": 14,
+      "grantId": "661d4ffe-85bb-4fd7-8a07-2e8f25e917b8",
+      "title": "경기과학기술대학교 창업보육센터 입주기업 모집 7차",
+      "source": "kstartup",
+      "sourceId": "179231",
+      "status": "held",
+      "featureReadiness": {
+        "authoring": {
+          "reasons": [
+            "application_field_analysis_held"
+          ],
+          "sourceDisposition": "held",
+          "status": "held"
+        },
+        "matching": {
+          "reasons": [],
+          "sourceDisposition": "conditional",
+          "status": "ready"
+        },
+        "schema": "analysis-feature-readiness-v1"
+      },
+      "applicationRoundtripStatus": "review_required",
+      "fieldReadyDocumentCount": 0,
+      "recognizedFieldCount": 0,
+      "runArtifactPath": "spike-out/analysis-lab/kstartup__179231/run-2026-09-16T040312.267Z-fc7d17.json",
+      "runArtifactSha256": "914414286482a4ac1bcb2e7dfc6c1b76cde90c4552992f42cf29bd527567121a",
+      "error": "field_analysis_held: 지원 양식에서 안전하게 인식된 입력 필드를 확보하지 못했습니다."
+    },
+    {
+      "scope": "new30",
+      "sequence": 15,
+      "grantId": "470413c2-8d4b-42d4-9cb6-9437d5b4dbc5",
+      "title": "OCEANˈS TAP 해양 OI 리버스피칭 및 OI 밋업 참여기업 모집",
+      "source": "kstartup",
+      "sourceId": "179259",
+      "status": "publishable",
+      "featureReadiness": {
+        "authoring": {
+          "reasons": [
+            "application_field_analysis_not_applicable"
+          ],
+          "sourceDisposition": "not_applicable",
+          "status": "held"
+        },
+        "matching": {
+          "reasons": [],
+          "sourceDisposition": "conditional",
+          "status": "ready"
+        },
+        "schema": "analysis-feature-readiness-v1"
+      },
+      "applicationRoundtripStatus": "not_applicable",
+      "fieldReadyDocumentCount": 0,
+      "recognizedFieldCount": 0,
+      "runArtifactPath": "spike-out/analysis-lab/kstartup__179259/run-2026-09-16T040545.245Z-dc1937.json",
+      "runArtifactSha256": "d4fabd91404af38a9feaf2e8ca8d58588de987bebfa3b983b5c80550fc2e6784",
+      "error": null
+    },
+    {
+      "scope": "new30",
+      "sequence": 16,
+      "grantId": "c4bf21e5-6ec7-47ec-adfc-95d0b72d1143",
+      "title": "2026년 서경대학교 창업보육센터 입주기업 모집(3차)",
+      "source": "kstartup",
+      "sourceId": "179220",
+      "status": "held",
+      "featureReadiness": {
+        "authoring": {
+          "reasons": [
+            "application_field_analysis_held"
+          ],
+          "sourceDisposition": "held",
+          "status": "held"
+        },
+        "matching": {
+          "reasons": [],
+          "sourceDisposition": "conditional",
+          "status": "ready"
+        },
+        "schema": "analysis-feature-readiness-v1"
+      },
+      "applicationRoundtripStatus": "review_required",
+      "fieldReadyDocumentCount": 0,
+      "recognizedFieldCount": 0,
+      "runArtifactPath": "spike-out/analysis-lab/kstartup__179220/run-2026-09-16T040629.286Z-563ff3.json",
+      "runArtifactSha256": "9d67c602d8768997edecfd5cc008f5750db55a399590afb5d59e9a8a46e398e0",
+      "error": "field_analysis_held: 지원 양식에서 안전하게 인식된 입력 필드를 확보하지 못했습니다."
+    },
+    {
+      "scope": "new30",
+      "sequence": 17,
+      "grantId": "063a766d-d754-40d2-af6e-4b7186082899",
+      "title": "2026년 농식품 데이터 활용 컨설팅 지원사업 추가모집 공고",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000126487",
+      "status": "publishable",
+      "featureReadiness": {
+        "authoring": {
+          "reasons": [],
+          "sourceDisposition": "ready",
+          "status": "ready"
+        },
+        "matching": {
+          "reasons": [],
+          "sourceDisposition": "ready",
+          "status": "ready"
+        },
+        "schema": "analysis-feature-readiness-v1"
+      },
+      "applicationRoundtripStatus": "complete",
+      "fieldReadyDocumentCount": 1,
+      "recognizedFieldCount": 8,
+      "runArtifactPath": "spike-out/analysis-lab/bizinfo__PBLN_000000000126487/run-2026-09-16T040803.319Z-6da469.json",
+      "runArtifactSha256": "53e257027cec8559cdafd19727a9848624054f755bbd8cced8e9da6f8442d40d",
+      "error": null
+    },
+    {
+      "scope": "new30",
+      "sequence": 18,
+      "grantId": "081e082c-2d69-4ba9-b09c-e37af7b9259d",
+      "title": "2026년 한라대학교 창업보육센터 9월 신규입주기업 모집 공고",
+      "source": "kstartup",
+      "sourceId": "179123",
+      "status": "held",
+      "featureReadiness": {
+        "authoring": {
+          "reasons": [
+            "application_field_analysis_held"
+          ],
+          "sourceDisposition": "held",
+          "status": "held"
+        },
+        "matching": {
+          "reasons": [],
+          "sourceDisposition": "conditional",
+          "status": "ready"
+        },
+        "schema": "analysis-feature-readiness-v1"
+      },
+      "applicationRoundtripStatus": "review_required",
+      "fieldReadyDocumentCount": 0,
+      "recognizedFieldCount": 0,
+      "runArtifactPath": "spike-out/analysis-lab/kstartup__179123/run-2026-09-16T040932.400Z-eb1663.json",
+      "runArtifactSha256": "680947c4d365f9b8a8f894f57ada6da96879e48542a61adebf31dc76f10c1248",
+      "error": "field_analysis_held: 지원 양식에서 안전하게 인식된 입력 필드를 확보하지 못했습니다."
+    },
+    {
+      "scope": "new30",
+      "sequence": 19,
+      "grantId": "2b7b5b8e-3f75-414e-8f21-deccd81be5b5",
+      "title": "26년 9월 스타트업 언론 홍보 지원사업 참가사 모집 공고(2차)",
+      "source": "kstartup",
+      "sourceId": "179255",
+      "status": "publishable",
+      "featureReadiness": {
+        "authoring": {
+          "reasons": [
+            "application_field_analysis_not_applicable"
+          ],
+          "sourceDisposition": "not_applicable",
+          "status": "held"
+        },
+        "matching": {
+          "reasons": [],
+          "sourceDisposition": "conditional",
+          "status": "ready"
+        },
+        "schema": "analysis-feature-readiness-v1"
+      },
+      "applicationRoundtripStatus": "not_applicable",
+      "fieldReadyDocumentCount": 0,
+      "recognizedFieldCount": 0,
+      "runArtifactPath": "spike-out/analysis-lab/kstartup__179255/run-2026-09-16T041059.540Z-6a0ce4.json",
+      "runArtifactSha256": "d9aa146a75fd24fce4a312c2f1362350ae672acf4663878b5034ac000655c1bf",
+      "error": null
+    },
+    {
+      "scope": "new30",
+      "sequence": 20,
+      "grantId": "649bd1e4-cdc5-4858-b8aa-2da9f899b38f",
+      "title": "2026년 특허출원·등록 비용 바우처 지원사업 13차(하반기 6차)",
+      "source": "kstartup",
+      "sourceId": "179226",
+      "status": "publishable",
+      "featureReadiness": {
+        "authoring": {
+          "reasons": [],
+          "sourceDisposition": "ready",
+          "status": "ready"
+        },
+        "matching": {
+          "reasons": [],
+          "sourceDisposition": "conditional",
+          "status": "ready"
+        },
+        "schema": "analysis-feature-readiness-v1"
+      },
+      "applicationRoundtripStatus": "partial",
+      "fieldReadyDocumentCount": 2,
+      "recognizedFieldCount": 33,
+      "runArtifactPath": "spike-out/analysis-lab/kstartup__179226/run-2026-09-16T041153.563Z-99194a.json",
+      "runArtifactSha256": "f7d4c0811a339092158d4718f83a04bfc32c466c0883621f1b3abd87451a3de4",
+      "error": null
+    },
+    {
+      "scope": "new30",
+      "sequence": 21,
+      "grantId": "6a2bed61-1bf6-4f0b-bc4d-5217d6f47cab",
+      "title": "2026년 9월 KICXUP 서울 입주기업 모집공고",
+      "source": "kstartup",
+      "sourceId": "179230",
+      "status": "publishable",
+      "featureReadiness": {
+        "authoring": {
+          "reasons": [
+            "application_field_analysis_not_applicable"
+          ],
+          "sourceDisposition": "not_applicable",
+          "status": "held"
+        },
+        "matching": {
+          "reasons": [],
+          "sourceDisposition": "ready",
+          "status": "ready"
+        },
+        "schema": "analysis-feature-readiness-v1"
+      },
+      "applicationRoundtripStatus": "not_applicable",
+      "fieldReadyDocumentCount": 0,
+      "recognizedFieldCount": 0,
+      "runArtifactPath": "spike-out/analysis-lab/kstartup__179230/run-2026-09-16T041416.010Z-01dbaf.json",
+      "runArtifactSha256": "5bce421bda1558fc4733305049604a83f2cfffd5218472709a38c4a3f5b8f4f2",
+      "error": null
+    },
+    {
+      "scope": "new30",
+      "sequence": 22,
+      "grantId": "706fa257-21c1-4de8-898e-124dc74e4045",
+      "title": "2026년 스타 IR 데모데이 참여기업 모집공고(5차)",
+      "source": "kstartup",
+      "sourceId": "179144",
+      "status": "held",
+      "featureReadiness": {
+        "authoring": {
+          "reasons": [
+            "application_field_analysis_held"
+          ],
+          "sourceDisposition": "held",
+          "status": "held"
+        },
+        "matching": {
+          "reasons": [],
+          "sourceDisposition": "conditional",
+          "status": "ready"
+        },
+        "schema": "analysis-feature-readiness-v1"
+      },
+      "applicationRoundtripStatus": "review_required",
+      "fieldReadyDocumentCount": 0,
+      "recognizedFieldCount": 0,
+      "runArtifactPath": "spike-out/analysis-lab/kstartup__179144/run-2026-09-16T041516.471Z-29ed15.json",
+      "runArtifactSha256": "319726c25477f211f2c16eada3cabacaa1d7cd0b9b61c39811e9890370a41fb8",
+      "error": "field_analysis_held: 지원 양식에서 안전하게 인식된 입력 필드를 확보하지 못했습니다."
+    },
+    {
+      "scope": "new30",
+      "sequence": 23,
+      "grantId": "715bdc62-6aef-48bd-bb6c-8c5ca6e65307",
+      "title": "[전북] 2026년 4차 절임염수 재활용 설비 구축 지원사업 사업자 선정 공고",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000126489",
+      "status": "publishable",
+      "featureReadiness": {
+        "authoring": {
+          "reasons": [
+            "application_field_analysis_not_applicable"
+          ],
+          "sourceDisposition": "not_applicable",
+          "status": "held"
+        },
+        "matching": {
+          "reasons": [],
+          "sourceDisposition": "conditional",
+          "status": "ready"
+        },
+        "schema": "analysis-feature-readiness-v1"
+      },
+      "applicationRoundtripStatus": "not_applicable",
+      "fieldReadyDocumentCount": 0,
+      "recognizedFieldCount": 0,
+      "runArtifactPath": "spike-out/analysis-lab/bizinfo__PBLN_000000000126489/run-2026-09-16T041614.590Z-433b8f.json",
+      "runArtifactSha256": "3abce0eabce8f0195770ee7258a5a36cb6d8ee75d6ec846e3a87113741942ec7",
+      "error": null
+    },
+    {
+      "scope": "new30",
+      "sequence": 24,
+      "grantId": "afc1ccd8-e7cf-461b-81c8-207bb03c2969",
+      "title": "충북대학교 『글로벌(G)테크벤처센터(BI) 』 입주기업 모집",
+      "source": "kstartup",
+      "sourceId": "179147",
+      "status": "held",
+      "featureReadiness": {
+        "authoring": {
+          "reasons": [
+            "application_field_analysis_held"
+          ],
+          "sourceDisposition": "held",
+          "status": "held"
+        },
+        "matching": {
+          "reasons": [],
+          "sourceDisposition": "conditional",
+          "status": "ready"
+        },
+        "schema": "analysis-feature-readiness-v1"
+      },
+      "applicationRoundtripStatus": "review_required",
+      "fieldReadyDocumentCount": 0,
+      "recognizedFieldCount": 0,
+      "runArtifactPath": "spike-out/analysis-lab/kstartup__179147/run-2026-09-16T041706.273Z-d8e7c1.json",
+      "runArtifactSha256": "784f4f757dfeaf53292cfb8557dd98cbbad4fa3d90a65df82121023075cd4866",
+      "error": "field_analysis_held: 지원 양식에서 안전하게 인식된 입력 필드를 확보하지 못했습니다."
+    },
+    {
+      "scope": "new30",
+      "sequence": 25,
+      "grantId": "cb1fa91e-2656-45af-b42a-7320ca22749f",
+      "title": "한국공학대학교 창업보육센터 입주기업 모집공고",
+      "source": "kstartup",
+      "sourceId": "179194",
+      "status": "held",
+      "featureReadiness": {
+        "authoring": {
+          "reasons": [
+            "application_field_analysis_held"
+          ],
+          "sourceDisposition": "held",
+          "status": "held"
+        },
+        "matching": {
+          "reasons": [],
+          "sourceDisposition": "conditional",
+          "status": "ready"
+        },
+        "schema": "analysis-feature-readiness-v1"
+      },
+      "applicationRoundtripStatus": "review_required",
+      "fieldReadyDocumentCount": 0,
+      "recognizedFieldCount": 0,
+      "runArtifactPath": "spike-out/analysis-lab/kstartup__179194/run-2026-09-16T041837.231Z-7ea760.json",
+      "runArtifactSha256": "7b21796d6af954ec86b55abbbf2ab608bea4405b90c8ee2f02e97f7c1282a57a",
+      "error": "field_analysis_held: 지원 양식에서 안전하게 인식된 입력 필드를 확보하지 못했습니다."
+    },
+    {
+      "scope": "new30",
+      "sequence": 26,
+      "grantId": "ccdd8402-3e93-4689-96a8-26a5d8e0c66c",
+      "title": "2026 고양시 F&B 성장지원 프로그램 with G-ROUND 877 참여기업 모집공고",
+      "source": "kstartup",
+      "sourceId": "179204",
+      "status": "publishable",
+      "featureReadiness": {
+        "authoring": {
+          "reasons": [],
+          "sourceDisposition": "ready",
+          "status": "ready"
+        },
+        "matching": {
+          "reasons": [],
+          "sourceDisposition": "ready",
+          "status": "ready"
+        },
+        "schema": "analysis-feature-readiness-v1"
+      },
+      "applicationRoundtripStatus": "complete",
+      "fieldReadyDocumentCount": 1,
+      "recognizedFieldCount": 18,
+      "runArtifactPath": "spike-out/analysis-lab/kstartup__179204/run-2026-09-16T042041.234Z-c31c5a.json",
+      "runArtifactSha256": "44eff407f3aa3964d233795b56dfc4d84d9d5245dabc1ab0639e22fd657a4403",
+      "error": null
+    },
+    {
+      "scope": "new30",
+      "sequence": 27,
+      "grantId": "d47093e7-d46a-4d06-afaa-b99c907e264a",
+      "title": "2026 협성대학교 창업보육센터 하반기 신규 입주기업 모집 공고",
+      "source": "kstartup",
+      "sourceId": "179178",
+      "status": "publishable",
+      "featureReadiness": {
+        "authoring": {
+          "reasons": [],
+          "sourceDisposition": "ready",
+          "status": "ready"
+        },
+        "matching": {
+          "reasons": [],
+          "sourceDisposition": "ready",
+          "status": "ready"
+        },
+        "schema": "analysis-feature-readiness-v1"
+      },
+      "applicationRoundtripStatus": "partial",
+      "fieldReadyDocumentCount": 1,
+      "recognizedFieldCount": 59,
+      "runArtifactPath": "spike-out/analysis-lab/kstartup__179178/run-2026-09-16T042233.310Z-be09f1.json",
+      "runArtifactSha256": "f8d59eefed5dc68e3b319f1d471eb4922b2451623e9bdf065b6dac6a0fd6a562",
+      "error": null
+    },
+    {
+      "scope": "new30",
+      "sequence": 28,
+      "grantId": "fa439dda-93e1-4d9e-9fe0-66c8e986c85f",
+      "title": "호서대학교 서울창업보육센터 신규입주모집 공고",
+      "source": "kstartup",
+      "sourceId": "179168",
+      "status": "held",
+      "featureReadiness": {
+        "authoring": {
+          "reasons": [
+            "application_field_analysis_held"
+          ],
+          "sourceDisposition": "held",
+          "status": "held"
+        },
+        "matching": {
+          "reasons": [],
+          "sourceDisposition": "conditional",
+          "status": "ready"
+        },
+        "schema": "analysis-feature-readiness-v1"
+      },
+      "applicationRoundtripStatus": "review_required",
+      "fieldReadyDocumentCount": 0,
+      "recognizedFieldCount": 0,
+      "runArtifactPath": "spike-out/analysis-lab/kstartup__179168/run-2026-09-16T042635.700Z-3344c0.json",
+      "runArtifactSha256": "029bd9a36d1c13ddd804e04d6951bf31639e248757eb8f2f2c9fc31ae87f488c",
+      "error": "field_analysis_held: 지원 양식에서 안전하게 인식된 입력 필드를 확보하지 못했습니다."
+    },
+    {
+      "scope": "new30",
+      "sequence": 29,
+      "grantId": "cb625bdb-25f5-438b-83c4-ff4614aa7378",
+      "title": "2026년 서대문구 청년창업기업 및 사회연대경제기업 수시 전문상담 경영컨설팅 신청 기업 모집 공고",
+      "source": "kstartup",
+      "sourceId": "179184",
+      "status": "publishable",
+      "featureReadiness": {
+        "authoring": {
+          "reasons": [],
+          "sourceDisposition": "ready",
+          "status": "ready"
+        },
+        "matching": {
+          "reasons": [],
+          "sourceDisposition": "conditional",
+          "status": "ready"
+        },
+        "schema": "analysis-feature-readiness-v1"
+      },
+      "applicationRoundtripStatus": "partial",
+      "fieldReadyDocumentCount": 2,
+      "recognizedFieldCount": 42,
+      "runArtifactPath": "spike-out/analysis-lab/kstartup__179184/run-2026-09-16T042742.800Z-85f319.json",
+      "runArtifactSha256": "bdd48ae511b226cc6d05af16d7d450bc41aaf7250f1e8783967b9c636b65dfac",
+      "error": null
+    }
+  ],
+  "reviewManifests": [
+    {
+      "manifestSha256": "94007429ad684000dd19830ed91f056a61ed635613c3dcea32c4019d77764271",
+      "aggregateSha256": "78f0ed90e9320f808e4a91a9f53e8558c4a78a9509c7a55698f8c80ae6ed780b",
+      "aggregatePath": "/Users/ffgg/noten.works/cunote/spike-out/analysis-lab/independent-review/4a227717747b93c430559d4828e222cc8db2d450b11097d2f13adf2e28256712/review-runs/94007429ad684000dd19830ed91f056a61ed635613c3dcea32c4019d77764271/78f0ed90e9320f808e4a91a9f53e8558c4a78a9509c7a55698f8c80ae6ed780b.aggregate.json",
+      "reviewedTargets": 5,
+      "heldTargets": 0,
+      "reviewedTargetsStatus": "HOLD",
+      "cohortStatus": "HOLD",
+      "targetCounts": {
+        "GO": 1,
+        "HOLD": 4,
+        "defects": 5,
+        "unresolved": 1
+      },
+      "targets": [
+        {
+          "sequence": 0,
+          "status": "HOLD",
+          "defects": 1,
+          "unresolved": 0
+        },
+        {
+          "sequence": 2,
+          "status": "HOLD",
+          "defects": 0,
+          "unresolved": 1
+        },
+        {
+          "sequence": 3,
+          "status": "HOLD",
+          "defects": 3,
+          "unresolved": 0
+        },
+        {
+          "sequence": 4,
+          "status": "HOLD",
+          "defects": 1,
+          "unresolved": 0
+        },
+        {
+          "sequence": 5,
+          "status": "GO",
+          "defects": 0,
+          "unresolved": 0
+        }
+      ]
+    },
+    {
+      "manifestSha256": "5509e914a1209b1801ea676e2d7467c65a09a9c06fbcd2dfe33eef66bc3ae8e1",
+      "aggregateSha256": "5b41ab2a574590b792fa2a9d528423b809f36906bd51aff695ba7f1b34e7f903",
+      "aggregatePath": "/Users/ffgg/noten.works/cunote/spike-out/analysis-lab/independent-review/0129b8cfabfad7ba6507b03f035f2255a086b63a8f6b1feac38db75ca09657cf/review-runs/5509e914a1209b1801ea676e2d7467c65a09a9c06fbcd2dfe33eef66bc3ae8e1/5b41ab2a574590b792fa2a9d528423b809f36906bd51aff695ba7f1b34e7f903.aggregate.json",
+      "reviewedTargets": 20,
+      "heldTargets": 0,
+      "reviewedTargetsStatus": "HOLD",
+      "cohortStatus": "HOLD",
+      "targetCounts": {
+        "GO": 12,
+        "HOLD": 8,
+        "defects": 11,
+        "unresolved": 0
+      },
+      "targets": [
+        {
+          "sequence": 0,
+          "status": "GO",
+          "defects": 0,
+          "unresolved": 0
+        },
+        {
+          "sequence": 1,
+          "status": "HOLD",
+          "defects": 2,
+          "unresolved": 0
+        },
+        {
+          "sequence": 5,
+          "status": "GO",
+          "defects": 0,
+          "unresolved": 0
+        },
+        {
+          "sequence": 7,
+          "status": "HOLD",
+          "defects": 1,
+          "unresolved": 0
+        },
+        {
+          "sequence": 8,
+          "status": "GO",
+          "defects": 0,
+          "unresolved": 0
+        },
+        {
+          "sequence": 10,
+          "status": "HOLD",
+          "defects": 2,
+          "unresolved": 0
+        },
+        {
+          "sequence": 11,
+          "status": "GO",
+          "defects": 0,
+          "unresolved": 0
+        },
+        {
+          "sequence": 12,
+          "status": "GO",
+          "defects": 0,
+          "unresolved": 0
+        },
+        {
+          "sequence": 13,
+          "status": "HOLD",
+          "defects": 1,
+          "unresolved": 0
+        },
+        {
+          "sequence": 15,
+          "status": "GO",
+          "defects": 0,
+          "unresolved": 0
+        },
+        {
+          "sequence": 17,
+          "status": "HOLD",
+          "defects": 2,
+          "unresolved": 0
+        },
+        {
+          "sequence": 18,
+          "status": "GO",
+          "defects": 0,
+          "unresolved": 0
+        },
+        {
+          "sequence": 19,
+          "status": "GO",
+          "defects": 0,
+          "unresolved": 0
+        },
+        {
+          "sequence": 20,
+          "status": "HOLD",
+          "defects": 1,
+          "unresolved": 0
+        },
+        {
+          "sequence": 21,
+          "status": "GO",
+          "defects": 0,
+          "unresolved": 0
+        },
+        {
+          "sequence": 27,
+          "status": "GO",
+          "defects": 0,
+          "unresolved": 0
+        },
+        {
+          "sequence": 28,
+          "status": "GO",
+          "defects": 0,
+          "unresolved": 0
+        },
+        {
+          "sequence": 29,
+          "status": "HOLD",
+          "defects": 1,
+          "unresolved": 0
+        },
+        {
+          "sequence": 33,
+          "status": "GO",
+          "defects": 0,
+          "unresolved": 0
+        },
+        {
+          "sequence": 34,
+          "status": "HOLD",
+          "defects": 1,
+          "unresolved": 0
+        }
+      ]
+    },
+    {
+      "manifestSha256": "d79c3a6949b621d8c4749f342ec59b639330503d2d5fb4860eb6bf3759cb924f",
+      "aggregateSha256": "c808b76ff3006e7271da2745396bc19b2c5afe24b72abaa9acb09622fef90e44",
+      "aggregatePath": "/Users/ffgg/noten.works/cunote/spike-out/analysis-lab/independent-review/35b10397e142b4bc851d0886acab3056fd615db4104a9d479664da64e2f30674/review-runs/d79c3a6949b621d8c4749f342ec59b639330503d2d5fb4860eb6bf3759cb924f/c808b76ff3006e7271da2745396bc19b2c5afe24b72abaa9acb09622fef90e44.aggregate.json",
+      "reviewedTargets": 4,
+      "heldTargets": 0,
+      "reviewedTargetsStatus": "HOLD",
+      "cohortStatus": "HOLD",
+      "targetCounts": {
+        "GO": 1,
+        "HOLD": 3,
+        "defects": 6,
+        "unresolved": 0
+      },
+      "targets": [
+        {
+          "sequence": 37,
+          "status": "HOLD",
+          "defects": 4,
+          "unresolved": 0
+        },
+        {
+          "sequence": 38,
+          "status": "HOLD",
+          "defects": 1,
+          "unresolved": 0
+        },
+        {
+          "sequence": 39,
+          "status": "GO",
+          "defects": 0,
+          "unresolved": 0
+        },
+        {
+          "sequence": 40,
+          "status": "HOLD",
+          "defects": 1,
+          "unresolved": 0
+        }
+      ]
+    },
+    {
+      "manifestSha256": "0de3ccf3eda71d38eefa8d69c918484875e3adbbe98ae796df85dfee4919ee07",
+      "aggregateSha256": null,
+      "aggregatePath": null,
+      "aggregationStatus": "rejected_missing_result",
+      "aggregateError": "ENOENT codex/results/sequence-11.json",
+      "expectedTargets": 12,
+      "reviewedTargets": 11,
+      "failedTargets": 1,
+      "heldTargets": 0,
+      "reviewedTargetsStatus": "INCOMPLETE",
+      "cohortStatus": "INCOMPLETE",
+      "targetCounts": {
+        "GO": 4,
+        "HOLD": 7,
+        "ERROR": 1,
+        "defects": 13,
+        "unresolved": 0
+      },
+      "targets": [
+        {
+          "sequence": 4,
+          "status": "HOLD",
+          "defects": 3,
+          "unresolved": 0
+        },
+        {
+          "sequence": 5,
+          "status": "HOLD",
+          "defects": 2,
+          "unresolved": 0
+        },
+        {
+          "sequence": 6,
+          "status": "HOLD",
+          "defects": 3,
+          "unresolved": 0
+        },
+        {
+          "sequence": 7,
+          "status": "GO",
+          "defects": 0,
+          "unresolved": 0
+        },
+        {
+          "sequence": 9,
+          "status": "HOLD",
+          "defects": 1,
+          "unresolved": 0
+        },
+        {
+          "sequence": 10,
+          "status": "HOLD",
+          "defects": 2,
+          "unresolved": 0
+        },
+        {
+          "sequence": 11,
+          "status": "ERROR",
+          "defects": null,
+          "unresolved": null,
+          "error": "Codex 진행 정체 타임아웃 180000ms; bounded attempts 2회 소진"
+        },
+        {
+          "sequence": 12,
+          "status": "GO",
+          "defects": 0,
+          "unresolved": 0
+        },
+        {
+          "sequence": 13,
+          "status": "HOLD",
+          "defects": 1,
+          "unresolved": 0
+        },
+        {
+          "sequence": 14,
+          "status": "GO",
+          "defects": 0,
+          "unresolved": 0
+        },
+        {
+          "sequence": 15,
+          "status": "HOLD",
+          "defects": 1,
+          "unresolved": 0
+        },
+        {
+          "sequence": 18,
+          "status": "GO",
+          "defects": 0,
+          "unresolved": 0
+        }
+      ]
+    }
+  ],
+  "reviewSummary": {
+    "path": "spike-out/open-launch-20260916/reviews/summary.json",
+    "sha256": "bf40785e2ed8ed85fd76d43434fc8cc3ee08e7460f3afddf4205cd74fe0a3512"
+  },
+  "reviewTotals": {
+    "execution": {
+      "expectedTargets": 41,
+      "completedTargets": 40,
+      "failedTargets": 1,
+      "modelAttempts": 47,
+      "stalledAttempts": 7,
+      "recoveredAfterRetry": 5,
+      "failed": [
+        {
+          "manifestSha256": "0de3ccf3eda71d38eefa8d69c918484875e3adbbe98ae796df85dfee4919ee07",
+          "sequence": 11,
+          "attempts": 2,
+          "error": "Codex 진행 정체 타임아웃 180000ms"
+        }
+      ]
+    },
+    "reviewedOutcomes": {
+      "evaluatedTargets": 40,
+      "GO": 18,
+      "HOLD": 22,
+      "ERROR": 1,
+      "defects": 35,
+      "unresolved": 1
+    },
+    "aggregation": {
+      "completedManifests": 3,
+      "rejectedManifests": 1
+    }
+  },
+  "reviewRootVerification": {
+    "path": "spike-out/open-launch-20260916/reviews-root-verification.json",
+    "sha256": "690a43e3259410c38e650afaae0aa83d0af4dc0ac004b196eb2fe2399436434d"
+  },
+  "rootSemanticSample": {
+    "path": "spike-out/open-launch-20260916/review-root-semantic-sample.json",
+    "sha256": "50c86114790f7b72f496cc0ebd148236357bb2054242d8cee44f473ec8be43d1"
+  },
+  "finalRuntime": {
+    "path": "spike-out/open-launch-20260916/final-runtime.json",
+    "sha256": "98858a73a7e9af77f9208c6f604d8620226dd6d5914cb3343b5bd6da9365aeff"
+  },
+  "runtime": {
+    "observedAt": "2026-09-16T04:29:59.941Z",
+    "runtime": {
+      "controlKey": "global",
+      "mode": "paused",
+      "generation": 421,
+      "changedBy": "lab:launch",
+      "changeReason": "로컬 구독 분석 권한 해제",
+      "localOwnerId": null,
+      "localLeaseExpiresAt": null,
+      "createdAt": "2026-08-05T14:21:42.217Z",
+      "updatedAt": "2026-09-16T04:28:39.633Z",
+      "databaseObservedAt": "2026-09-16T04:29:59.923Z",
+      "activeDeepLeases": 0,
+      "activeApplicationLeases": 0
+    }
+  },
+  "heldFieldTriage": {
+    "path": "spike-out/open-launch-20260916/held-field-triage.json",
+    "sha256": "e22dcb9e218579f967351d56dfae025913d5361f26ac441c563210fd251ae73d"
+  },
+  "fieldCoverageFinding": {
+    "path": "spike-out/open-launch-20260916/manual-field-coverage-findings.json",
+    "sha256": "f3ab0042704709fed2df09362aee10787a47aeedf67978165f71b48d165a9318"
+  },
+  "fieldCoverageDiagnosis": {
+    "path": "spike-out/open-launch-20260916/field-coverage-diagnosis.md",
+    "sha256": "2fab26a623fe7e2b2293100c6e25d08a79228d4cbc617b650fe549774d92678c"
+  },
+  "unexecuted": [
+    "service promotion",
+    "release approval",
+    "deployment",
+    "WAF opening",
+    "authenticated HWP/HWPX save/download UAT"
+  ],
+  "qualityBoundary": "authoringReady is the v19 machine verdict, not complete field coverage or approved user-facing authoring. Confirmed omitted company-name field requires separate correction and verification."
+}
