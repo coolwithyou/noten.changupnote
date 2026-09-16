@@ -1,0 +1,106 @@
+{
+  "schema": "exact19-seq0-application-only-preparation-evidence-v1",
+  "observedAt": "2026-09-16T14:52:58Z",
+  "scope": {
+    "exact19Aggregate": {
+      "publishable": 18,
+      "held": 1,
+      "failed": 0
+    },
+    "remainingOriginalSequence": 0,
+    "remainingSourceId": "PBLN_000000000126450",
+    "separateCurrentInventoryExact14ManifestSha256": "76105bfdca2598889c5c50d8b703dc4c301abd82e88cb66f13d76a5f93a1fd8a",
+    "separateCurrentInventoryExact14IncludedInExact19": false
+  },
+  "implementation": {
+    "gitCommit": "8afeb1b3845dbeca87a2ae8146414654f0d7ff70",
+    "change": "application-only normalizer accepts preserved terminalRepair ancestry only through the existing completed-current-inventory v2 checks",
+    "ordinaryLaunchPrimaryReuseStillRejected": true,
+    "applicationOnlyRequiresCompletedLaunch": true,
+    "applicationOnlyRequiresPrimaryReuseForEveryTarget": true,
+    "terminalRepairCompletedLaunchV1StillRejected": true
+  },
+  "gates": [
+    {
+      "gate": "focused current-inventory launch test",
+      "exitCode": 0,
+      "tests": 26
+    },
+    {
+      "gate": "pnpm lab:launch:test",
+      "exitCode": 0,
+      "nodeTestCounts": [26, 8, 18]
+    },
+    {
+      "gate": "pnpm --filter @cunote/web typecheck",
+      "exitCode": 0
+    },
+    {
+      "gate": "pnpm verify:package-runtime-freshness via launch prepare",
+      "exitCode": 0
+    }
+  ],
+  "manifest": {
+    "sha256": "86fec5bbe7de00bc584f9246dcf59b6bc68e0631c6b2afa59b95aefcdeaa5dd7",
+    "preparedAt": "2026-09-16T14:52:27.920Z",
+    "targetCount": 1,
+    "analysisMode": "application_only",
+    "applicationFieldAnalysisVersion": "kordoc-application-roundtrip-v21",
+    "transport": "claude-cli",
+    "model": "claude-opus-5",
+    "concurrency": 1,
+    "gitShaAtPreparation": "8afeb1b3845dbeca87a2ae8146414654f0d7ff70",
+    "packageRuntimeSha256": "34f5e88511d02e459531c409fa63a18d64e78cc8fbb3300cef6d7de8bfb74456",
+    "inventorySha256": "40b253e12223808b79c4fee2f9f33e83918888b0848827cb9200c368b13e5b00",
+    "sourceManifestSha256": "d06199dd22c9c81be0b40c3e740fcb003e5456d3b39add5633f55cf015e0b37e",
+    "sourceGrantSha256": "bae25afd6ca18bf6d6df66d246c79fb66886537cae7cd79e3db1ebf0808fdf39",
+    "sourceReceiptSha256": "dbcdb3ff2897898bd75afe406481c42c248cbce01ad5110ddb77cd9639b18514",
+    "selectedRepairSequences": [0],
+    "terminalRepairSourceManifestSha256": "8f3374df984d0459ac2bb712ba77b29ae81502a9898606e0bbf414f812334924",
+    "terminalRepairSourceGrantSha256": "ebbe295e4e46b70dd0b27fabc29c2c0da8abafb918461c24180a49f482766f28",
+    "terminalRepairReceiptSha256s": [
+      "1d51dc26eaff6bed4d49f696cca56c53f0e003352da9fa1cade21a96361fabd7"
+    ],
+    "terminalRepairOriginalSequences": [0, 1, 2, 16]
+  },
+  "target": {
+    "sequence": 0,
+    "grantId": "6176af74-cbb0-44d9-b577-ce1e5345914d",
+    "inputSha256": "050e75ee59aba7468ac1a4f66e3681a6641fea1146d675db15e4dc5d68e7faa1",
+    "attachmentManifestSha256": "f48f7278e01f7ce716dcb3dc73d36dffcc4ef0feda75616f8359188d5b197bc9",
+    "primaryReuse": {
+      "sourceSequence": 0,
+      "sourceRunId": "run-2026-09-16T031737.486Z-3f4ef7",
+      "sourceRunArtifactPath": "spike-out/analysis-lab/bizinfo__PBLN_000000000126450/run-2026-09-16T031737.486Z-3f4ef7.json",
+      "sourceRunArtifactSha256": "55f904ba1056a3d580a9489203eb952844cc5d6c3e66fcd2a58ad8417cb9c957",
+      "sourceLaunchReceiptSha256": "dbcdb3ff2897898bd75afe406481c42c248cbce01ad5110ddb77cd9639b18514",
+      "primaryValidationOutcome": "publishable",
+      "matchingReadiness": "conditional",
+      "primaryRepairTerminationReason": "accepted",
+      "primaryMatchingProjectionVerification": "verified"
+    },
+    "previousApplicationRoundtripStatus": "review_required",
+    "previousFieldReadyDocumentCount": 0
+  },
+  "runtime": {
+    "observedAt": "2026-09-16T14:52:43.878Z",
+    "mode": "paused",
+    "generation": 427,
+    "localOwnerId": null,
+    "localLeaseExpiresAt": null,
+    "activeDeepLeases": 0,
+    "activeApplicationLeases": 0
+  },
+  "executionBoundary": {
+    "matchingGrantCount": 0,
+    "matchingStatusCount": 0,
+    "matchingReceiptCount": 0,
+    "modelCalls": 0,
+    "launchStarted": false,
+    "runtimeWrites": 0,
+    "promotionWrites": 0,
+    "deployment": false,
+    "liveExecutionAuthorized": false,
+    "requiredNext": "Explicit approval of exact manifest 86fec5bbe7de00bc584f9246dcf59b6bc68e0631c6b2afa59b95aefcdeaa5dd7 before grant and live application-only launch."
+  }
+}
