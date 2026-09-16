@@ -1,0 +1,214 @@
+{
+  "schema": "coverage-v21-integration-evidence-v1",
+  "observedAt": "2026-09-16T14:21:04.169883+00:00",
+  "parentCommit": "37dfd8f5ffa352d03e35d0f83d0b67ac6b64f00b",
+  "fingerprint": "b6e830ff6091f8c5257e03e01f03fc81c3bbe0414c8cd49962b44a8f2a000125",
+  "ownership": "User explicitly transferred the shared diff to this session as sole integration owner.",
+  "applicationVersion": "kordoc-application-roundtrip-v21",
+  "scope": {
+    "exact14Manifest": "984e8db4b0c95a5f08a0fd72310f8dfaa3ea462386d93ed5882b2a750272bacb",
+    "exact14Grant": "d9ddd12a8b06a39f3ea811bd78c02264ce225c46279c907ea9470d8e8507d2c1",
+    "exact14Receipt": "462c655789a269a8c17312216c9331dbf2d4cdcf17ec15fb21efc9cae6a8705e",
+    "held": 14,
+    "failed": 0
+  },
+  "offlineReplay": {
+    "schema": "coverage-v21-offline-replay-v1",
+    "observedAt": "2026-09-16T14:16:01.022Z",
+    "targets": 18,
+    "allDocumentAdditional": 235,
+    "applicationAdditional": 228,
+    "referenceDocumentAdditional": 7,
+    "structuralRevived": 0,
+    "modelCalls": 0,
+    "primaryReruns": 0,
+    "originalArtifactsUnchanged": 62,
+    "readinessNotPromoted": true
+  },
+  "completedReader": {
+    "schema": "completed-rerun-verification-v1",
+    "verifiedAt": "2026-09-16T14:11:33.216Z",
+    "repositoryRoot": "/Users/ffgg/noten.works/cunote",
+    "resultCount": 3,
+    "targetCount": 18,
+    "runArtifactCount": 18,
+    "modelCalls": 0,
+    "databaseReads": 0,
+    "databaseWrites": 0,
+    "results": [
+      {
+        "scope": "repair1",
+        "resultPath": "spike-out/company-field-deploy-rerun-20260916/repair1-result.json",
+        "receiptSha256": "f27eb8d14f3970b62796906c4aa6732a06ae63d27051755cd4a0d95e5e1372c6",
+        "manifestSha256": "a1b2c30b192a80d75b7758b44627125e54a5e7c46c0f55d36968c072556bf201",
+        "grantSha256": "f09d8c4476e20d288da1665efc4f400617a98cce9348c307be064fcfe7bc9bea",
+        "targetCount": 1,
+        "runArtifactCount": 1,
+        "summary": {
+          "publishable": 0,
+          "held": 1,
+          "failed": 0,
+          "skipped": 0
+        },
+        "ancestryVerified": true,
+        "exactTargetsVerified": true,
+        "runArtifactHashesVerified": true
+      },
+      {
+        "scope": "repair4",
+        "resultPath": "spike-out/company-field-deploy-rerun-20260916/repair4-result.json",
+        "receiptSha256": "9c8e06d4c764d01cbf3da6a937ecc3eb4cf90d60f27fd7cae286dcc34bd090c1",
+        "manifestSha256": "23ac561423d40a2e035f3f7ecb84321f8d2aa516ea353a418d21de652ab80d44",
+        "grantSha256": "90ec33ce739ecd6d5c42f1b5cdfe01eea2f1f04227f1ed683b826841aa3c606d",
+        "targetCount": 3,
+        "runArtifactCount": 3,
+        "summary": {
+          "publishable": 0,
+          "held": 2,
+          "failed": 1,
+          "skipped": 0
+        },
+        "ancestryVerified": true,
+        "exactTargetsVerified": true,
+        "runArtifactHashesVerified": true
+      },
+      {
+        "scope": "new30",
+        "resultPath": "spike-out/company-field-deploy-rerun-20260916/new30-result.json",
+        "receiptSha256": "462c655789a269a8c17312216c9331dbf2d4cdcf17ec15fb21efc9cae6a8705e",
+        "manifestSha256": "984e8db4b0c95a5f08a0fd72310f8dfaa3ea462386d93ed5882b2a750272bacb",
+        "grantSha256": "d9ddd12a8b06a39f3ea811bd78c02264ce225c46279c907ea9470d8e8507d2c1",
+        "targetCount": 14,
+        "runArtifactCount": 14,
+        "summary": {
+          "publishable": 0,
+          "held": 14,
+          "failed": 0,
+          "skipped": 0
+        },
+        "ancestryVerified": true,
+        "exactTargetsVerified": true,
+        "runArtifactHashesVerified": true
+      }
+    ]
+  },
+  "runtime": {
+    "observedAt": "2026-09-16T14:16:33.324Z",
+    "runtime": {
+      "controlKey": "global",
+      "mode": "paused",
+      "generation": 427,
+      "changedBy": "lab:launch",
+      "changeReason": "로컬 구독 분석 권한 해제",
+      "localOwnerId": null,
+      "localLeaseExpiresAt": null,
+      "createdAt": "2026-08-05T14:21:42.217Z",
+      "updatedAt": "2026-09-16T13:56:58.292Z",
+      "databaseObservedAt": "2026-09-16T14:16:33.286Z",
+      "activeDeepLeases": 0,
+      "activeApplicationLeases": 0
+    }
+  },
+  "gates": {
+    "observedAt": "2026-09-16T14:20:08.286639+00:00",
+    "sourceHashes": {
+      "apps/web/src/lib/rhwp/fieldAnchors.test.ts": "a629e464053ff5fbbe754e7ecd69ff1ae19cd22ccd29b43b3ef9e8df4da3c439",
+      "apps/web/src/lib/rhwp/fieldAnchors.ts": "cc4aea7950db049ee0ee9156b9f878bf60477590a90b1a63e12ee0c9a49937a5",
+      "apps/web/src/lib/server/analysis-lab/application-roundtrip/field-coverage.test.ts": "0e50ae1a680306add027a17d852d8c360a0ecc553ea29aa80f3ae7bbdd120312",
+      "apps/web/src/lib/server/analysis-lab/application-roundtrip/field-planner.test.ts": "506ba5f0b41be276b6eb84315f03755c67c8caea79c2ed9db537545b8aa9406f",
+      "apps/web/src/lib/server/analysis-lab/completed-analysis-launch-reader.test.ts": "87d9302e238f638ea2ae8000d649f272c90458eef09e51c919174087073c9439",
+      "apps/web/src/lib/server/analysis-lab/current-inventory-launch.test.ts": "9483dcde2f985be1be50b5b20270b222cf59be52b0399efe13bdb4f1c2b030c9",
+      "apps/web/src/lib/server/analysis-lab/launch-batch-artifacts.ts": "1f4bd07593a17a3d59c8acdf9094b5b22e482f2451361018797abfee1bea2331",
+      "apps/web/src/lib/server/analysis-lab/launch-batch.test.ts": "bb5718756b6179c2094e59f026807cbcbdb650988e45497032ae5f41c2f471c6",
+      "apps/web/src/lib/server/application-analysis/analyze-document.ts": "2ea6ceba68d7febcad9aef376842d8ef642ddb4ad3f670baf7b6c2962d1c1e7d",
+      "apps/web/src/lib/server/application-analysis/field-coverage.ts": "89968c9914687f4d3a6e41b87cf2873c3fb5072a4ad637b2a4b3312613734d1a",
+      "apps/web/src/lib/server/application-analysis/field-planner.ts": "d202d981a6d65437020e148c6a72843faeefda15f0ad07e36b2d8ac58dd10afb",
+      "apps/web/src/lib/server/documents/applicationAnalysisContract.ts": "9ba4e0b3691f8f3cfbf4d5336db982adec7ee5ca84ab6662cca21d2bfdca62d3",
+      "apps/web/src/lib/server/productReadiness/productSeams.test.ts": "e534ff05b0c05dea261a5e435c4d0517bcb860ff47e2a903b82bbd59ec6b6a2a"
+    },
+    "sourceUnchanged": true,
+    "gates": [
+      {
+        "gate": "lab:roundtrip:test",
+        "exitCode": 0,
+        "seconds": 4.2,
+        "log": "spike-out/coverage-v21-20260916/lab-roundtrip-test.log",
+        "sha256": "e7409cb44588479765b74b9af194d48bbd284551baea30d3816e444d229281b2"
+      },
+      {
+        "gate": "lab:launch:test",
+        "exitCode": 0,
+        "seconds": 4.4,
+        "log": "spike-out/coverage-v21-20260916/lab-launch-test.log",
+        "sha256": "95ae0463d8258ce65ba1bc1a6ae2fee7c498337dad83f6f4f166759501741215"
+      },
+      {
+        "gate": "lab:release:test",
+        "exitCode": 0,
+        "seconds": 4.2,
+        "log": "spike-out/coverage-v21-20260916/lab-release-test.log",
+        "sha256": "a6e727430775fd0549554cd9def79318ed2e30c891210722143824b7bc0b9ee5"
+      },
+      {
+        "gate": "test",
+        "exitCode": 0,
+        "seconds": 78.6,
+        "log": "spike-out/coverage-v21-20260916/test.log",
+        "sha256": "43d3a19c324075a2cb119c91c22470219428e4a42164ed088524704d7ff98e32"
+      }
+    ]
+  },
+  "ack": {
+    "schema": "analysis-monitor-precheck-event-v1",
+    "decisionRequired": false,
+    "status": "acknowledged",
+    "fingerprint": "b6e830ff6091f8c5257e03e01f03fc81c3bbe0414c8cd49962b44a8f2a000125",
+    "exitCode": 3,
+    "pendingAfter": null
+  },
+  "artifacts": [
+    {
+      "path": "spike-out/coverage-v21-20260916/replay.ts",
+      "sha256": "cb03d01b86bfeab4d8fa732143aa01c457399effea6f6d393a5fc9c9a842fd76"
+    },
+    {
+      "path": "spike-out/coverage-v21-20260916/replay.json",
+      "sha256": "5f3082a423243b0d56832386c35cf8aa74fc0678e45d4e3919e42cad9456598a"
+    },
+    {
+      "path": "spike-out/coverage-v21-20260916/completed-reader.json",
+      "sha256": "cd17ba3c497e7463a3d15d9a37e50245f1b1cd1be795dfc039bf82e6f0c8dd3c"
+    },
+    {
+      "path": "spike-out/coverage-v21-20260916/runtime.json",
+      "sha256": "4da599261fd2d3541f448e2cbb864265467b956f465e6d87b824aad718a5abaa"
+    },
+    {
+      "path": "spike-out/coverage-v21-20260916/pending-before.json",
+      "sha256": "ff6d9080b4d1e696d9c03bbe733761eff3199849f06330871f9dcd9719a20379"
+    },
+    {
+      "path": "spike-out/coverage-v21-20260916/ack.json",
+      "sha256": "e01d71109a81caa4e932ad7b4c631d87157037030cb6984897ec360e3f4ae9d2"
+    },
+    {
+      "path": "spike-out/coverage-v21-20260916/gates.json",
+      "sha256": "e1beb7f32951eaff2fe1a5bb0d5ee7400326baf05169776ecb44cc4590ef8880"
+    }
+  ],
+  "executionBoundary": {
+    "modelCalls": 0,
+    "primaryReruns": 0,
+    "newManifestIssued": false,
+    "newGrantIssued": false,
+    "runtimeWrites": 0,
+    "promotionWrites": 0,
+    "deployment": false,
+    "requiredBeforeLive": "New exact v21 application-only manifest and explicit user approval; verified existing primary must be reused. Existing primary+application launch is not a substitute."
+  },
+  "remaining": [
+    "Application-only launch preparation/execution contract must be verified before a new manifest is issued.",
+    "No v21 live model quality or authoring readiness result exists.",
+    "Actual HWP saving and Hancom visual UAT for short-label behavior is unexecuted."
+  ]
+}

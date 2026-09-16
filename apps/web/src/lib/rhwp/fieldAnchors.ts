@@ -319,10 +319,11 @@ function normalizedLayoutHits(
   query: string,
   hintPage: number | null,
   cellRunCache: Map<number, PageTextRun[][]>,
+  allowExactShortLabel = false,
 ): SearchHit[] {
   if (!document.getPageTextLayout) return [];
   const queryText = normalizedText(query);
-  if (queryText.length < 2) return [];
+  if (queryText.length < (allowExactShortLabel ? 1 : 2)) return [];
   const pageIndexes = hintPage
     ? [hintPage - 1]
     : Array.from({ length: document.pageCount() }, (_, index) => index);
@@ -357,6 +358,8 @@ function normalizedLayoutHits(
     for (const runs of cellRunCache.get(pageIndex) ?? []) {
       const cellText = runs.map((run) => run.text).join("");
       if (normalizedText(cellText) !== queryText) continue;
+      if (allowExactShortLabel && cellText.normalize("NFKC").replace(/\s+/gu, "")
+        !== query.normalize("NFKC").replace(/\s+/gu, "")) continue;
       const first = runs[0]!;
       hits.push({
         sec: first.secIdx,
@@ -533,8 +536,26 @@ function enumerateFieldCandidates(
   };
   const candidates = new Map<string, Candidate>();
   const anchorLabel = field.anchorLabel?.trim() || field.label;
-  for (const [variantIndex, variant] of labelVariants(anchorLabel).entries()) {
-    const hits = [
+  const shortLabel = normalizedText(anchorLabel).length === 1;
+  const shortOccurrence = shortLabel ? exactStructuralOccurrence(field) : null;
+  if (shortLabel && (shortOccurrence === null || field.position?.targetKind !== undefined
+    || ![field.position?.blockIndex, field.position?.row, field.position?.col]
+      .every((value) => Number.isSafeInteger(value) && (value as number) >= 0))) return [];
+  for (const [variantIndex, variant] of (shortLabel ? [anchorLabel] : labelVariants(anchorLabel)).entries()) {
+    // 한 글자는 부분 문자열 검색을 사용하지 않는다. 모든 페이지의 whole-cell hit를
+    // 구조 순으로 정렬해 source-bound occurrence를 먼저 선택한 뒤 행/열을 대조한다.
+    const shortHits = shortLabel
+      ? normalizedLayoutHits(document, variant, null, context.cellRunCache, true)
+      : [];
+    const uniqueShortHits = [...new Map(shortHits.map((hit) => [
+      `${hit.sec}:${hit.cellContext!.parentPara}:${hit.cellContext!.ctrlIdx}:${hit.cellContext!.cellIdx}`,
+      hit,
+    ])).values()].sort((a, b) => a.sec - b.sec
+      || a.cellContext!.parentPara - b.cellContext!.parentPara
+      || a.cellContext!.ctrlIdx - b.cellContext!.ctrlIdx
+      || a.cellContext!.cellIdx - b.cellContext!.cellIdx);
+    const selectedShortHit = shortOccurrence === null ? undefined : uniqueShortHits[shortOccurrence];
+    const hits = shortLabel ? (selectedShortHit ? [selectedShortHit] : []) : [
       ...parseArray<SearchHit>(document.searchAllText(variant, false, true)),
       ...normalizedLayoutHits(document, variant, hintPage, context.cellRunCache),
     ];
@@ -554,6 +575,8 @@ function enumerateFieldCandidates(
       const cells = context.tableCache.get(tableKey) ?? [];
       const labelCell = cells.find((cell) => cell.cellIdx === cellContext.cellIdx);
       if (!labelCell) continue;
+      if (shortLabel && (field.position?.row !== labelCell.row || field.position?.col !== labelCell.col
+        || (labelCell.rowSpan ?? 1) !== 1 || (labelCell.colSpan ?? 1) !== 1)) continue;
       const exactSameCellTextRequested = field.position?.targetKind === "table_cell_text";
       const exactSameCellText = exactSameCellTextRequested
         && hit.wholeCellExact === true
@@ -584,6 +607,8 @@ function enumerateFieldCandidates(
         targetCell = right ?? below;
       }
       if (!targetCell) continue;
+      if (shortLabel && (targetCell.row !== labelCell.row || targetCell.col !== labelCell.col + 1
+        || (targetCell.rowSpan ?? 1) !== 1 || (targetCell.colSpan ?? 1) !== 1)) continue;
       const pageInfo = pageInfoAt(targetCell.pageIndex);
       if (!pageInfo) continue;
       const box = normalizeBox(

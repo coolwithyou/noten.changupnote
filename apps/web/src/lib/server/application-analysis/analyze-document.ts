@@ -128,7 +128,7 @@ export async function analyzeRoundtripDocument(
     fields: planned.fields,
     role: classification.role,
   });
-  const fieldCoverage = finalizeRoundtripFieldCoverage(planned.fields, unsupportedNativeGaps);
+  const fieldCoverage = finalizeRoundtripFieldCoverage(planned.fields, unsupportedNativeGaps, parsed.blocks);
   planned.summary = finalizeFieldPlanning(planned.summary, planned.fields);
   if (planned.summary.warning) warnings.push(`FIELD_PLAN: ${planned.summary.warning}`);
   for (const issue of fieldCoverage.unresolvedCandidates) {

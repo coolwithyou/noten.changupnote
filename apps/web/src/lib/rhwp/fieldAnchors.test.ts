@@ -235,6 +235,48 @@ const [repeatedResolution] = resolveRhwpFieldAnchorsExact(repeatedLabelDocument,
 assert.equal(repeatedResolution?.status, "unique");
 assert.equal(repeatedResolution?.status === "unique" ? repeatedResolution.anchor.target.cellIndex : null, 13);
 
+// 단일 글자는 전체 셀의 exact 순번과 row/col이 함께 맞아야만 오른쪽 값을 연다.
+const shortLabelDocument: RhwpAnchorDocument = {
+  ...repeatedLabelDocument,
+  getPageTextLayout: () => JSON.stringify({ runs: [
+    { text: "계", secIdx: 0, parentParaIdx: 3, controlIdx: 0, cellIdx: 10, cellParaIdx: 0, charStart: 0 },
+    { text: "계", secIdx: 0, parentParaIdx: 3, controlIdx: 0, cellIdx: 12, cellParaIdx: 0, charStart: 0 },
+  ] }),
+};
+const shortField = {
+  fieldId: "total-stage-one", label: "질적 성과 목표 계 - 1단계", anchorLabel: "계", fieldType: "number",
+  position: { blockIndex: 0, row: 2, col: 0, occurrence: 1, normalizedLabel: "계" },
+};
+const [shortResolution] = resolveRhwpFieldAnchorsExact(shortLabelDocument, [shortField]);
+assert.equal(shortResolution?.status, "unique");
+assert.equal(shortResolution?.status === "unique" ? shortResolution.anchor.target.cellIndex : null, 13);
+for (const position of [
+  null,
+  { ...shortField.position, occurrence: 0 },
+  { ...shortField.position, occurrence: 2 },
+  { ...shortField.position, col: 1 },
+  { ...shortField.position, normalizedLabel: "명" },
+]) {
+  assert.equal(resolveRhwpFieldAnchorsExact(shortLabelDocument, [{ ...shortField, position }])[0]?.status, "missing");
+}
+const { getPageTextLayout: _shortLayout, ...shortWithoutLayout } = shortLabelDocument;
+assert.equal(resolveRhwpFieldAnchorsExact(shortWithoutLayout, [shortField])[0]?.status,
+  "missing", "일반 검색으로 한 글자 label의 whole-cell 증명을 대체하지 않음");
+const partialShortLabelDocument = {
+  ...shortLabelDocument,
+  getPageTextLayout: () => JSON.stringify({ runs: [
+    { text: "합계", secIdx: 0, parentParaIdx: 3, controlIdx: 0, cellIdx: 10, cellParaIdx: 0, charStart: 0 },
+    { text: "계%", secIdx: 0, parentParaIdx: 3, controlIdx: 0, cellIdx: 12, cellParaIdx: 0, charStart: 0 },
+  ] }),
+};
+assert.equal(resolveRhwpFieldAnchorsExact(partialShortLabelDocument, [shortField])[0]?.status, "missing");
+const mergedShortLabelDocument = {
+  ...shortLabelDocument,
+  getTableCellBboxes: () => JSON.stringify(JSON.parse(shortLabelDocument.getTableCellBboxes(0, 3, 0, null))
+    .map((cell: { cellIdx: number }) => cell.cellIdx === 13 ? { ...cell, colSpan: 2 } : cell)),
+};
+assert.equal(resolveRhwpFieldAnchorsExact(mergedShortLabelDocument, [shortField])[0]?.status, "missing");
+
 // 오른쪽 셀이 없는 세로형 표는 같은 열 범위의 바로 아래 셀까지만 입력 대상으로 허용한다.
 const stackedLabelDocument: RhwpAnchorDocument = {
   ...document,

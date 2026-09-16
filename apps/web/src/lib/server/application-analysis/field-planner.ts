@@ -15,6 +15,7 @@ import {
   hasExecutionScopedTimeout,
 } from "@/lib/server/deep-analysis/fetchTimeout";
 import { hasNonOverridableStructuralRejection } from "./core";
+import { isRoundtripFieldCoverageUnresolvedCandidate } from "./field-coverage";
 
 const TOOL_NAME = "emit_application_field_plan";
 const DEFAULT_MODEL = "claude-sonnet-5";
@@ -1177,8 +1178,11 @@ function buildSummary(
 }
 
 export function isSubscriptionRoundtripLlmCandidate(field: RoundtripFieldCandidate): boolean {
-  return field.inputLikelihood > TRIAGE_LOWER_BOUND
-    && field.inputLikelihood < TRIAGE_UPPER_BOUND;
+  if (hasNonOverridableStructuralRejection(field)) return false;
+  return (
+    field.inputLikelihood > TRIAGE_LOWER_BOUND
+    && field.inputLikelihood < TRIAGE_UPPER_BOUND
+  ) || isRoundtripFieldCoverageUnresolvedCandidate(field);
 }
 
 const needsLlmTriage = isSubscriptionRoundtripLlmCandidate;

@@ -11,6 +11,7 @@ import {
   hasFixedTableRoleRejection,
   hasNonOverridableStructuralRejection,
   isUnsupportedNestedMediaTextTarget,
+  normalizeRoundtripLabel,
 } from "./core";
 
 const COLLAPSED_CONTEXT_LENGTH = 400;
@@ -22,6 +23,8 @@ const FIXED_MARKER_SIGNAL = /(?:고정.{0,12}(?:표기|문자|값|기호|마커)
 const NON_INPUT_SIGNAL = /(?:입력\s*(?:대상|영역|항목)(?:이|가)?\s*(?:아님|아닙|아니|제외)|비입력\s*(?:대상|영역|항목)|작성\s*(?:대상|영역|항목)(?:이|가)?\s*(?:아님|아닙|아니|제외))/u;
 const INLINE_EMPTY_NUMBER_SLOT = /[:：][\t ]{2,}(?:명|개|건)(?=[\s/]|$)/gu;
 const LEADING_TEXT_CHECKBOX = /(?:^|\n)\s*[□☐■☑✓]/u;
+const POST_PLANNER_CONTEXT_REPLACEMENT = /^구조가 더 구체적인 “(.+)” 입력으로 대체$/u;
+const SHORT_LABEL_INPUT_CONFIDENCE = 0.75;
 
 /**
  * 후보 판정의 마지막 seam. 구조적으로 안전하지 않은 거대 후보는 제외하고,
@@ -30,20 +33,20 @@ const LEADING_TEXT_CHECKBOX = /(?:^|\n)\s*[□☐■☑✓]/u;
 export function finalizeRoundtripFieldCoverage(
   fields: RoundtripFieldCandidate[],
   unsupportedNativeGaps: readonly RoundtripFieldCoverageIssue[] = [],
+  blocks: readonly IRBlock[] = [],
 ): RoundtripFieldCoverageSummary {
   const structuralWarnings = [
     ...unsupportedNativeGaps,
     ...suppressCollapsedContextualFields(fields),
   ];
   const unresolvedCandidates = fields.flatMap((field): RoundtripFieldCoverageIssue[] => {
-    if (field.source === "contextual-region" || !field.empty || field.recommendedInput) return [];
-    if (hasResolvedRejection(field)) return [];
+    if (!isRoundtripFieldCoverageUnresolvedCandidate(field, fields)) return [];
     return [issue(field, field.required
       ? "필수 표시가 있는 빈 셀이 입력 대상에서 제외됨"
       : "빈 양식 셀을 입력 대상 또는 비입력 영역으로 확정하지 못함")];
   });
   const acceptedFields = fields.filter((field) => field.recommendedInput);
-  const anchorUnready = acceptedFields.filter((field) => !hasRhwpAnchorContract(field));
+  const anchorUnready = acceptedFields.filter((field) => !hasRhwpAnchorContract(field, blocks));
   for (const field of anchorUnready) {
     unresolvedCandidates.push(issue(field, "원문 라벨과 RHWP 구조 위치를 함께 확정하지 못함"));
   }
@@ -64,6 +67,20 @@ export function finalizeRoundtripFieldCoverage(
     anchorReadyInputCount: acceptedFields.length - anchorUnready.length,
     anchorUnreadyInputCount: anchorUnready.length,
   };
+}
+
+/**
+ * coverage가 입력/비입력 어느 쪽으로도 종결하지 못한 빈 후보다. 구독 LLM triage가
+ * 점수 임계만으로 이 후보를 건너뛰지 않도록 planner와 같은 판정 seam을 공유한다.
+ */
+export function isRoundtripFieldCoverageUnresolvedCandidate(
+  field: RoundtripFieldCandidate,
+  fields: readonly RoundtripFieldCandidate[] = [],
+): boolean {
+  return field.source !== "contextual-region"
+    && field.empty
+    && !field.recommendedInput
+    && !hasResolvedRejection(field, fields);
 }
 
 /**
@@ -172,9 +189,13 @@ export function emptyRoundtripFieldCoverage(): RoundtripFieldCoverageSummary {
   };
 }
 
-function hasRhwpAnchorContract(field: RoundtripFieldCandidate): boolean {
+function hasRhwpAnchorContract(
+  field: RoundtripFieldCandidate,
+  blocks: readonly IRBlock[],
+): boolean {
   const anchorLabel = field.label.normalize("NFKC").replace(/\s+/gu, "").trim();
-  if (anchorLabel.length < 2 || GENERIC_CHOICE_LABEL.test(field.normalizedLabel)) return false;
+  if (GENERIC_CHOICE_LABEL.test(field.normalizedLabel)) return false;
+  if (anchorLabel.length < 2 && !hasExactShortKordocTableAnchor(field, blocks)) return false;
   if (!Number.isSafeInteger(field.location.blockIndex) || field.location.blockIndex < 0) return false;
   const target = field.location.target;
   if (target?.kind === "paragraph_text") {
@@ -191,6 +212,82 @@ function hasRhwpAnchorContract(field: RoundtripFieldCandidate): boolean {
   if (!Number.isSafeInteger(field.location.col) || field.location.col < 0) return false;
   // 본문 전체 문자열 교체는 RHWP 표 셀/누름틀 exact binding과 다른 편집 계약이다.
   return target?.kind !== "block_text";
+}
+
+/**
+ * 한 글자 라벨은 이름만으로 쓰기 위치를 열지 않는다. 같은 원본 parse에서 label 좌표,
+ * 동명 occurrence, 오른쪽 값 셀이 모두 exact하게 일치하고 기존 입력 임계도 통과한 경우만
+ * Kordoc label/occurrence writer 계약을 인정한다.
+ */
+function hasExactShortKordocTableAnchor(
+  field: RoundtripFieldCandidate,
+  blocks: readonly IRBlock[],
+): boolean {
+  if (
+    field.source !== "kordoc-form"
+    || field.writeOperation !== "kordoc_field"
+    || field.location.target !== undefined
+    || field.analysisSource !== "llm"
+    || field.llmDecision !== "input"
+    || !Number.isFinite(field.llmConfidence)
+    || (field.llmConfidence ?? 0) < SHORT_LABEL_INPUT_CONFIDENCE
+    || !field.empty
+  ) return false;
+  const { blockIndex, row: rowIndex, col: colIndex, occurrence } = field.location;
+  if (![blockIndex, rowIndex, colIndex, occurrence].every((value) => Number.isSafeInteger(value) && value >= 0)) {
+    return false;
+  }
+  if (!field.normalizedLabel || normalizeRoundtripLabel(field.label) !== field.normalizedLabel) return false;
+  const block = blocks[blockIndex];
+  const row = block?.type === "table" ? block.table?.cells[rowIndex] : undefined;
+  const labelCell = row?.[colIndex];
+  if (
+    !block
+    || !row
+    || !labelCell
+    || labelCell.colSpan !== 1
+    || labelCell.rowSpan !== 1
+    || normalizeRoundtripLabel(labelCell.text) !== field.normalizedLabel
+  ) return false;
+  const targetCol = colIndex + Math.max(1, labelCell.colSpan);
+  const target = row[targetCol];
+  if (
+    !target
+    || target.colSpan !== 1
+    || target.rowSpan !== 1
+    || target.text.normalize("NFKC").trim() !== field.originalValue.normalize("NFKC").trim()
+  ) return false;
+  // 병합 anchor의 covered cell은 독립 값 칸으로 열지 않는다.
+  for (let r = 0; r <= rowIndex; r += 1) {
+    for (let c = 0; c <= targetCol; c += 1) {
+      const cell = block.table!.cells[r]?.[c];
+      if (!cell || r + cell.rowSpan <= rowIndex) continue;
+      if ((r !== rowIndex || c !== colIndex) && c <= colIndex && c + cell.colSpan > colIndex) return false;
+      if ((r !== rowIndex || c !== targetCol) && c <= targetCol && c + cell.colSpan > targetCol) return false;
+    }
+  }
+
+  let observedOccurrence = 0;
+  for (let currentBlock = 0; currentBlock <= blockIndex; currentBlock += 1) {
+    const table = blocks[currentBlock]?.table;
+    if (!table) continue;
+    for (let currentRow = 0; currentRow < table.cells.length; currentRow += 1) {
+      const cells = table.cells[currentRow] ?? [];
+      for (let currentCol = 0; currentCol < cells.length; currentCol += 1) {
+        if (normalizeRoundtripLabel(cells[currentCol]?.text ?? "") !== field.normalizedLabel) continue;
+        // 단문은 괄호·기호를 지운 느슨한 동명 hit가 native 순번에 섞이지 않게 한다.
+        if ((cells[currentCol]?.text ?? "").normalize("NFKC").replace(/\s+/gu, "")
+          !== field.label.normalize("NFKC").replace(/\s+/gu, "")) return false;
+        if (
+          currentBlock === blockIndex
+          && currentRow === rowIndex
+          && currentCol === colIndex
+        ) return observedOccurrence === occurrence;
+        observedOccurrence += 1;
+      }
+    }
+  }
+  return false;
 }
 
 function suppressCollapsedContextualFields(
@@ -225,8 +322,25 @@ function hasExactCellTarget(
     && field.location.target.col === col);
 }
 
-function hasResolvedRejection(field: RoundtripFieldCandidate): boolean {
+function hasResolvedRejection(
+  field: RoundtripFieldCandidate,
+  fields: readonly RoundtripFieldCandidate[],
+): boolean {
   if (hasNonOverridableStructuralRejection(field)) return true;
+  // planner의 양의 판정 뒤에도 RHWP가 더 정확한 쓰기 대상을 만들 수 있다. 이 신호는
+  // 동일 후보를 막연히 거절한 이력이 아니라 exact contextual 입력으로 대체했다는 구조 증거다.
+  if (field.inputSignals.some((signal) => {
+    const replacementLabel = POST_PLANNER_CONTEXT_REPLACEMENT.exec(signal)?.[1];
+    return replacementLabel !== undefined && fields.some((candidate) => (
+      candidate.source === "contextual-region"
+      && candidate.recommendedInput
+      && candidate.label === replacementLabel
+      && candidate.location.blockIndex === field.location.blockIndex
+      && Math.abs(candidate.location.row - field.location.row) <= 1
+      && (candidate.normalizedLabel.startsWith(field.normalizedLabel)
+        || field.normalizedLabel.startsWith(candidate.normalizedLabel))
+    ));
+  })) return true;
   const locatedLlmRejection = (
     field.analysisSource === "llm"
     && field.llmDecision === "not_input"

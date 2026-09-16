@@ -17,6 +17,7 @@ import {
   createAnalysisLaunchGrant,
   encodeCanonical,
   normalizeAnalysisLaunchManifest,
+  normalizeCompletedAnalysisLaunchManifestForOfflineConsumption,
   writeAnalysisLaunchArtifact,
   type AnalysisLaunchManifest,
   type AnalysisLaunchReceipt,
@@ -36,6 +37,37 @@ const REAL_RECEIPTS = [
   "9b58644f25ee678975791e681198bcf7eb7d4a256d18d18d3d39e1a2002bb3f5",
   "81e92656e094b6d6b4cbbd7a4bb2420a34792f813c5cd34f5bbaf6da4ce576f5",
 ] as const;
+
+test("v20 종료 계약은 오프라인에서만 읽고 v21 실행 권한으로 승계하지 않는다", async () => {
+  const root = await mkdtemp(join(tmpdir(), "cunote-completed-v20-"));
+  try {
+    const old = await fixture(root, {
+      promptVersion: "lab-deep-v28",
+      validatorVersion: "deep-analysis-validator-v23",
+      applicationFieldAnalysisVersion: "kordoc-application-roundtrip-v20",
+    });
+    const manifest = {
+      ...old.manifest,
+      source: {
+        ...old.manifest.source,
+        completedLaunch: {
+          schema: "analysis-launch-completed-current-inventory-v2",
+          inventorySha256: old.manifest.source.planArtifactSha256,
+          sourceManifestSha256: "7".repeat(64),
+          sourceGrantSha256: "8".repeat(64),
+          terminalReceiptSha256: "9".repeat(64),
+          selectedOriginalSequences: [0],
+        },
+      },
+      execution: { ...old.manifest.execution, existingRunPolicy: "rerun_exact_targets" },
+    };
+    assert.equal(normalizeCompletedAnalysisLaunchManifestForOfflineConsumption(manifest).execution.applicationFieldAnalysisVersion,
+      "kordoc-application-roundtrip-v20");
+    assert.throws(() => normalizeAnalysisLaunchManifest(manifest));
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
 
 test("실제 v15/v17/v19 종료 receipts는 target 결과와 terminal repair ancestry를 보존한다", {
   skip: !(await realReceiptsAvailable(process.cwd())),

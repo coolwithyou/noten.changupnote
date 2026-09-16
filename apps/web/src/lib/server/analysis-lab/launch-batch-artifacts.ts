@@ -839,6 +839,8 @@ function normalizeAnalysisLaunchManifestForPurpose(
 }
 
 const COMPLETED_RECEIPT_OFFLINE_HISTORICAL_CONTRACTS = new Set([
+  // 기업명 수정 exact18의 v20 receipt는 오프라인 소비만 허용하며 v21 live 권한이 아니다.
+  "current_inventory|rerun_exact_targets|lab-deep-v28|deep-analysis-validator-v23|kordoc-application-roundtrip-v20",
   // 2026-09-16 신규30/복구5 종료 계약. v20 필드 누락 수정의 live 권한으로 승계하지 않는다.
   "current_inventory|skip_existing|lab-deep-v28|deep-analysis-validator-v23|kordoc-application-roundtrip-v19",
   "current_inventory|rerun_exact_targets|lab-deep-v28|deep-analysis-validator-v23|kordoc-application-roundtrip-v19",
@@ -899,7 +901,15 @@ function isSupportedCompletedReceiptOfflineContract(input: {
   if (
     input.transport !== "claude-cli"
     || input.model !== APPLICATION_ROUNDTRIP_ADOPTED_MODEL
-    || input.completedLaunch !== undefined
+  ) return false;
+  if (
+    input.completedLaunch !== undefined
+    && (
+      input.rawApplicationFieldAnalysisVersion !== "kordoc-application-roundtrip-v20"
+      || input.sourceKind !== "current_inventory"
+      || input.existingRunPolicy !== "rerun_exact_targets"
+      || input.completedLaunch.inventorySha256 !== input.planArtifactSha256
+    )
   ) return false;
   if (
     input.terminalRepair !== undefined
@@ -912,6 +922,7 @@ function isSupportedCompletedReceiptOfflineContract(input: {
     input.sourceKind === "current_inventory"
     && input.existingRunPolicy === "rerun_exact_targets"
     && input.terminalRepair === undefined
+    && input.completedLaunch === undefined
   ) return false;
   const authoringGuidePrimaryOnly = input.sourceKind === "authoring_guide_adoption"
     && input.adoptionManifestSha256 !== null

@@ -238,6 +238,133 @@ assert.equal(anchorIncomplete.anchorReadyInputCount, 0);
 assert.equal(anchorIncomplete.anchorUnreadyInputCount, 1);
 assert.match(anchorIncomplete.unresolvedCandidates[0]?.reason ?? "", /RHWP 구조 위치/);
 
+const postPlannerContextReplacement = field({
+  id: "replaced-analysis-choice",
+  label: "분석",
+  displayLabel: "시설장비 용도 - 분석",
+  recommendedInput: false,
+  analysisSource: "llm",
+  llmConfidence: 0.78,
+  signals: ["구조가 더 구체적인 “분석 보유 여부” 입력으로 대체"],
+});
+postPlannerContextReplacement.llmDecision = "input";
+const replacementInput = field({
+  id: "replacement-analysis-input",
+  label: "분석 보유 여부",
+  source: "contextual-region",
+  recommendedInput: true,
+});
+assert.equal(
+  finalizeRoundtripFieldCoverage([postPlannerContextReplacement]).status,
+  "review_required",
+  "대체 신호만 남고 실제 대체 입력이 없으면 보류 유지",
+);
+assert.equal(
+  finalizeRoundtripFieldCoverage([postPlannerContextReplacement, replacementInput]).status,
+  "complete",
+  "모델 판정 뒤 exact contextual 입력으로 대체된 후보는 과거 input 판정 때문에 hold하지 않음",
+);
+const staleReplacement = structuredClone(replacementInput);
+staleReplacement.recommendedInput = false;
+assert.equal(finalizeRoundtripFieldCoverage([postPlannerContextReplacement, staleReplacement]).status, "review_required");
+const otherBlockReplacement = structuredClone(replacementInput);
+otherBlockReplacement.location.blockIndex += 1;
+assert.equal(finalizeRoundtripFieldCoverage([postPlannerContextReplacement, otherBlockReplacement]).status, "review_required");
+const prePlannerReplacement = structuredClone(postPlannerContextReplacement);
+prePlannerReplacement.inputSignals = ["RHWP 구조가 더 구체적인 “분석 보유 여부” 입력으로 대체"];
+prePlannerReplacement.llmDecision = "uncertain";
+assert.equal(
+  finalizeRoundtripFieldCoverage([prePlannerReplacement, replacementInput]).status,
+  "review_required",
+  "추출 단계의 과거 대체 신호로 현재 uncertain 판정을 덮지 않음",
+);
+
+const exactShortLabelBlocks = [{
+  type: "table" as const,
+  table: {
+    rows: 4,
+    cols: 7,
+    hasHeader: true,
+    cells: [
+      [
+        { text: "단계\n성과지표", colSpan: 1, rowSpan: 1 },
+        { text: "1단계(yy~yy)", colSpan: 1, rowSpan: 1 },
+        { text: "n단계(yy~yy)", colSpan: 1, rowSpan: 1 },
+        { text: "계", colSpan: 1, rowSpan: 1 },
+        { text: "가중치(%)", colSpan: 1, rowSpan: 1 },
+        { text: "측정산식", colSpan: 1, rowSpan: 1 },
+        { text: "자료수집 방법/출처", colSpan: 1, rowSpan: 1 },
+      ],
+      Array.from({ length: 7 }, () => ({ text: "", colSpan: 1, rowSpan: 1 })),
+      Array.from({ length: 7 }, () => ({ text: "", colSpan: 1, rowSpan: 1 })),
+      [
+        { text: "계", colSpan: 1, rowSpan: 1 },
+        { text: "", colSpan: 1, rowSpan: 1 },
+        { text: "", colSpan: 1, rowSpan: 1 },
+        { text: "", colSpan: 1, rowSpan: 1 },
+        { text: "100", colSpan: 1, rowSpan: 1 },
+        { text: "", colSpan: 1, rowSpan: 1 },
+        { text: "", colSpan: 1, rowSpan: 1 },
+      ],
+    ],
+  },
+  pageNumber: 1,
+}];
+const exactShortLabel = field({
+  id: "qualitative-total-stage-one",
+  label: "계",
+  displayLabel: "질적 성과 목표 계 - 1단계(yy~yy)",
+  recommendedInput: true,
+  analysisSource: "llm",
+  llmConfidence: 0.78,
+});
+exactShortLabel.llmDecision = "input";
+exactShortLabel.location = {
+  blockIndex: 0,
+  row: 3,
+  col: 0,
+  occurrence: 1,
+  pageNumber: 1,
+};
+assert.equal(
+  finalizeRoundtripFieldCoverage([exactShortLabel]).status,
+  "review_required",
+  "한 글자 라벨은 원문 구조 증거 없이 열지 않음",
+);
+const exactShortCoverage = finalizeRoundtripFieldCoverage(
+  [exactShortLabel],
+  [],
+  exactShortLabelBlocks,
+);
+assert.equal(exactShortCoverage.status, "complete");
+assert.equal(exactShortCoverage.anchorReadyInputCount, 1);
+assert.equal(exactShortCoverage.anchorUnreadyInputCount, 0);
+
+const driftedShortLabel = structuredClone(exactShortLabel);
+driftedShortLabel.location.occurrence = 0;
+assert.equal(
+  finalizeRoundtripFieldCoverage([driftedShortLabel], [], exactShortLabelBlocks).status,
+  "review_required",
+  "동명 라벨 occurrence가 원문 위치와 다르면 fail closed",
+);
+for (const confidence of [0.74, Number.NaN]) {
+  const lowConfidence = structuredClone(exactShortLabel);
+  lowConfidence.llmConfidence = confidence;
+  assert.equal(finalizeRoundtripFieldCoverage([lowConfidence], [], exactShortLabelBlocks).status, "review_required");
+}
+const changedTarget = structuredClone(exactShortLabelBlocks);
+changedTarget[0]!.table.cells[3]![1]!.text = "기존 고정값";
+assert.equal(finalizeRoundtripFieldCoverage([exactShortLabel], [], changedTarget).status, "review_required");
+const coveredTarget = structuredClone(exactShortLabelBlocks);
+coveredTarget[0]!.table.cells[2]![1]!.rowSpan = 2;
+assert.equal(finalizeRoundtripFieldCoverage([exactShortLabel], [], coveredTarget).status, "review_required");
+const labelDrift = structuredClone(exactShortLabel);
+labelDrift.label = "명";
+assert.equal(finalizeRoundtripFieldCoverage([labelDrift], [], exactShortLabelBlocks).status, "review_required");
+const decoratedOccurrence = structuredClone(exactShortLabelBlocks);
+decoratedOccurrence[0]!.table.cells[0]![3]!.text = "(계)";
+assert.equal(finalizeRoundtripFieldCoverage([exactShortLabel], [], decoratedOccurrence).status, "review_required");
+
 const paragraphField = field({
   id: "open-company-name",
   label: "기업체명",
