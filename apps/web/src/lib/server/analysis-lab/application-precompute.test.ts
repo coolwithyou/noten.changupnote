@@ -181,6 +181,30 @@ function deferred<T>() {
   assert.equal(classifyApplicationFieldAnalysis(reference), "held");
 }
 
+// 독립 위치의 확정 필드만 남긴 partial 문서는 그 필드 수만 authoring ready로 집계한다.
+{
+  const partialWithManualAreas = document("partial", 3);
+  partialWithManualAreas.fieldCoverage.unresolvedCandidateCount = 1;
+  const run = {
+    version: APPLICATION_ROUNDTRIP_VERSION,
+    runId: "roundtrip-partial-with-manual-areas",
+    documents: [partialWithManualAreas],
+    recommendedAttachmentId: partialWithManualAreas.attachmentId,
+    error: null,
+  } as unknown as ApplicationRoundtripRun;
+  const reference = buildApplicationRoundtripReference({
+    result: { status: "fulfilled", value: run },
+    transport: "claude-cli",
+    model: "claude-opus-5",
+  });
+  assert.equal(reference.status, "partial");
+  assert.equal(reference.fieldReadyDocumentCount, 1);
+  assert.equal(reference.recognizedFieldCount, 3);
+  assert.equal(reference.remainingUnresolvedCandidateCount, 1);
+  assert.equal(reference.adjudicationStatus, "partial");
+  assert.equal(classifyApplicationFieldAnalysis(reference), "ready");
+}
+
 // 구버전처럼 anchor coverage가 없으면 표시 가능한 필드가 있어도 v8 ready로 추정하지 않는다.
 {
   const missingAnchorCoverage = document("complete", 2);

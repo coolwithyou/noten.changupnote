@@ -196,6 +196,47 @@ assert.throws(
   assert.equal(planned?.candidateSet.candidates.length, 1);
 }
 
+// v22 partial은 독립적으로 확정된 필드만 투영하고 미해결 후보는 원문 수동 작성으로 남긴다.
+{
+  const unresolvedField = {
+    ...document.fields[0]!,
+    fieldInstanceId: "field-manual-only",
+    label: "창업 여부",
+    displayLabel: "창업 여부",
+    normalizedLabel: "창업여부",
+    recommendedInput: false,
+    llmDecision: "uncertain" as const,
+    location: { blockIndex: 2, row: 1, col: 0, occurrence: 0, pageNumber: 1 },
+  };
+  const partialDocument = {
+    ...document,
+    fields: [...document.fields, unresolvedField],
+    emptyFieldCount: 2,
+    fieldCoverage: {
+      ...document.fieldCoverage,
+      status: "partial" as const,
+      rawEmptyCandidateCount: 2,
+      unresolvedCandidateCount: 1,
+      unresolvedCandidates: [{
+        fieldInstanceId: unresolvedField.fieldInstanceId,
+        label: unresolvedField.label,
+        reason: "빈 양식 셀을 확정하지 못함",
+        location: unresolvedField.location,
+      }],
+    },
+  };
+  const partialRun = roundtripRun(partialDocument);
+  const [planned] = buildApplicationPrecomputeMaterializationPlan({
+    labRun,
+    roundtripRun: partialRun,
+    manifest,
+    surfaces: [surface(STORAGE_KEY, SOURCE_SHA)],
+  });
+  assert.equal(planned?.status, "partial");
+  assert.deepEqual(planned?.fields.map((field) => field.label), ["회사소개"]);
+  assert.equal(planned?.fields.some((field) => field.label === "창업 여부"), false);
+}
+
 // 이미 봉인된 v7은 관리자 로컬 preview에서만 확정 필드를 호환 투영한다.
 {
   const reviewDocument = {

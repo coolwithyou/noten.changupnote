@@ -3,6 +3,7 @@ import {
   normalizeAnalysisLaunchApplicationRoundtripReuseBinding,
   normalizeAnalysisLaunchPrimaryReuseBinding,
   type AnalysisLaunchApplicationRoundtripReuseBinding,
+  type AnalysisLaunchAnalysisMode,
   type AnalysisLaunchPrimaryReuseBinding,
 } from "./launch-batch-artifacts";
 
@@ -27,7 +28,7 @@ export interface AnalysisLaunchBatchExecutionBinding {
   readonly model: string;
   readonly transport: "claude-cli";
   readonly promptVersion: string;
-  readonly analysisMode?: "primary_and_application" | "application_only";
+  readonly analysisMode?: AnalysisLaunchAnalysisMode;
   readonly withApplicationRoundtrip: boolean;
   readonly roundtripModel: string | null;
   readonly targets: ReadonlyMap<string, AnalysisLaunchTargetBinding>;
@@ -69,7 +70,11 @@ function normalizeBinding(
     throw new Error("launch batch source kind가 잘못됐습니다.");
   }
   const analysisMode = binding.analysisMode ?? "primary_and_application";
-  if (analysisMode !== "primary_and_application" && analysisMode !== "application_only") {
+  if (
+    analysisMode !== "primary_and_application"
+    && analysisMode !== "matching_only"
+    && analysisMode !== "application_only"
+  ) {
     throw new Error("launch batch analysisMode가 잘못됐습니다.");
   }
   if (
@@ -78,6 +83,25 @@ function normalizeBinding(
       : binding.roundtripModel !== null
   ) {
     throw new Error("launch batch 필드 분석/model binding이 일치하지 않습니다.");
+  }
+  const isAuthoringGuidePrimaryOnly = binding.sourceKind === "authoring_guide_adoption"
+    && analysisMode === "primary_and_application"
+    && !binding.withApplicationRoundtrip;
+  if (
+    !isAuthoringGuidePrimaryOnly
+    && ((analysisMode === "matching_only") === binding.withApplicationRoundtrip)
+  ) {
+    throw new Error("launch batch analysisMode와 필드 분석 결속이 일치하지 않습니다.");
+  }
+  if (
+    analysisMode === "matching_only"
+    && binding.sourceKind !== "formal_plan"
+    && binding.sourceKind !== "current_inventory"
+  ) {
+    throw new Error("launch batch matching-only source가 잘못됐습니다.");
+  }
+  if (analysisMode === "application_only" && binding.sourceKind !== "current_inventory") {
+    throw new Error("launch batch application-only source가 잘못됐습니다.");
   }
   if (binding.targets.size === 0) {
     throw new Error("launch batch target은 한 건 이상이어야 합니다.");

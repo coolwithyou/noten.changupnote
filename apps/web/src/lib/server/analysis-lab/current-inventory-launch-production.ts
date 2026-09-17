@@ -8,7 +8,12 @@ import { prepareLabAnalysis } from "./analyze";
 import { readDeepRepairHistoricalGrantIds } from "./deep-repair-preparation-history";
 import { readCurrentDeepRepairExecutionProvenance } from "./deep-repair-runtime-provenance";
 import { resolveLabModel } from "./extractor";
-import { encodeCanonical, writeAnalysisLaunchArtifact, type AnalysisLaunchTerminalRepairBinding } from "./launch-batch-artifacts";
+import {
+  encodeCanonical,
+  writeAnalysisLaunchArtifact,
+  type AnalysisLaunchAnalysisMode,
+  type AnalysisLaunchTerminalRepairBinding,
+} from "./launch-batch-artifacts";
 import { readTerminalRepairSource } from "./terminal-repair-source";
 import { classifyNoticePeriod, kstDayStartUtc } from "./notice-period";
 import { findMonorepoRoot } from "./run-store";
@@ -27,6 +32,7 @@ import {
 export async function prepareCurrentInventoryLaunch(input: {
   readonly grantIds: readonly string[];
   readonly concurrency: number;
+  readonly analysisMode?: Exclude<AnalysisLaunchAnalysisMode, "application_only">;
 }) {
   return prepareExactInventory(input, "open-visible-current-period-unseen-v1");
 }
@@ -35,6 +41,7 @@ export async function prepareCurrentInventoryLaunch(input: {
 export async function prepareMissingWorkspaceFieldsLaunch(input: {
   readonly grantIds: readonly string[];
   readonly concurrency: number;
+  readonly analysisMode?: Exclude<AnalysisLaunchAnalysisMode, "application_only">;
 }) {
   return prepareExactInventory(input, MISSING_WORKSPACE_FIELDS_POLICY);
 }
@@ -53,6 +60,7 @@ export async function prepareTerminalRepairLaunch(input: {
 async function prepareExactInventory(input: {
   readonly grantIds: readonly string[];
   readonly concurrency: number;
+  readonly analysisMode?: Exclude<AnalysisLaunchAnalysisMode, "application_only">;
 }, policy: CurrentInventoryPolicy, terminalRepair?: AnalysisLaunchTerminalRepairBinding) {
   if ((policy === TERMINAL_REPAIR_POLICY) !== Boolean(terminalRepair)) throw new Error("terminal repair ancestry가 필요합니다.");
   if (input.grantIds.length < 1 || input.grantIds.length > 100
@@ -113,7 +121,9 @@ async function prepareExactInventory(input: {
   }
   const inventorySha256 = createHash("sha256").update(encodeCanonical(inventory)).digest("hex");
   const manifest = buildCurrentInventoryLaunchManifest({ inventory, inventorySha256,
-    provenance, concurrency: input.concurrency, now: new Date(), ...(terminalRepair ? { terminalRepair } : {}) });
+    provenance, concurrency: input.concurrency, now: new Date(),
+    ...(input.analysisMode ? { analysisMode: input.analysisMode } : {}),
+    ...(terminalRepair ? { terminalRepair } : {}) });
   if (terminalRepair) {
     const latest = await readTerminalRepairSource(root, terminalRepair.sourceManifestSha256, terminalRepair.sourceGrantSha256);
     if (!encodeCanonical(latest.binding).equals(encodeCanonical(terminalRepair))) throw new Error("준비 중 terminal receipt 집합이 변경됐습니다.");

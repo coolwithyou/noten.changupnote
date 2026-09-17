@@ -551,6 +551,11 @@ try {
   );
   assert.equal(noApplicationCandidate.readiness.runFeatureReadiness.matching.status, "ready");
   assert.equal(noApplicationCandidate.readiness.runFeatureReadiness.authoring.status, "held");
+  assert.equal(noApplicationCandidate.readiness.applicationRoundtripStatus, null);
+  assert.equal(noApplicationCandidate.readiness.applicationRoundtripRunId, null);
+  assert.equal(noApplicationCandidate.readiness.applicationDocumentCount, null);
+  assert.equal(noApplicationCandidate.readiness.fieldReadyDocumentCount, null);
+  assert.equal(noApplicationCandidate.readiness.recognizedFieldCount, null);
   assert.equal(noApplicationCandidate.readiness.authoringEvidenceStatus, "held");
   assert.deepEqual(
     noApplicationCandidate.readiness.authoringEvidenceReasons,
@@ -573,7 +578,139 @@ try {
       criteriaCountAfter: noApplicationCandidate.plan.criteria.length,
       questionCountAfter: noApplicationCandidate.plan.questions.length,
     }],
-  })), "신청서 분석을 실행하지 않은 matching-only source도 null version으로 정확히 봉인한다");
+  })), "역사 no-roundtrip source도 신청서 미실행을 null로 보존한다");
+
+  const matchingOnlyManifest: AnalysisLaunchManifest = {
+    ...manifest,
+    execution: {
+      ...manifest.execution,
+      analysisMode: "matching_only",
+      withApplicationRoundtrip: false,
+      roundtripModel: null,
+      applicationFieldAnalysisVersion: null,
+    },
+  };
+  const storedMatchingOnlyManifest = await writeAnalysisLaunchArtifact(
+    "manifests",
+    matchingOnlyManifest,
+    root,
+  );
+  const storedMatchingOnlyGrant = await writeAnalysisLaunchArtifact("grants", {
+    ...grant,
+    manifestSha256: storedMatchingOnlyManifest.sha256,
+  }, root);
+  const matchingOnlyReceipt: AnalysisLaunchReceipt = {
+    ...noApplicationReceipt,
+    manifestSha256: storedMatchingOnlyManifest.sha256,
+    grantSha256: storedMatchingOnlyGrant.sha256,
+  };
+  const storedMatchingOnlyReceipt = await writeAnalysisLaunchArtifact(
+    "receipts",
+    matchingOnlyReceipt,
+    root,
+  );
+  await writeReviewEvidence({
+    root,
+    receiptSha256: storedMatchingOnlyReceipt.sha256,
+    manifestSha256: storedMatchingOnlyManifest.sha256,
+    grantSha256: storedMatchingOnlyGrant.sha256,
+    runPath: noApplicationRunPath,
+    runArtifactSha256: sha256(noApplicationRunBody),
+    policyVersion: "codex-only-v5",
+    blocked: false,
+  });
+  const explicitMatchingOnlyCohort = await loadAnalysisLaunchPromotionCohort({
+    launchReceiptSha256s: [storedMatchingOnlyReceipt.sha256],
+    grantIds: [grantId],
+    manualConfirmationSelections: [{
+      grantId,
+      runId,
+      revision: selectedManual.selection.revision,
+      artifactSha256: selectedManual.selection.artifactSha256,
+    }],
+    dependencies: {
+      repositoryRoot: root,
+      resolveManualConfirmationEvaluations: async () => selectedManual,
+      loadCurrentGrantEvidence: async () => ({
+        sourceRevisionSha256,
+        sourceRawSha256: "9".repeat(64),
+        inputSha256,
+        attachmentManifestSha256,
+        status: "open",
+        servingState: "visible",
+        applicationOpen: true,
+        hasDeepAnalysisRun: false,
+        hasPromotionItem: false,
+        confirmedDuplicate: false,
+      }),
+    },
+  });
+  const explicitMatchingOnlyCandidate = explicitMatchingOnlyCohort.candidates[0]!;
+  assert.equal(explicitMatchingOnlyCandidate.readiness.disposition, "conditional");
+  assert.deepEqual(explicitMatchingOnlyCandidate.readiness.reasons, []);
+  assert.equal(explicitMatchingOnlyCandidate.readiness.applicationRoundtripStatus, null);
+  assert.equal(explicitMatchingOnlyCandidate.readiness.applicationDocumentCount, null);
+  assert.equal(explicitMatchingOnlyCandidate.readiness.runFeatureReadiness.matching.status, "ready");
+  assert.equal(explicitMatchingOnlyCandidate.readiness.runFeatureReadiness.authoring.status, "held");
+  assert.equal(explicitMatchingOnlyCandidate.sourceArtifact.applicationPrecompute, undefined);
+  assert.doesNotThrow(() => validatePromotionReleaseManifest(createPromotionReleaseManifest({
+    releaseId: "analysis-launch-explicit-matching-only-r1",
+    revision: 1,
+    createdAt: "2026-08-31T00:05:45.000Z",
+    gitCommit: "7".repeat(40),
+    buildDigest: "8".repeat(40),
+    cohortLabel: "analysis-launch-explicit-matching-only",
+    canaryGrantIds: [grantId],
+    sourceArtifacts: [explicitMatchingOnlyCandidate.sourceArtifact],
+    plans: [{
+      ...matchingOnlyRelease.plans[0]!,
+      planSha256: planSha256(explicitMatchingOnlyCandidate.plan),
+      promotionPlan: explicitMatchingOnlyCandidate.plan,
+      analysisLaunchReadiness: explicitMatchingOnlyCandidate.readiness,
+      criteriaCountAfter: explicitMatchingOnlyCandidate.plan.criteria.length,
+      questionCountAfter: explicitMatchingOnlyCandidate.plan.questions.length,
+    }],
+  })), "독립 검수 PASS matching-only는 application precompute 없이 release할 수 있다");
+
+  const contradictoryMatchingOnlyReadiness = classifyAnalysisLaunchPromotionReadiness({
+    loaded: {
+      launch: {
+        receiptSha256: storedMatchingOnlyReceipt.sha256,
+        receipt: matchingOnlyReceipt,
+        manifest: matchingOnlyManifest,
+        review: {
+          manifestSha256: "c".repeat(64),
+          aggregateSha256: "b".repeat(64),
+          reviewPolicyVersion: "codex-only-v5",
+          packetBySequence: new Map(),
+          comparisonBySequence: new Map(),
+          blockedSequences: new Set(),
+        },
+      },
+      target: {
+        ...matchingOnlyReceipt.targets[0]!,
+        applicationRoundtripStatus: "complete",
+      },
+      run: noApplicationRun,
+      runArtifactSha256: sha256(noApplicationRunBody),
+      primaryMatchingProjectionStatus: "unverified",
+      primaryMatchingProjectionSnapshotSha256: null,
+    },
+    current: {
+      sourceRevisionSha256,
+      sourceRawSha256: "9".repeat(64),
+      inputSha256,
+      attachmentManifestSha256,
+      status: "open",
+      servingState: "visible",
+      applicationOpen: true,
+      hasDeepAnalysisRun: false,
+      hasPromotionItem: false,
+      confirmedDuplicate: false,
+    },
+  } as Parameters<typeof classifyAnalysisLaunchPromotionReadiness>[0]);
+  assert.equal(contradictoryMatchingOnlyReadiness.disposition, "held");
+  assert.deepEqual(contradictoryMatchingOnlyReadiness.reasons, ["analysis_mode_binding"]);
 
   assert.throws(() => validatePromotionReleaseManifest(createPromotionReleaseManifest({
     releaseId: "analysis-launch-authoring-ready-without-evidence-r1",

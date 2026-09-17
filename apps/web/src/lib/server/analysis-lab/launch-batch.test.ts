@@ -5,6 +5,7 @@ import {
   type LabApplicationRoundtripReference,
 } from "@/lib/server/analysis-lab/lab-contract";
 import { DEEP_ANALYSIS_VALIDATOR_VERSION } from "@/lib/server/deep-analysis/validator";
+import { APPLICATION_ROUNDTRIP_VERSION } from "./application-roundtrip/contract";
 import {
   AnalysisLabExecutionBindingMismatchError,
   AnalysisLabExecutionPausedError,
@@ -21,6 +22,7 @@ import {
   normalizeAnalysisLaunchGrant,
   normalizeAnalysisLaunchManifest,
   normalizeAnalysisLaunchReceipt,
+  normalizeCompletedAnalysisLaunchManifestForOfflineConsumption,
   type AnalysisLaunchReceipt,
   type AnalysisLaunchReceiptTarget,
   type AnalysisLaunchApplicationRoundtripReuseBinding,
@@ -33,6 +35,7 @@ import {
 import { parseAnalysisLaunchCliArgs } from "./launch-batch-cli";
 import {
   classifyAnalysisLaunchTargetStatus,
+  projectAnalysisLaunchApplicationReceiptFields,
   selectAnalysisLaunchRetryGrantIds,
   shouldForceExactManifestReanalysis,
 } from "./launch-batch-production";
@@ -106,9 +109,203 @@ test("launch manifest는 inventory drift를 target telemetry로 보존한다", (
   assert.equal(manifest.targets[1]?.changedSinceInventory, true);
   assert.equal(manifest.execution.withApplicationRoundtrip, true);
   assert.equal(manifest.execution.roundtripModel, "claude-opus-5");
-  assert.equal(manifest.execution.applicationFieldAnalysisVersion, "kordoc-application-roundtrip-v21");
+  assert.equal(manifest.execution.applicationFieldAnalysisVersion, APPLICATION_ROUNDTRIP_VERSION);
   assert.deepEqual(normalizeAnalysisLaunchManifest(JSON.parse(encodeCanonical(manifest).toString("utf8"))), manifest);
 });
+
+test("matching-only manifest는 신청서 계약 없이 primary material만 봉인한다", async () => {
+  const matching = createAnalysisLaunchManifest({
+    inventory: {
+      seriesId: "deep-v24",
+      planSha256: SHA_A,
+      planArtifactSha256: SHA_B,
+      model: "claude-opus-5",
+      targets: [{
+        sequence: 0,
+        grantId: GRANT_0,
+        stratum: "bizinfo/medium",
+        inputSha256: SHA_A,
+        attachmentManifestSha256: SHA_B,
+      }],
+    },
+    sequenceFrom: 0,
+    sequenceTo: 0,
+    preparedTargets: [{
+      grantId: GRANT_0,
+      inputSha256: SHA_A,
+      attachmentManifestSha256: SHA_B,
+    }],
+    provenance: {
+      gitSha: GIT_A,
+      packageRuntimeSha256: SHA_C,
+      validatorVersion: DEEP_ANALYSIS_VALIDATOR_VERSION,
+    },
+    analysisMode: "matching_only",
+    withApplicationRoundtrip: false,
+    concurrency: 1,
+    now: new Date("2026-09-17T00:00:00.000Z"),
+  });
+  assert.equal(matching.execution.analysisMode, "matching_only");
+  assert.equal(matching.execution.withApplicationRoundtrip, false);
+  assert.equal(matching.execution.roundtripModel, null);
+  assert.equal(matching.execution.applicationFieldAnalysisVersion, null);
+  assert.equal(matching.targets[0]?.primaryReuse, undefined);
+  assert.equal(matching.targets[0]?.applicationRoundtripReuse, undefined);
+  assert.deepEqual(normalizeAnalysisLaunchManifest(matching), matching);
+  assert.deepEqual(assertAnalysisLaunchExecutionContract({
+    manifest: matching,
+    current: {
+      gitSha: GIT_B,
+      packageRuntimeSha256: SHA_C,
+      validatorVersion: DEEP_ANALYSIS_VALIDATOR_VERSION,
+    },
+  }), { gitChangedSincePreparation: true });
+  assert.throws(() => assertAnalysisLaunchExecutionContract({
+    manifest: matching,
+    current: {
+      gitSha: GIT_B,
+      packageRuntimeSha256: SHA_D,
+      validatorVersion: DEEP_ANALYSIS_VALIDATOR_VERSION,
+    },
+  }), /material execution contract/);
+  assert.throws(() => createAnalysisLaunchManifest({
+    ...matchingPreparationInput(),
+    analysisMode: "matching_only",
+    withApplicationRoundtrip: true,
+  }), /analysisMode/);
+  assert.throws(() => normalizeAnalysisLaunchManifest({
+    ...matching,
+    execution: {
+      ...matching.execution,
+      withApplicationRoundtrip: true,
+      roundtripModel: "claude-opus-5",
+      applicationFieldAnalysisVersion: APPLICATION_ROUNDTRIP_VERSION,
+    },
+  }), /analysisMode/);
+  await withAnalysisLaunchBatchExecution({
+    grantSha256: SHA_D,
+    manifestSha256: SHA_C,
+    sourceKind: "formal_plan",
+    model: matching.execution.model,
+    transport: "claude-cli",
+    promptVersion: matching.execution.promptVersion,
+    analysisMode: "matching_only",
+    withApplicationRoundtrip: false,
+    roundtripModel: null,
+    targets: new Map(matching.targets.map((target) => [target.grantId, target])),
+  }, async () => {
+    const binding = currentAnalysisLaunchBatchExecutionBinding();
+    assert.ok(binding);
+    assert.equal(hasLaunchBatchExecutionViolation(GRANT_0, {
+      transport: "claude-cli",
+      model: "claude-opus-5",
+      withApplicationRoundtrip: false,
+    }, binding), false);
+    assert.equal(hasLaunchBatchExecutionViolation(GRANT_0, {
+      transport: "claude-cli",
+      model: "claude-opus-5",
+      withApplicationRoundtrip: true,
+      roundtripModel: "claude-opus-5",
+    }, binding), true);
+  });
+});
+
+test("v21 current-inventory 종료 계약은 offline에서만 combined/application-only ancestry를 보존한다", () => {
+  const v21 = {
+    ...manifest,
+    source: {
+      ...manifest.source,
+      kind: "current_inventory",
+      planArtifactSha256: manifest.source.planSha256,
+    },
+    execution: {
+      ...manifest.execution,
+      promptVersion: "lab-deep-v28",
+      validatorVersion: "deep-analysis-validator-v23",
+      applicationFieldAnalysisVersion: "kordoc-application-roundtrip-v21",
+    },
+  };
+  assert.equal(
+    normalizeCompletedAnalysisLaunchManifestForOfflineConsumption(v21)
+      .execution.applicationFieldAnalysisVersion,
+    "kordoc-application-roundtrip-v21",
+  );
+  assert.throws(() => normalizeAnalysisLaunchManifest(v21), /source\/existing run 정책/);
+
+  const completedLaunch = {
+    schema: "analysis-launch-completed-current-inventory-v2" as const,
+    inventorySha256: v21.source.planArtifactSha256,
+    sourceManifestSha256: SHA_B,
+    sourceGrantSha256: SHA_C,
+    terminalReceiptSha256: SHA_D,
+    selectedOriginalSequences: [0, 1],
+  };
+  const completedCombined = {
+    ...v21,
+    source: { ...v21.source, completedLaunch },
+    execution: { ...v21.execution, existingRunPolicy: "rerun_exact_targets" },
+  };
+  assert.equal(
+    normalizeCompletedAnalysisLaunchManifestForOfflineConsumption(completedCombined)
+      .source.completedLaunch?.schema,
+    "analysis-launch-completed-current-inventory-v2",
+  );
+  assert.throws(() => normalizeAnalysisLaunchManifest(completedCombined), /source\/existing run 정책/);
+
+  const completedApplicationOnly = {
+    ...completedCombined,
+    execution: { ...completedCombined.execution, analysisMode: "application_only" },
+    targets: completedCombined.targets.map((target) => ({
+      ...target,
+      primaryReuse: {
+        schema: "analysis-launch-primary-reuse-v1" as const,
+        sourceSequence: target.sequence,
+        sourceLabRunId: `run-v21-${target.sequence}`,
+        sourceLabRunArtifactPath: `spike-out/runs/v21-${target.sequence}.json`,
+        sourceLabRunArtifactSha256: target.inputSha256,
+        sourceLaunchReceiptSha256: completedLaunch.terminalReceiptSha256,
+      },
+    })),
+  };
+  assert.equal(
+    normalizeCompletedAnalysisLaunchManifestForOfflineConsumption(completedApplicationOnly)
+      .execution.analysisMode,
+    "application_only",
+  );
+  assert.throws(() => normalizeAnalysisLaunchManifest(completedApplicationOnly), /source\/existing run 정책/);
+});
+
+function matchingPreparationInput() {
+  return {
+    inventory: {
+      seriesId: "deep-v24",
+      planSha256: SHA_A,
+      planArtifactSha256: SHA_B,
+      model: "claude-opus-5",
+      targets: [{
+        sequence: 0,
+        grantId: GRANT_0,
+        stratum: "bizinfo/medium",
+        inputSha256: SHA_A,
+        attachmentManifestSha256: SHA_B,
+      }],
+    },
+    sequenceFrom: 0,
+    sequenceTo: 0,
+    preparedTargets: [{
+      grantId: GRANT_0,
+      inputSha256: SHA_A,
+      attachmentManifestSha256: SHA_B,
+    }],
+    provenance: {
+      gitSha: GIT_A,
+      packageRuntimeSha256: SHA_C,
+      validatorVersion: DEEP_ANALYSIS_VALIDATOR_VERSION,
+    },
+    concurrency: 1,
+    now: new Date("2026-09-17T00:00:00.000Z"),
+  } as const;
+}
 
 test("정식 launch publishable은 필드 분석 준비도까지 통과해야 한다", () => {
   assert.equal(classifyAnalysisLaunchTargetStatus({
@@ -127,6 +324,14 @@ test("정식 launch publishable은 필드 분석 준비도까지 통과해야 �
     primaryOutcome: "failed",
     fieldAnalysis: "ready",
   }), "failed");
+  assert.deepEqual(projectAnalysisLaunchApplicationReceiptFields({
+    withApplicationRoundtrip: false,
+  }), {
+    applicationRoundtripStatus: null,
+    applicationDocumentCount: null,
+    fieldReadyDocumentCount: null,
+    recognizedFieldCount: null,
+  });
 
   const deepOnly = partitionCohortEntries([{ grantId: GRANT_0 }], new Map([[
     GRANT_0,
@@ -212,7 +417,7 @@ test("정식 launch publishable은 필드 분석 준비도까지 통과해야 �
 
   const v12Scan = resolveLabBatchRunScan([scanRecord("v12.json", {
     ...v10FieldReference,
-    version: "kordoc-application-roundtrip-v21",
+    version: APPLICATION_ROUNDTRIP_VERSION,
   })]);
   assert.equal(v12Scan.states.get(GRANT_0)?.applicationFieldAnalysisReadyCurrent, true);
   const v12LaunchAgainstV12 = partitionCohortEntries([{ grantId: GRANT_0 }], v12Scan.states, {
@@ -489,7 +694,7 @@ test("독립 검수 합의 결함 재분석은 exact 원본 대상과 RHWP 필�
   assert.equal(repair.execution.existingRunPolicy, "rerun_exact_targets");
   assert.equal(repair.execution.withApplicationRoundtrip, true);
   assert.equal(repair.execution.roundtripModel, "claude-opus-5");
-  assert.equal(repair.execution.applicationFieldAnalysisVersion, "kordoc-application-roundtrip-v21");
+  assert.equal(repair.execution.applicationFieldAnalysisVersion, APPLICATION_ROUNDTRIP_VERSION);
   assert.match(repair.targets[0]!.stratum, /original-3$/);
   assert.equal(repair.targets[0]!.reviewRepair?.blockingCount, 2);
   assert.match(repair.targets[0]!.reviewRepair?.taskInstruction ?? "", /결함 두 건/);
@@ -1071,6 +1276,20 @@ test("launch CLI는 prepare/grant/run의 권한 단계를 분리한다", () => {
     sequenceFrom: 10,
     sequenceTo: 29,
     concurrency: 2,
+    analysisMode: "primary_and_application",
+  });
+  assert.deepEqual(parseAnalysisLaunchCliArgs("prepare", [
+    "--series=deep-v24",
+    "--sequences=10-29",
+    "--analysis-mode=matching_only",
+    "--concurrency=2",
+  ]), {
+    kind: "prepare",
+    seriesId: "deep-v24",
+    sequenceFrom: 10,
+    sequenceTo: 29,
+    concurrency: 2,
+    analysisMode: "matching_only",
   });
   assert.throws(() => parseAnalysisLaunchCliArgs("prepare", [
     "--series=deep-v24",
@@ -1089,7 +1308,7 @@ test("launch CLI는 prepare/grant/run의 권한 단계를 분리한다", () => {
     sourceManifestSha256: SHA_B,
     sourceGrantSha256: SHA_C,
     terminalReceiptSha256: SHA_D,
-    applicationOnly: false,
+    analysisMode: "primary_and_application",
     concurrency: 1,
   });
   assert.deepEqual(parseAnalysisLaunchCliArgs("prepare", [
@@ -1107,7 +1326,7 @@ test("launch CLI는 prepare/grant/run의 권한 단계를 분리한다", () => {
     sourceGrantSha256: SHA_C,
     terminalReceiptSha256: SHA_D,
     selectedOriginalSequences: [0, 3, 16],
-    applicationOnly: true,
+    analysisMode: "application_only",
     concurrency: 1,
   });
   for (const args of [
@@ -1124,6 +1343,9 @@ test("launch CLI는 prepare/grant/run의 권한 단계를 분리한다", () => {
     [`--reseal-current-inventory=${SHA_A}`, `--source-manifest=${SHA_B}`,
       `--source-grant=${SHA_C}`, `--terminal-receipt=${SHA_D}`,
       "--selected-sequences=0-2", "--concurrency=1"],
+    [`--reseal-current-inventory=${SHA_A}`, `--source-manifest=${SHA_B}`,
+      `--source-grant=${SHA_C}`, `--terminal-receipt=${SHA_D}`,
+      "--analysis-mode=matching_only", "--application-only", "--concurrency=1"],
   ]) assert.throws(() => parseAnalysisLaunchCliArgs("prepare", args));
   assert.equal(parseAnalysisLaunchCliArgs("grant", [
     `--manifest=${SHA_A}`,

@@ -37,6 +37,28 @@ export interface AnalysisLaunchLiveTarget {
   readonly error: string | null;
 }
 
+export interface AnalysisLaunchTrackSummary {
+  readonly matching: {
+    readonly ready: number;
+    readonly conditional: number;
+    readonly held: number;
+    readonly unverified: number;
+    /** application_only의 ready/conditional 중 재사용된 부분집합이며 별도 합계가 아니다. */
+    readonly reused: number;
+    /** 파생 검토 목록일 뿐 실행 또는 retry authority가 아니다. */
+    readonly attentionGrantIds: readonly string[];
+  };
+  readonly authoring: {
+    readonly ready: number;
+    readonly held: number;
+    readonly notApplicable: number;
+    readonly notRequested: number;
+    readonly unknown: number;
+    /** 파생 검토 목록일 뿐 실행 또는 retry authority가 아니다. */
+    readonly attentionGrantIds: readonly string[];
+  };
+}
+
 export interface AnalysisLaunchStatus {
   readonly schema: "analysis-launch-status-v1";
   readonly authority: "derived-monitoring-projection";
@@ -52,6 +74,7 @@ export interface AnalysisLaunchStatus {
   readonly systemicFailure: string | null;
   readonly execution: AnalysisLaunchManifest["execution"];
   readonly summary: Record<AnalysisLaunchLiveTargetStatus, number>;
+  readonly trackSummary: AnalysisLaunchTrackSummary;
   readonly targets: readonly AnalysisLaunchLiveTarget[];
 }
 
@@ -221,7 +244,7 @@ export async function writeAnalysisLaunchStatus(
 }
 
 function withSummary(
-  status: Omit<AnalysisLaunchStatus, "summary">,
+  status: Omit<AnalysisLaunchStatus, "summary" | "trackSummary">,
 ): AnalysisLaunchStatus {
   const summary: Record<AnalysisLaunchLiveTargetStatus, number> = {
     pending: 0,
@@ -232,5 +255,82 @@ function withSummary(
     skipped: 0,
   };
   for (const target of status.targets) summary[target.status] += 1;
-  return Object.freeze({ ...status, summary: Object.freeze(summary) });
+  return Object.freeze({
+    ...status,
+    summary: Object.freeze(summary),
+    trackSummary: deriveTrackSummary(status),
+  });
+}
+
+function deriveTrackSummary(
+  status: Pick<AnalysisLaunchStatus, "execution" | "targets">,
+): AnalysisLaunchTrackSummary {
+  const matching = {
+    ready: 0,
+    conditional: 0,
+    held: 0,
+    unverified: 0,
+    reused: 0,
+    attentionGrantIds: [] as string[],
+  };
+  const authoring = {
+    ready: 0,
+    held: 0,
+    notApplicable: 0,
+    notRequested: 0,
+    unknown: 0,
+    attentionGrantIds: [] as string[],
+  };
+  const analysisMode = status.execution.analysisMode ?? "primary_and_application";
+  const authoringRequested = analysisMode === "application_only"
+    || (analysisMode !== "matching_only" && status.execution.withApplicationRoundtrip);
+
+  for (const target of status.targets) {
+    const hasTerminalTrackEvidence = target.status === "publishable"
+      || target.status === "held"
+      || target.status === "failed";
+    const readiness = hasTerminalTrackEvidence ? target.featureReadiness : null;
+
+    if (!readiness || readiness.matching.sourceDisposition === "unverified") {
+      matching.unverified += 1;
+    } else if (readiness.matching.status === "held") {
+      // 구조화된 deferred/primary held만 검토 대상으로 삼고, 근거 없는 상태는 unverified로 둔다.
+      matching.held += 1;
+      matching.attentionGrantIds.push(target.grantId);
+    } else if (readiness.matching.sourceDisposition === "conditional") {
+      matching.conditional += 1;
+      if (analysisMode === "application_only") matching.reused += 1;
+    } else if (readiness.matching.sourceDisposition === "ready") {
+      matching.ready += 1;
+      if (analysisMode === "application_only") matching.reused += 1;
+    } else {
+      matching.unverified += 1;
+    }
+
+    if (!authoringRequested) {
+      authoring.notRequested += 1;
+    } else if (!readiness) {
+      authoring.unknown += 1;
+    } else if (readiness.authoring.sourceDisposition === "not_applicable") {
+      authoring.notApplicable += 1;
+    } else if (readiness.authoring.status === "ready") {
+      authoring.ready += 1;
+    } else if (readiness.authoring.sourceDisposition === "held") {
+      authoring.held += 1;
+      authoring.attentionGrantIds.push(target.grantId);
+    } else {
+      authoring.unknown += 1;
+    }
+  }
+
+  return Object.freeze({
+    matching: Object.freeze({
+      ...matching,
+      attentionGrantIds: Object.freeze(matching.attentionGrantIds),
+    }),
+    authoring: Object.freeze({
+      ...authoring,
+      attentionGrantIds: Object.freeze(authoring.attentionGrantIds),
+    }),
+  });
 }

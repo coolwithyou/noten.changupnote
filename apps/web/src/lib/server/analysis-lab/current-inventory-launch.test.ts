@@ -33,6 +33,7 @@ import {
   shouldForceExactManifestReanalysis,
 } from "./launch-batch-production";
 import { DEEP_ANALYSIS_VALIDATOR_VERSION } from "../deep-analysis/validator";
+import { APPLICATION_ROUNDTRIP_VERSION } from "./application-roundtrip/contract";
 
 const id = (n: number) => `00000000-0000-4000-8000-${String(n + 1).padStart(12, "0")}`;
 const digest = (value: unknown) => createHash("sha256").update(encodeCanonical(value)).digest("hex");
@@ -55,17 +56,32 @@ function manifest(value = inventory()) {
 async function completedLaunchFixture(
   root: string,
   value = inventory(2),
-  contract: "v14" | "v19" = "v14",
+  contract: "v14" | "v19" | "matching" = "v14",
 ) {
   const storedInventory = await storeCurrentLaunchInventory(root, value);
-  const sourceManifest = structuredClone(manifest(value)) as any;
-  sourceManifest.execution.promptVersion = contract === "v14" ? "lab-deep-v26" : "lab-deep-v28";
-  sourceManifest.execution.validatorVersion = contract === "v14"
-    ? "deep-analysis-validator-v19"
-    : "deep-analysis-validator-v23";
-  sourceManifest.execution.applicationFieldAnalysisVersion = contract === "v14"
-    ? "kordoc-application-roundtrip-v14"
-    : "kordoc-application-roundtrip-v19";
+  const sourceManifest = structuredClone(contract === "matching"
+    ? buildCurrentInventoryLaunchManifest({
+        inventory: value,
+        inventorySha256: storedInventory.sha256,
+        analysisMode: "matching_only",
+        concurrency: 1,
+        now: new Date("2026-09-17T00:00:00.000Z"),
+        provenance: {
+          gitSha: "1".repeat(40),
+          packageRuntimeSha256: "e".repeat(64),
+          validatorVersion: DEEP_ANALYSIS_VALIDATOR_VERSION,
+        },
+      })
+    : manifest(value)) as any;
+  if (contract !== "matching") {
+    sourceManifest.execution.promptVersion = contract === "v14" ? "lab-deep-v26" : "lab-deep-v28";
+    sourceManifest.execution.validatorVersion = contract === "v14"
+      ? "deep-analysis-validator-v19"
+      : "deep-analysis-validator-v23";
+    sourceManifest.execution.applicationFieldAnalysisVersion = contract === "v14"
+      ? "kordoc-application-roundtrip-v14"
+      : "kordoc-application-roundtrip-v19";
+  }
   const storedManifest = await writeAnalysisLaunchArtifact("manifests", sourceManifest, root);
   const sourceGrant = createAnalysisLaunchGrant({
     manifestSha256: storedManifest.sha256,
@@ -85,7 +101,7 @@ async function completedLaunchFixture(
       title: `공고 ${target.sequence}`,
       model: "claude-opus-5",
       transport: "claude-cli",
-      promptVersion: contract === "v14" ? "lab-deep-v26" : "lab-deep-v28",
+      promptVersion: sourceManifest.execution.promptVersion,
       startedAt: "2026-09-09T20:02:00.000Z",
       durationMs: 1,
       inputBlocks: [], inputTotalChars: 1,
@@ -125,10 +141,10 @@ async function completedLaunchFixture(
       status: "publishable" as const,
       runArtifactPath: runArtifacts[target.sequence]!.path,
       runArtifactSha256: runArtifacts[target.sequence]!.sha256,
-      applicationRoundtripStatus: "complete",
-      applicationDocumentCount: 1,
-      fieldReadyDocumentCount: 1,
-      recognizedFieldCount: 1,
+      applicationRoundtripStatus: contract === "matching" ? null : "complete",
+      applicationDocumentCount: contract === "matching" ? null : 1,
+      fieldReadyDocumentCount: contract === "matching" ? null : 1,
+      recognizedFieldCount: contract === "matching" ? null : 1,
       error: null,
     })),
   };
@@ -173,7 +189,7 @@ test("완료된 v14 current inventory ancestry만 현행 v17 exact 재실행으�
         validatorVersion: DEEP_ANALYSIS_VALIDATOR_VERSION,
       },
     });
-    assert.equal(resealed.execution.applicationFieldAnalysisVersion, "kordoc-application-roundtrip-v21");
+    assert.equal(resealed.execution.applicationFieldAnalysisVersion, APPLICATION_ROUNDTRIP_VERSION);
     assert.equal(resealed.execution.existingRunPolicy, "rerun_exact_targets");
     assert.deepEqual(resealed.source.completedLaunch, fixture.binding);
     assert.deepEqual(normalizeAnalysisLaunchManifest(resealed), resealed);
@@ -478,6 +494,45 @@ test("application-only 재봉인은 완료 receipt의 publishable primary bytes�
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
+test("application-only는 새 matching-only v2 부모의 primary를 재호출 없이 exact 재사용한다", async () => {
+  const root = await mkdtemp(join(tmpdir(), "cunote-current-matching-parent-"));
+  try {
+    const fixture = await completedLaunchFixture(root, inventory(2), "matching");
+    assert.equal(fixture.sourceManifest.execution.analysisMode, "matching_only");
+    assert.equal(fixture.sourceManifest.execution.withApplicationRoundtrip, false);
+    assert.equal(fixture.receipt.targets[1]?.applicationRoundtripStatus, null);
+    const result = await prepareCompletedCurrentInventoryLaunchManifest({
+      inventorySha256: fixture.binding.inventorySha256,
+      sourceManifestSha256: fixture.binding.sourceManifestSha256,
+      sourceGrantSha256: fixture.binding.sourceGrantSha256,
+      terminalReceiptSha256: fixture.binding.terminalReceiptSha256,
+      selectedOriginalSequences: [1],
+      analysisMode: "application_only",
+      concurrency: 1,
+    }, {
+      repositoryRoot: root,
+      now: () => new Date("2026-09-17T01:00:00.000Z"),
+      readProvenance: async () => ({
+        gitSha: "2".repeat(40),
+        packageRuntimeSha256: "f".repeat(64),
+        validatorVersion: DEEP_ANALYSIS_VALIDATOR_VERSION,
+      }),
+      verifyTarget: async () => {},
+      prepareTarget: async (grantId) => ({
+        grantId,
+        inputSha256: fixture.value.targets[1]!.inputSha256,
+        attachmentManifestSha256: fixture.value.targets[1]!.attachmentManifestSha256,
+      }),
+    });
+    assert.equal(result.manifest.execution.analysisMode, "application_only");
+    assert.equal(result.manifest.execution.withApplicationRoundtrip, true);
+    assert.equal(result.manifest.source.completedLaunch?.schema, "analysis-launch-completed-current-inventory-v2");
+    assert.equal(result.manifest.targets[0]?.primaryReuse?.sourceLabRunId,
+      "run-2026-09-09T200201.000Z-a1b2c3");
+    assert.deepEqual(await verifyCurrentInventoryLaunchBinding(root, result.manifest), fixture.value);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
 test("부분 재봉인은 범위 밖·중복 sequence를 쓰기 전에 거부한다", async () => {
   const root = await mkdtemp(join(tmpdir(), "cunote-current-reseal-subset-invalid-"));
   try {
@@ -766,6 +821,34 @@ test("현재 재고 47건은 독립 source로 봉인하며 deep-v35 100건 계�
   assert.equal(manifest(inventory(100)).targets.length, 100);
 });
 
+test("matching-only current inventory는 신청서 버전 없이 봉인하고 모드 모순을 거부한다", () => {
+  const value = inventory(1);
+  const matching = buildCurrentInventoryLaunchManifest({
+    inventory: value,
+    inventorySha256: digest(value),
+    analysisMode: "matching_only",
+    concurrency: 1,
+    now: new Date("2026-09-17T00:00:00.000Z"),
+    provenance: {
+      gitSha: "1".repeat(40),
+      packageRuntimeSha256: "e".repeat(64),
+      validatorVersion: DEEP_ANALYSIS_VALIDATOR_VERSION,
+    },
+  });
+  assert.equal(matching.execution.analysisMode, "matching_only");
+  assert.equal(matching.execution.withApplicationRoundtrip, false);
+  assert.equal(matching.execution.roundtripModel, null);
+  assert.equal(matching.execution.applicationFieldAnalysisVersion, null);
+  assert.deepEqual(normalizeAnalysisLaunchManifest(matching), matching);
+  assert.throws(() => normalizeAnalysisLaunchManifest({
+    ...matching,
+    execution: {
+      ...matching.execution,
+      applicationFieldAnalysisVersion: APPLICATION_ROUNDTRIP_VERSION,
+    },
+  }), /필드 분석 버전/);
+});
+
 test("빈 재고·상한 초과·중복·잘못된 sequence·결속 SHA를 거부한다", () => {
   for (const count of [0, 101]) assert.throws(() => validateCurrentLaunchInventory(inventory(count)));
   const value = inventory(2);
@@ -828,10 +911,18 @@ test("미실행 inventory도 전체 과거 이력에서 제외하되 formal-base
 });
 
 test("명시된 exact IDs와 동시성만 CLI에서 허용한다", () => {
-  assert.deepEqual(parseCurrentInventoryLaunchArgs(["--", `--grant-ids=${id(0)},${id(1)}`, "--concurrency=2"]), { grantIds: [id(0), id(1)], concurrency: 2 });
+  assert.deepEqual(parseCurrentInventoryLaunchArgs(["--", `--grant-ids=${id(0)},${id(1)}`, "--concurrency=2"]), {
+    grantIds: [id(0), id(1)], concurrency: 2, analysisMode: "primary_and_application",
+  });
+  assert.deepEqual(parseCurrentInventoryLaunchArgs([
+    `--grant-ids=${id(0)}`,
+    "--concurrency=1",
+    "--analysis-mode=matching_only",
+  ]), { grantIds: [id(0)], concurrency: 1, analysisMode: "matching_only" });
   for (const args of [[], [`--grant-ids=${id(0)},${id(0)}`, "--concurrency=2"],
     [`--grant-ids=${id(0)}`, "--concurrency=5"], [`--grant-ids=${id(0)}`, "--execute=true"],
     [`--grant-ids=${id(0)}`, "--grant-ids=other"], [`--grant-ids=${id(0)}`, "--concurrency=2", "--force=true"],
+    [`--grant-ids=${id(0)}`, "--concurrency=2", "--analysis-mode=application_only"],
   ]) assert.throws(() => parseCurrentInventoryLaunchArgs(args));
 });
 

@@ -7,6 +7,7 @@ import {
   prepareAnalysisLaunchManifest,
   runApprovedAnalysisLaunchBatch,
 } from "./launch-batch-production";
+import type { AnalysisLaunchAnalysisMode } from "./launch-batch-artifacts";
 import { classifyApplicationFieldAnalysis } from "./application-precompute";
 import {
   ACTIVE_DEEP_REPAIR_SERIES_ID,
@@ -14,8 +15,8 @@ import {
 } from "./deep-repair-formal-policy";
 
 const SHA256 = /^[a-f0-9]{64}$/;
-const USAGE = `pnpm lab:launch:prepare -- --series=${ACTIVE_DEEP_REPAIR_SERIES_ID} --sequences=0-${ACTIVE_DEEP_REPAIR_TARGET_COUNT - 1} --concurrency=2
-pnpm lab:launch:prepare -- --reseal-current-inventory=<sha256> --source-manifest=<sha256> --source-grant=<sha256> --terminal-receipt=<sha256> [--selected-sequences=<n[,n...]>] [--application-only] --concurrency=1
+const USAGE = `pnpm lab:launch:prepare -- --series=${ACTIVE_DEEP_REPAIR_SERIES_ID} --sequences=0-${ACTIVE_DEEP_REPAIR_TARGET_COUNT - 1} [--analysis-mode=primary_and_application|matching_only] --concurrency=2
+pnpm lab:launch:prepare -- --reseal-current-inventory=<sha256> --source-manifest=<sha256> --source-grant=<sha256> --terminal-receipt=<sha256> [--selected-sequences=<n[,n...]>] [--analysis-mode=primary_and_application|matching_only|application_only | --application-only] --concurrency=1
 pnpm lab:launch:grant -- --manifest=<sha256> --approved-by=<actor>
 pnpm lab:launch -- --grant=<sha256> [--retry-errors [--retry-sequences=<n[,n-m...]>]]`;
 
@@ -29,6 +30,7 @@ export type AnalysisLaunchCliArgs =
       readonly sequenceFrom: number;
       readonly sequenceTo: number;
       readonly concurrency: number;
+      readonly analysisMode: Exclude<AnalysisLaunchAnalysisMode, "application_only">;
     }
   | {
       readonly kind: "prepare-current-inventory-reseal";
@@ -37,7 +39,7 @@ export type AnalysisLaunchCliArgs =
       readonly sourceGrantSha256: string;
       readonly terminalReceiptSha256: string;
       readonly selectedOriginalSequences?: readonly number[];
-      readonly applicationOnly: boolean;
+      readonly analysisMode: AnalysisLaunchAnalysisMode;
       readonly concurrency: number;
     }
   | { readonly kind: "grant"; readonly manifestSha256: string; readonly approvedBy: string }
@@ -78,6 +80,19 @@ function parseSelectedSequences(value: string | undefined): readonly number[] | 
   return sequences;
 }
 
+function parseAnalysisMode(
+  value: string | undefined,
+  allowApplicationOnly: boolean,
+): AnalysisLaunchAnalysisMode {
+  const mode = value ?? "primary_and_application";
+  if (
+    mode !== "primary_and_application"
+    && mode !== "matching_only"
+    && (!allowApplicationOnly || mode !== "application_only")
+  ) throw usageError();
+  return mode;
+}
+
 export function parseAnalysisLaunchCliArgs(
   command: Command,
   argv: readonly string[],
@@ -108,19 +123,22 @@ export function parseAnalysisLaunchCliArgs(
         "--source-grant",
         "--terminal-receipt",
         "--selected-sequences",
+        "--analysis-mode",
         "--concurrency",
       ]);
       const allowedResealFlags = new Set(["--application-only"]);
       if (
         [...flags].some((flag) => !allowedResealFlags.has(flag))
-        || (values.size !== allowedResealValues.size
-          && values.size !== allowedResealValues.size - 1)
         || [...values.keys()].some((key) => !allowedResealValues.has(key))
+        || (flags.has("--application-only") && values.has("--analysis-mode"))
       ) throw usageError();
       const sourceManifestSha256 = values.get("--source-manifest");
       const sourceGrantSha256 = values.get("--source-grant");
       const terminalReceiptSha256 = values.get("--terminal-receipt");
       const selectedOriginalSequences = parseSelectedSequences(values.get("--selected-sequences"));
+      const analysisMode = flags.has("--application-only")
+        ? "application_only"
+        : parseAnalysisMode(values.get("--analysis-mode"), true);
       const concurrency = Number(values.get("--concurrency"));
       if (
         !SHA256.test(resealInventorySha256)
@@ -136,17 +154,19 @@ export function parseAnalysisLaunchCliArgs(
         sourceGrantSha256,
         terminalReceiptSha256,
         ...(selectedOriginalSequences ? { selectedOriginalSequences } : {}),
-        applicationOnly: flags.has("--application-only"),
+        analysisMode,
         concurrency,
       };
     }
-    const allowedValues = new Set(["--series", "--sequences", "--concurrency"]);
+    const allowedValues = new Set(["--series", "--sequences", "--analysis-mode", "--concurrency"]);
     if ([...values.keys()].some((key) => !allowedValues.has(key)) || flags.size > 0) {
       throw usageError();
     }
     const seriesId = values.get("--series");
     const range = values.get("--sequences")?.match(/^(\d+)-(\d+)$/);
     const concurrency = Number(values.get("--concurrency") ?? "2");
+    const analysisMode = parseAnalysisMode(values.get("--analysis-mode"), false);
+    if (analysisMode === "application_only") throw usageError();
     if (
       !seriesId
       || !range
@@ -163,6 +183,7 @@ export function parseAnalysisLaunchCliArgs(
       sequenceFrom,
       sequenceTo,
       concurrency,
+      analysisMode,
     };
   }
   if (command === "grant") {
@@ -201,7 +222,7 @@ async function main(command: Command, argv: readonly string[]): Promise<void> {
         ...(parsed.selectedOriginalSequences
           ? { selectedOriginalSequences: parsed.selectedOriginalSequences }
           : {}),
-        applicationOnly: parsed.applicationOnly,
+        analysisMode: parsed.analysisMode,
         concurrency: parsed.concurrency,
       });
       console.log(JSON.stringify({
@@ -222,6 +243,7 @@ async function main(command: Command, argv: readonly string[]): Promise<void> {
         sequenceFrom: parsed.sequenceFrom,
         sequenceTo: parsed.sequenceTo,
         concurrency: parsed.concurrency,
+        analysisMode: parsed.analysisMode,
       });
       console.log(JSON.stringify({
         kind: "launch-manifest",
@@ -229,6 +251,7 @@ async function main(command: Command, argv: readonly string[]): Promise<void> {
         manifestSha256: result.manifestSha256,
         targetCount: result.manifest.targets.length,
         changedSinceInventory: result.manifest.targets.filter((target) => target.changedSinceInventory).length,
+        analysisMode: result.manifest.execution.analysisMode,
         path: result.path,
       }, null, 2));
       return;

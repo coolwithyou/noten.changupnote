@@ -27,6 +27,7 @@ import {
   readAnalysisLaunchArtifact,
   readCurrentSeriesPlanInventory,
   writeAnalysisLaunchArtifact,
+  type AnalysisLaunchAnalysisMode,
   type AnalysisLaunchManifest,
   type AnalysisLaunchCompletedCurrentInventoryBinding,
   type AnalysisLaunchReceipt,
@@ -59,6 +60,7 @@ export async function prepareAnalysisLaunchManifest(input: {
   readonly sequenceFrom: number;
   readonly sequenceTo: number;
   readonly concurrency: number;
+  readonly analysisMode?: Exclude<AnalysisLaunchAnalysisMode, "application_only">;
 }): Promise<{
   readonly manifest: AnalysisLaunchManifest;
   readonly manifestSha256: string;
@@ -83,8 +85,11 @@ export async function prepareAnalysisLaunchManifest(input: {
     sequenceTo: input.sequenceTo,
     preparedTargets,
     provenance: await readCurrentDeepRepairExecutionProvenance(),
-    withApplicationRoundtrip: true,
-    roundtripModel: APPLICATION_ROUNDTRIP_ADOPTED_MODEL,
+    analysisMode: input.analysisMode ?? "primary_and_application",
+    withApplicationRoundtrip: input.analysisMode !== "matching_only",
+    ...(input.analysisMode === "matching_only"
+      ? {}
+      : { roundtripModel: APPLICATION_ROUNDTRIP_ADOPTED_MODEL }),
     concurrency: input.concurrency,
     now: new Date(),
   });
@@ -111,7 +116,8 @@ interface CompletedCurrentInventoryLaunchPreparationDependencies {
 
 /**
  * 완료된 exact current-inventory launch를 현행 material 계약으로 다시 준비한다.
- * 원본 결과는 재사용하지 않으며 새 manifest는 exact target 전부를 재실행하도록 봉인한다.
+ * primary_and_application/matching_only는 exact target을 다시 실행하고 application_only는
+ * 완료 receipt의 publishable primary bytes를 재사용해 application만 실행하도록 봉인한다.
  */
 export async function prepareCompletedCurrentInventoryLaunchManifest(input: {
   readonly inventorySha256: string;
@@ -119,6 +125,8 @@ export async function prepareCompletedCurrentInventoryLaunchManifest(input: {
   readonly sourceGrantSha256: string;
   readonly terminalReceiptSha256: string;
   readonly selectedOriginalSequences?: readonly number[];
+  readonly analysisMode?: AnalysisLaunchAnalysisMode;
+  /** @deprecated CLI/호출부 호환용. 새 호출은 analysisMode를 사용한다. */
   readonly applicationOnly?: boolean;
   readonly concurrency: number;
 }, dependencyOverrides: Partial<CompletedCurrentInventoryLaunchPreparationDependencies> = {}): Promise<{
@@ -126,6 +134,11 @@ export async function prepareCompletedCurrentInventoryLaunchManifest(input: {
   readonly manifestSha256: string;
   readonly path: string;
 }> {
+  if (input.analysisMode !== undefined && input.applicationOnly !== undefined) {
+    throw new Error("재봉인 analysisMode와 --application-only를 함께 지정할 수 없습니다.");
+  }
+  const analysisMode = input.analysisMode
+    ?? (input.applicationOnly ? "application_only" : "primary_and_application");
   const dependencies: CompletedCurrentInventoryLaunchPreparationDependencies = {
     repositoryRoot: findMonorepoRoot(),
     now: () => new Date(),
@@ -202,7 +215,7 @@ export async function prepareCompletedCurrentInventoryLaunchManifest(input: {
   if (!encodeCanonical(initialProvenance).equals(encodeCanonical(finalProvenance))) {
     throw new Error("current inventory 재봉인 준비 중 실행 코드가 변경됐습니다.");
   }
-  const primaryReuse = input.applicationOnly
+  const primaryReuse = analysisMode === "application_only"
     ? await buildCompletedLaunchPrimaryReuseBindings({
         repositoryRoot: dependencies.repositoryRoot,
         completed,
@@ -217,7 +230,8 @@ export async function prepareCompletedCurrentInventoryLaunchManifest(input: {
     provenance: finalProvenance,
     concurrency: input.concurrency,
     completedLaunch,
-    ...(input.applicationOnly ? { analysisMode: "application_only" as const, primaryReuse: primaryReuse! } : {}),
+    analysisMode,
+    ...(analysisMode === "application_only" ? { primaryReuse: primaryReuse! } : {}),
     ...(completed.sourceManifest.source.terminalRepair
       ? { terminalRepair: completed.sourceManifest.source.terminalRepair }
       : {}),
@@ -370,6 +384,21 @@ export function classifyAnalysisLaunchTargetStatus(input: {
 }): AnalysisLaunchReceiptTarget["status"] {
   if (input.primaryOutcome !== "publishable") return input.primaryOutcome;
   return input.fieldAnalysis === "held" ? "held" : "publishable";
+}
+
+export function projectAnalysisLaunchApplicationReceiptFields(input: {
+  readonly withApplicationRoundtrip: boolean;
+  readonly applicationRoundtrip?: Pick<NonNullable<LabRun["applicationRoundtrip"]>,
+    "status" | "applicationDocumentCount" | "fieldReadyDocumentCount" | "recognizedFieldCount">;
+}): Pick<AnalysisLaunchReceiptTarget,
+  "applicationRoundtripStatus" | "applicationDocumentCount" | "fieldReadyDocumentCount" | "recognizedFieldCount"> {
+  const application = input.withApplicationRoundtrip ? input.applicationRoundtrip : undefined;
+  return Object.freeze({
+    applicationRoundtripStatus: application?.status ?? null,
+    applicationDocumentCount: application?.applicationDocumentCount ?? null,
+    fieldReadyDocumentCount: application?.fieldReadyDocumentCount ?? null,
+    recognizedFieldCount: application?.recognizedFieldCount ?? null,
+  });
 }
 
 export function selectAnalysisLaunchRetryGrantIds(input: {
@@ -615,16 +644,17 @@ export async function runApprovedAnalysisLaunchBatch(input: {
             const fieldAnalysisError = primaryOutcome === "publishable" && fieldAnalysis === "held"
               ? "field_analysis_held: 지원 양식에서 안전하게 인식된 입력 필드를 확보하지 못했습니다."
               : null;
+            const applicationReceiptFields = projectAnalysisLaunchApplicationReceiptFields({
+              withApplicationRoundtrip: manifest.execution.withApplicationRoundtrip,
+              ...(run.applicationRoundtrip ? { applicationRoundtrip: run.applicationRoundtrip } : {}),
+            });
             outcomes.set(grantId, Object.freeze({
               sequence: target.sequence,
               grantId,
               status: outcome,
               runArtifactPath: relative(repositoryRoot, absolutePath).split(sep).join("/"),
               runArtifactSha256: createHash("sha256").update(artifactBytes).digest("hex"),
-              applicationRoundtripStatus: run.applicationRoundtrip?.status ?? null,
-              applicationDocumentCount: run.applicationRoundtrip?.applicationDocumentCount ?? null,
-              fieldReadyDocumentCount: run.applicationRoundtrip?.fieldReadyDocumentCount ?? null,
-              recognizedFieldCount: run.applicationRoundtrip?.recognizedFieldCount ?? null,
+              ...applicationReceiptFields,
               featureReadiness,
               ...(run.primaryMatchingProjection ? {
                 primaryMatchingProjection: buildAnalysisLaunchMatchingProjectionBinding(

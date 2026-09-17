@@ -168,6 +168,16 @@ async function buildRepairManifest(input: {
   });
   const candidate = cohort.candidates[0];
   if (!candidate) throw new Error("application repair launch candidate가 없습니다.");
+  const expectedFieldCount = candidate.readiness.recognizedFieldCount;
+  if (
+    candidate.readiness.runFeatureReadiness.authoring.status !== "ready"
+    || candidate.readiness.authoringEvidenceStatus !== "verified"
+    || expectedFieldCount === null
+    || !Number.isSafeInteger(expectedFieldCount)
+    || expectedFieldCount <= 0
+  ) {
+    throw new Error("application repair는 검증된 양수 recognizedFieldCount가 필요합니다.");
+  }
   const sourceEvidence = candidate.sourceArtifact.localLabEvidence?.analysisLaunch;
   if (!sourceEvidence) throw new Error("application repair launch source evidence가 없습니다.");
   const preparedBundle = await prepareAnalysisLaunchPromotionApplicationPrecomputeBundle({
@@ -217,7 +227,7 @@ async function buildRepairManifest(input: {
       readiness: candidate.readiness,
       beforeApplicationSnapshotSha256: applicationFieldRepairSnapshotSha256(before),
       fieldCountBefore: 0,
-      expectedFieldCount: candidate.readiness.recognizedFieldCount,
+      expectedFieldCount,
       expectedMaterializableSurfaceCount: preparedBundle.evidence.materializableDocumentCount,
       materializationPlanSha256: grantApplicationPrecomputePlanSha256(materializationPlan),
     },

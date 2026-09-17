@@ -107,6 +107,7 @@ export function buildCurrentInventoryLaunchManifest(input: {
   readonly primaryReuse?: readonly AnalysisLaunchPrimaryReuseBinding[];
 }): AnalysisLaunchManifest {
   const inventory = validateCurrentLaunchInventory(input.inventory);
+  const analysisMode = input.analysisMode ?? "primary_and_application";
   if ((inventory.policy === TERMINAL_REPAIR_POLICY) !== Boolean(input.terminalRepair)) throw new Error("terminal repair ancestry가 필요합니다.");
   if (sha(encodeCanonical(inventory)) !== input.inventorySha256) throw new Error("current inventory SHA가 다릅니다.");
   const projectedTargets = completedLaunchProjectionTargets(inventory, input.completedLaunch);
@@ -116,24 +117,26 @@ export function buildCurrentInventoryLaunchManifest(input: {
     planSha256: input.inventorySha256,
     planArtifactSha256: input.inventorySha256,
   };
+  if ((input.primaryReuse?.length ?? 0) !== (analysisMode === "application_only" ? projectedTargets.length : 0)) {
+    throw new Error("application-only primary 재사용 target 수가 다릅니다.");
+  }
   const baseManifest = createCurrentInventoryAnalysisLaunchManifest({
     inventory: projectedInventory,
     sequenceFrom: 0, sequenceTo: projectedTargets.length - 1,
     preparedTargets: input.preparedTargets ?? projectedTargets,
-    provenance: input.provenance, withApplicationRoundtrip: true,
+    provenance: input.provenance,
+    analysisMode: analysisMode === "application_only" ? "primary_and_application" : analysisMode,
+    withApplicationRoundtrip: analysisMode !== "matching_only",
     concurrency: input.concurrency, now: input.now,
     ...(input.completedLaunch ? { completedLaunch: input.completedLaunch } : {}),
     ...(input.terminalRepair ? { terminalRepair: input.terminalRepair } : {}),
   });
-  if ((input.primaryReuse?.length ?? 0) !== (input.analysisMode === "application_only" ? projectedTargets.length : 0)) {
-    throw new Error("application-only primary 재사용 target 수가 다릅니다.");
-  }
-  const manifest = input.primaryReuse
+  const manifest = analysisMode === "application_only"
     ? normalizeAnalysisLaunchManifest({
         ...baseManifest,
         execution: {
           ...baseManifest.execution,
-          analysisMode: input.analysisMode,
+          analysisMode,
         },
         targets: baseManifest.targets.map((target, index) => ({
           ...target,

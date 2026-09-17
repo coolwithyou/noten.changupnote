@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import type { IRBlock } from "kordoc";
 import type { RoundtripFieldCandidate } from "@/lib/server/analysis-lab/application-roundtrip/contract";
 import { extractLocatedRoundtripFields } from "./core";
 import { detectUnsupportedNativeInputGaps, finalizeRoundtripFieldCoverage } from "./field-coverage";
@@ -16,6 +17,161 @@ const unresolved = finalizeRoundtripFieldCoverage([unknownBlank]);
 assert.equal(unresolved.status, "review_required");
 assert.equal(unresolved.unresolvedCandidateCount, 1);
 assert.equal(unresolved.unresolvedCandidates[0]?.label, "추가 설명");
+
+{
+  const independentAccepted = field({
+    id: "independent-accepted",
+    label: "기업명",
+    recommendedInput: true,
+  });
+  independentAccepted.location.blockIndex = 4;
+  const isolatedUnknown = field({
+    id: "isolated-unknown",
+    label: "기타 확인",
+    recommendedInput: false,
+  });
+  const coverage = finalizeRoundtripFieldCoverage(
+    [independentAccepted, isolatedUnknown],
+    [],
+    isolationBlocks([independentAccepted, isolatedUnknown]),
+  );
+  assert.equal(coverage.status, "partial", "서로 다른 구조 블록의 확정 필드는 partial로 사용할 수 있음");
+  assert.equal(coverage.acceptedInputCount, 1);
+  assert.equal(coverage.unresolvedCandidateCount, 1);
+  assert.equal(independentAccepted.recommendedInput, true);
+}
+
+{
+  const coupledAccepted = field({
+    id: "coupled-accepted",
+    label: "기업명",
+    recommendedInput: true,
+  });
+  const coupledUnknown = field({
+    id: "coupled-unknown",
+    label: "창업 여부",
+    recommendedInput: false,
+  });
+  const coverage = finalizeRoundtripFieldCoverage(
+    [coupledAccepted, coupledUnknown],
+    [],
+    isolationBlocks([coupledAccepted, coupledUnknown]),
+  );
+  assert.equal(coverage.status, "review_required", "같은 label/value 영향 범위는 함께 보류해야 함");
+  assert.equal(coverage.acceptedInputCount, 0);
+  assert.equal(coupledAccepted.recommendedInput, false);
+  assert.match(coverage.structuralWarnings.at(-1)?.reason ?? "", /같은 쓰기 영향 범위/);
+}
+
+{
+  const mergedAccepted = field({
+    id: "merged-accepted",
+    label: "기업명",
+    recommendedInput: true,
+    targetText: "기업명",
+  });
+  const mergedUnknown = field({
+    id: "merged-unknown",
+    label: "창업 여부",
+    recommendedInput: false,
+    targetText: "창업 여부",
+  });
+  mergedUnknown.location.target!.col = 1;
+  const mergedBlocks = isolationBlocks([mergedAccepted, mergedUnknown]);
+  mergedBlocks[1]!.table!.cells[1]![0]!.colSpan = 2;
+  const coverage = finalizeRoundtripFieldCoverage(
+    [mergedAccepted, mergedUnknown],
+    [],
+    mergedBlocks,
+  );
+  assert.equal(coverage.status, "review_required");
+  assert.equal(coverage.acceptedInputCount, 0, "병합된 동일 셀의 다른 logical 좌표를 독립 필드로 열지 않음");
+}
+
+{
+  const duplicateA = field({
+    id: "duplicate-a",
+    label: "기업명 A",
+    recommendedInput: true,
+    targetText: "",
+  });
+  duplicateA.location.target = {
+    kind: "table_cell",
+    row: 1,
+    col: 1,
+    textStart: 0,
+    textEnd: 0,
+    expectedText: "",
+    expectedSha256: "a".repeat(64),
+  };
+  const duplicateB = structuredClone(duplicateA);
+  duplicateB.fieldInstanceId = "duplicate-b";
+  duplicateB.label = "기업명 B";
+  const safeAccepted = structuredClone(duplicateA);
+  safeAccepted.fieldInstanceId = "duplicate-safe";
+  safeAccepted.label = "대표자명";
+  safeAccepted.location.blockIndex = 2;
+  const isolatedUnknown = field({
+    id: "duplicate-trigger-unknown",
+    label: "기타 확인",
+    recommendedInput: false,
+  });
+  isolatedUnknown.location.blockIndex = 3;
+  const fields = [duplicateA, duplicateB, safeAccepted, isolatedUnknown];
+  const coverage = finalizeRoundtripFieldCoverage(fields, [], isolationBlocks(fields));
+  assert.equal(coverage.status, "partial");
+  assert.equal(coverage.acceptedInputCount, 1, "동일 target의 accepted 중복은 묶어 제외하고 독립 필드만 유지함");
+  assert.equal(duplicateA.recommendedInput, false);
+  assert.equal(duplicateB.recommendedInput, false);
+  assert.equal(safeAccepted.recommendedInput, true);
+}
+
+{
+  const independentAccepted = field({
+    id: "unknown-scope-accepted",
+    label: "기업명",
+    recommendedInput: true,
+  });
+  independentAccepted.location.blockIndex = 4;
+  const unknownScope = field({
+    id: "unknown-scope",
+    label: "위치 미확정",
+    recommendedInput: false,
+  });
+  unknownScope.location.blockIndex = -1;
+  const coverage = finalizeRoundtripFieldCoverage([independentAccepted, unknownScope]);
+  assert.equal(coverage.status, "review_required", "미해결 영향 범위를 증명할 수 없으면 문서 전체를 보류함");
+  assert.equal(coverage.acceptedInputCount, 1, "보류 판정이 확정 후보 자체를 거짓 거절로 바꾸지는 않음");
+}
+
+{
+  const independentAccepted = field({
+    id: "choice-scope-accepted",
+    label: "기업명",
+    recommendedInput: true,
+  });
+  independentAccepted.location.blockIndex = 4;
+  const isolatedUnknown = field({
+    id: "choice-scope-unknown",
+    label: "기타 확인",
+    recommendedInput: false,
+  });
+  const coverage = finalizeRoundtripFieldCoverage(
+    [independentAccepted, isolatedUnknown],
+    [],
+    isolationBlocks([independentAccepted, isolatedUnknown]),
+    [{
+      groupId: "native-choice",
+      label: "창업 여부",
+      normalizedLabel: "창업여부",
+      selectionMode: "single",
+      source: "hwp-form-control",
+      options: [{ optionId: "yes", label: "예", selected: false }],
+      location: { sectionIndex: 0, tableIndex: 0, row: 1, col: 1, pageNumber: null },
+    }],
+  );
+  assert.equal(coverage.status, "review_required", "native choice와 Kordoc 좌표 대응이 불명확하면 문서 보류");
+}
 
 const suspectedPlaceholder = field({
   id: "suspected-placeholder",
@@ -191,7 +347,12 @@ const collapsed = field({
   writeOperation: "toggle_text_choice",
   targetText: `신청서 전체 내용 ${"□ 선택지 ".repeat(60)}`,
 });
-const partial = finalizeRoundtripFieldCoverage([accepted, collapsed]);
+collapsed.location.blockIndex = 2;
+const partial = finalizeRoundtripFieldCoverage(
+  [accepted, collapsed],
+  [],
+  isolationBlocks([accepted, collapsed]),
+);
 assert.equal(partial.status, "partial");
 assert.equal(partial.structuralWarningCount, 1);
 assert.equal(collapsed.recommendedInput, false, "문서 전체가 접힌 거대 선택 후보는 빠른 작성에서 제외해야 한다");
@@ -207,7 +368,12 @@ const compactCollapsed = field({
   writeOperation: "toggle_text_choice",
   targetText: `${"□ 정산 항목 ".repeat(20)}후속 안내`,
 });
-const compactPartial = finalizeRoundtripFieldCoverage([accepted, compactCollapsed]);
+compactCollapsed.location.blockIndex = 3;
+const compactPartial = finalizeRoundtripFieldCoverage(
+  [accepted, compactCollapsed],
+  [],
+  isolationBlocks([accepted, compactCollapsed]),
+);
 assert.equal(compactPartial.status, "partial");
 assert.equal(compactCollapsed.recommendedInput, false, "120자 이상 접힌 선택 묶음도 안전 제외해야 한다");
 
@@ -269,7 +435,15 @@ staleReplacement.recommendedInput = false;
 assert.equal(finalizeRoundtripFieldCoverage([postPlannerContextReplacement, staleReplacement]).status, "review_required");
 const otherBlockReplacement = structuredClone(replacementInput);
 otherBlockReplacement.location.blockIndex += 1;
-assert.equal(finalizeRoundtripFieldCoverage([postPlannerContextReplacement, otherBlockReplacement]).status, "review_required");
+assert.equal(
+  finalizeRoundtripFieldCoverage(
+    [postPlannerContextReplacement, otherBlockReplacement],
+    [],
+    isolationBlocks([postPlannerContextReplacement, otherBlockReplacement]),
+  ).status,
+  "partial",
+  "다른 블록의 exact 대체 입력은 미해결 후보와 분리해 유지",
+);
 const prePlannerReplacement = structuredClone(postPlannerContextReplacement);
 prePlannerReplacement.inputSignals = ["RHWP 구조가 더 구체적인 “분석 보유 여부” 입력으로 대체"];
 prePlannerReplacement.llmDecision = "uncertain";
@@ -421,6 +595,33 @@ const unsupportedCoverage = finalizeRoundtripFieldCoverage([], unsupportedGaps);
 assert.equal(unsupportedCoverage.status, "partial");
 assert.equal(unsupportedCoverage.structuralWarningCount, 4);
 assert.equal(unsupportedCoverage.acceptedInputCount, 0, "미지원 gap을 쓰기 후보로 승격하면 안 된다");
+
+{
+  const sameAreaAccepted = field({
+    id: "same-area-accepted",
+    label: "인원",
+    recommendedInput: true,
+  });
+  sameAreaAccepted.location.blockIndex = 0;
+  sameAreaAccepted.location.row = 0;
+  const sameArea = finalizeRoundtripFieldCoverage([sameAreaAccepted], [unsupportedGaps[0]!], unsupportedBlocks);
+  assert.equal(sameArea.status, "review_required");
+  assert.equal(sameArea.acceptedInputCount, 0, "미지원 셀과 같은 native 쓰기 범위는 함께 제외함");
+
+  const separateAreaAccepted = field({
+    id: "separate-area-accepted",
+    label: "기업명",
+    recommendedInput: true,
+  });
+  separateAreaAccepted.location.blockIndex = 9;
+  const separateArea = finalizeRoundtripFieldCoverage(
+    [separateAreaAccepted],
+    [unsupportedGaps[0]!],
+    isolationBlocks([separateAreaAccepted], unsupportedBlocks),
+  );
+  assert.equal(separateArea.status, "partial");
+  assert.equal(separateArea.acceptedInputCount, 1, "구조적으로 분리된 확정 필드만 partial로 유지함");
+}
 
 assert.deepEqual(
   detectUnsupportedNativeInputGaps({ blocks: unsupportedBlocks, fields: [], role: "evidence" }),
@@ -657,4 +858,30 @@ function field(input: {
         : {}),
     },
   };
+}
+
+function isolationBlocks(
+  fields: readonly RoundtripFieldCandidate[],
+  seed: readonly IRBlock[] = [],
+): IRBlock[] {
+  const blockCount = Math.max(seed.length, ...fields.map((candidate) => candidate.location.blockIndex + 1), 0);
+  return Array.from({ length: blockCount }, (_, blockIndex) => {
+    const existing = seed[blockIndex];
+    if (existing) return structuredClone(existing);
+    const blockFields = fields.filter((candidate) => candidate.location.blockIndex === blockIndex);
+    const rows = Math.max(3, ...blockFields.map((candidate) => candidate.location.row + 2));
+    const cols = Math.max(3, ...blockFields.map((candidate) => candidate.location.col + 2));
+    return {
+      type: "table",
+      table: {
+        rows,
+        cols,
+        hasHeader: false,
+        cells: Array.from({ length: rows }, () => Array.from(
+          { length: cols },
+          () => ({ text: "", colSpan: 1, rowSpan: 1 }),
+        )),
+      },
+    };
+  });
 }

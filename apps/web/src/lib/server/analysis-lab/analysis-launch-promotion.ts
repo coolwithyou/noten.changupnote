@@ -74,11 +74,12 @@ export interface AnalysisLaunchPromotionReadiness {
   attachmentManifestSha256: string;
   launchReceiptSha256: string;
   independentReviewAggregateSha256: string;
-  applicationRoundtripStatus: NonNullable<LabRun["applicationRoundtrip"]>["status"];
+  /** null은 신청서 분석 미실행이다. 실패나 not_applicable로 추정하지 않는다. */
+  applicationRoundtripStatus: NonNullable<LabRun["applicationRoundtrip"]>["status"] | null;
   applicationRoundtripRunId: string | null;
-  applicationDocumentCount: number;
-  fieldReadyDocumentCount: number;
-  recognizedFieldCount: number;
+  applicationDocumentCount: number | null;
+  fieldReadyDocumentCount: number | null;
+  recognizedFieldCount: number | null;
   /** 매칭/작성 기능의 독립 판정. 신규 release에는 항상 존재한다. */
   runFeatureReadiness: AnalysisFeatureReadiness;
   /** receipt에 직접 봉인됐는지, publishable legacy receipt의 원본 필드에서 파생했는지. */
@@ -510,6 +511,17 @@ export function classifyAnalysisLaunchPromotionReadiness(input: {
   if (current.confirmedDuplicate) reasons.push("confirmed_dedup_member");
   const roundtrip = run.applicationRoundtrip;
   const execution = launch.manifest.execution;
+  const matchingOnlyBindingMatches = execution.analysisMode !== "matching_only" || (
+    execution.withApplicationRoundtrip === false
+    && execution.roundtripModel === null
+    && execution.applicationFieldAnalysisVersion === null
+    && roundtrip === undefined
+    && target.applicationRoundtripStatus === null
+    && target.applicationDocumentCount === null
+    && target.fieldReadyDocumentCount === null
+    && target.recognizedFieldCount === null
+  );
+  if (!matchingOnlyBindingMatches) reasons.push("analysis_mode_binding");
   const applicationBindingMatches = execution.withApplicationRoundtrip
     && execution.applicationFieldAnalysisVersion === APPLICATION_ROUNDTRIP_VERSION
     && execution.roundtripModel === APPLICATION_ROUNDTRIP_ADOPTED_MODEL
@@ -536,11 +548,11 @@ export function classifyAnalysisLaunchPromotionReadiness(input: {
     attachmentManifestSha256: current.attachmentManifestSha256,
     launchReceiptSha256: launch.receiptSha256,
     independentReviewAggregateSha256: launch.review.aggregateSha256,
-    applicationRoundtripStatus: roundtrip?.status ?? "failed",
+    applicationRoundtripStatus: roundtrip?.status ?? null,
     applicationRoundtripRunId: roundtrip?.runId ?? null,
-    applicationDocumentCount: roundtrip?.applicationDocumentCount ?? 0,
-    fieldReadyDocumentCount: roundtrip?.fieldReadyDocumentCount ?? 0,
-    recognizedFieldCount: roundtrip?.recognizedFieldCount ?? 0,
+    applicationDocumentCount: roundtrip ? roundtrip.applicationDocumentCount ?? 0 : null,
+    fieldReadyDocumentCount: roundtrip ? roundtrip.fieldReadyDocumentCount ?? 0 : null,
+    recognizedFieldCount: roundtrip ? roundtrip.recognizedFieldCount ?? 0 : null,
     runFeatureReadiness,
     runFeatureReadinessVerification,
     authoringEvidenceStatus: applicationBindingMatches ? "verified" : "held",

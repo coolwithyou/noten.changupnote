@@ -2,6 +2,7 @@
 import { createHash } from "node:crypto";
 import type { IRBlock } from "kordoc";
 import type {
+  RoundtripChoiceGroup,
   RoundtripDocumentRole,
   RoundtripFieldCandidate,
   RoundtripFieldCoverageIssue,
@@ -34,6 +35,7 @@ export function finalizeRoundtripFieldCoverage(
   fields: RoundtripFieldCandidate[],
   unsupportedNativeGaps: readonly RoundtripFieldCoverageIssue[] = [],
   blocks: readonly IRBlock[] = [],
+  choiceGroups: readonly RoundtripChoiceGroup[] = [],
 ): RoundtripFieldCoverageSummary {
   const structuralWarnings = [
     ...unsupportedNativeGaps,
@@ -50,23 +52,215 @@ export function finalizeRoundtripFieldCoverage(
   for (const field of anchorUnready) {
     unresolvedCandidates.push(issue(field, "원문 라벨과 RHWP 구조 위치를 함께 확정하지 못함"));
   }
-  const status: RoundtripFieldCoverageSummary["status"] = unresolvedCandidates.length > 0
-    ? "review_required"
-    : structuralWarnings.length > 0
-      ? "partial"
-      : "complete";
+  const hasExcludedAreas = unresolvedCandidates.length > 0 || structuralWarnings.length > 0;
+  const isolation = anchorUnready.length === 0
+    && hasExcludedAreas
+    && (acceptedFields.length > 0 || choiceGroups.length > 0)
+    ? isolateIndependentAcceptedFields({
+        fields,
+        acceptedFields,
+        unresolvedCandidates,
+        structuralWarnings,
+        choiceGroups,
+        blocks,
+      })
+    : { failed: false };
+  const finalAcceptedFields = fields.filter((field) => field.recommendedInput);
+  const hasPartialAuthoringSupport = finalAcceptedFields.length > 0;
+  const status: RoundtripFieldCoverageSummary["status"] = anchorUnready.length > 0
+    || isolation.failed
+    || (unresolvedCandidates.length > 0 && !hasPartialAuthoringSupport)
+    || (acceptedFields.length > 0 && structuralWarnings.length > 0 && !hasPartialAuthoringSupport)
+      ? "review_required"
+      : hasExcludedAreas
+        ? "partial"
+        : "complete";
   return {
     status,
     rawEmptyCandidateCount: fields.filter((field) => field.source !== "contextual-region" && field.empty).length,
-    acceptedInputCount: acceptedFields.length,
+    acceptedInputCount: finalAcceptedFields.length,
     unresolvedCandidateCount: unresolvedCandidates.length,
     structuralWarningCount: structuralWarnings.length,
     unresolvedCandidates,
     structuralWarnings,
     structuralInputLabelCount: fields.filter((field) => field.source === "rhwp-structural").length,
-    anchorReadyInputCount: acceptedFields.length - anchorUnready.length,
+    anchorReadyInputCount: finalAcceptedFields.length - anchorUnready.length,
     anchorUnreadyInputCount: anchorUnready.length,
   };
+}
+
+interface FieldIsolationInput {
+  fields: RoundtripFieldCandidate[];
+  acceptedFields: RoundtripFieldCandidate[];
+  unresolvedCandidates: readonly RoundtripFieldCoverageIssue[];
+  structuralWarnings: RoundtripFieldCoverageIssue[];
+  choiceGroups: readonly RoundtripChoiceGroup[];
+  blocks: readonly IRBlock[];
+}
+
+type WriteInfluence = {
+  blockIndex: number;
+  /** null은 본문 블록/문단 전체, 숫자는 표 행 범위다. */
+  rowStart: number | null;
+  rowEnd: number | null;
+  /** null은 해당 행 전체다. */
+  colStart: number | null;
+  colEnd: number | null;
+};
+
+/**
+ * 미해결 영역과 같은 셀·문단·인접 label/value 범위에 걸친 입력만 빠른 작성에서 제외한다.
+ * 위치를 증명할 수 없거나 native choice group과 Kordoc 좌표를 대응할 수 없으면 문서 전체를 닫는다.
+ */
+function isolateIndependentAcceptedFields(input: FieldIsolationInput): { failed: boolean } {
+  if (input.choiceGroups.length > 0) return { failed: true };
+  const byId = new Map(input.fields.map((field) => [field.fieldInstanceId, field]));
+  const excluded = [...input.unresolvedCandidates, ...input.structuralWarnings].map((coverageIssue) => {
+    const field = byId.get(coverageIssue.fieldInstanceId);
+    return field
+      ? fieldWriteInfluence(field, input.blocks)
+      : issueWriteInfluence(coverageIssue, input.blocks);
+  });
+  if (excluded.some((scope) => scope === null)) return { failed: true };
+
+  const accepted = input.acceptedFields.map((field) => ({
+    field,
+    scope: fieldWriteInfluence(field, input.blocks),
+  }));
+  if (accepted.some(({ scope }) => scope === null)) return { failed: true };
+  const blocked = new Set<RoundtripFieldCandidate>();
+  for (let left = 0; left < accepted.length; left += 1) {
+    for (let right = left + 1; right < accepted.length; right += 1) {
+      if (!scopesOverlap(accepted[left]!.scope!, accepted[right]!.scope!)) continue;
+      blocked.add(accepted[left]!.field);
+      blocked.add(accepted[right]!.field);
+    }
+  }
+  for (const { field, scope } of accepted) {
+    if (excluded.some((excludedScope) => scopesOverlap(scope!, excludedScope!))) blocked.add(field);
+  }
+  for (const field of blocked) {
+    field.recommendedInput = false;
+    const reason = "다른 입력과 같은 쓰기 영향 범위여서 빠른 작성에서 함께 제외됨";
+    if (!field.inputSignals.includes(reason)) field.inputSignals.push(reason);
+    input.structuralWarnings.push(issue(field, reason));
+  }
+  return { failed: false };
+}
+
+function fieldWriteInfluence(
+  field: RoundtripFieldCandidate,
+  blocks: readonly IRBlock[],
+): WriteInfluence | null {
+  const blockIndex = field.location.blockIndex;
+  if (!Number.isSafeInteger(blockIndex) || blockIndex < 0) return null;
+  const target = field.location.target;
+  if (target?.kind === "block_text" || target?.kind === "paragraph_text") {
+    if (!blocks[blockIndex]) return null;
+    return { blockIndex, rowStart: null, rowEnd: null, colStart: null, colEnd: null };
+  }
+  if (target?.kind === "table_cell") {
+    if (
+      !Number.isSafeInteger(target.row)
+      || (target.row ?? -1) < 0
+      || !Number.isSafeInteger(target.col)
+      || (target.col ?? -1) < 0
+    ) return null;
+    return cellWriteInfluence(blocks, blockIndex, target.row!, target.col!);
+  }
+  const { row, col } = field.location;
+  if (!Number.isSafeInteger(row) || row < 0 || !Number.isSafeInteger(col) || col < 0) return null;
+  const anchor = cellWriteInfluence(blocks, blockIndex, row, col);
+  if (!anchor || anchor.rowStart === null || anchor.colStart === null) return null;
+  const table = blocks[blockIndex]?.table;
+  if (!table) return null;
+  const targetCol = anchor.colEnd! + 1;
+  let value = cellWriteInfluence(blocks, blockIndex, row, targetCol);
+  if (!value) {
+    for (let targetRow = anchor.rowEnd! + 1; targetRow < table.cells.length && !value; targetRow += 1) {
+      for (let targetColumn = anchor.colStart; targetColumn <= anchor.colEnd! && !value; targetColumn += 1) {
+        value = cellWriteInfluence(blocks, blockIndex, targetRow, targetColumn);
+      }
+    }
+  }
+  if (!value || value.rowStart === null || value.colStart === null) return null;
+  return {
+    blockIndex,
+    rowStart: Math.min(anchor.rowStart, value.rowStart),
+    rowEnd: Math.max(anchor.rowEnd!, value.rowEnd!),
+    colStart: Math.min(anchor.colStart, value.colStart),
+    colEnd: Math.max(anchor.colEnd!, value.colEnd!),
+  };
+}
+
+function issueWriteInfluence(
+  coverageIssue: RoundtripFieldCoverageIssue,
+  blocks: readonly IRBlock[],
+): WriteInfluence | null {
+  const { blockIndex, row, col } = coverageIssue.location;
+  if (
+    !Number.isSafeInteger(blockIndex)
+    || blockIndex < 0
+    || !Number.isSafeInteger(row)
+    || row < 0
+    || !Number.isSafeInteger(col)
+    || col < 0
+  ) return null;
+  // 미지원 gap은 한 셀에서 발견됐더라도 다열 matrix일 수 있어 행 전체를 영향 범위로 본다.
+  const cell = cellWriteInfluence(blocks, blockIndex, row, col);
+  return cell && cell.rowStart !== null
+    ? { blockIndex, rowStart: cell.rowStart, rowEnd: cell.rowEnd, colStart: null, colEnd: null }
+    : null;
+}
+
+function cellWriteInfluence(
+  blocks: readonly IRBlock[],
+  blockIndex: number,
+  row: number,
+  col: number,
+): WriteInfluence | null {
+  const table = blocks[blockIndex]?.table;
+  if (!table?.cells[row]?.[col]) return null;
+  const covering: Array<{ row: number; col: number; rowEnd: number; colEnd: number }> = [];
+  for (let originRow = 0; originRow <= row; originRow += 1) {
+    const cells = table.cells[originRow] ?? [];
+    for (let originCol = 0; originCol <= col; originCol += 1) {
+      const cell = cells[originCol];
+      if (!cell) continue;
+      if (
+        !Number.isSafeInteger(cell.rowSpan)
+        || cell.rowSpan < 1
+        || !Number.isSafeInteger(cell.colSpan)
+        || cell.colSpan < 1
+      ) return null;
+      const rowEnd = originRow + cell.rowSpan - 1;
+      const colEnd = originCol + cell.colSpan - 1;
+      if (
+        rowEnd >= table.cells.length
+        || Array.from({ length: rowEnd - originRow + 1 }, (_, offset) => table.cells[originRow + offset])
+          .some((coveredRow) => !coveredRow || colEnd >= coveredRow.length)
+      ) return null;
+      if (rowEnd < row || colEnd < col) continue;
+      covering.push({ row: originRow, col: originCol, rowEnd, colEnd });
+    }
+  }
+  return covering.length > 0
+    ? {
+        blockIndex,
+        rowStart: Math.min(...covering.map((cell) => cell.row)),
+        rowEnd: Math.max(...covering.map((cell) => cell.rowEnd)),
+        colStart: Math.min(...covering.map((cell) => cell.col)),
+        colEnd: Math.max(...covering.map((cell) => cell.colEnd)),
+      }
+    : null;
+}
+
+function scopesOverlap(left: WriteInfluence, right: WriteInfluence): boolean {
+  if (left.blockIndex !== right.blockIndex) return false;
+  if (left.rowStart === null || right.rowStart === null) return true;
+  if (left.rowEnd! < right.rowStart || right.rowEnd! < left.rowStart) return false;
+  if (left.colStart === null || right.colStart === null) return true;
+  return !(left.colEnd! < right.colStart || right.colEnd! < left.colStart);
 }
 
 /**

@@ -22,6 +22,11 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const ROUNDTRIP_RUN_ID = /^roundtrip-[0-9TZ.\-]{10,40}-[a-f0-9]{6}$/;
 const MAX_LAUNCH_TARGETS = 100;
 
+export type AnalysisLaunchAnalysisMode =
+  | "primary_and_application"
+  | "matching_only"
+  | "application_only";
+
 export interface AnalysisLaunchManifestTarget {
   readonly sequence: number;
   readonly grantId: string;
@@ -106,7 +111,7 @@ export interface AnalysisLaunchManifest {
     readonly sequenceTo: number;
   };
   readonly execution: {
-    readonly analysisMode?: "primary_and_application" | "application_only";
+    readonly analysisMode?: AnalysisLaunchAnalysisMode;
     readonly transport: "claude-cli";
     readonly model: string;
     readonly promptVersion: string;
@@ -256,19 +261,31 @@ interface AnalysisLaunchManifestPreparationInput {
 export function createAnalysisLaunchManifest(
   input: AnalysisLaunchManifestPreparationInput,
 ): AnalysisLaunchManifest {
-  if (input.withApplicationRoundtrip !== true) {
-    throw new Error("정식 launch는 RHWP 신청서 필드 분석을 포함해야 합니다.");
+  const analysisMode = input.analysisMode ?? "primary_and_application";
+  if (analysisMode === "application_only") {
+    throw new Error("formal launch는 application-only를 사용할 수 없습니다.");
   }
   if (
-    input.roundtripModel !== undefined
+    (analysisMode === "matching_only" && input.withApplicationRoundtrip)
+    || (analysisMode === "primary_and_application" && !input.withApplicationRoundtrip)
+    || (analysisMode === "matching_only" && input.roundtripModel !== undefined)
+  ) {
+    throw new Error("정식 launch의 analysisMode와 신청서 필드 분석 결속이 다릅니다.");
+  }
+  if (
+    analysisMode === "primary_and_application"
+    && input.roundtripModel !== undefined
     && input.roundtripModel !== APPLICATION_ROUNDTRIP_ADOPTED_MODEL
   ) {
     throw new Error(`정식 launch 필드 분석 모델은 ${APPLICATION_ROUNDTRIP_ADOPTED_MODEL}이어야 합니다.`);
   }
   return createAnalysisLaunchManifestFromInventory({
     ...input,
-    withApplicationRoundtrip: true,
-    roundtripModel: APPLICATION_ROUNDTRIP_ADOPTED_MODEL,
+    analysisMode,
+    withApplicationRoundtrip: analysisMode === "primary_and_application",
+    ...(analysisMode === "primary_and_application"
+      ? { roundtripModel: APPLICATION_ROUNDTRIP_ADOPTED_MODEL }
+      : {}),
   }, {
     sourceKind: "formal_plan",
     adoptionManifestSha256: null,
@@ -662,7 +679,11 @@ function normalizeAnalysisLaunchManifestForPurpose(
   const analysisMode = execution.analysisMode === undefined
     ? "primary_and_application"
     : execution.analysisMode;
-  if (analysisMode !== "primary_and_application" && analysisMode !== "application_only") {
+  if (
+    analysisMode !== "primary_and_application"
+    && analysisMode !== "matching_only"
+    && analysisMode !== "application_only"
+  ) {
     throw new Error("launch analysisMode가 잘못됐습니다.");
   }
   const roundtripModel = execution.roundtripModel === null
@@ -697,6 +718,25 @@ function normalizeAnalysisLaunchManifestForPurpose(
     : normalizeCompletedCurrentInventoryBinding(source.completedLaunch);
   const terminalRepair = source.terminalRepair === undefined ? undefined
     : normalizeTerminalRepairBinding(source.terminalRepair);
+  const isAuthoringGuidePrimaryOnly = sourceKind === "authoring_guide_adoption"
+    && analysisMode === "primary_and_application"
+    && !withApplicationRoundtrip;
+  if (
+    !isAuthoringGuidePrimaryOnly
+    && ((analysisMode === "matching_only") === withApplicationRoundtrip)
+  ) {
+    throw new Error("launch analysisMode와 신청서 필드 분석 결속이 다릅니다.");
+  }
+  if (
+    analysisMode === "matching_only"
+    && sourceKind !== "formal_plan"
+    && sourceKind !== "current_inventory"
+  ) {
+    throw new Error("matching-only launch source가 잘못됐습니다.");
+  }
+  if (analysisMode === "application_only" && sourceKind !== "current_inventory") {
+    throw new Error("application-only launch source가 잘못됐습니다.");
+  }
   if (terminalRepair && (
     sourceKind !== "current_inventory"
     || (!completedLaunch && terminalRepair.originalSequences.length !== targets.length)
@@ -763,6 +803,7 @@ function normalizeAnalysisLaunchManifestForPurpose(
       sourceKind !== "current_inventory"
       || completedLaunch !== undefined
       || existingRunPolicy !== "skip_existing"
+      || analysisMode !== "primary_and_application"
       || execution.promptVersion !== "lab-deep-v26"
       || execution.validatorVersion !== "deep-analysis-validator-v19"
       || applicationFieldAnalysisVersion !== "kordoc-application-roundtrip-v14"
@@ -777,9 +818,17 @@ function normalizeAnalysisLaunchManifestForPurpose(
         || (sourceKind === "formal_plan"
           ? existingRunPolicy !== "skip_existing" || completedLaunch !== undefined
           : existingRunPolicy !== expectedCurrentInventoryRunPolicy)
-        || !withApplicationRoundtrip
-        || roundtripModel !== APPLICATION_ROUNDTRIP_ADOPTED_MODEL
-        || applicationFieldAnalysisVersion !== expectedApplicationFieldAnalysisVersion
+        || (analysisMode === "primary_and_application"
+          ? !withApplicationRoundtrip
+            || roundtripModel !== APPLICATION_ROUNDTRIP_ADOPTED_MODEL
+            || applicationFieldAnalysisVersion !== expectedApplicationFieldAnalysisVersion
+          : analysisMode === "matching_only"
+            ? withApplicationRoundtrip
+              || roundtripModel !== null
+              || applicationFieldAnalysisVersion !== null
+            : !withApplicationRoundtrip
+              || roundtripModel !== APPLICATION_ROUNDTRIP_ADOPTED_MODEL
+              || applicationFieldAnalysisVersion !== expectedApplicationFieldAnalysisVersion)
         || (sourceKind === "current_inventory" && planSha256 !== planArtifactSha256)
         || (sourceKind === "current_inventory"
           && completedLaunch !== undefined
@@ -791,6 +840,7 @@ function normalizeAnalysisLaunchManifestForPurpose(
         || adoptionManifestSha256 !== planSha256
         || adoptionManifestSha256 !== planArtifactSha256
         || existingRunPolicy !== "rerun_exact_targets"
+        || analysisMode !== "primary_and_application"
         || withApplicationRoundtrip
         || applicationFieldAnalysisVersion !== null
       ))
@@ -800,6 +850,7 @@ function normalizeAnalysisLaunchManifestForPurpose(
         || completedLaunch !== undefined
         || planSha256 !== planArtifactSha256
         || existingRunPolicy !== "rerun_exact_targets"
+        || analysisMode !== "primary_and_application"
         || !withApplicationRoundtrip
         || roundtripModel !== APPLICATION_ROUNDTRIP_ADOPTED_MODEL
         || applicationFieldAnalysisVersion !== APPLICATION_ROUNDTRIP_VERSION
@@ -885,6 +936,9 @@ function normalizeAnalysisLaunchManifestForPurpose(
 }
 
 const COMPLETED_RECEIPT_OFFLINE_HISTORICAL_CONTRACTS = new Set([
+  // v22 전환 직전 v21 종료 계약. live v22 권한으로 승계하지 않고 오프라인 소비만 허용한다.
+  "current_inventory|skip_existing|lab-deep-v28|deep-analysis-validator-v23|kordoc-application-roundtrip-v21",
+  "current_inventory|rerun_exact_targets|lab-deep-v28|deep-analysis-validator-v23|kordoc-application-roundtrip-v21",
   // 기업명 수정 exact18의 v20 receipt는 오프라인 소비만 허용하며 v21 live 권한이 아니다.
   "current_inventory|rerun_exact_targets|lab-deep-v28|deep-analysis-validator-v23|kordoc-application-roundtrip-v20",
   // 2026-09-16 신규30/복구5 종료 계약. v20 필드 누락 수정의 live 권한으로 승계하지 않는다.
@@ -951,7 +1005,8 @@ function isSupportedCompletedReceiptOfflineContract(input: {
   if (
     input.completedLaunch !== undefined
     && (
-      input.rawApplicationFieldAnalysisVersion !== "kordoc-application-roundtrip-v20"
+      (input.rawApplicationFieldAnalysisVersion !== "kordoc-application-roundtrip-v20"
+        && input.rawApplicationFieldAnalysisVersion !== "kordoc-application-roundtrip-v21")
       || input.sourceKind !== "current_inventory"
       || input.existingRunPolicy !== "rerun_exact_targets"
       || input.completedLaunch.inventorySha256 !== input.planArtifactSha256
@@ -1295,10 +1350,8 @@ export function assertAnalysisLaunchExecutionContract(input: {
     || input.current.validatorVersion !== input.manifest.execution.validatorVersion
     || input.manifest.execution.promptVersion !== ANALYSIS_LAB_PROMPT_VERSION
     || input.manifest.execution.validatorVersion !== DEEP_ANALYSIS_VALIDATOR_VERSION
-    || (
-      input.manifest.source.kind !== "authoring_guide_adoption"
-      && input.manifest.execution.applicationFieldAnalysisVersion !== APPLICATION_ROUNDTRIP_VERSION
-    )
+    || (input.manifest.execution.withApplicationRoundtrip
+      && input.manifest.execution.applicationFieldAnalysisVersion !== APPLICATION_ROUNDTRIP_VERSION)
   ) {
     throw new Error("launch material execution contract가 준비 시점과 달라졌습니다.");
   }
