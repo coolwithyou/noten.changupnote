@@ -65,6 +65,8 @@
     "lab:aggregate:test": "TSX_TSCONFIG_PATH=apps/web/tsconfig.json node --import tsx apps/web/src/lib/server/analysis-lab/aggregate-cost-policy.test.ts",
     "lab:experiment": "pnpm verify:package-runtime-freshness && tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/analysis-lab/deep-repair-live-cli.ts",
     "lab:launch:prepare-current": "pnpm verify:package-runtime-freshness && tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/analysis-lab/current-inventory-launch-cli.ts",
+    "lab:matching-campaign": "pnpm verify:package-runtime-freshness && tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/analysis-lab/matching-inventory-campaign-cli.ts",
+    "lab:matching-campaign:test": "TSX_TSCONFIG_PATH=apps/web/tsconfig.json node --import tsx apps/web/src/lib/server/analysis-lab/matching-inventory-campaign.test.ts",
     "lab:launch:prepare-field-repair": "pnpm verify:package-runtime-freshness && tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/analysis-lab/workspace-field-repair-launch-cli.ts",
     "lab:launch:prepare-terminal-repair": "pnpm verify:package-runtime-freshness && tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/analysis-lab/terminal-repair-launch-cli.ts",
     "lab:launch:terminal-repair:test": "TSX_TSCONFIG_PATH=apps/web/tsconfig.json node --import tsx apps/web/src/lib/server/analysis-lab/terminal-repair-source.test.ts",

@@ -115,6 +115,9 @@ const statePath = process.env.FAKE_CODEX_STATE_PATH;
 const mode = process.env.FAKE_CODEX_MODE || "success";
 const count = statePath && fs.existsSync(statePath) ? Number(fs.readFileSync(statePath, "utf8")) + 1 : 1;
 if (statePath) fs.writeFileSync(statePath, String(count));
+const stdin = fs.readFileSync(0, "utf8");
+if (process.env.FAKE_CODEX_STDIN_PATH) fs.writeFileSync(process.env.FAKE_CODEX_STDIN_PATH, stdin);
+if (process.env.FAKE_CODEX_ARGS_PATH) fs.writeFileSync(process.env.FAKE_CODEX_ARGS_PATH, JSON.stringify(args));
 const rawIndex = args.indexOf("--output-last-message");
 const rawPath = rawIndex >= 0 ? args[rawIndex + 1] : null;
 console.log(JSON.stringify({ type: "turn.started", count }));
@@ -144,8 +147,12 @@ if (mode === "stall_then_success" && count === 1) {
 
   const retryCase = await preparePacketCase("retry", 10);
   const retryState = join(retryCase.base, "state.txt");
+  const retryStdinPath = join(retryCase.base, "stdin.txt");
+  const retryArgsPath = join(retryCase.base, "args.json");
   process.env.FAKE_CODEX_MODE = "stall_then_success";
   process.env.FAKE_CODEX_STATE_PATH = retryState;
+  process.env.FAKE_CODEX_STDIN_PATH = retryStdinPath;
+  process.env.FAKE_CODEX_ARGS_PATH = retryArgsPath;
   const retryPromise = runPacket({
     ...retryCase.options,
     timeoutMs: 2_000,
@@ -165,6 +172,15 @@ if (mode === "stall_then_success" && count === 1) {
   assert.equal(await readFile(retryState, "utf8"), "2");
   assert.equal((await readdir(retryCase.options.logDir)).filter((name) => name.endsWith(".jsonl")).length, 2);
   assert.ok((await readFile(retryCase.options.progressPath, "utf8")).includes('"event":"retrying"'));
+  const deliveredStdin = await readFile(retryStdinPath, "utf8");
+  assert.match(deliveredStdin, /^\[검수 규칙 — 모든 공고 공통\]\nfixture-system-rule/u);
+  assert.match(deliveredStdin, /\[공고별 검수 입력 — 원문 및 추출 조건\]\nfixture-user-evidence/u);
+  assert.doesNotMatch(deliveredStdin, /"outputSchema"/u, "CLI flag로 전달하는 출력 schema를 stdin에 중복하지 않음");
+  const deliveredArgs = JSON.parse(await readFile(retryArgsPath, "utf8")) as string[];
+  assert.equal(deliveredArgs.includes(retryCase.packetPath), false, "Codex에 packet 파일 read 경로를 지시하지 않음");
+  assert.equal(deliveredArgs.at(-1)?.includes("stdin의 [검수 규칙]"), true, "prompt+stdin 계약을 사용");
+  delete process.env.FAKE_CODEX_STDIN_PATH;
+  delete process.env.FAKE_CODEX_ARGS_PATH;
 
   const failureCase = await preparePacketCase("failure", 11);
   const failureState = join(failureCase.base, "state.txt");
@@ -329,10 +345,10 @@ async function preparePacketCase(name: string, sequence: number) {
     runArtifactSha256: sha256(runBytes),
     inputSha256: "c".repeat(64),
     promptVersion: "ai-review-v1",
-    reviewPolicyVersion: "codex-only-v7",
+    reviewPolicyVersion: "codex-only-v8",
     guideSha256: "d".repeat(64),
-    systemPrompt: "fixture",
-    userMessage: "fixture",
+    systemPrompt: "fixture-system-rule",
+    userMessage: "fixture-user-evidence",
     outputSchema: buildAiReviewToolSchema(0, []).input_schema,
   };
   const packetText = `${JSON.stringify(packet)}\n`;

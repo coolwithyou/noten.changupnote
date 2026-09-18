@@ -188,6 +188,13 @@ function countValidationIssueTransitions(input: {
 
   let sourceIncomplete = 0;
   for (const issue of newAfter) {
+    // source_incomplete는 validator가 최종 hold/conditional로 분류하는 원천 한계다.
+    // repair가 근거 없는 의미를 삭제하면서 한계를 더 정확히 드러낸 경우에도 신규
+    // 의미 회귀로 세지 않는다. 원시 신규 issue 총계에는 그대로 보존한다.
+    if (issue.code === "source_incomplete") {
+      sourceIncomplete += 1;
+      continue;
+    }
     if (issue.code !== "unresolved_axis") continue;
     const dimension = validationIssueDimension(issue, input.afterResult);
     if (!dimension || (removedDimensions.get(dimension) ?? 0) === 0) continue;

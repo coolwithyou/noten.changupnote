@@ -26,7 +26,8 @@ export const CURRENT_INVENTORY_SCHEMA = "analysis-current-inventory-v1" as const
 export const MATCHING_MATERIAL_SOURCE_BINDING_SCHEMA = "analysis-matching-material-source-binding-v1" as const;
 export const MISSING_WORKSPACE_FIELDS_POLICY = "open-visible-current-period-missing-fields-v1" as const;
 export const TERMINAL_REPAIR_POLICY = "open-visible-current-period-terminal-repair-v1" as const;
-export type CurrentInventoryPolicy = "open-visible-current-period-unseen-v1" | typeof MISSING_WORKSPACE_FIELDS_POLICY | typeof TERMINAL_REPAIR_POLICY;
+export const MATCHING_CAMPAIGN_POLICY = "open-visible-current-period-matching-campaign-v1" as const;
+export type CurrentInventoryPolicy = "open-visible-current-period-unseen-v1" | typeof MISSING_WORKSPACE_FIELDS_POLICY | typeof TERMINAL_REPAIR_POLICY | typeof MATCHING_CAMPAIGN_POLICY;
 export interface CurrentLaunchInventory {
   readonly schema: typeof CURRENT_INVENTORY_SCHEMA;
   readonly seriesId: string;
@@ -51,7 +52,7 @@ export function validateCurrentLaunchInventory(value: unknown): CurrentLaunchInv
   if (!value || typeof value !== "object") throw new Error("current inventory가 없습니다.");
   const inventory = value as CurrentLaunchInventory;
   if (inventory.schema !== CURRENT_INVENTORY_SCHEMA
-    || (inventory.policy !== "open-visible-current-period-unseen-v1" && inventory.policy !== MISSING_WORKSPACE_FIELDS_POLICY && inventory.policy !== TERMINAL_REPAIR_POLICY)
+    || (inventory.policy !== "open-visible-current-period-unseen-v1" && inventory.policy !== MISSING_WORKSPACE_FIELDS_POLICY && inventory.policy !== TERMINAL_REPAIR_POLICY && inventory.policy !== MATCHING_CAMPAIGN_POLICY)
     || typeof inventory.seriesId !== "string"
     || !/^current-[a-z0-9][a-z0-9-]{0,70}$/u.test(inventory.seriesId)
     || typeof inventory.model !== "string" || !inventory.model.trim()
@@ -65,6 +66,9 @@ export function validateCurrentLaunchInventory(value: unknown): CurrentLaunchInv
   }
   if ((inventory.policy === TERMINAL_REPAIR_POLICY) !== inventory.seriesId.startsWith("current-terminal-repair-")) {
     throw new Error("terminal repair는 독립된 inventory로 봉인해야 합니다.");
+  }
+  if ((inventory.policy === MATCHING_CAMPAIGN_POLICY) !== inventory.seriesId.startsWith("current-matching-campaign-")) {
+    throw new Error("matching campaign은 독립된 campaign inventory로 봉인해야 합니다.");
   }
   const ids = new Set<string>();
   let matchingMaterialBindingCount = 0;

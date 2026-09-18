@@ -525,6 +525,46 @@ assert.equal(repairedToSourceIncomplete.newIssueAfterRepairCount, 1);
 assert.equal(repairedToSourceIncomplete.blockingNewIssueAfterRepairCount, 0);
 assert.equal(repairedToSourceIncomplete.sourceIncompleteIssueAfterRepairCount, 1);
 
+// 실제 과잉 보류 2건의 최소 형태: repair가 의미/근거 오류를 제거한 뒤 새로 드러난
+// 잔여 issue는 source_incomplete뿐이다. 기존 unresolved 축은 새 회귀로 세지 않는다.
+for (const [index, fixture] of ([
+  {
+    grantId: "c8224507-8cfa-4bf6-ace4-f94310bad421",
+    first: semanticInvalidResult,
+    repairedBase: () => result(true),
+  },
+  {
+    grantId: "18878315-997f-44b2-88e1-f5dd2e74cb8f",
+    first: semanticInvalidWithAmbiguousSizeResult,
+    repairedBase: ambiguousSizeResult,
+  },
+] as const).entries()) {
+  let actualCaseCalls = 0;
+  const actualCase = await runValidatedLabPrimary({
+    grantId: fixture.grantId,
+    inputText: danyangInputText,
+    inputSha256: String(index + 1).repeat(64),
+    apiKey: "subscription",
+    model: "claude-opus-5",
+    runModel: async (options) => {
+      actualCaseCalls += 1;
+      return actualCaseCalls === 1
+        ? fixture.first()
+        : sourceLimitedResult(
+            options.inputText,
+            "eligibility_details",
+            fixture.repairedBase(),
+          );
+    },
+  });
+  assert.equal(actualCaseCalls, 2);
+  assert.equal(actualCase.outcome, "publishable");
+  assert.equal(actualCase.matchingReadiness, "conditional");
+  assert.equal(actualCase.newIssueAfterRepairCount, 1);
+  assert.equal(actualCase.blockingNewIssueAfterRepairCount, 0);
+  assert.equal(actualCase.sourceIncompleteIssueAfterRepairCount, 1);
+}
+
 let mixedCalls = 0;
 const repairedMixed = await runValidatedLabPrimary({
   grantId: "grant-lab-mixed-route",
@@ -713,6 +753,24 @@ function semanticInvalidResult(): DeepAnalysisModelResult {
       axis_assessments: assessments.map((axis) => ({ ...axis })),
     },
   };
+}
+
+function ambiguousSizeResult(base: DeepAnalysisModelResult = result(true)): DeepAnalysisModelResult {
+  const assessments = base.axisAssessments.map((axis) => axis.dimension === "size"
+    ? { ...axis, status: "ambiguous" as const, comment: "포털 요약과 첨부 자격이 충돌함" }
+    : axis);
+  return {
+    ...base,
+    axisAssessments: assessments,
+    rawToolInput: {
+      ...base.rawToolInput,
+      axis_assessments: assessments.map((axis) => ({ ...axis })),
+    },
+  };
+}
+
+function semanticInvalidWithAmbiguousSizeResult(): DeepAnalysisModelResult {
+  return ambiguousSizeResult(semanticInvalidResult());
 }
 
 function invalidResultWithRegionComment(comment: string): DeepAnalysisModelResult {

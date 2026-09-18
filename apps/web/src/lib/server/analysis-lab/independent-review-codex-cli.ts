@@ -8,6 +8,7 @@ import {
   INDEPENDENT_REVIEW_RESULT_SCHEMA,
   INDEPENDENT_REVIEW_MANIFEST_SCHEMA,
   LEGACY_INDEPENDENT_REVIEW_MANIFEST_SCHEMA,
+  buildIndependentReviewCodexStdin,
   reviewResultRoot,
   validateAndWrapIndependentReviewResult,
   writeIndependentReviewResult,
@@ -178,7 +179,11 @@ export async function runPacket(options: {
   const label = `sequence-${String(options.packet.sequence).padStart(2, "0")}`;
   const packetPath = resolve(options.root, options.packet.path);
   const packetBytes = await readAndVerifyPacket(packetPath, options.packet.sha256, label);
-  const packet = JSON.parse(packetBytes.toString("utf8")) as { outputSchema: Record<string, unknown> };
+  const packet = JSON.parse(packetBytes.toString("utf8")) as {
+    outputSchema: Record<string, unknown>;
+    systemPrompt: string;
+    userMessage: string;
+  };
   const canonicalRawPath = join(options.rawDir, `${label}.json`);
   const resultPath = join(options.resultDir, `${label}.json`);
   const schemaPath = join(options.schemaDir, `${label}.codex.schema.json`);
@@ -247,7 +252,11 @@ async function executePacketAttempts(options: {
   stallTimeoutMs: number;
   label: string;
   packetPath: string;
-  parsedPacket: { outputSchema: Record<string, unknown> };
+  parsedPacket: {
+    outputSchema: Record<string, unknown>;
+    systemPrompt: string;
+    userMessage: string;
+  };
   canonicalRawPath: string;
   resultPath: string;
   schemaPath: string;
@@ -259,16 +268,15 @@ async function executePacketAttempts(options: {
     if (!current || !current.equals(expected)) throw error;
   });
 
-  const prompt = [
+  const instruction = [
     "이 작업은 코드 리뷰가 아니라 정부지원사업 분석 결과의 블라인드 데이터 품질 검수다.",
-    `오직 ${options.packetPath} 파일을 읽고 packet.systemPrompt를 최상위 검수 규칙으로, packet.userMessage를 검수 입력으로 사용하라.`,
-    "다른 리뷰 결과, Codex/Grok 산출물, 사람 판정 파일은 읽지 마라.",
-    "packet.outputSchema를 만족하는 JSON 객체 하나만 최종 응답으로 반환하라.",
-    "최종 응답 직전 축간 계약을 다시 확인하라: 중소기업·중견기업·대기업 같은 규모 문구만으로 target_type missed_condition을 만들면 안 된다.",
-    "K-Startup 포털 메타데이터 계약을 다시 확인하라: source_field biz_trgt_age의 범주 열거와 supt_regin=전국은 누락 조건이 아니며, aply_trgt 요약 목록은 반드시 open이다.",
+    "stdin의 [검수 규칙]을 먼저 적용하고 [공고별 검수 입력]의 원문과 추출 조건만 대조하라.",
+    "stdin 밖의 파일이나 다른 리뷰 결과, Codex/Grok 산출물, 사람 판정은 읽지 마라.",
+    "지정된 출력 schema를 만족하는 JSON 객체 하나만 최종 응답으로 반환하라.",
     "note가 필요 없는 correct 또는 confirmed_absent 항목도 JSON schema 충족을 위해 note를 빈 문자열로 넣어라.",
     "파일을 수정하거나 DB·배포·네트워크 작업을 하지 마라.",
   ].join("\n");
+  const stdin = buildIndependentReviewCodexStdin(options.parsedPacket);
   const childEnv = { ...process.env };
   for (const key of ["OPENAI_API_KEY", "OPENAI_BASE_URL", "AZURE_OPENAI_API_KEY", "AZURE_OPENAI_ENDPOINT"]) {
     delete childEnv[key];
@@ -315,8 +323,9 @@ async function executePacketAttempts(options: {
         "--output-last-message", attemptRawPath,
         "--json",
         "--cd", options.root,
-        prompt,
+        instruction,
       ], options.root, childEnv, options.timeoutMs, {
+        stdin,
         stallTimeoutMs: options.stallTimeoutMs,
         onStdoutChunk: (chunk) => {
           stdoutWrites = stdoutWrites.then(() => appendFile(attemptLogPath, chunk, { encoding: "utf8" }));
@@ -432,6 +441,7 @@ export function runCommand(
   env: NodeJS.ProcessEnv = process.env,
   timeoutMs = 30_000,
   observation: {
+    stdin?: string | Buffer;
     onStdoutLine?: (line: string) => void;
     onStdoutChunk?: (chunk: string) => void;
     onStderrChunk?: (chunk: string) => void;
@@ -445,18 +455,26 @@ export function runCommand(
       return;
     }
     const useProcessGroup = process.platform !== "win32";
+    const hasStdin = observation.stdin !== undefined;
     const child = spawn(command, args, {
       cwd,
       env,
-      stdio: ["ignore", "pipe", "pipe"],
+      stdio: [hasStdin ? "pipe" : "ignore", "pipe", "pipe"],
       detached: useProcessGroup,
     });
+    const childStdout = child.stdout;
+    const childStderr = child.stderr;
+    if (!childStdout || !childStderr) {
+      reject(new Error("child stdout/stderr pipe를 만들지 못했습니다."));
+      return;
+    }
     let stdout = "";
     let stderr = "";
     let stdoutLineBuffer = "";
     let timedOut = false;
     let timeoutKind: SupervisedCommandResult["timeoutKind"] = null;
     let forcedKill = false;
+    let stdinError: Error | null = null;
     let killTimer: NodeJS.Timeout | null = null;
     let stallTimer: NodeJS.Timeout | null = null;
     const terminationGraceMs = observation.terminationGraceMs ?? TERMINATION_GRACE_MS;
@@ -469,9 +487,13 @@ export function runCommand(
         } satisfies ActiveOwnedProcess
       : null;
     if (active) activeOwnedProcesses.set(active.pid, active);
-    child.stdout.setEncoding("utf8");
-    child.stderr.setEncoding("utf8");
-    child.stdout.on("data", (chunk: string) => {
+    childStdout.setEncoding("utf8");
+    childStderr.setEncoding("utf8");
+    if (hasStdin && child.stdin) {
+      child.stdin.once("error", (error) => { stdinError = error; });
+      child.stdin.end(observation.stdin);
+    }
+    childStdout.on("data", (chunk: string) => {
       stdout += chunk;
       observation.onStdoutChunk?.(chunk);
       stdoutLineBuffer += chunk;
@@ -483,7 +505,7 @@ export function runCommand(
         resetStallTimer();
       }
     });
-    child.stderr.on("data", (chunk: string) => {
+    childStderr.on("data", (chunk: string) => {
       stderr += chunk;
       observation.onStderrChunk?.(chunk);
     });
@@ -530,6 +552,10 @@ export function runCommand(
         const treeTerminated = !ownedProcessAlive(child.pid, useProcessGroup);
         const interruptedSignal = active?.interruptedSignal ?? null;
         if (active) activeOwnedProcesses.delete(active.pid);
+        if (stdinError) {
+          reject(stdinError);
+          return;
+        }
         resolvePromise({
           code: code ?? 1,
           signal,

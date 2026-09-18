@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { CRITERION_DIMENSIONS } from "@cunote/contracts";
-import { shapeLabInputArchivesForRun } from "./ai-review";
+import { loadGuideRubric, shapeLabInputArchivesForRun } from "./ai-review";
+import { DEEP_ANALYSIS_REVIEW_ALIGNMENT_RULES } from "../deep-analysis/extractor";
 import {
   buildIndependentReviewSystemPrompt,
   deriveIndependentReviewAxes,
@@ -74,15 +75,39 @@ assert.deepEqual(
   "Codex 단독 검수에서는 모든 비정상 판정을 보류 finding으로 보존한다",
 );
 
+const fixtureRubric = "이 criterion 을 이대로 DB에 넣고 매칭 판정에 썼을 때, 원문과 다른 결론이 나오는 기업이 존재하는가?";
 assert.match(
-  buildIndependentReviewSystemPrompt("검수 기준서"),
+  buildIndependentReviewSystemPrompt(fixtureRubric),
   /명시적 '선정된'을 completed로 표현한 결과를 수행완료 오분류로 감사하지 마라/,
   "독립 검수자가 창업노트 prior_award 상태 계약을 공유해야 한다",
 );
-const independentSystemPrompt = buildIndependentReviewSystemPrompt("검수 기준서");
-assert.equal(INDEPENDENT_REVIEW_POLICY_VERSION, "codex-only-v7");
+const independentSystemPrompt = buildIndependentReviewSystemPrompt(fixtureRubric);
+assert.equal(INDEPENDENT_REVIEW_POLICY_VERSION, "codex-only-v8");
+assert.match(independentSystemPrompt, /correct.*needs_edit.*wrong.*unsure/su);
+assert.match(independentSystemPrompt, /confirmed_absent.*missed_condition/su);
+assert.match(independentSystemPrompt, /원문 유일 근거/);
+assert.match(independentSystemPrompt, /모든 criterion_index와 모든 빈 축.*정확히 한 번씩/);
+assert.match(independentSystemPrompt, /제출서류 목록.*정보수집·증빙 요구/su);
+assert.match(independentSystemPrompt, /진실성 서약.*현재 보유한 자격 사실이 아니다/su);
+assert.match(independentSystemPrompt, /선정평가표.*모든 평가항목/su);
+assert.match(independentSystemPrompt, /\[통합공고\]/);
+assert.match(independentSystemPrompt, /\[축 중복\]/);
+assert.match(independentSystemPrompt, /\[현재 matcher\]/);
+assert.match(independentSystemPrompt, /\[exclusion 극성\]/);
+assert.match(independentSystemPrompt, /list_semantics=open/);
+assert.match(independentSystemPrompt, /모집직무.*신청기업의 업종 자격이 아니다/su);
+for (const rule of DEEP_ANALYSIS_REVIEW_ALIGNMENT_RULES) {
+  assert.equal(independentSystemPrompt.includes(rule), true, "extractor-review alignment 규칙을 그대로 보존한다");
+}
+const { rubric: productionRubric } = await loadGuideRubric();
+const productionSystemPrompt = buildIndependentReviewSystemPrompt(productionRubric);
+assert.ok(
+  productionSystemPrompt.length <= 14_500,
+  `독립 검수 공통 prompt는 14,500자 이하여야 합니다: ${productionSystemPrompt.length}`,
+);
 assert.match(independentSystemPrompt, /premises를 구조화할 수 있는 유일한 경우.*registered_current_site/);
 assert.match(independentSystemPrompt, /source_field: aply_trgt.*list_semantics=open/);
+assert.match(independentSystemPrompt, /aply_trgt 표시는 단독으로 open 근거가 아니다.*원문 모집 자격.*closed일 수 있다/);
 assert.match(independentSystemPrompt, /biz_enyy.*비제한 검색 메타데이터/);
 assert.match(independentSystemPrompt, /source_field: supt_regin.*region criterion을 만들지 마라/);
 assert.match(independentSystemPrompt, /서로 다른 22축이 섞인 대안.*other.*text_only/);
@@ -110,6 +135,29 @@ assert.equal(
     "신청대상 요약: 일반기업 (source_field: aply_trgt)\n신청대상 상세: 스타트업 (source_field: aply_trgt_ctnt)",
   ),
   true,
+);
+assert.equal(
+  isKstartupSummaryTargetSpan(
+    "법인사업자만 신청 가능",
+    "신청자격 원문: 법인사업자만 신청 가능 (source_field: aply_trgt)",
+  ),
+  false,
+  "aply_trgt 표시만으로 원문 자격을 포털 요약 목록으로 오인하지 않는다",
+);
+assert.equal(
+  isKstartupSummaryTargetSpan(
+    "일반기업, 1인 창조기업",
+    [
+      "## 신청대상 요약",
+      "source_field: aply_trgt",
+      "일반기업, 1인 창조기업",
+      "## 신청대상 상세",
+      "source_field: aply_trgt_ctnt",
+      "법인사업자만 신청 가능",
+    ].join("\n"),
+  ),
+  true,
+  "명시적인 다중행 신청대상 요약 블록은 포털 open 목록으로 식별한다",
 );
 
 const reviewAxes = deriveIndependentReviewAxes({

@@ -5,6 +5,8 @@ import { tmpdir } from "node:os";
 import { join, relative, sep } from "node:path";
 import {
   ANALYSIS_LAB_PROMPT_VERSION,
+  type LabPrimaryPassDiagnostic,
+  type LabPrimaryPassIssue,
   type LabReview,
   type LabRun,
 } from "@/lib/server/analysis-lab/lab-contract";
@@ -16,6 +18,7 @@ import {
 import {
   classifyAnalysisLaunchPromotionReadiness,
   guardAnalysisLaunchPromotionPlan,
+  inspectAnalysisLaunchIndependentReview,
   loadAnalysisLaunchPromotionCohort,
   verifyAnalysisLaunchPrimaryMatchingProjection,
 } from "./analysis-launch-promotion";
@@ -238,6 +241,124 @@ try {
     "같은 packet coverage면 최신 검수 정책을 선택한다",
   );
   assert.equal(isVerifiedLocalLabSourceArtifact(candidate.sourceArtifact), true);
+
+  const classifyFixtureRun = (fixture: LabRun) => classifyAnalysisLaunchPromotionReadiness({
+    loaded: {
+      launch: {
+        receiptSha256: storedReceipt.sha256,
+        receipt,
+        manifest,
+        review: {
+          manifestSha256: selectedReviewManifestSha256,
+          aggregateSha256: "b".repeat(64),
+          reviewPolicyVersion: "codex-only-v3",
+          packetBySequence: new Map(),
+          comparisonBySequence: new Map(),
+          blockedSequences: new Set(),
+        },
+      },
+      target: receipt.targets[0]!,
+      run: fixture,
+      runArtifactSha256,
+      primaryMatchingProjectionStatus: "unverified",
+      primaryMatchingProjectionSnapshotSha256: null,
+    },
+    current: {
+      sourceRevisionSha256,
+      sourceRawSha256: "9".repeat(64),
+      inputSha256,
+      attachmentManifestSha256,
+      status: "open",
+      servingState: "visible",
+      applicationOpen: true,
+      hasDeepAnalysisRun: false,
+      hasPromotionItem: false,
+      confirmedDuplicate: false,
+    },
+  });
+
+  // 실제 과잉 보류 2건의 패스 형태를 오프라인으로 재생한다. immutable 카운터는
+  // 그대로 1이지만, 완전한 진단에서 새 issue가 source_incomplete뿐이면 현행 admission은 통과한다.
+  const sourceIncompleteHistoricalCases: Array<{
+    sourceId: string;
+    primary: LabPrimaryPassIssue[];
+    repair: LabPrimaryPassIssue[];
+  }> = [{
+    sourceId: "PBLN_000000000126449",
+    primary: [
+      diagnosticIssue("source_incomplete", "$.source_limitations[0]"),
+      diagnosticIssue("semantic_misattribution", "$.criteria[2]"),
+    ],
+    repair: [
+      diagnosticIssue("source_incomplete", "$.source_limitations[0]"),
+      diagnosticIssue("source_incomplete", "$.source_limitations[1]"),
+    ],
+  }, {
+    sourceId: "PBLN_000000000126456",
+    primary: [
+      diagnosticIssue("source_incomplete", "$.source_limitations[1]"),
+      diagnosticIssue("evidence_not_grounded", "$.source_limitations[2].source_ref"),
+      diagnosticIssue("logical_conflict", "$.criteria[6]"),
+      diagnosticIssue("unresolved_axis", "$.axis_assessments.size", {
+        dimension: "size",
+        status: "ambiguous",
+        comment: "포털 요약과 첨부 자격이 충돌함",
+      }),
+    ],
+    repair: [
+      diagnosticIssue("source_incomplete", "$.source_limitations[1]"),
+      diagnosticIssue("source_incomplete", "$.source_limitations[2]"),
+      diagnosticIssue("unresolved_axis", "$.axis_assessments.size", {
+        dimension: "size",
+        status: "ambiguous",
+        comment: "포털 요약과 첨부 자격이 충돌함",
+      }),
+    ],
+  }];
+  for (const historicalCase of sourceIncompleteHistoricalCases) {
+    const readiness = classifyFixtureRun({
+      ...run,
+      sourceId: historicalCase.sourceId,
+      primaryRepairCount: 1,
+      primaryPasses: [
+        diagnosticPass("primary", historicalCase.primary),
+        diagnosticPass("repair", historicalCase.repair),
+      ],
+      primaryRepairProvenance: {
+        deterministicPrimaryRepairCount: 0,
+        modelPrimaryRepairCount: 1,
+        newIssueAfterRepairCount: 1,
+        blockingNewIssueAfterRepairCount: 1,
+        sourceIncompleteIssueAfterRepairCount: 0,
+        terminationReason: "accepted",
+      },
+    });
+    assert.equal(readiness.disposition, "conditional", historicalCase.sourceId);
+    assert.deepEqual(readiness.reasons, [], historicalCase.sourceId);
+  }
+
+  // repair 중 실제 의미·근거 오류가 새로 유입된 이력은 이후 패스에서 해소됐더라도 계속 차단한다.
+  for (const blockingCode of ["semantic_misattribution", "evidence_not_grounded"] as const) {
+    const readiness = classifyFixtureRun({
+      ...run,
+      primaryRepairCount: 2,
+      primaryPasses: [
+        diagnosticPass("primary", [diagnosticIssue("normalization_drop", "$.criteria[0]")]),
+        diagnosticPass("repair", [diagnosticIssue(blockingCode, "$.criteria[0]")]),
+        diagnosticPass("repair", []),
+      ],
+      primaryRepairProvenance: {
+        deterministicPrimaryRepairCount: 0,
+        modelPrimaryRepairCount: 2,
+        newIssueAfterRepairCount: 1,
+        blockingNewIssueAfterRepairCount: 1,
+        sourceIncompleteIssueAfterRepairCount: 0,
+        terminationReason: "accepted",
+      },
+    });
+    assert.equal(readiness.disposition, "held", blockingCode);
+    assert.deepEqual(readiness.reasons, ["blocking_new_issue_after_repair"], blockingCode);
+  }
 
   const historicalFeatureReadiness = {
     schema: "analysis-feature-readiness-v1" as const,
@@ -817,11 +938,55 @@ try {
     /exact binding/,
     "양쪽 hash가 맞아도 명시 failed snapshot은 승격 PASS가 아니다",
   );
+
+  await writeReviewEvidence({
+    root,
+    receiptSha256: storedReceipt.sha256,
+    manifestSha256: storedManifest.sha256,
+    grantSha256: storedGrant.sha256,
+    runPath,
+    runArtifactSha256,
+    policyVersion: "codex-only-v6",
+    blocked: true,
+  });
+  assert.equal(await inspectAnalysisLaunchIndependentReview({
+    launchReceiptSha256: storedReceipt.sha256,
+    grantId,
+    repositoryRoot: root,
+  }), "blocked", "정상 blocked finding은 손상이 아니라 구조화된 보류다");
+  await writeFile(runPath, Buffer.from("corrupted-run"));
+  await assert.rejects(() => inspectAnalysisLaunchIndependentReview({
+    launchReceiptSha256: storedReceipt.sha256,
+    grantId,
+    repositoryRoot: root,
+  }), /run artifact SHA/, "blocked여도 run/packet/hash 손상은 fail-closed한다");
 } finally {
   await rm(root, { recursive: true, force: true });
 }
 
 console.log("analysis launch promotion tests: ok");
+
+function diagnosticIssue(
+  code: string,
+  path: string,
+  axis?: NonNullable<LabPrimaryPassIssue["axis"]>,
+): LabPrimaryPassIssue {
+  return { code, path, message: code, ...(axis ? { axis } : {}) };
+}
+
+function diagnosticPass(
+  kind: LabPrimaryPassDiagnostic["kind"],
+  issues: LabPrimaryPassIssue[],
+): LabPrimaryPassDiagnostic {
+  return {
+    kind,
+    durationMs: 1,
+    issueCodes: issues.map((issue) => issue.code),
+    issueCount: issues.length,
+    issues,
+    issuesTruncated: false,
+  };
+}
 
 function fixtureRun(): LabRun {
   return {

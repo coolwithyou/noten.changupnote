@@ -6,7 +6,6 @@ import type { LabRun } from "./lab-contract";
 import {
   AI_REVIEW_PROMPT_VERSION,
   buildAiReviewToolSchema,
-  buildSystemPrompt,
   deriveEmptyAxes,
   loadGuideRubric,
   reassembleLabInputForRun,
@@ -27,13 +26,14 @@ export const INDEPENDENT_REVIEW_RESULT_SCHEMA = "independent-ai-review-result-v1
 export const INDEPENDENT_REVIEW_BUNDLE_SCHEMA = "independent-ai-review-bundle-v1";
 export const INDEPENDENT_REVIEW_COMBINED_RAW_SCHEMA = "independent-ai-review-combined-raw-v1";
 export const INDEPENDENT_REVIEW_AGGREGATE_SCHEMA = "independent-ai-review-aggregate-v2";
-export const INDEPENDENT_REVIEW_POLICY_VERSION = "codex-only-v7";
+export const INDEPENDENT_REVIEW_POLICY_VERSION = "codex-only-v8";
 export const LEGACY_INDEPENDENT_REVIEW_POLICY_VERSION = "codex-only-v1";
 export const LEGACY_INDEPENDENT_REVIEW_POLICY_VERSION_V2 = "codex-only-v2";
 export const LEGACY_INDEPENDENT_REVIEW_POLICY_VERSION_V3 = "codex-only-v3";
 export const LEGACY_INDEPENDENT_REVIEW_POLICY_VERSION_V4 = "codex-only-v4";
 export const LEGACY_INDEPENDENT_REVIEW_POLICY_VERSION_V5 = "codex-only-v5";
 export const LEGACY_INDEPENDENT_REVIEW_POLICY_VERSION_V6 = "codex-only-v6";
+export const LEGACY_INDEPENDENT_REVIEW_POLICY_VERSION_V7 = "codex-only-v7";
 
 export interface IndependentReviewConsensusFinding {
   sequence: number;
@@ -109,7 +109,8 @@ interface IndependentReviewManifest {
     | typeof LEGACY_INDEPENDENT_REVIEW_POLICY_VERSION_V3
     | typeof LEGACY_INDEPENDENT_REVIEW_POLICY_VERSION_V4
     | typeof LEGACY_INDEPENDENT_REVIEW_POLICY_VERSION_V5
-    | typeof LEGACY_INDEPENDENT_REVIEW_POLICY_VERSION_V6;
+    | typeof LEGACY_INDEPENDENT_REVIEW_POLICY_VERSION_V6
+    | typeof LEGACY_INDEPENDENT_REVIEW_POLICY_VERSION_V7;
   reviewers: Array<{
     reviewer: "codex" | "grok";
     transport: "codex-cli" | "grok-bot";
@@ -804,11 +805,26 @@ export function isStructuredAgeMetadataEvidence(note: string | null, userMessage
 export function isKstartupSummaryTargetSpan(sourceSpan: string | null, userMessage: string): boolean {
   if (!sourceSpan) return false;
   const normalizedSpan = normalizeEvidence(sourceSpan);
-  return userMessage.split("\n").some((line) => (
-    line.includes("source_field: aply_trgt")
-    && !line.includes("source_field: aply_trgt_ctnt")
-    && normalizeEvidence(line).includes(normalizedSpan)
-  ));
+  const lines = userMessage.split(/\r?\n/u);
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index] ?? "";
+    if (
+      line.includes("신청대상 요약:")
+      && line.includes("source_field: aply_trgt")
+      && !line.includes("source_field: aply_trgt_ctnt")
+      && normalizeEvidence(line).includes(normalizedSpan)
+    ) return true;
+    if (line.trim() !== "## 신청대상 요약") continue;
+    if ((lines[index + 1] ?? "").trim() !== "source_field: aply_trgt") continue;
+    const body: string[] = [];
+    for (let cursor = index + 2; cursor < lines.length; cursor += 1) {
+      const candidate = lines[cursor] ?? "";
+      if (/^##\s/u.test(candidate) || /^\[블록:/u.test(candidate)) break;
+      body.push(candidate);
+    }
+    if (normalizeEvidence(body.join("\n")).includes(normalizedSpan)) return true;
+  }
+  return false;
 }
 
 function normalizeEvidence(value: string): string {
@@ -852,11 +868,43 @@ export function renderIndependentReviewSourceLimitations(
 }
 
 export function buildIndependentReviewSystemPrompt(rubric: string): string {
+  const rubricLitmus = "이 criterion 을 이대로 DB에 넣고 매칭 판정에 썼을 때, 원문과 다른 결론이 나오는 기업이 존재하는가?";
+  if (!rubric.includes(rubricLitmus)) {
+    throw new Error("독립 검수 기준서에서 §0 판정 리트머스를 찾지 못했습니다.");
+  }
   return [
-    buildSystemPrompt(rubric),
+    "[판정 리트머스]",
+    `- ${rubricLitmus}`,
+    "- criterion 4분류: correct=결론 동일, needs_edit=실재 요건의 값·연산자·kind·범위 수정, wrong=없는 요건·대상 오독, unsure=입력 누락·실제 모호. 비정상 note에는 원문과 고칠 값을 쓴다.",
+    "- 빈 축 2분류: confirmed_absent=조건 없음(not_applicable), missed_condition=조건 누락(note 원문, impact eligibility|ranking).",
+    "- [원문 유일 근거] 제공 원문만 근거다. 자기평가·다른 검수·현행 DB·외부 상식은 제외한다.",
+    "- 모든 criterion_index와 모든 빈 축을 빠짐없이 정확히 한 번씩 판정한다",
     "",
-    "[창업노트 현재 매처 계약 — 독립 검수 필수 규칙]",
+    "- [통합공고] 하위 사업 조건은 공고 공통 조건·빈 축 누락이 아니다.",
+    "- [축 중복] 다른 criterion에 보존된 조건은 빈 축 누락으로 중복 판정하지 않는다.",
+    "- [현재 matcher] 없는 필드를 요구하지 않는다. 복합 조건을 해당 축 text_only로 무손실 보존했다면 correct일 수 있다.",
+    "- [exclusion 극성] value 해당 기업을 fail시킨다. 배제 대상과 value·operator 방향을 대조한다.",
+    "",
+    "[현재 매처 alignment]",
     ...DEEP_ANALYSIS_REVIEW_ALIGNMENT_RULES.map((rule) => `- ${rule}`),
+    "- source_field: aply_trgt 표시는 단독으로 open 근거가 아니다. '신청대상 요약'으로 식별되는 포털 분류 목록을 target_type으로 보존할 때만 list_semantics=open으로 판단하고, 원문 모집 자격의 명시적 유한 목록은 closed일 수 있다.",
+  ].join("\n");
+}
+
+/** SHA 검증된 packet에서 모델이 실제 소비하는 규칙과 공고별 입력만 순서대로 직렬화한다. */
+export function buildIndependentReviewCodexStdin(
+  packet: Pick<IndependentReviewPacket, "systemPrompt" | "userMessage">,
+): string {
+  if (!packet.systemPrompt || !packet.userMessage) {
+    throw new Error("독립 검수 packet의 systemPrompt/userMessage가 비었습니다.");
+  }
+  return [
+    "[검수 규칙 — 모든 공고 공통]",
+    packet.systemPrompt,
+    "",
+    "[공고별 검수 입력 — 원문 및 추출 조건]",
+    packet.userMessage,
+    "",
   ].join("\n");
 }
 
@@ -946,6 +994,7 @@ function resolveIndependentReviewMode(manifest: IndependentReviewManifest): "cod
       || manifest.reviewPolicyVersion === LEGACY_INDEPENDENT_REVIEW_POLICY_VERSION_V4
       || manifest.reviewPolicyVersion === LEGACY_INDEPENDENT_REVIEW_POLICY_VERSION_V5
       || manifest.reviewPolicyVersion === LEGACY_INDEPENDENT_REVIEW_POLICY_VERSION_V6
+      || manifest.reviewPolicyVersion === LEGACY_INDEPENDENT_REVIEW_POLICY_VERSION_V7
     )
     && manifest.policy.reviewerMode === "codex-only"
     && reviewers.length === 1

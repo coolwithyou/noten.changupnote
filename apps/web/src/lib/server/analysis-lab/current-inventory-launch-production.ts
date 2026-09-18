@@ -20,6 +20,7 @@ import { findMonorepoRoot } from "./run-store";
 import { stratumIdOf, thicknessTierOf } from "./strata";
 import {
   CURRENT_INVENTORY_SCHEMA,
+  MATCHING_CAMPAIGN_POLICY,
   MISSING_WORKSPACE_FIELDS_POLICY,
   TERMINAL_REPAIR_POLICY,
   buildCurrentInventoryLaunchManifest,
@@ -27,6 +28,7 @@ import {
   type CurrentLaunchInventory,
   type CurrentInventoryPolicy,
 } from "./current-inventory-launch";
+import type { MatchingInventoryClassification } from "./matching-inventory-campaign";
 
 /** 명시된 최대 100건만 읽는다. 모델 호출과 runtime lease, 서비스 DB/R2 쓰기는 하지 않는다. */
 export async function prepareCurrentInventoryLaunch(input: {
@@ -35,6 +37,36 @@ export async function prepareCurrentInventoryLaunch(input: {
   readonly analysisMode?: Exclude<AnalysisLaunchAnalysisMode, "application_only">;
 }) {
   return prepareExactInventory(input, "open-visible-current-period-unseen-v1");
+}
+
+/** campaign 분류가 current material 변경을 확인한 exact target을 기존 current 경로로 재봉인한다. */
+export async function prepareMatchingCampaignLaunch(input: {
+  readonly grantIds: readonly string[];
+  readonly concurrency: number;
+  readonly classification: MatchingInventoryClassification;
+  readonly classificationSha256: string;
+}) {
+  const actualClassificationSha256 = createHash("sha256")
+    .update(encodeCanonical(input.classification)).digest("hex");
+  if (actualClassificationSha256 !== input.classificationSha256) {
+    throw new Error("matching campaign classification SHA가 다릅니다.");
+  }
+  const entries = new Map(input.classification.entries.map((entry) => [entry.grantId, entry]));
+  for (const grantId of input.grantIds) {
+    const entry = entries.get(grantId);
+    if (!entry?.campaignEligible
+      || (entry.category !== "new" && entry.category !== "source_changed" && entry.category !== "prepared_not_started")
+      || !/^[a-f0-9]{64}$/u.test(entry.current.inputSha256)
+      || !/^[a-f0-9]{64}$/u.test(entry.current.attachmentManifestSha256)) {
+      throw new Error(`matching campaign classification이 current 준비를 허용하지 않습니다: ${grantId}`);
+    }
+  }
+  return prepareExactInventory({
+    grantIds: input.grantIds,
+    concurrency: input.concurrency,
+    analysisMode: "matching_only",
+    expectedMatchingCampaignClassification: input.classification,
+  }, MATCHING_CAMPAIGN_POLICY);
 }
 
 /** 기존 공고 중 필드가 전혀 없는 exact 대상의 보완 준비. live 권한은 발급하지 않는다. */
@@ -67,6 +99,7 @@ async function prepareExactInventory(input: {
   readonly grantIds: readonly string[];
   readonly concurrency: number;
   readonly analysisMode?: Exclude<AnalysisLaunchAnalysisMode, "application_only">;
+  readonly expectedMatchingCampaignClassification?: MatchingInventoryClassification;
 }, policy: CurrentInventoryPolicy, terminalRepair?: AnalysisLaunchTerminalRepairBinding) {
   if ((policy === TERMINAL_REPAIR_POLICY) !== Boolean(terminalRepair)) throw new Error("terminal repair ancestry가 필요합니다.");
   if (input.grantIds.length < 1 || input.grantIds.length > 100
@@ -93,7 +126,7 @@ async function prepareExactInventory(input: {
   const now = new Date();
   const inventory: CurrentLaunchInventory = {
     schema: CURRENT_INVENTORY_SCHEMA,
-    seriesId: `current-${policy === TERMINAL_REPAIR_POLICY ? "terminal-repair-" : policy === MISSING_WORKSPACE_FIELDS_POLICY ? "field-repair-" : ""}${kstDayStartUtc(now).toISOString().slice(0, 10).replaceAll("-", "")}`,
+    seriesId: `current-${policy === TERMINAL_REPAIR_POLICY ? "terminal-repair-" : policy === MISSING_WORKSPACE_FIELDS_POLICY ? "field-repair-" : policy === MATCHING_CAMPAIGN_POLICY ? "matching-campaign-" : ""}${kstDayStartUtc(now).toISOString().slice(0, 10).replaceAll("-", "")}`,
     observedAt: now.toISOString(), model: resolveLabModel(),
     policy,
     historicalGrantIdsSha256: createHash("sha256").update(encodeCanonical(history)).digest("hex"),
@@ -114,6 +147,17 @@ async function prepareExactInventory(input: {
       };
     }),
   };
+  if (input.expectedMatchingCampaignClassification) {
+    const expected = new Map(input.expectedMatchingCampaignClassification.entries.map((entry) => [entry.grantId, entry]));
+    for (const target of inventory.targets) {
+      const entry = expected.get(target.grantId);
+      if (!entry?.campaignEligible
+        || target.inputSha256 !== entry.current.inputSha256
+        || target.attachmentManifestSha256 !== entry.current.attachmentManifestSha256) {
+        throw new Error(`matching campaign current material이 classification과 다릅니다: ${target.grantId}`);
+      }
+    }
+  }
   // DB 읽기와 별도로 물리적인 입력 byte 재조립을 한 번 더 대조한다.
   for (const target of inventory.targets) {
     const current = await prepareLabAnalysis(target.grantId);
@@ -180,7 +224,7 @@ export async function verifyCurrentInventoryLaunchTarget(
 export function assertCurrentInventoryHistoryEligibility(
   grantIds: readonly string[], history: readonly string[], policy: CurrentInventoryPolicy,
 ) {
-  if (policy === MISSING_WORKSPACE_FIELDS_POLICY) return;
+  if (policy === MISSING_WORKSPACE_FIELDS_POLICY || policy === MATCHING_CAMPAIGN_POLICY) return;
   if (policy !== "open-visible-current-period-unseen-v1") throw new Error("알 수 없는 inventory 정책입니다.");
   const historySet = new Set(history);
   if (grantIds.some(id => historySet.has(id))) throw new Error("current inventory에 과거 이력이 포함됐습니다.");
@@ -192,7 +236,73 @@ export function assertMissingWorkspaceFieldsState(input: { fieldCount: number; e
   }
 }
 
-async function readCurrentEligibility(grantIds: readonly string[], policy: CurrentInventoryPolicy) {
+export interface CurrentEligibleMatchingTarget {
+  readonly grantId: string;
+  readonly inputSha256: string;
+  readonly attachmentManifestSha256: string;
+  readonly closesToday: boolean;
+}
+
+export function isCurrentEligibleMatchingTargetClosingToday(applyEnd: Date | null, asOf: Date): boolean {
+  return applyEnd instanceof Date
+    && Number.isFinite(applyEnd.getTime())
+    && applyEnd.getTime() === kstDayStartUtc(asOf).getTime();
+}
+
+/** 고정 시각의 지원 가능·노출·중복 대표 모집단과 현재 분석 input 결속을 읽는다. */
+export async function readCurrentEligibleMatchingTargets(
+  asOf: Date = new Date(),
+): Promise<readonly CurrentEligibleMatchingTarget[]> {
+  if (!Number.isFinite(asOf.getTime())) throw new Error("campaign snapshot 시각이 잘못됐습니다.");
+  const db = getCunoteDb();
+  const candidates = await db.transaction(async tx => {
+    const rows = await tx.select({
+      id: schema.grants.id,
+      source: schema.grants.source,
+      applyStart: schema.grants.applyStart,
+      applyEnd: schema.grants.applyEnd,
+      payload: schema.grantRaw.payload,
+    }).from(schema.grants).leftJoin(schema.grantRaw, and(
+      eq(schema.grants.source, schema.grantRaw.source),
+      eq(schema.grants.sourceId, schema.grantRaw.sourceId),
+    )).where(and(
+      eq(schema.grants.status, "open"),
+      eq(schema.grants.servingState, "visible"),
+    ));
+    const candidateRows = rows.filter((row) => (
+      (row.source === "bizinfo" || row.source === "kstartup")
+      && classifyNoticePeriod(row.applyStart, row.applyEnd, asOf) === "eligible"
+      && !isKStartupRecruitmentClosedPayload(row.source, row.payload)
+    ));
+    if (candidateRows.length === 0) return [];
+    const members = await tx.select({ id: schema.dedupLinks.memberGrantId })
+      .from(schema.dedupLinks).where(and(
+        eq(schema.dedupLinks.confirmed, true),
+        inArray(schema.dedupLinks.memberGrantId, candidateRows.map((row) => row.id)),
+      ));
+    const memberIds = new Set(members.map((row) => row.id));
+    return candidateRows.filter((row) => !memberIds.has(row.id))
+      .sort((left, right) => left.id.localeCompare(right.id, "en"));
+  }, { isolationLevel: "repeatable read", accessMode: "read only" });
+  const result: CurrentEligibleMatchingTarget[] = [];
+  for (let offset = 0; offset < candidates.length; offset += 2) {
+    const prepared = await Promise.all(candidates.slice(offset, offset + 2).map(async (row) => ({
+      row,
+      prepared: await prepareLabAnalysis(row.id),
+    })));
+    for (const { row, prepared: current } of prepared) {
+      result.push(Object.freeze({
+        grantId: row.id,
+        inputSha256: current.input.inputSha256,
+        attachmentManifestSha256: current.input.attachmentManifestSha256,
+        closesToday: isCurrentEligibleMatchingTargetClosingToday(row.applyEnd, asOf),
+      }));
+    }
+  }
+  return Object.freeze(result);
+}
+
+export async function readCurrentEligibility(grantIds: readonly string[], policy: CurrentInventoryPolicy) {
   const db = getCunoteDb();
   return db.transaction(async tx => {
     const now = new Date();

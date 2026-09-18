@@ -1,7 +1,10 @@
 import { createHash } from "node:crypto";
 import { readdir, readFile } from "node:fs/promises";
 import { join, relative, resolve, sep } from "node:path";
-import type { LabRun } from "@/lib/server/analysis-lab/lab-contract";
+import type {
+  LabPrimaryPassIssue,
+  LabRun,
+} from "@/lib/server/analysis-lab/lab-contract";
 import {
   APPLICATION_ROUNDTRIP_ADOPTED_MODEL,
   APPLICATION_ROUNDTRIP_VERSION,
@@ -191,6 +194,82 @@ interface LoadedTarget {
   runArtifactSha256: string;
   primaryMatchingProjectionStatus: "verified" | "unverified";
   primaryMatchingProjectionSnapshotSha256: string | null;
+}
+
+export type AnalysisLaunchIndependentReviewInspection = "passed" | "blocked";
+
+/**
+ * 독립 검수 artifact graph 전체를 검증한 뒤 exact target의 정상 PASS/blocked만 구분한다.
+ * packet/aggregate/hash/manifest 결속 손상은 기존 reader 오류를 그대로 전파한다.
+ */
+export async function inspectAnalysisLaunchIndependentReview(input: {
+  readonly launchReceiptSha256: string;
+  readonly grantId: string;
+  readonly repositoryRoot?: string;
+}): Promise<AnalysisLaunchIndependentReviewInspection> {
+  const root = input.repositoryRoot ?? findMonorepoRoot();
+  const launch = await loadLaunch(root, exactSha(input.launchReceiptSha256, "launch receipt"), [input.grantId]);
+  const target = launch.receipt.targets.find((item) => item.grantId === input.grantId);
+  if (!target || !analysisLaunchTargetIsMatchingReviewable(target)) {
+    throw new Error(`독립 검수 가능한 publishable launch target이 없습니다: ${input.grantId}`);
+  }
+  await loadAndVerifyTarget(root, launch, target);
+  return launch.review.blockedSequences.has(target.sequence) ? "blocked" : "passed";
+}
+
+/**
+ * 구 immutable run의 카운터를 바꾸지 않고, 완전한 패스 진단이 있을 때만 현행 분류를
+ * 파생한다. 진단이 잘렸거나 raw 신규 총계와 맞지 않으면 기존 차단 판정을 유지한다.
+ */
+function historicalBlockingCounterOnlyCountsSourceIncomplete(run: LabRun): boolean {
+  const provenance = run.primaryRepairProvenance;
+  const passes = run.primaryPasses;
+  const recordedBlocking = provenance?.blockingNewIssueAfterRepairCount;
+  if (
+    !provenance
+    || recordedBlocking === undefined
+    || !Number.isSafeInteger(recordedBlocking)
+    || recordedBlocking < 0
+    || recordedBlocking > provenance.newIssueAfterRepairCount
+    || !passes
+    || passes.length < 2
+    || passes[0]?.kind !== "primary"
+    || passes.slice(1).some((pass) => pass.kind !== "repair")
+    || run.primaryRepairCount !== passes.length - 1
+    || provenance.deterministicPrimaryRepairCount + provenance.modelPrimaryRepairCount
+      !== passes.length - 1
+  ) return false;
+
+  const completeIssues = passes.map((pass) => {
+    if (
+      pass.issuesTruncated !== false
+      || pass.issueCount === undefined
+      || !pass.issues
+      || pass.issueCount !== pass.issues.length
+      || pass.issueCodes.length !== Math.min(pass.issueCount, 20)
+      || pass.issueCodes.some((code, index) => code !== pass.issues?.[index]?.code)
+    ) return null;
+    return pass.issues;
+  });
+  if (completeIssues.some((issues) => issues === null)) return false;
+
+  const newIssues: LabPrimaryPassIssue[] = [];
+  for (let index = 1; index < completeIssues.length; index += 1) {
+    const remainingBefore = new Map<string, number>();
+    for (const issue of completeIssues[index - 1]!) {
+      const identity = `${issue.code}\u0000${issue.path}`;
+      remainingBefore.set(identity, (remainingBefore.get(identity) ?? 0) + 1);
+    }
+    for (const issue of completeIssues[index]!) {
+      const identity = `${issue.code}\u0000${issue.path}`;
+      const remaining = remainingBefore.get(identity) ?? 0;
+      if (remaining > 0) remainingBefore.set(identity, remaining - 1);
+      else newIssues.push(issue);
+    }
+  }
+  return newIssues.length === provenance.newIssueAfterRepairCount
+    && newIssues.length > 0
+    && newIssues.every((issue) => issue.code === "source_incomplete");
 }
 
 /**
@@ -495,8 +574,15 @@ export function classifyAnalysisLaunchPromotionReadiness(input: {
     disposition = "held";
     reasons.push("matching_readiness_missing");
   }
-  if ((run.primaryRepairProvenance?.blockingNewIssueAfterRepairCount ?? 0) > 0) {
-    reasons.push("blocking_new_issue_after_repair");
+  const recordedBlockingNewIssues =
+    run.primaryRepairProvenance?.blockingNewIssueAfterRepairCount ?? 0;
+  if (recordedBlockingNewIssues > 0) {
+    // 과거 카운터가 source_incomplete도 blocking으로 세었더라도 run은 수정하지 않는다.
+    // exact artifact에 봉인된 완전한 패스 진단으로 전이가 전부 원천 한계였음이 재현될 때만
+    // 현행 admission에서 파생 판정을 사용한다. 의미·근거 오류나 불완전 진단은 계속 막는다.
+    if (!historicalBlockingCounterOnlyCountsSourceIncomplete(run)) {
+      reasons.push("blocking_new_issue_after_repair");
+    }
   }
   if (run.criteria.length === 0) reasons.push("empty_criteria");
   if (run.inputSha256 !== current.inputSha256) reasons.push("input_drift");

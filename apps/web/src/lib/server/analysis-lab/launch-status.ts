@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, rename, unlink, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import {
   classifyAnalysisFeatureReadiness,
@@ -221,6 +221,44 @@ export function analysisLaunchStatusPath(
     "status",
     `${grantSha256}.json`,
   );
+}
+
+export async function readAnalysisLaunchStatus(
+  grantSha256: string,
+  repositoryRoot = findMonorepoRoot(),
+): Promise<AnalysisLaunchStatus> {
+  const bytes = await readFile(analysisLaunchStatusPath(grantSha256, repositoryRoot));
+  const value = JSON.parse(bytes.toString("utf8")) as AnalysisLaunchStatus;
+  if (value.schema !== "analysis-launch-status-v1"
+    || value.authority !== "derived-monitoring-projection"
+    || value.grantSha256 !== grantSha256
+    || !/^[a-f0-9]{64}$/u.test(value.manifestSha256)
+    || (value.lifecycle !== "running" && value.lifecycle !== "finished")
+    || !Number.isFinite(Date.parse(value.startedAt))
+    || !Number.isFinite(Date.parse(value.updatedAt))
+    || !Array.isArray(value.targets)
+    || !value.summary || typeof value.summary !== "object") {
+    throw new Error("launch status projection 계약이 잘못됐습니다.");
+  }
+  const counts: Record<AnalysisLaunchLiveTargetStatus, number> = {
+    pending: 0, running: 0, publishable: 0, held: 0, failed: 0, skipped: 0,
+  };
+  for (const [sequence, target] of value.targets.entries()) {
+    const targetStatus = target?.status as unknown;
+    if (!target || target.sequence !== sequence
+      || !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/u.test(target.grantId)
+      || typeof targetStatus !== "string"
+      || !(targetStatus in counts)) {
+      throw new Error("launch status target 계약이 잘못됐습니다.");
+    }
+    counts[targetStatus as AnalysisLaunchLiveTargetStatus] += 1;
+  }
+  for (const [status, count] of Object.entries(counts)) {
+    if (value.summary[status as AnalysisLaunchLiveTargetStatus] !== count) {
+      throw new Error("launch status summary가 target과 다릅니다.");
+    }
+  }
+  return value;
 }
 
 /**
