@@ -19,6 +19,9 @@ const provenance = { gitSha: "1".repeat(40), packageRuntimeSha256: "e".repeat(64
 const REAL_REPAIR_MANIFEST = "51b6d453aae839d257fdc7dcb14d57b8af82fc486ea5bf8964867f1e968c65d3";
 const REAL_REPAIR_GRANT = "d3ada92247040d18e2a445f6f61f7a3053dadf8fe7d980be481b2da7c4d7f62d";
 const REAL_REPAIR_RECEIPT = "4a227717747b93c430559d4828e222cc8db2d450b11097d2f13adf2e28256712";
+const MATCHING20_MANIFEST = "b58bfc1333c14df5a2b36a3ae255dd86e086fd3e2cada89219fe0c38baf3f5b4";
+const MATCHING20_GRANT = "3762872e67164bf8fb4e2700d5b4c1c9e62cbc7ad960e5d86a0d89b64bbf9abd";
+const MATCHING20_RECEIPT = "47de3c79a2a61ea1cc7c6c0cba60097fda60bc7c00fcdc3643bff25021481b78";
 async function fixture(root: string, previousVersion = false) {
   const inventory: CurrentLaunchInventory = { schema: "analysis-current-inventory-v1", seriesId: "current-20260915",
     observedAt: "2026-09-15T00:00:00.000Z", model: "claude-opus-5", policy: "open-visible-current-period-unseen-v1",
@@ -163,7 +166,8 @@ test("terminal repair: skipped preservation, latest outcomes, scope and chronolo
     assert.deepEqual(selectTerminalRepairTargets(f.manifest, receipts).map(t => t.sequence), [0, 2]);
     assert.deepEqual(selectTerminalRepairTargets(f.manifest, [...receipts, { sha256: "f".repeat(64),
       receipt: f.receipt(["publishable", "skipped", "skipped"], 3) }]).map(t => t.sequence), [2]);
-    assert.throws(() => selectTerminalRepairTargets(f.manifest, receipts.slice(0, 1)), /미착수/);
+    assert.deepEqual(selectTerminalRepairTargets(f.manifest, receipts.slice(0, 1)).map(t => t.sequence), [0],
+      "정상 종료 receipt의 skipped target은 재실행하지 않음");
     assert.throws(() => selectTerminalRepairTargets(f.manifest, [...receipts].reverse()), /시간/);
     const mismatch = { ...f.second, targets: f.second.targets.map((t, i) => i === 0 ? { ...t, grantId: id(99) } : t) };
     assert.throws(() => selectTerminalRepairTargets(f.manifest, [receipts[0]!, { sha256: "f".repeat(64), receipt: mismatch }]), /target/);
@@ -229,6 +233,27 @@ test("실제 v17 terminal repair의 후속 repair는 성공 5건을 제외하고
   }]);
   assert.equal(source.manifest.source.terminalRepair?.originalSequences[1], 23,
     "root seq23은 검증된 부모 ancestry에서 감사 가능해야 한다");
+});
+
+test("matching20 terminal repair는 성공·skipped를 보존하고 모델 미착수 실패 13건만 선택한다", {
+  skip: !(await Promise.all([
+    ["manifests", MATCHING20_MANIFEST], ["grants", MATCHING20_GRANT], ["receipts", MATCHING20_RECEIPT],
+  ].map(async ([kind, digest]) => {
+    try {
+      await access(join(process.cwd(), `spike-out/analysis-lab/launch/${kind}/${digest}.json`));
+      return true;
+    } catch { return false; }
+  }))).every(Boolean),
+}, async () => {
+  const source = await readTerminalRepairSource(process.cwd(), MATCHING20_MANIFEST, MATCHING20_GRANT);
+  assert.deepEqual(source.binding.receiptSha256s, [MATCHING20_RECEIPT]);
+  assert.deepEqual(source.binding.originalSequences, [0, 4, 5, 7, 10, 11, 12, 13, 14, 16, 17, 18, 19]);
+  assert.equal(source.selected.length, 13);
+  assert.ok(source.selected.every(target => (
+    target.status === "failed"
+    && target.target.runArtifactPath === null
+    && target.target.runArtifactSha256 === null
+  )));
 });
 
 test("repair-of-repair는 full ancestry를 검증하고 현재 부모의 실패·보류만 봉인한다", async () => {
@@ -303,8 +328,16 @@ test("repair-of-repair는 부모 target 재배열과 과도한 ancestry 깊이�
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
-test("terminal repair CLI accepts only source binding and concurrency", () => {
-  assert.equal(parseTerminalRepairLaunchArgs([`--source-manifest=${"a".repeat(64)}`, `--source-grant=${"b".repeat(64)}`, "--concurrency=1"]).concurrency, 1);
+test("terminal repair CLI accepts source binding, concurrency and optional matching-only mode", () => {
+  const required = [`--source-manifest=${"a".repeat(64)}`, `--source-grant=${"b".repeat(64)}`, "--concurrency=1"];
+  assert.deepEqual(parseTerminalRepairLaunchArgs(required), {
+    sourceManifestSha256: "a".repeat(64),
+    sourceGrantSha256: "b".repeat(64),
+    concurrency: 1,
+    analysisMode: "primary_and_application",
+  });
+  assert.equal(parseTerminalRepairLaunchArgs([...required, "--analysis-mode=matching_only"]).analysisMode, "matching_only");
   assert.throws(() => parseTerminalRepairLaunchArgs(["--grant-ids=anything", "--concurrency=1"]));
   assert.throws(() => parseTerminalRepairLaunchArgs([`--source-manifest=${"a".repeat(64)}`, `--source-grant=${"b".repeat(64)}`, "--concurrency=5"]));
+  assert.throws(() => parseTerminalRepairLaunchArgs([...required, "--analysis-mode=application_only"]));
 });

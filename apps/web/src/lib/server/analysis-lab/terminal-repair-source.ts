@@ -18,7 +18,7 @@ interface TerminalRepairSource {
   readonly selected: readonly TerminalRepairSelectedTarget[];
 }
 
-/** 후속 skipped는 이전 terminal 결과를 보존한다. 겹친 실행과 미완료 cohort는 준비하지 않는다. */
+/** completed receipt의 skipped와 성공은 보존하고, 실패·보류 target만 후속 repair로 고른다. */
 export function selectTerminalRepairTargets(
   manifest: AnalysisLaunchManifest,
   receipts: readonly { sha256: string; receipt: AnalysisLaunchReceipt }[],
@@ -40,9 +40,10 @@ export function selectTerminalRepairTargets(
       if (actual.status !== "skipped") outcomes.set(expected.sequence, { target: actual, receiptSha256: sha256 });
     }
   }
-  if (outcomes.size !== manifest.targets.length) throw new Error("미착수 target이 남아 있습니다.");
   return manifest.targets.flatMap(({ sequence, grantId }) => {
-    const { target, receiptSha256 } = outcomes.get(sequence)!;
+    const outcome = outcomes.get(sequence);
+    if (!outcome) return [];
+    const { target, receiptSha256 } = outcome;
     return target.status === "held" || target.status === "failed"
       ? [{ sequence, grantId, status: target.status, receiptSha256, target }] : [];
   });
@@ -120,6 +121,11 @@ async function readTerminalRepairSourceAncestry(
   const selected = selectTerminalRepairTargets(manifest, receipts);
   if (!selected.length) throw new Error("실패·보류 terminal repair 대상이 없습니다.");
   for (const { target } of selected) {
+    if (!target.runArtifactPath && !target.runArtifactSha256 && target.status === "failed") {
+      // 모델 착수 전에 실패한 target은 immutable terminal receipt 자체를 실패 증거로 사용한다.
+      // 새 repair는 현재 input/attachment를 다시 봉인하며 이전 모델 결과를 재사용하지 않는다.
+      continue;
+    }
     if (!target.runArtifactPath || !target.runArtifactSha256) throw new Error("terminal repair 원 run 증거가 없습니다.");
     const path = await realpath(resolve(root, target.runArtifactPath));
     const base = await realpath(join(root, "spike-out/analysis-lab"));

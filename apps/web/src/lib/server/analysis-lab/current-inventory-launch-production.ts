@@ -47,11 +47,17 @@ export async function prepareMissingWorkspaceFieldsLaunch(input: {
 }
 
 export async function prepareTerminalRepairLaunch(input: {
-  sourceManifestSha256: string; sourceGrantSha256: string; concurrency: number;
+  sourceManifestSha256: string;
+  sourceGrantSha256: string;
+  concurrency: number;
+  analysisMode?: Exclude<AnalysisLaunchAnalysisMode, "application_only">;
 }) {
   const source = await readTerminalRepairSource(findMonorepoRoot(), input.sourceManifestSha256, input.sourceGrantSha256);
-  const result = await prepareExactInventory({ grantIds: source.selected.map(t => t.grantId), concurrency: input.concurrency },
-    TERMINAL_REPAIR_POLICY, source.binding);
+  const result = await prepareExactInventory({
+    grantIds: source.selected.map(t => t.grantId),
+    concurrency: input.concurrency,
+    ...(input.analysisMode ? { analysisMode: input.analysisMode } : {}),
+  }, TERMINAL_REPAIR_POLICY, source.binding);
   return { ...result, sourceTargetCount: source.manifest.targets.length,
     preservedTargetCount: source.manifest.targets.length - source.selected.length,
     originalSequences: source.binding.originalSequences };
@@ -97,7 +103,15 @@ async function prepareExactInventory(input: {
       return { sequence, grantId: item.grant.id, stratum: row.stratum,
         inputSha256: item.input.inputSha256,
         attachmentManifestSha256: item.input.attachmentManifestSha256,
-        sourceRevisionSha256: row.sourceRevisionSha256 };
+        sourceRevisionSha256: row.sourceRevisionSha256,
+        ...(input.analysisMode === "matching_only" ? {
+          matchingMaterialSourceBinding: {
+            schema: "analysis-matching-material-source-binding-v1" as const,
+            materialSourceRevisionSha256: row.materialSourceRevisionSha256,
+            sourceRawSha256: row.sourceRawSha256,
+          },
+        } : {}),
+      };
     }),
   };
   // DB 읽기와 별도로 물리적인 입력 byte 재조립을 한 번 더 대조한다.
@@ -141,13 +155,24 @@ async function prepareExactInventory(input: {
 export async function verifyCurrentInventoryLaunchTarget(
   inventory: CurrentLaunchInventory,
   grantId: string,
-  readEligibility: (ids: readonly string[], policy: CurrentInventoryPolicy) => Promise<readonly { grantId: string; sourceRevisionSha256: string }[]> = readCurrentEligibility,
+  readEligibility: (ids: readonly string[], policy: CurrentInventoryPolicy) => Promise<readonly {
+    grantId: string;
+    sourceRevisionSha256: string;
+    materialSourceRevisionSha256?: string;
+  }[]> = readCurrentEligibility,
+  analysisMode: AnalysisLaunchAnalysisMode = "primary_and_application",
 ) {
   const target = inventory.targets.find(item => item.grantId === grantId);
   if (!target) throw new Error("current inventory 밖의 target입니다.");
   const rows = await readEligibility([grantId], inventory.policy);
-  if (rows.length !== 1 || rows[0]?.grantId !== grantId
-    || rows[0].sourceRevisionSha256 !== target.sourceRevisionSha256) {
+  const row = rows[0];
+  const matchingMaterialBinding = analysisMode === "matching_only"
+    ? target.matchingMaterialSourceBinding
+    : undefined;
+  const sourceMatches = matchingMaterialBinding
+    ? row?.materialSourceRevisionSha256 === matchingMaterialBinding.materialSourceRevisionSha256
+    : row?.sourceRevisionSha256 === target.sourceRevisionSha256;
+  if (rows.length !== 1 || row?.grantId !== grantId || !sourceMatches) {
     throw new Error("current inventory target 원천이 변경됐습니다.");
   }
 }

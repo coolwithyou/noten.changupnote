@@ -34,6 +34,10 @@ import {
 } from "./launch-batch-production";
 import { DEEP_ANALYSIS_VALIDATOR_VERSION } from "../deep-analysis/validator";
 import { APPLICATION_ROUNDTRIP_VERSION } from "./application-roundtrip/contract";
+import {
+  buildDeepAnalysisMaterialSourceRevision,
+  buildDeepAnalysisSourceRevision,
+} from "../deep-analysis/sourceRevision";
 
 const id = (n: number) => `00000000-0000-4000-8000-${String(n + 1).padStart(12, "0")}`;
 const digest = (value: unknown) => createHash("sha256").update(encodeCanonical(value)).digest("hex");
@@ -941,6 +945,74 @@ test("대상 착수에서 범위 밖 ID·현재 지원 조건 실패·원천 변
   await assert.rejects(() => verifyCurrentInventoryLaunchTarget(value, id(0), async () => []));
   await assert.rejects(() => verifyCurrentInventoryLaunchTarget(value, id(0), async () => [{ grantId: id(0), sourceRevisionSha256: "e".repeat(64) }]));
   await assert.rejects(() => verifyCurrentInventoryLaunchTarget(value, id(0), async () => { throw new Error("공고 마감"); }), /공고 마감/);
+});
+
+test("matching-only material 결속은 raw hash만 제외하고 공고·첨부 변경은 계속 차단한다", async () => {
+  const projection = {
+    grant: { title: "지원 공고", applyEnd: "2026-09-30T14:59:59.000Z" },
+    attachments: [{
+      sourceUri: "https://example.com/form.hwp",
+      filename: "form.hwp",
+      sha256: "1".repeat(64),
+      markdownSha256: "2".repeat(64),
+      conversionStatus: "converted",
+    }],
+  };
+  assert.notEqual(
+    buildDeepAnalysisSourceRevision({ ...projection, rawHash: "a".repeat(64) }).sha256,
+    buildDeepAnalysisSourceRevision({ ...projection, rawHash: "b".repeat(64) }).sha256,
+  );
+  const material = buildDeepAnalysisMaterialSourceRevision(projection).sha256;
+  assert.equal(material, buildDeepAnalysisMaterialSourceRevision(projection).sha256);
+  assert.notEqual(material, buildDeepAnalysisMaterialSourceRevision({
+    ...projection,
+    grant: { ...projection.grant, applyEnd: "2026-10-01T14:59:59.000Z" },
+  }).sha256);
+  assert.notEqual(material, buildDeepAnalysisMaterialSourceRevision({
+    ...projection,
+    attachments: [{ ...projection.attachments[0]!, sha256: "3".repeat(64) }],
+  }).sha256);
+
+  const legacy = inventory(1);
+  const value: CurrentLaunchInventory = {
+    ...legacy,
+    targets: [{
+      ...legacy.targets[0]!,
+      matchingMaterialSourceBinding: {
+        schema: "analysis-matching-material-source-binding-v1",
+        materialSourceRevisionSha256: material,
+        sourceRawSha256: "a".repeat(64),
+      },
+    }],
+  };
+  validateCurrentLaunchInventory(value);
+  const rawOnlyDrift = async () => [{
+    grantId: id(0),
+    sourceRevisionSha256: "e".repeat(64),
+    materialSourceRevisionSha256: material,
+  }];
+  await verifyCurrentInventoryLaunchTarget(value, id(0), rawOnlyDrift, "matching_only");
+  await assert.rejects(
+    () => verifyCurrentInventoryLaunchTarget(value, id(0), rawOnlyDrift, "primary_and_application"),
+    /원천이 변경/,
+  );
+  await assert.rejects(
+    () => verifyCurrentInventoryLaunchTarget(value, id(0), rawOnlyDrift, "application_only"),
+    /원천이 변경/,
+  );
+  await assert.rejects(
+    () => verifyCurrentInventoryLaunchTarget(value, id(0), async () => [{
+      grantId: id(0),
+      sourceRevisionSha256: "e".repeat(64),
+      materialSourceRevisionSha256: "f".repeat(64),
+    }], "matching_only"),
+    /원천이 변경/,
+  );
+  await assert.rejects(
+    () => verifyCurrentInventoryLaunchTarget(legacy, id(0), rawOnlyDrift, "matching_only"),
+    /원천이 변경/,
+    "과거 matching-only inventory는 source revision strict 검사를 유지",
+  );
 });
 
 test("과거 공고의 누락 필드 보완은 별도 정책으로 봉인하며 신규 모집단의 이력 제외를 보존한다", async () => {

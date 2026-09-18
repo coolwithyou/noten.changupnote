@@ -602,6 +602,8 @@ export async function runApprovedAnalysisLaunchBatch(input: {
                   ? completedResealEligibilityInventory(currentInventory)
                   : currentInventory,
                 grantId,
+                undefined,
+                manifest.execution.analysisMode,
               );
             }
             if (target.applicationRoundtripReuse) {

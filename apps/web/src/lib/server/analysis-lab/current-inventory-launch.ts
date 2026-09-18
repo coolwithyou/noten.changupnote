@@ -23,6 +23,7 @@ import { classifyLabRunOutcome } from "./run-outcome";
 import { readTerminalRepairSource } from "./terminal-repair-source";
 
 export const CURRENT_INVENTORY_SCHEMA = "analysis-current-inventory-v1" as const;
+export const MATCHING_MATERIAL_SOURCE_BINDING_SCHEMA = "analysis-matching-material-source-binding-v1" as const;
 export const MISSING_WORKSPACE_FIELDS_POLICY = "open-visible-current-period-missing-fields-v1" as const;
 export const TERMINAL_REPAIR_POLICY = "open-visible-current-period-terminal-repair-v1" as const;
 export type CurrentInventoryPolicy = "open-visible-current-period-unseen-v1" | typeof MISSING_WORKSPACE_FIELDS_POLICY | typeof TERMINAL_REPAIR_POLICY;
@@ -35,6 +36,12 @@ export interface CurrentLaunchInventory {
   readonly historicalGrantIdsSha256: string;
   readonly targets: readonly (AnalysisLaunchPlanTarget & {
     readonly sourceRevisionSha256: string;
+    readonly matchingMaterialSourceBinding?: {
+      readonly schema: typeof MATCHING_MATERIAL_SOURCE_BINDING_SCHEMA;
+      readonly materialSourceRevisionSha256: string;
+      /** 준비 시점 원문 provenance이며 matching-only 착수 drift 판정에는 사용하지 않는다. */
+      readonly sourceRawSha256: string;
+    };
   })[];
 }
 
@@ -60,13 +67,26 @@ export function validateCurrentLaunchInventory(value: unknown): CurrentLaunchInv
     throw new Error("terminal repair는 독립된 inventory로 봉인해야 합니다.");
   }
   const ids = new Set<string>();
+  let matchingMaterialBindingCount = 0;
   for (const [index, target] of inventory.targets.entries()) {
     if (!target || target.sequence !== index || !UUID.test(target.grantId)
       || ids.has(target.grantId) || typeof target.stratum !== "string"
       || !/^(bizinfo|kstartup)\/(thin|medium|thick)$/u.test(target.stratum)
       || !SHA.test(target.inputSha256) || !SHA.test(target.attachmentManifestSha256)
       || !SHA.test(target.sourceRevisionSha256)) throw new Error("current inventory target 결속이 잘못됐습니다.");
+    if (target.matchingMaterialSourceBinding !== undefined) {
+      const binding = target.matchingMaterialSourceBinding;
+      if (binding.schema !== MATCHING_MATERIAL_SOURCE_BINDING_SCHEMA
+        || !SHA.test(binding.materialSourceRevisionSha256)
+        || !SHA.test(binding.sourceRawSha256)) {
+        throw new Error("current inventory matching material 결속이 잘못됐습니다.");
+      }
+      matchingMaterialBindingCount += 1;
+    }
     ids.add(target.grantId);
+  }
+  if (matchingMaterialBindingCount !== 0 && matchingMaterialBindingCount !== inventory.targets.length) {
+    throw new Error("current inventory matching material 결속은 전체 target에 필요합니다.");
   }
   return inventory;
 }

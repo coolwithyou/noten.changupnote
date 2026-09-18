@@ -36,6 +36,29 @@ export function buildDeepAnalysisSourceRevision(
   };
 }
 
+/**
+ * 매칭 단독 실행용 material revision. 기존 source revision과 같은 공고·첨부 projection을
+ * 사용하되 rawHash만 제외한다. 실제 입력 변화는 별도 inputSha256 결속이 차단한다.
+ */
+export function buildDeepAnalysisMaterialSourceRevision(
+  input: Omit<DeepAnalysisSourceRevisionInput, "rawHash">,
+): { canonicalJson: string; sha256: string } {
+  const normalized = {
+    schema: "deep-analysis-material-source-revision-v1",
+    grant: input.grant,
+    attachments: [...input.attachments].sort((left, right) => (
+      `${left.sourceUri}\u0000${left.filename}`.localeCompare(
+        `${right.sourceUri}\u0000${right.filename}`,
+      )
+    )),
+  };
+  const canonicalJson = stableJson(normalized);
+  return {
+    canonicalJson,
+    sha256: sha256Hex(canonicalJson),
+  };
+}
+
 export function buildAttachmentManifestSha256(manifest: unknown): string {
   return sha256Hex(stableJson(manifest));
 }

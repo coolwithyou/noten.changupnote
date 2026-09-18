@@ -4,6 +4,7 @@ import * as schema from "@/lib/server/db/schema";
 import { listVerifiedArchiveMaterialEntries } from "@/lib/server/ingestion/archiveContainerInspection";
 import type { R2ObjectStorage } from "@/lib/server/storage/r2ObjectStorage";
 import {
+  buildDeepAnalysisMaterialSourceRevision,
   buildDeepAnalysisSourceRevision,
   sha256Hex,
   stableJson,
@@ -109,7 +110,7 @@ export async function loadDeepAnalysisSourceBinding(input: {
   grantId: string;
   /** 답변 transaction은 raw read→commit 사이 material raw 갱신을 막는다. */
   lockRaw?: boolean;
-}): Promise<{ sourceRevisionSha256: string; sourceRawSha256: string } | null> {
+}): Promise<DeepAnalysisSourceBinding | null> {
   return (await loadDeepAnalysisSourceBindings({
     db: input.db,
     grantIds: [input.grantId],
@@ -123,9 +124,9 @@ export async function loadDeepAnalysisSourceBindings(input: {
   grantIds: readonly string[];
   /** 단건 답변 저장 전용. grant/raw 행을 SHARE 잠금한다. */
   lockRows?: boolean;
-}): Promise<Map<string, { sourceRevisionSha256: string; sourceRawSha256: string }>> {
+}): Promise<Map<string, DeepAnalysisSourceBinding>> {
   const grantIds = [...new Set(input.grantIds)];
-  const result = new Map<string, { sourceRevisionSha256: string; sourceRawSha256: string }>();
+  const result = new Map<string, DeepAnalysisSourceBinding>();
   if (grantIds.length === 0) return result;
   if (input.lockRows && grantIds.length !== 1) {
     throw new Error("source binding row lock은 단건 transaction에서만 지원합니다.");
@@ -194,16 +195,26 @@ export async function loadDeepAnalysisSourceBindings(input: {
       ),
       convertedArtifacts.filter((artifact) => artifact.grantId === grant.id),
     );
+    const revisionInput = {
+      grant: deepAnalysisGrantSourceFields(grant),
+      attachments: inventory.map(sourceRevisionAttachment),
+    };
     result.set(grant.id, {
       sourceRawSha256: raw.rawHash,
       sourceRevisionSha256: buildDeepAnalysisSourceRevision({
-        grant: deepAnalysisGrantSourceFields(grant),
+        ...revisionInput,
         rawHash: raw.rawHash,
-        attachments: inventory.map(sourceRevisionAttachment),
       }).sha256,
+      materialSourceRevisionSha256: buildDeepAnalysisMaterialSourceRevision(revisionInput).sha256,
     });
   }
   return result;
+}
+
+export interface DeepAnalysisSourceBinding {
+  readonly sourceRevisionSha256: string;
+  readonly sourceRawSha256: string;
+  readonly materialSourceRevisionSha256: string;
 }
 
 type DeepAnalysisGrantSourceRow = Pick<typeof schema.grants.$inferSelect,
