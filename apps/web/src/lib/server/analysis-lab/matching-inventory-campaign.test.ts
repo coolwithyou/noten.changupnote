@@ -33,6 +33,7 @@ import {
   matchingHistoryReviewDisposition,
   prepareMatchingInventoryCampaign,
   readActiveLaunchManifest,
+  readCurrentInventoryHistoryTargetIds,
   resolveActiveLaunchManifest,
   type MatchingCampaignHistoryRecord,
 } from "./matching-inventory-campaign-production";
@@ -336,6 +337,24 @@ test("held가 섞인 source의 failed는 현행 terminal reader로 자동 복구
   assert.equal(classifyCampaignTerminalHistoryOutcome("failed", true), "quality_held");
   assert.equal(classifyCampaignTerminalHistoryOutcome("failed", false), "failed");
   assert.equal(classifyCampaignTerminalHistoryOutcome("held", false), "quality_held");
+});
+
+test("history prefilter는 current inventory target만 안전하게 추출한다", () => {
+  assert.deepEqual(readCurrentInventoryHistoryTargetIds({
+    schema: "analysis-launch-manifest-v1",
+    source: { kind: "current_inventory" },
+    targets: [{ grantId: id(0) }, { grantId: id(1) }],
+  }), [id(0), id(1)]);
+  assert.equal(readCurrentInventoryHistoryTargetIds({
+    schema: "analysis-launch-manifest-v1",
+    source: { kind: "formal_plan" },
+    targets: [{ grantId: id(0) }],
+  }), null);
+  assert.throws(() => readCurrentInventoryHistoryTargetIds({
+    schema: "analysis-launch-manifest-v1",
+    source: { kind: "current_inventory" },
+    targets: [{ grantId: id(0) }, { grantId: id(0) }],
+  }), /grantId/);
 });
 
 test("정상 blocked 독립검수는 오류가 아니라 quality held 분류로 이어진다", () => {

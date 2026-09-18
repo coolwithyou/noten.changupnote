@@ -46,6 +46,7 @@ import {
 import { findMonorepoRoot } from "./run-store";
 
 const SHA_FILE = /^([a-f0-9]{64})\.json$/u;
+const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/u;
 
 export interface MatchingCampaignHistoryRecord {
   readonly grantId: string;
@@ -188,6 +189,47 @@ export async function readActiveLaunchManifest(
   return normalizeAnalysisLaunchManifest(
     await readAnalysisLaunchArtifact("manifests", manifestSha256, root),
   );
+}
+
+/**
+ * history 스캔의 관심 대상만 먼저 고른다. 오래된 current-inventory manifest가 현행
+ * live 계약으로 정규화되지 않더라도, 그 target은 inventory 이력으로 held 처리할 수 있다.
+ */
+export function readCurrentInventoryHistoryTargetIds(value: unknown): readonly string[] | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("launch history manifest가 객체가 아닙니다.");
+  }
+  const record = value as Record<string, unknown>;
+  if (record.schema !== "analysis-launch-manifest-v1") {
+    throw new Error("launch history manifest schema가 다릅니다.");
+  }
+  if (!record.source || typeof record.source !== "object" || Array.isArray(record.source)) {
+    throw new Error("launch history source가 객체가 아닙니다.");
+  }
+  const sourceKind = (record.source as Record<string, unknown>).kind;
+  if (sourceKind !== undefined
+    && sourceKind !== "formal_plan"
+    && sourceKind !== "current_inventory"
+    && sourceKind !== "authoring_guide_adoption"
+    && sourceKind !== "independent_review_repair") {
+    throw new Error("launch history source kind가 잘못됐습니다.");
+  }
+  if (sourceKind !== "current_inventory") return null;
+  if (!Array.isArray(record.targets) || record.targets.length === 0) {
+    throw new Error("current inventory launch history target이 없습니다.");
+  }
+  const ids = new Set<string>();
+  for (const target of record.targets) {
+    if (!target || typeof target !== "object" || Array.isArray(target)) {
+      throw new Error("current inventory launch history target이 객체가 아닙니다.");
+    }
+    const grantId = (target as Record<string, unknown>).grantId;
+    if (typeof grantId !== "string" || !UUID.test(grantId) || ids.has(grantId)) {
+      throw new Error("current inventory launch history grantId가 잘못됐습니다.");
+    }
+    ids.add(grantId);
+  }
+  return Object.freeze([...ids]);
 }
 
 /** DB/로컬 이력을 읽고 child manifest와 권한 없는 campaign index까지만 준비한다. */
@@ -348,13 +390,24 @@ export async function readVerifiedCurrentLaunchHistory(
     ? await readActiveLaunchManifest(root, activeManifestSha256)
     : null;
   const currentIds = new Set(current.map((target) => target.grantId));
+  const historical = new Set(await readDeepRepairHistoricalGrantIds({
+    rootDir: join(root, "spike-out", "analysis-lab"),
+    scope: "all",
+  }));
   const manifestations: { sha256: string; manifest: AnalysisLaunchManifest }[] = [];
   for (const sha256 of await artifactShas(root, "manifests")) {
-    const manifest = normalizeCompletedAnalysisLaunchManifestForOfflineConsumption(
-      await readAnalysisLaunchArtifact("manifests", sha256, root),
-    );
-    if (manifest.source.kind !== "current_inventory" || manifest.execution.analysisMode === "application_only") continue;
-    if (!manifest.targets.some((target) => currentIds.has(target.grantId))) continue;
+    const raw = await readAnalysisLaunchArtifact("manifests", sha256, root);
+    const historyTargetIds = readCurrentInventoryHistoryTargetIds(raw);
+    if (!historyTargetIds?.some((grantId) => currentIds.has(grantId))) continue;
+    let manifest: AnalysisLaunchManifest;
+    try {
+      manifest = normalizeCompletedAnalysisLaunchManifestForOfflineConsumption(raw);
+    } catch (error) {
+      const relevantTargetIds = historyTargetIds.filter((grantId) => currentIds.has(grantId));
+      if (relevantTargetIds.every((grantId) => historical.has(grantId))) continue;
+      throw error;
+    }
+    if (manifest.execution.analysisMode === "application_only") continue;
     await verifyCurrentInventoryLaunchBinding(root, manifest);
     manifestations.push({ sha256, manifest });
   }
@@ -473,10 +526,6 @@ export async function readVerifiedCurrentLaunchHistory(
     });
   }
 
-  const historical = new Set(await readDeepRepairHistoricalGrantIds({
-    rootDir: join(root, "spike-out", "analysis-lab"),
-    scope: "all",
-  }));
   for (const target of current) {
     if (!result.has(target.grantId) && historical.has(target.grantId)) {
       result.set(target.grantId, {
