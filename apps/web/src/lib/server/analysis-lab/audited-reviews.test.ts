@@ -615,9 +615,13 @@ const aiReviewFixture: AuditedAiReviewInput = {
   assert.equal(merged.review.criterionReviews[0]?.verdict, "needs_edit");
   assert.deepEqual(merged.provenance.deterministicResolvedCriterionIndexes, [0]);
   const risk = assessPromotionReviewRisk({ run, review: merged.review });
-  assert.equal(risk.disposition, "conditional", "우대조건 억제는 자격 차단이 아니다");
-  assert.deepEqual(risk.suppressedCriterionIndexes, [0]);
-  assert.equal(risk.blockers.length, 0);
+  assert.equal(
+    risk.disposition,
+    "blocked",
+    "영향도가 없는 역사 preferred finding은 original kind만으로 ranking 억제하지 않는다",
+  );
+  assert.deepEqual(risk.suppressedCriterionIndexes, []);
+  assert.equal(risk.blockers.length, 1);
 
   const hardCriterionRun: LabRun = {
     ...run,

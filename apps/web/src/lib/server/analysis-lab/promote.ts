@@ -391,6 +391,8 @@ export function planGrantPromotion(input: {
   deepRepairReceiptSha256?: string;
   /** formal launch receipt와 target별 독립 검수 PASS provenance. */
   analysisLaunchReceiptSha256?: string;
+  /** exact 독립 검수 aggregate에서 계산한 영향도. launch 경로는 review를 가장하지 않고 이 값을 넘긴다. */
+  reviewRisk?: PromotionReviewRisk;
   /** <runId>.confirmations.json 사이드카(없으면 null) — 병합 규칙은 confirmations.ts 그대로. */
   sidecar: LabConfirmationsFile | null;
   /** 사람 검수자가 별도 불변 sidecar로 확정한 3상태 질문. */
@@ -466,9 +468,12 @@ export function planGrantPromotion(input: {
     deepRepairReceiptSha256: input.deepRepairReceiptSha256,
     analysisLaunchReceiptSha256: input.analysisLaunchReceiptSha256,
   });
-  const reviewRisk = input.review
+  if (input.review && input.reviewRisk) {
+    throw new Error("검수 원문과 사전 계산 reviewRisk를 동시에 넘길 수 없습니다.");
+  }
+  const reviewRisk = input.reviewRisk ?? (input.review
     ? assessPromotionReviewRisk({ run: mergedRun, review: input.review })
-    : undefined;
+    : undefined);
   const suppressedCriterionIndexes = new Set(
     reviewRisk?.suppressedCriterionIndexes ?? [],
   );

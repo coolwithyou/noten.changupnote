@@ -1,6 +1,6 @@
 import type {
   LabCriterionVerdict,
-  LabReview,
+  LabMissedConditionImpact,
   LabRun,
 } from "@/lib/server/analysis-lab/lab-contract";
 
@@ -28,7 +28,7 @@ export interface PromotionReviewRisk {
   disposition: PromotionReviewDisposition;
   blockers: PromotionReviewRiskItem[];
   deferrals: PromotionReviewRiskItem[];
-  /** 비정확 preferred criterion은 잘못된 점수 신호가 되지 않도록 발행에서 제외한다. */
+  /** 구조화된 검수가 ranking-only로 확정한 criterion만 발행에서 제외한다. */
   suppressedCriterionIndexes: number[];
   /** aggregate 정밀도 분모에서 제외할 ranking-only 판정 수. */
   suppressedVerdicts: {
@@ -44,12 +44,23 @@ export interface PromotionReviewRisk {
  * 검수 결과가 실제 신청 가능 여부를 바꾸는지 한 곳에서 판정한다.
  *
  * - required/exclusion의 비정확 판정과 영향도 미확정 누락은 차단한다.
- * - preferred의 비정확 판정은 해당 criterion만 억제한다.
+ * - original kind와 무관하게 ranking-only로 확정된 비정확 criterion만 억제한다.
  * - 두 독립 모델이 ranking으로 합의한 누락은 점수 신호만 미반영한 조건부 승격이다.
  */
 export function assessPromotionReviewRisk(input: {
   run: LabRun;
-  review: Pick<LabReview, "criterionReviews" | "axisReviews">;
+  review: {
+    criterionReviews: Array<{
+      criterionIndex: number;
+      verdict: LabCriterionVerdict;
+      matchImpact?: LabMissedConditionImpact | null;
+    }>;
+    axisReviews: Array<{
+      dimension: string;
+      verdict: string;
+      matchImpact?: LabMissedConditionImpact | null;
+    }>;
+  };
 }): PromotionReviewRisk {
   const blockers: PromotionReviewRiskItem[] = [];
   const deferrals: PromotionReviewRiskItem[] = [];
@@ -59,16 +70,15 @@ export function assessPromotionReviewRisk(input: {
   for (const item of input.review.criterionReviews) {
     if (item.verdict === "correct") continue;
     const criterion = input.run.criteria[item.criterionIndex];
-    if (!criterion || criterion.kind !== "preferred") {
+    if (!criterion || item.matchImpact !== "ranking") {
       blockers.push({
         code: "hard_criterion_not_confirmed",
         criterionIndex: item.criterionIndex,
         verdict: item.verdict,
         detail: criterion
-          ? `${criterion.kind} criterion이 ${item.verdict} 판정이라 신청 가능 여부를 안전하게 확정할 수 없습니다.`
+          ? `criterion ${item.criterionIndex}의 ${item.verdict} 판정 영향도가 ${item.matchImpact ?? "missing"}이라 신청 가능 여부를 안전하게 확정할 수 없습니다.`
           : `존재하지 않는 criterion index ${item.criterionIndex}의 ${item.verdict} 판정입니다.`,
       });
-      suppressedCriterionIndexes.add(item.criterionIndex);
       continue;
     }
 
@@ -80,7 +90,7 @@ export function assessPromotionReviewRisk(input: {
       code: "ranking_criterion_suppressed",
       criterionIndex: item.criterionIndex,
       verdict: item.verdict,
-      detail: `우대·가점 criterion ${item.criterionIndex}을 매칭 점수에서 제외했습니다.`,
+      detail: `ranking-only로 확인된 criterion ${item.criterionIndex}을 매칭 점수에서 제외했습니다.`,
     });
   }
 

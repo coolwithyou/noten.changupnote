@@ -2,6 +2,8 @@ import { createHash } from "node:crypto";
 import { readdir, readFile } from "node:fs/promises";
 import { join, relative, resolve, sep } from "node:path";
 import type {
+  LabCriterionVerdict,
+  LabMissedConditionImpact,
   LabPrimaryPassIssue,
   LabRun,
 } from "@/lib/server/analysis-lab/lab-contract";
@@ -21,6 +23,7 @@ import {
   INDEPENDENT_REVIEW_MANIFEST_SCHEMA,
   INDEPENDENT_REVIEW_PACKET_SCHEMA,
   deriveIndependentReviewAxes,
+  resolveIndependentReviewProjection,
 } from "./independent-review-packet";
 import {
   type AnalysisLaunchManifest,
@@ -56,6 +59,10 @@ import {
   type ManualConfirmationEvaluationSelector,
   type SelectedManualConfirmationEvaluations,
 } from "./manual-confirmation-evaluations";
+import {
+  assessPromotionReviewRisk,
+  type PromotionReviewRisk,
+} from "./promotion-review-risk";
 
 const SHA256 = /^[a-f0-9]{64}$/u;
 
@@ -177,7 +184,18 @@ interface ReviewEvidence {
   reviewPolicyVersion: string;
   packetBySequence: Map<number, ReviewManifestPacket>;
   comparisonBySequence: Map<number, { criterionTotal: number; axisTotal: number }>;
-  blockedSequences: Set<number>;
+  reviewMode: "codex-only" | "dual-legacy";
+  findingsBySequence: Map<number, ReviewRiskFinding[]>;
+  heldSequences: Set<number>;
+}
+
+export interface ReviewRiskFinding {
+  kind: "criterion" | "axis";
+  key: number | string;
+  verdict: string;
+  classification: "defect" | "unresolved";
+  codexMatchImpact: string | null;
+  grokMatchImpact: string | null;
 }
 
 interface LoadedLaunch {
@@ -194,9 +212,87 @@ interface LoadedTarget {
   runArtifactSha256: string;
   primaryMatchingProjectionStatus: "verified" | "unverified";
   primaryMatchingProjectionSnapshotSha256: string | null;
+  primaryMatchingProjectionContractVersion?: string | null;
+  /** loadAndVerifyTarget은 항상 설정하며, readiness 순수 함수 fixture만 생략할 수 있다. */
+  reviewRisk?: PromotionReviewRisk;
 }
 
 export type AnalysisLaunchIndependentReviewInspection = "passed" | "blocked";
+
+export function assessIndependentReviewFindingsRisk(input: {
+  run: LabRun;
+  reviewMode: "codex-only" | "dual-legacy";
+  findings: readonly ReviewRiskFinding[];
+}): PromotionReviewRisk {
+  const reviewedAxes = new Set<string>(deriveIndependentReviewAxes(input.run));
+  const criterionReviews: Array<{
+    criterionIndex: number;
+    verdict: LabCriterionVerdict;
+    matchImpact?: LabMissedConditionImpact;
+  }> = [];
+  const axisReviews: Array<{
+    dimension: string;
+    verdict: string;
+    matchImpact?: LabMissedConditionImpact;
+  }> = [];
+  const seen = new Set<string>();
+  for (const finding of input.findings) {
+    const identity = `${finding.kind}:${String(finding.key)}`;
+    if (seen.has(identity)) {
+      throw new Error(`independent review finding이 중복됐습니다: ${identity}`);
+    }
+    seen.add(identity);
+    const impact = consensusFindingImpact(finding, input.reviewMode);
+    if (finding.kind === "criterion") {
+      if (!Number.isSafeInteger(finding.key) || (finding.key as number) < 0) {
+        throw new Error(`independent review criterion key가 잘못됐습니다: ${String(finding.key)}`);
+      }
+      const verdict = finding.verdict === "needs_edit"
+        || finding.verdict === "wrong"
+        || finding.verdict === "unsure"
+        ? finding.verdict
+        : "unsure";
+      criterionReviews.push({
+        criterionIndex: finding.key as number,
+        verdict,
+        ...(impact ? { matchImpact: impact } : {}),
+      });
+    } else {
+      const dimension = String(finding.key);
+      if (!reviewedAxes.has(dimension)) {
+        throw new Error(`independent review axis key가 검수 범위에 없습니다: ${dimension}`);
+      }
+      axisReviews.push({
+        dimension,
+        // consensus finding은 정상 confirmed_absent를 담지 않는다. 어휘가
+        // 손상됐더라도 비정상 항목을 조건 누락으로 보수적으로 판정한다.
+        verdict: "missed_condition",
+        ...(impact ? { matchImpact: impact } : {}),
+      });
+    }
+  }
+  return assessPromotionReviewRisk({
+    run: input.run,
+    review: { criterionReviews, axisReviews },
+  });
+}
+
+function consensusFindingImpact(
+  finding: ReviewRiskFinding,
+  reviewMode: "codex-only" | "dual-legacy",
+): LabMissedConditionImpact | undefined {
+  if (finding.classification === "unresolved") return "unknown";
+  const codex = normalizeReviewImpact(finding.codexMatchImpact);
+  if (reviewMode === "codex-only") return codex;
+  const grok = normalizeReviewImpact(finding.grokMatchImpact);
+  return codex && codex === grok ? codex : "unknown";
+}
+
+function normalizeReviewImpact(value: string | null): LabMissedConditionImpact | undefined {
+  return value === "eligibility" || value === "ranking" || value === "unknown"
+    ? value
+    : undefined;
+}
 
 /**
  * 독립 검수 artifact graph 전체를 검증한 뒤 exact target의 정상 PASS/blocked만 구분한다.
@@ -213,15 +309,16 @@ export async function inspectAnalysisLaunchIndependentReview(input: {
   if (!target || !analysisLaunchTargetIsMatchingReviewable(target)) {
     throw new Error(`독립 검수 가능한 publishable launch target이 없습니다: ${input.grantId}`);
   }
-  await loadAndVerifyTarget(root, launch, target);
-  return launch.review.blockedSequences.has(target.sequence) ? "blocked" : "passed";
+  if (launch.review.heldSequences.has(target.sequence)) return "blocked";
+  const loaded = await loadAndVerifyTarget(root, launch, target);
+  return loaded.reviewRisk?.disposition === "blocked" ? "blocked" : "passed";
 }
 
 /**
  * 구 immutable run의 카운터를 바꾸지 않고, 완전한 패스 진단이 있을 때만 현행 분류를
  * 파생한다. 진단이 잘렸거나 raw 신규 총계와 맞지 않으면 기존 차단 판정을 유지한다.
  */
-function historicalBlockingCounterOnlyCountsSourceIncomplete(run: LabRun): boolean {
+export function historicalBlockingCounterOnlyCountsSourceIncomplete(run: LabRun): boolean {
   const provenance = run.primaryRepairProvenance;
   const passes = run.primaryPasses;
   const recordedBlocking = provenance?.blockingNewIssueAfterRepairCount;
@@ -300,11 +397,12 @@ export async function loadAnalysisLaunchPromotionCohort(input: {
       if (!requestedGrantIds.includes(target.grantId)) continue;
       if (
         !analysisLaunchTargetIsMatchingReviewable(target)
-        || launch.review.blockedSequences.has(target.sequence)
+        || launch.review.heldSequences.has(target.sequence)
       ) {
         continue;
       }
       const loaded = await loadAndVerifyTarget(root, launch, target);
+      if (loaded.reviewRisk?.disposition === "blocked") continue;
       const previous = loadedByGrant.get(target.grantId) ?? [];
       previous.push(loaded);
       loadedByGrant.set(target.grantId, previous);
@@ -360,6 +458,7 @@ export async function loadAnalysisLaunchPromotionCohort(input: {
         },
         origin: "analysis_launch",
         analysisLaunchReceiptSha256: loaded.launch.receiptSha256,
+        reviewRisk: loaded.reviewRisk!,
         sidecar: null,
         manualEvaluationSidecar,
         ...(!selectedManual?.legacyShaOnly && selectedManual ? {
@@ -414,7 +513,7 @@ export async function loadAnalysisLaunchPromotionCohort(input: {
             primaryMatchingProjectionSnapshotSha256:
               loaded.primaryMatchingProjectionSnapshotSha256!,
             primaryMatchingProjectionContractVersion:
-              loaded.target.primaryMatchingProjection!.conversionContractVersion,
+              loaded.primaryMatchingProjectionContractVersion!,
           } : {}),
         },
       },
@@ -761,7 +860,6 @@ async function loadAndVerifyTarget(
   ) {
     throw new Error(`launch run/manifest/review exact binding이 다릅니다: ${target.grantId}`);
   }
-  const matchingProjection = verifyAnalysisLaunchPrimaryMatchingProjection(run, target);
   const packetPath = safePathInside(root, resolve(root, packet.path));
   const packetBytes = await readFile(packetPath);
   if (sha256(packetBytes) !== packet.sha256) {
@@ -779,6 +877,37 @@ async function loadAndVerifyTarget(
   ) {
     throw new Error(`independent review packet 결속이 다릅니다: ${target.grantId}`);
   }
+  let matchingProjection: {
+    status: "verified" | "unverified";
+    snapshotSha256: string | null;
+    contractVersion: string | null;
+  };
+  if (independentReviewPolicyRank(launch.review.reviewPolicyVersion) >= 9) {
+    const packetProjection = record(
+      packetBody.primaryMatchingProjection,
+      "review packet primary matching projection",
+    );
+    const expectedProjection = resolveIndependentReviewProjection(run, target).binding;
+    if (sha256Canonical(packetProjection) !== sha256Canonical(expectedProjection)) {
+      throw new Error(`independent review packet matching projection 결속이 다릅니다: ${target.grantId}`);
+    }
+    matchingProjection = {
+      status: "verified",
+      snapshotSha256: expectedProjection.snapshotSha256,
+      contractVersion: expectedProjection.conversionContractVersion,
+    };
+  } else {
+    const legacyProjection = verifyAnalysisLaunchPrimaryMatchingProjection(run, target);
+    matchingProjection = {
+      ...legacyProjection,
+      contractVersion: target.primaryMatchingProjection?.conversionContractVersion ?? null,
+    };
+  }
+  const reviewRisk = assessIndependentReviewFindingsRisk({
+    run,
+    reviewMode: launch.review.reviewMode,
+    findings: launch.review.findingsBySequence.get(target.sequence) ?? [],
+  });
   return {
     launch,
     target,
@@ -786,6 +915,8 @@ async function loadAndVerifyTarget(
     runArtifactSha256: target.runArtifactSha256,
     primaryMatchingProjectionStatus: matchingProjection.status,
     primaryMatchingProjectionSnapshotSha256: matchingProjection.snapshotSha256,
+    primaryMatchingProjectionContractVersion: matchingProjection.contractVersion,
+    reviewRisk,
   };
 }
 
@@ -958,6 +1089,7 @@ async function loadReviewEvidenceManifest(
     throw new Error(`independent review aggregate SHA가 다릅니다: ${receiptSha256}`);
   }
   const aggregate = record(JSON.parse(aggregateBytes.toString("utf8")), "review aggregate");
+  const reviewMode = "codex-only" as const;
   if (
     aggregate.schema !== INDEPENDENT_REVIEW_AGGREGATE_SCHEMA
     || aggregate.manifestSha256 !== manifestSha256
@@ -992,13 +1124,45 @@ async function loadReviewEvidenceManifest(
   if (!Array.isArray(consensus.defects) || !Array.isArray(consensus.unresolved)) {
     throw new Error(`independent review consensus가 불완전합니다: ${receiptSha256}`);
   }
-  const blockedSequences = new Set<number>();
+  const findingsBySequence = new Map<number, ReviewRiskFinding[]>();
   for (const value of [...consensus.defects, ...consensus.unresolved]) {
-    blockedSequences.add(integer(record(value, "review finding").sequence, "finding.sequence"));
+    const finding = record(value, "review finding");
+    const sequence = integer(finding.sequence, "finding.sequence");
+    if (!packetBySequence.has(sequence)) {
+      throw new Error(`independent review finding sequence가 packet에 없습니다: ${sequence}`);
+    }
+    const kind = finding.kind;
+    if (kind !== "criterion" && kind !== "axis") {
+      throw new Error(`independent review finding kind가 잘못됐습니다: ${String(kind)}`);
+    }
+    const classification = finding.classification;
+    if (classification !== "defect" && classification !== "unresolved") {
+      throw new Error(`independent review finding classification이 잘못됐습니다: ${String(classification)}`);
+    }
+    const key = finding.key;
+    if (typeof key !== "number" && typeof key !== "string") {
+      throw new Error("independent review finding key가 잘못됐습니다.");
+    }
+    const normalized: ReviewRiskFinding = {
+      kind,
+      key,
+      verdict: typeof finding.verdict === "string" ? finding.verdict : "unsure",
+      classification,
+      codexMatchImpact: typeof finding.codexMatchImpact === "string"
+        ? finding.codexMatchImpact
+        : null,
+      grokMatchImpact: typeof finding.grokMatchImpact === "string"
+        ? finding.grokMatchImpact
+        : null,
+    };
+    const current = findingsBySequence.get(sequence) ?? [];
+    current.push(normalized);
+    findingsBySequence.set(sequence, current);
   }
+  const heldSequences = new Set<number>();
   if (Array.isArray(aggregate.heldAudit)) {
     for (const value of aggregate.heldAudit) {
-      blockedSequences.add(integer(record(value, "held audit").sequence, "held.sequence"));
+      heldSequences.add(integer(record(value, "held audit").sequence, "held.sequence"));
     }
   }
   return {
@@ -1009,7 +1173,9 @@ async function loadReviewEvidenceManifest(
       : "codex-only-v0",
     packetBySequence,
     comparisonBySequence,
-    blockedSequences,
+    reviewMode,
+    findingsBySequence,
+    heldSequences,
   };
 }
 

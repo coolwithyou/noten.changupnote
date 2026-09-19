@@ -20,6 +20,8 @@ export interface AiCriterionReview {
   criterionIndex: number;
   verdict: LabCriterionVerdict;
   note: string | null;
+  /** 신규 독립 검수는 비정상 판정의 제품 영향을 명시한다. 구 산출물에는 없다. */
+  matchImpact?: LabMissedConditionImpact | null;
 }
 
 /** AI 검수기의 빈 축 1건 판정 — LabAxisReview 와 같은 어휘. */

@@ -335,7 +335,12 @@ function buildUserMessage(input: LabAssembledInput, run: LabRun, emptyAxes: Crit
 const CRITERION_VERDICTS: readonly LabCriterionVerdict[] = ["correct", "needs_edit", "wrong", "unsure"];
 const AXIS_VERDICTS: readonly LabEmptyAxisVerdict[] = ["confirmed_absent", "missed_condition"];
 
-export function buildAiReviewToolSchema(criteriaCount: number, emptyAxes: CriterionDimension[]) {
+export function buildAiReviewToolSchema(
+  criteriaCount: number,
+  emptyAxes: CriterionDimension[],
+  options: { requireFindingImpact?: boolean } = {},
+) {
+  const requireFindingImpact = options.requireFindingImpact === true;
   return {
     name: AI_REVIEW_TOOL_NAME,
     description: "딥분석 criteria 전수 판정과 빈 축 전수 확인 결과를 반환한다.",
@@ -354,8 +359,15 @@ export function buildAiReviewToolSchema(criteriaCount: number, emptyAxes: Criter
               criterion_index: { type: "integer", minimum: 0, maximum: Math.max(0, criteriaCount - 1) },
               verdict: { type: "string", enum: [...CRITERION_VERDICTS] },
               note: { type: "string", description: "correct 가 아니면 필수 — 무엇을 어떻게 고칠지/원문 근거" },
+              ...(requireFindingImpact ? {
+                match_impact: {
+                  type: "string",
+                  enum: ["eligibility", "ranking", "unknown", "not_applicable"],
+                  description: "비-correct는 eligibility/ranking/unknown, correct는 not_applicable",
+                },
+              } : {}),
             },
-            required: ["criterion_index", "verdict"],
+            required: ["criterion_index", "verdict", ...(requireFindingImpact ? ["match_impact"] : [])],
           },
         },
         axis_reviews: {
@@ -371,8 +383,15 @@ export function buildAiReviewToolSchema(criteriaCount: number, emptyAxes: Criter
               note: { type: "string", description: "missed_condition 이면 필수 — 누락 요건의 원문 문구 인용" },
               match_impact: {
                 type: "string",
-                enum: ["eligibility", "ranking", "not_applicable"],
-                description: "missed_condition은 eligibility 또는 ranking, confirmed_absent는 not_applicable",
+                enum: [
+                  "eligibility",
+                  "ranking",
+                  ...(requireFindingImpact ? ["unknown"] : []),
+                  "not_applicable",
+                ],
+                description: requireFindingImpact
+                  ? "missed_condition은 eligibility/ranking/unknown, confirmed_absent는 not_applicable"
+                  : "missed_condition은 eligibility 또는 ranking, confirmed_absent는 not_applicable",
               },
             },
             required: ["dimension", "verdict", "match_impact"],
@@ -394,7 +413,9 @@ export function validateAiReviewPayload(
   input: unknown,
   criteriaCount: number,
   emptyAxes: CriterionDimension[],
+  options: { requireFindingImpact?: boolean } = {},
 ): AiReviewPayloadCheck {
+  const requireFindingImpact = options.requireFindingImpact === true;
   if (!isRecord(input)) return { ok: false, reason: "tool 입력이 객체가 아님" };
   const rawCriteria = input.criterion_reviews;
   const rawAxes = input.axis_reviews;
@@ -420,7 +441,22 @@ export function validateAiReviewPayload(
     if (verdict !== "correct" && !note) {
       return { ok: false, reason: `criterion_index ${index}: 비-correct(${verdict}) 판정에 note 없음` };
     }
-    criterionReviews.push({ criterionIndex: index, verdict: verdict as LabCriterionVerdict, note });
+    const rawImpact = row.match_impact;
+    const validImpact = rawImpact === "eligibility" || rawImpact === "ranking" || rawImpact === "unknown";
+    if (requireFindingImpact) {
+      if (verdict === "correct" && rawImpact !== "not_applicable") {
+        return { ok: false, reason: `criterion_index ${index}: correct의 match_impact는 not_applicable이어야 함` };
+      }
+      if (verdict !== "correct" && !validImpact) {
+        return { ok: false, reason: `criterion_index ${index}: 비-correct 판정에 match_impact 없음/어휘 밖` };
+      }
+    }
+    criterionReviews.push({
+      criterionIndex: index,
+      verdict: verdict as LabCriterionVerdict,
+      note,
+      ...(validImpact ? { matchImpact: rawImpact as LabMissedConditionImpact } : {}),
+    });
   }
   if (criterionReviews.length !== criteriaCount) {
     return { ok: false, reason: `criterion 커버리지 미달: ${criterionReviews.length}/${criteriaCount}` };
@@ -446,7 +482,9 @@ export function validateAiReviewPayload(
       return { ok: false, reason: `축 ${dimension}: missed_condition 판정에 원문 인용 note 없음` };
     }
     const rawImpact = row.match_impact;
-    const validImpact = rawImpact === "eligibility" || rawImpact === "ranking";
+    const validImpact = rawImpact === "eligibility"
+      || rawImpact === "ranking"
+      || (requireFindingImpact && rawImpact === "unknown");
     if (verdict === "missed_condition" && !validImpact) {
       return { ok: false, reason: `축 ${dimension}: missed_condition 판정에 match_impact 없음/어휘 밖` };
     }

@@ -229,7 +229,12 @@ function fixtureSidecar(
     }),
   ]);
   const eligibilityMissReview = fixtureReview(
-    [{ criterionIndex: 0, verdict: "needs_edit", note: "우대 범위 수정 필요" }],
+    [{
+      criterionIndex: 0,
+      verdict: "needs_edit",
+      matchImpact: "ranking",
+      note: "우대 범위 수정 필요",
+    }],
     {
       axisReviews: [{
         dimension: "tax_compliance",
@@ -265,6 +270,33 @@ function fixtureSidecar(
   });
   assert.equal(unknownImpact.disposition, "blocked", "영향도 없는 구 누락 판정은 fail-closed한다");
   assert.equal(unknownImpact.blockers[0]?.code, "missed_condition_impact_unknown");
+
+  const misclassifiedPreferred = assessPromotionReviewRisk({
+    run: eligibilityMissRun,
+    review: fixtureReview([{
+      criterionIndex: 0,
+      verdict: "wrong",
+      matchImpact: "eligibility",
+      note: "preferred로 추출됐지만 실제로는 신청 제외 조건",
+    }]),
+  });
+  assert.equal(misclassifiedPreferred.disposition, "blocked");
+  assert.deepEqual(
+    misclassifiedPreferred.suppressedCriterionIndexes,
+    [],
+    "원본 kind=preferred라는 이유로 eligibility 결함을 억제하지 않는다",
+  );
+
+  const legacyPreferredWithoutImpact = assessPromotionReviewRisk({
+    run: eligibilityMissRun,
+    review: fixtureReview([{
+      criterionIndex: 0,
+      verdict: "needs_edit",
+      note: "영향도가 없는 역사 criterion finding",
+    }]),
+  });
+  assert.equal(legacyPreferredWithoutImpact.disposition, "blocked");
+  assert.deepEqual(legacyPreferredWithoutImpact.suppressedCriterionIndexes, []);
 }
 
 // ---- ① 대상 dedupe — 사람 우선·grantId 정렬 -------------------------------------------

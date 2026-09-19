@@ -383,6 +383,8 @@ export interface LabCriterionReview {
   verdict: LabCriterionVerdict;
   /** needs_edit/wrong/unsure 의 사유·수정 내용. */
   note: string | null;
+  /** 신규 독립 검수 finding의 제품 영향. 구 산출물은 필드가 없다. */
+  matchImpact?: LabMissedConditionImpact | null;
 }
 
 export type LabEmptyAxisVerdict = "confirmed_absent" | "missed_condition";
@@ -393,8 +395,9 @@ export type LabEmptyAxisVerdict = "confirmed_absent" | "missed_condition";
  *
  * - eligibility: 신청 가능/불가를 바꿀 수 있음 — 구조화 복구 전 승격 차단
  * - ranking: 우대·가점·평가순위만 바꿈 — 해당 신호를 미반영한 조건부 승격 가능
+ * - unknown: 영향을 확정할 수 없음 — fail-closed
  */
-export type LabMissedConditionImpact = "eligibility" | "ranking";
+export type LabMissedConditionImpact = "eligibility" | "ranking" | "unknown";
 
 /** 제안이 없는 축에 대한 확인 — 재현율(누락) 골든 신호. */
 export interface LabAxisReview {

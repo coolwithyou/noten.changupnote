@@ -10,7 +10,10 @@ import {
   APPLICATION_ROUNDTRIP_VERSION,
 } from "./application-roundtrip/contract";
 import { DEEP_ANALYSIS_VALIDATOR_VERSION } from "../deep-analysis/validator";
-import { classifyAnalysisLaunchPromotionReadiness } from "./analysis-launch-promotion";
+import {
+  classifyAnalysisLaunchPromotionReadiness,
+  historicalBlockingCounterOnlyCountsSourceIncomplete,
+} from "./analysis-launch-promotion";
 import { readCompletedAnalysisLaunchArtifacts } from "./completed-analysis-launch-reader";
 import {
   analysisLaunchArtifactPath,
@@ -113,7 +116,9 @@ test("실제 v15/v17/v19 종료 receipts는 target 결과와 terminal repair anc
             reviewPolicyVersion: "codex-only-v7",
             packetBySequence: new Map(),
             comparisonBySequence: new Map(),
-            blockedSequences: new Set(),
+            reviewMode: "codex-only",
+            findingsBySequence: new Map(),
+            heldSequences: new Set(),
           },
         },
         target,
@@ -136,9 +141,16 @@ test("실제 v15/v17/v19 종료 receipts는 target 결과와 terminal repair anc
       },
     } as Parameters<typeof classifyAnalysisLaunchPromotionReadiness>[0]);
     if (index === 4) {
-      // 실제 repair4 첫 작성 후보는 primary repair 차단 이력이 있다. 역사 호환성이 이를 우회하면 안 된다.
-      assert.equal(readiness.disposition, "held");
-      assert.deepEqual(readiness.reasons, ["blocking_new_issue_after_repair"]);
+      const recordedBlocking = run.primaryRepairProvenance?.blockingNewIssueAfterRepairCount;
+      assert.ok((recordedBlocking ?? 0) > 0, "구 immutable blocking counter는 그대로 보존한다");
+      assert.equal(historicalBlockingCounterOnlyCountsSourceIncomplete(run), true);
+      assert.equal(
+        run.primaryRepairProvenance?.blockingNewIssueAfterRepairCount,
+        recordedBlocking,
+        "파생 판정이 구 run counter를 변경하지 않는다",
+      );
+      assert.equal(readiness.disposition, "conditional");
+      assert.deepEqual(readiness.reasons, []);
     } else {
       assert.ok(readiness.disposition === "ready" || readiness.disposition === "conditional",
         `receipt ${REAL_RECEIPTS[index]}: ${JSON.stringify(readiness.reasons)}`);

@@ -20,8 +20,10 @@ import {
   guardAnalysisLaunchPromotionPlan,
   inspectAnalysisLaunchIndependentReview,
   loadAnalysisLaunchPromotionCohort,
+  assessIndependentReviewFindingsRisk,
   verifyAnalysisLaunchPrimaryMatchingProjection,
 } from "./analysis-launch-promotion";
+import { planGrantPromotion } from "./promote";
 import {
   buildAnalysisLaunchMatchingProjectionBinding,
   buildPrimaryMatchingProjectionSnapshot,
@@ -254,7 +256,9 @@ try {
           reviewPolicyVersion: "codex-only-v3",
           packetBySequence: new Map(),
           comparisonBySequence: new Map(),
-          blockedSequences: new Set(),
+          reviewMode: "codex-only",
+          findingsBySequence: new Map(),
+          heldSequences: new Set(),
         },
       },
       target: receipt.targets[0]!,
@@ -392,7 +396,9 @@ try {
           reviewPolicyVersion: "codex-only-v5",
           packetBySequence: new Map(),
           comparisonBySequence: new Map(),
-          blockedSequences: new Set(),
+          reviewMode: "codex-only",
+          findingsBySequence: new Map(),
+          heldSequences: new Set(),
         },
       },
       target: { ...receipt.targets[0]!, featureReadiness: historicalFeatureReadiness },
@@ -805,7 +811,9 @@ try {
           reviewPolicyVersion: "codex-only-v5",
           packetBySequence: new Map(),
           comparisonBySequence: new Map(),
-          blockedSequences: new Set(),
+          reviewMode: "codex-only",
+          findingsBySequence: new Map(),
+          heldSequences: new Set(),
         },
       },
       target: {
@@ -962,6 +970,120 @@ try {
   }), /run artifact SHA/, "blocked여도 run/packet/hash 손상은 fail-closed한다");
 } finally {
   await rm(root, { recursive: true, force: true });
+}
+
+{
+  const base = fixtureRun();
+  const runWithRanking = {
+    ...base,
+    criteria: [
+      ...base.criteria,
+      {
+        dimension: "certification" as const,
+        kind: "preferred" as const,
+        operator: "in" as const,
+        value: { certs: ["벤처기업"] },
+        confidence: 0.9,
+        sourceSpan: "벤처기업 가점",
+        spanVerified: true,
+        note: null,
+      },
+    ],
+  };
+  const rankingRisk = assessIndependentReviewFindingsRisk({
+    run: runWithRanking,
+    reviewMode: "codex-only",
+    findings: [{
+      kind: "criterion",
+      key: 1,
+      verdict: "wrong",
+      classification: "defect",
+      codexMatchImpact: "ranking",
+      grokMatchImpact: null,
+    }],
+  });
+  assert.equal(rankingRisk.disposition, "conditional");
+  assert.deepEqual(rankingRisk.suppressedCriterionIndexes, [1]);
+  const plan = planGrantPromotion({
+    run: runWithRanking,
+    origin: "analysis_launch",
+    analysisLaunchReceiptSha256: "d".repeat(64),
+    reviewRisk: rankingRisk,
+    sidecar: null,
+  });
+  assert.equal(plan.criteria.length, 1, "launch ranking finding은 실제 promotion 출력에서 제외된다");
+  assert.deepEqual(plan.reviewRisk, rankingRisk, "exact aggregate에서 계산한 risk가 plan hash 입력에 남는다");
+
+  const misclassifiedPreferred = assessIndependentReviewFindingsRisk({
+    run: runWithRanking,
+    reviewMode: "codex-only",
+    findings: [{
+      kind: "criterion",
+      key: 1,
+      verdict: "wrong",
+      classification: "defect",
+      codexMatchImpact: "eligibility",
+      grokMatchImpact: null,
+    }],
+  });
+  assert.equal(misclassifiedPreferred.disposition, "blocked");
+  assert.deepEqual(misclassifiedPreferred.suppressedCriterionIndexes, []);
+
+  const legacyMissingImpact = assessIndependentReviewFindingsRisk({
+    run: runWithRanking,
+    reviewMode: "codex-only",
+    findings: [{
+      kind: "criterion",
+      key: 1,
+      verdict: "needs_edit",
+      classification: "defect",
+      codexMatchImpact: null,
+      grokMatchImpact: null,
+    }],
+  });
+  assert.equal(legacyMissingImpact.disposition, "blocked");
+
+  const dualDisagreement = assessIndependentReviewFindingsRisk({
+    run: runWithRanking,
+    reviewMode: "dual-legacy",
+    findings: [{
+      kind: "criterion",
+      key: 1,
+      verdict: "wrong",
+      classification: "defect",
+      codexMatchImpact: "ranking",
+      grokMatchImpact: "eligibility",
+    }],
+  });
+  assert.equal(dualDisagreement.disposition, "blocked", "dual impact 불일치는 단일 ranking으로 면제하지 않는다");
+
+  const dualUnresolved = assessIndependentReviewFindingsRisk({
+    run: runWithRanking,
+    reviewMode: "dual-legacy",
+    findings: [{
+      kind: "axis",
+      key: "region",
+      verdict: "confirmed_absent",
+      classification: "unresolved",
+      codexMatchImpact: "ranking",
+      grokMatchImpact: "ranking",
+    }],
+  });
+  assert.equal(dualUnresolved.disposition, "blocked", "unresolved axis는 손상 verdict에도 PASS하지 않는다");
+
+  const legacyRankingAxis = assessIndependentReviewFindingsRisk({
+    run: runWithRanking,
+    reviewMode: "codex-only",
+    findings: [{
+      kind: "axis",
+      key: "region",
+      verdict: "missed_condition",
+      classification: "defect",
+      codexMatchImpact: "ranking",
+      grokMatchImpact: null,
+    }],
+  });
+  assert.equal(legacyRankingAxis.disposition, "conditional", "구조화된 legacy ranking axis는 보존한다");
 }
 
 console.log("analysis launch promotion tests: ok");

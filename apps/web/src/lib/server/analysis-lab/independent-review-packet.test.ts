@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import { CRITERION_DIMENSIONS } from "@cunote/contracts";
-import { loadGuideRubric, shapeLabInputArchivesForRun } from "./ai-review";
+import type { LabRun } from "./lab-contract";
+import {
+  buildAiReviewToolSchema,
+  loadGuideRubric,
+  shapeLabInputArchivesForRun,
+  validateAiReviewPayload,
+} from "./ai-review";
 import { DEEP_ANALYSIS_REVIEW_ALIGNMENT_RULES } from "../deep-analysis/extractor";
 import {
   buildIndependentReviewSystemPrompt,
@@ -13,7 +19,9 @@ import {
   isStructuredAgeMetadataEvidence,
   INDEPENDENT_REVIEW_POLICY_VERSION,
   normalizeReviewSequences,
+  renderIndependentReviewProjection,
   renderIndependentReviewSourceLimitations,
+  resolveIndependentReviewProjection,
 } from "./independent-review-packet";
 
 const findings = deriveIndependentReviewConsensus(7, {
@@ -82,11 +90,11 @@ assert.match(
   "독립 검수자가 창업노트 prior_award 상태 계약을 공유해야 한다",
 );
 const independentSystemPrompt = buildIndependentReviewSystemPrompt(fixtureRubric);
-assert.equal(INDEPENDENT_REVIEW_POLICY_VERSION, "codex-only-v8");
+assert.equal(INDEPENDENT_REVIEW_POLICY_VERSION, "codex-only-v9");
 assert.match(independentSystemPrompt, /correct.*needs_edit.*wrong.*unsure/su);
 assert.match(independentSystemPrompt, /confirmed_absent.*missed_condition/su);
 assert.match(independentSystemPrompt, /원문 유일 근거/);
-assert.match(independentSystemPrompt, /모든 criterion_index와 모든 빈 축.*정확히 한 번씩/);
+assert.match(independentSystemPrompt, /criterion_index·빈 축을 한 번씩/);
 assert.match(independentSystemPrompt, /제출서류 목록.*정보수집·증빙 요구/su);
 assert.match(independentSystemPrompt, /진실성 서약.*현재 보유한 자격 사실이 아니다/su);
 assert.match(independentSystemPrompt, /선정평가표.*모든 평가항목/su);
@@ -94,6 +102,7 @@ assert.match(independentSystemPrompt, /\[통합공고\]/);
 assert.match(independentSystemPrompt, /\[축 중복\]/);
 assert.match(independentSystemPrompt, /\[현재 matcher\]/);
 assert.match(independentSystemPrompt, /\[exclusion 극성\]/);
+assert.match(independentSystemPrompt, /비정상 criterion·missed_condition.*match_impact/);
 assert.match(independentSystemPrompt, /list_semantics=open/);
 assert.match(independentSystemPrompt, /모집직무.*신청기업의 업종 자격이 아니다/su);
 for (const rule of DEEP_ANALYSIS_REVIEW_ALIGNMENT_RULES) {
@@ -117,6 +126,83 @@ assert.match(independentSystemPrompt, /지원대상: 중소기업.*target_type �
 assert.match(independentSystemPrompt, /순수 창작물.*현재 또는 과거 수혜 사실이 아니므로|표절·도용 금지/);
 assert.match(independentSystemPrompt, /공고명·사업목적·모집안내.*실제 신청기업의 산업 범위다/);
 assert.match(independentSystemPrompt, /제출서류 목록은 정보수집·증빙 요구일 뿐/);
+
+const impactSchema = buildAiReviewToolSchema(1, ["region"], {
+  requireFindingImpact: true,
+}).input_schema;
+const criterionItemSchema = impactSchema.properties.criterion_reviews.items;
+assert.deepEqual(
+  criterionItemSchema.required,
+  ["criterion_index", "verdict", "match_impact"],
+  "v9 independent review criterion은 structured impact를 필수로 받는다",
+);
+const missingCriterionImpact = validateAiReviewPayload({
+  criterion_reviews: [{ criterion_index: 0, verdict: "wrong", note: "자격조건 오해" }],
+  axis_reviews: [{
+    dimension: "region",
+    verdict: "confirmed_absent",
+    match_impact: "not_applicable",
+  }],
+}, 1, ["region"], { requireFindingImpact: true });
+assert.equal(missingCriterionImpact.ok, false, "legacy criterion impact 누락은 v9 응답에서 fail-closed한다");
+const explicitUnknownImpact = validateAiReviewPayload({
+  criterion_reviews: [{
+    criterion_index: 0,
+    verdict: "unsure",
+    note: "원문으로 영향 확정 불가",
+    match_impact: "unknown",
+  }],
+  axis_reviews: [{
+    dimension: "region",
+    verdict: "missed_condition",
+    note: "지역 문구의 효과 불명",
+    match_impact: "unknown",
+  }],
+}, 1, ["region"], { requireFindingImpact: true });
+assert.equal(explicitUnknownImpact.ok, true, "unknown은 유효한 구조화 영향도로 보존한다");
+
+const projectionRun = {
+  runId: "run-review-projection",
+  grantId: "00000000-0000-4000-8000-000000000919",
+  source: "bizinfo",
+  sourceId: "PBLN_REVIEW_PROJECTION",
+  inputSha256: "1".repeat(64),
+  criteria: [{
+    dimension: "other",
+    kind: "required",
+    operator: "text_only",
+    value: { note: "서울 소재 기업" },
+    confidence: 0.9,
+    sourceSpan: "서울 소재 기업",
+    spanVerified: true,
+    note: null,
+  }],
+} as LabRun;
+const derivedProjection = resolveIndependentReviewProjection(projectionRun, {
+  grantId: projectionRun.grantId,
+});
+assert.equal(derivedProjection.binding.provenance, "derived_current");
+assert.equal(derivedProjection.binding.verification, "verified");
+const projectionPrompt = renderIndependentReviewProjection(derivedProjection.snapshot).join("\n");
+assert.match(projectionPrompt, /criterion_index=0/);
+assert.match(projectionPrompt, /"kind":"required"/);
+assert.match(projectionPrompt, /"operator":"text_only"/);
+assert.match(projectionPrompt, /서울 소재 기업/);
+assert.throws(
+  () => resolveIndependentReviewProjection(projectionRun, {
+    grantId: projectionRun.grantId,
+    primaryMatchingProjection: {
+      ...derivedProjection.binding,
+      snapshotSha256: "0".repeat(64),
+    },
+  }),
+  /launch receipt 결속과 다릅니다/,
+);
+const sealedProjection = resolveIndependentReviewProjection({
+  ...projectionRun,
+  primaryMatchingProjection: derivedProjection.snapshot,
+}, { grantId: projectionRun.grantId });
+assert.equal(sealedProjection.binding.provenance, "run_snapshot");
 assert.equal(isSizeOnlyTargetTypeEvidence('"지원대상: 중소기업"'), true);
 assert.equal(isSizeOnlyTargetTypeEvidence("중소기업 중 법인사업자만 신청 가능"), false);
 assert.equal(isSizeOnlyTargetTypeEvidence("비영리단체만 신청 가능"), false);

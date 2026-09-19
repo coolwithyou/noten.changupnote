@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import type { CriterionDimension } from "@cunote/contracts";
-import type { LabRun } from "./lab-contract";
+import type { LabPrimaryMatchingProjectionSnapshot, LabRun } from "./lab-contract";
 import {
   AI_REVIEW_PROMPT_VERSION,
   buildAiReviewToolSchema,
@@ -18,6 +18,14 @@ import {
 import { DIMENSION_LABELS } from "./diff";
 import { findMonorepoRoot } from "./run-store";
 import { analysisLaunchTargetIsMatchingReviewable } from "../analysis-serving/analysisFeatureReadiness";
+import {
+  buildAnalysisLaunchMatchingProjectionBinding,
+  buildPrimaryMatchingProjectionSnapshot,
+  inspectPrimaryMatchingProjectionSnapshot,
+  primaryMatchingProjectionSnapshotSha256,
+  primaryProjectionSource,
+} from "./primary-matching-projection";
+import type { AnalysisLaunchMatchingProjectionBinding } from "./launch-batch-artifacts";
 
 export const INDEPENDENT_REVIEW_PACKET_SCHEMA = "independent-ai-review-packet-v2";
 export const INDEPENDENT_REVIEW_MANIFEST_SCHEMA = "independent-ai-review-manifest-v2";
@@ -26,7 +34,7 @@ export const INDEPENDENT_REVIEW_RESULT_SCHEMA = "independent-ai-review-result-v1
 export const INDEPENDENT_REVIEW_BUNDLE_SCHEMA = "independent-ai-review-bundle-v1";
 export const INDEPENDENT_REVIEW_COMBINED_RAW_SCHEMA = "independent-ai-review-combined-raw-v1";
 export const INDEPENDENT_REVIEW_AGGREGATE_SCHEMA = "independent-ai-review-aggregate-v2";
-export const INDEPENDENT_REVIEW_POLICY_VERSION = "codex-only-v8";
+export const INDEPENDENT_REVIEW_POLICY_VERSION = "codex-only-v9";
 export const LEGACY_INDEPENDENT_REVIEW_POLICY_VERSION = "codex-only-v1";
 export const LEGACY_INDEPENDENT_REVIEW_POLICY_VERSION_V2 = "codex-only-v2";
 export const LEGACY_INDEPENDENT_REVIEW_POLICY_VERSION_V3 = "codex-only-v3";
@@ -34,6 +42,7 @@ export const LEGACY_INDEPENDENT_REVIEW_POLICY_VERSION_V4 = "codex-only-v4";
 export const LEGACY_INDEPENDENT_REVIEW_POLICY_VERSION_V5 = "codex-only-v5";
 export const LEGACY_INDEPENDENT_REVIEW_POLICY_VERSION_V6 = "codex-only-v6";
 export const LEGACY_INDEPENDENT_REVIEW_POLICY_VERSION_V7 = "codex-only-v7";
+export const LEGACY_INDEPENDENT_REVIEW_POLICY_VERSION_V8 = "codex-only-v8";
 
 export interface IndependentReviewConsensusFinding {
   sequence: number;
@@ -54,6 +63,7 @@ interface LaunchTarget {
   runArtifactPath: string | null;
   runArtifactSha256: string | null;
   error: string | null;
+  primaryMatchingProjection?: AnalysisLaunchMatchingProjectionBinding;
 }
 
 interface LaunchReceipt {
@@ -79,6 +89,9 @@ export interface IndependentReviewPacket {
   promptVersion: typeof AI_REVIEW_PROMPT_VERSION;
   reviewPolicyVersion: typeof INDEPENDENT_REVIEW_POLICY_VERSION;
   guideSha256: string;
+  primaryMatchingProjection: AnalysisLaunchMatchingProjectionBinding & {
+    provenance: "run_snapshot" | "derived_current";
+  };
   systemPrompt: string;
   userMessage: string;
   outputSchema: Record<string, unknown>;
@@ -110,7 +123,8 @@ interface IndependentReviewManifest {
     | typeof LEGACY_INDEPENDENT_REVIEW_POLICY_VERSION_V4
     | typeof LEGACY_INDEPENDENT_REVIEW_POLICY_VERSION_V5
     | typeof LEGACY_INDEPENDENT_REVIEW_POLICY_VERSION_V6
-    | typeof LEGACY_INDEPENDENT_REVIEW_POLICY_VERSION_V7;
+    | typeof LEGACY_INDEPENDENT_REVIEW_POLICY_VERSION_V7
+    | typeof LEGACY_INDEPENDENT_REVIEW_POLICY_VERSION_V8;
   reviewers: Array<{
     reviewer: "codex" | "grok";
     transport: "codex-cli" | "grok-bot";
@@ -228,8 +242,14 @@ export async function prepareIndependentReviewPackets(
     if (input.inputSha256 !== run.inputSha256) {
       throw new Error(`sequence ${target.sequence} 원문 input SHA 드리프트`);
     }
+    const projection = resolveIndependentReviewProjection(run, target);
     const emptyAxes = deriveIndependentReviewAxes(run);
-    const userMessage = buildIndependentReviewUserMessage(input.text, run, emptyAxes);
+    const userMessage = buildIndependentReviewUserMessage(
+      input.text,
+      run,
+      emptyAxes,
+      projection.snapshot,
+    );
     const packet: IndependentReviewPacket = {
       schema: INDEPENDENT_REVIEW_PACKET_SCHEMA,
       launchReceiptSha256,
@@ -246,9 +266,12 @@ export async function prepareIndependentReviewPackets(
       promptVersion: AI_REVIEW_PROMPT_VERSION,
       reviewPolicyVersion: INDEPENDENT_REVIEW_POLICY_VERSION,
       guideSha256,
+      primaryMatchingProjection: projection.binding,
       systemPrompt,
       userMessage,
-      outputSchema: buildAiReviewToolSchema(run.criteria.length, emptyAxes).input_schema,
+      outputSchema: buildAiReviewToolSchema(run.criteria.length, emptyAxes, {
+        requireFindingImpact: true,
+      }).input_schema,
     };
     const packetBytes = canonicalBytes(packet);
     const packetSha256 = sha256(packetBytes);
@@ -717,7 +740,9 @@ export async function validateAndWrapIndependentReviewResult(options: {
     items: { properties: { dimension: { enum: CriterionDimension[] } } };
   };
   const emptyAxes = axisProperty.items.properties.dimension.enum;
-  const checked = validateAiReviewPayload(raw, criterionCount, emptyAxes);
+  const checked = validateAiReviewPayload(raw, criterionCount, emptyAxes, {
+    requireFindingImpact: packet.reviewPolicyVersion === INDEPENDENT_REVIEW_POLICY_VERSION,
+  });
   if (!checked.ok) throw new Error(`${options.reviewer} 검수 응답 검증 실패: ${checked.reason}`);
   const unsupportedTargetType = checked.axisReviews.find((review) => (
     review.dimension === "target_type"
@@ -835,6 +860,7 @@ function buildIndependentReviewUserMessage(
   inputText: string,
   run: LabRun,
   emptyAxes: CriterionDimension[],
+  projection: LabPrimaryMatchingProjectionSnapshot,
 ): string {
   return [
     "아래는 ① 공고 원문 입력 ② 다른 모델이 추출한 criteria ③ 추출이 조건 없음으로 남긴 빈 축 목록이다.",
@@ -848,8 +874,85 @@ function buildIndependentReviewUserMessage(
     "",
     `[검수 대상 B — 빈 축 ${emptyAxes.length}축 (각 축의 자격요건이 원문 전체에 없는지 전수 확인)]`,
     ...emptyAxes.map((dimension) => `- ${dimension} (${DIMENSION_LABELS[dimension]})`),
+    "",
+    "[검수 대상 C — 실제 매처 입력 projection]",
+    "아래는 결정적 변환기가 추출 criterion을 실제 공용 matcher 입력으로 변환한 결과다.",
+    "추출 표기가 달라도 projection의 실행 효과가 원문과 같으면 표기 차이만으로 결함을 만들지 마라.",
+    "반대로 projection이 특정 트랙 조건을 전역 자격조건으로 평탄화하거나, 필수·제외조건을 가점으로 바꾸면 자격 영향 결함이다.",
+    `- projection_snapshot_sha256: ${primaryMatchingProjectionSnapshotSha256(projection)}`,
+    `- source_criteria_sha256: ${projection.source.criteriaSha256}`,
+    `- projected_criteria_sha256: ${projection.projectedCriteriaSha256}`,
+    `- conversion_contract_version: ${projection.runtime.conversionContractVersion}`,
+    ...renderIndependentReviewProjection(projection),
     ...renderIndependentReviewSourceLimitations(run.sourceLimitations),
   ].join("\n");
+}
+
+export function renderIndependentReviewProjection(
+  projection: LabPrimaryMatchingProjectionSnapshot,
+): string[] {
+  const items = projection.report.items ?? [];
+  return [
+    ...items.map((item) => {
+      const projected = item.outputPosition === null
+        ? null
+        : projection.projectedCriteria[item.outputPosition] ?? null;
+      return `- criterion_index=${item.criterionIndex} conversion=${canonicalJson({
+        status: item.status,
+        reason: item.reason,
+        outputPosition: item.outputPosition,
+        relatedCriterionIndexes: item.relatedCriterionIndexes,
+        projected,
+      })}`;
+    }),
+  ];
+}
+
+export function resolveIndependentReviewProjection(
+  run: LabRun,
+  target: {
+    grantId: string;
+    primaryMatchingProjection?: AnalysisLaunchMatchingProjectionBinding;
+  },
+): {
+  snapshot: LabPrimaryMatchingProjectionSnapshot;
+  binding: AnalysisLaunchMatchingProjectionBinding & {
+    provenance: "run_snapshot" | "derived_current";
+  };
+} {
+  const source = primaryProjectionSource({
+    runId: run.runId,
+    grantId: run.grantId,
+    source: run.source,
+    sourceId: run.sourceId,
+    inputSha256: run.inputSha256,
+    ...(run.attachmentManifestSha256
+      ? { attachmentManifestSha256: run.attachmentManifestSha256 }
+      : {}),
+    criteria: run.criteria,
+  });
+  const provenance = run.primaryMatchingProjection ? "run_snapshot" : "derived_current";
+  const snapshot = run.primaryMatchingProjection ?? buildPrimaryMatchingProjectionSnapshot({
+    source,
+    primaryExtractionAvailable: true,
+  });
+  const inspection = inspectPrimaryMatchingProjectionSnapshot(source, snapshot);
+  if (inspection.status !== "verified") {
+    throw new Error(
+      `독립 검수용 matching projection을 검증할 수 없습니다: ${run.grantId} (${inspection.issues.join("+")})`,
+    );
+  }
+  const expected = buildAnalysisLaunchMatchingProjectionBinding(snapshot);
+  if (
+    target.primaryMatchingProjection
+    && canonicalJson(target.primaryMatchingProjection) !== canonicalJson(expected)
+  ) {
+    throw new Error(`독립 검수용 matching projection이 launch receipt 결속과 다릅니다: ${run.grantId}`);
+  }
+  return {
+    snapshot,
+    binding: { ...expected, provenance },
+  };
 }
 
 /** 검수 출력 schema를 넓히지 않고 primary의 source 범위 판단과 exact ref를 packet에 보존한다. */
@@ -875,10 +978,11 @@ export function buildIndependentReviewSystemPrompt(rubric: string): string {
   return [
     "[판정 리트머스]",
     `- ${rubricLitmus}`,
-    "- criterion 4분류: correct=결론 동일, needs_edit=실재 요건의 값·연산자·kind·범위 수정, wrong=없는 요건·대상 오독, unsure=입력 누락·실제 모호. 비정상 note에는 원문과 고칠 값을 쓴다.",
-    "- 빈 축 2분류: confirmed_absent=조건 없음(not_applicable), missed_condition=조건 누락(note 원문, impact eligibility|ranking).",
-    "- [원문 유일 근거] 제공 원문만 근거다. 자기평가·다른 검수·현행 DB·외부 상식은 제외한다.",
-    "- 모든 criterion_index와 모든 빈 축을 빠짐없이 정확히 한 번씩 판정한다",
+    "- criterion: correct=결론 동일, needs_edit=값·연산자·kind·범위 수정, wrong=없는 요건·오독, unsure=모호. 비정상 note에 원문·수정값을 쓴다.",
+    "- 비정상 criterion·missed_condition은 note와 match_impact(eligibility=자격|ranking=가점만|unknown=미확정), 정상은 not_applicable.",
+    "- 빈 축: confirmed_absent=정상, missed_condition=누락.",
+    "- [원문 유일 근거] 원문만 쓴다. 자기평가·다른 검수·DB·외부 상식 제외.",
+    "- criterion_index·빈 축을 한 번씩 판정한다",
     "",
     "- [통합공고] 하위 사업 조건은 공고 공통 조건·빈 축 누락이 아니다.",
     "- [축 중복] 다른 criterion에 보존된 조건은 빈 축 누락으로 중복 판정하지 않는다.",
@@ -995,6 +1099,7 @@ function resolveIndependentReviewMode(manifest: IndependentReviewManifest): "cod
       || manifest.reviewPolicyVersion === LEGACY_INDEPENDENT_REVIEW_POLICY_VERSION_V5
       || manifest.reviewPolicyVersion === LEGACY_INDEPENDENT_REVIEW_POLICY_VERSION_V6
       || manifest.reviewPolicyVersion === LEGACY_INDEPENDENT_REVIEW_POLICY_VERSION_V7
+      || manifest.reviewPolicyVersion === LEGACY_INDEPENDENT_REVIEW_POLICY_VERSION_V8
     )
     && manifest.policy.reviewerMode === "codex-only"
     && reviewers.length === 1
@@ -1149,7 +1254,15 @@ function collectPriorityFindings(
 ): void {
   for (const [key, review] of indexReviews(result.criterionReviews, "criterionIndex")) {
     if (review.verdict === "correct") continue;
-    findings.push({ sequence, reviewer: result.reviewer, kind: "criterion", key, verdict: review.verdict, note: review.note });
+    findings.push({
+      sequence,
+      reviewer: result.reviewer,
+      kind: "criterion",
+      key,
+      verdict: review.verdict,
+      ...(review.matchImpact ? { matchImpact: review.matchImpact } : {}),
+      note: review.note,
+    });
   }
   for (const [key, review] of indexReviews(result.axisReviews, "dimension")) {
     if (review.verdict === "confirmed_absent") continue;
