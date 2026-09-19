@@ -456,7 +456,7 @@ function ExpandedProgramCard({
 
       <div className="mt-4 border-t border-border-subtle pt-4 text-[15px] text-ink">
         {match.matchingEvidence?.level === "discovery" ? (
-          <span>모집 중인 공고예요. 지원 조건을 공고문에서 확인해 주세요.</span>
+          <span>지원 조건과 모집 일정을 공고문에서 확인해 주세요.</span>
         ) : (
           <>
             필수 자격 <strong>{criteria.hardPassed.length}/{hardTotal}</strong> 충족
