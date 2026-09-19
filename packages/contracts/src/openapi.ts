@@ -984,6 +984,32 @@ export const appV1OpenApi = {
         },
         additionalProperties: false,
       },
+      MatchingEvidence: {
+        oneOf: [
+          {
+            type: "object",
+            required: ["level", "sourceRevisionSha256"],
+            properties: {
+              level: { type: "string", const: "verified" },
+              sourceRevisionSha256: { type: "string", pattern: "^[0-9a-f]{64}$" },
+            },
+            additionalProperties: false,
+          },
+          {
+            type: "object",
+            required: ["level", "sourceRevisionSha256", "reason"],
+            properties: {
+              level: { type: "string", const: "discovery" },
+              sourceRevisionSha256: nullable({ type: "string", pattern: "^[0-9a-f]{64}$" }),
+              reason: {
+                type: "string",
+                enum: ["unreviewed", "source_changed", "evidence_unavailable"],
+              },
+            },
+            additionalProperties: false,
+          },
+        ],
+      },
       MatchCard: {
         type: "object",
         required: [
@@ -1010,6 +1036,7 @@ export const appV1OpenApi = {
           source: { type: "string", enum: ["kstartup", "bizinfo", "bizinfo_event"] },
           sourceId: { type: "string" },
           title: { type: "string" },
+          matchingEvidence: ref("MatchingEvidence"),
           agency: nullable({ type: "string" }),
           status: { type: "string", enum: ["upcoming", "open", "closed", "unknown"] },
           eligibility: { type: "string", enum: ["eligible", "conditional", "ineligible"] },
@@ -1500,6 +1527,7 @@ export const appV1OpenApi = {
           "schedule",
         ],
         properties: {
+          matchingEvidence: ref("MatchingEvidence"),
           grant: ref("GrantDetail"),
           satisfied: arrayOf(ref("RuleTraceChip")),
           needsCheck: arrayOf(ref("RuleTraceChip")),

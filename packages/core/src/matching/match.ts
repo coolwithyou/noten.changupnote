@@ -236,6 +236,9 @@ export function matchNormalizedGrant<TPayload>(
     confirmationQuestionBindings?: readonly MatchingConfirmationCriterionBinding[];
   } = {},
 ): MatchResult {
+  if (entry.matching_evidence?.level === "discovery") {
+    return discoveryMatchingResult();
+  }
   return matchGrantCriteria(entry.criteria, company, {
     extractionManifest: resolveGrantExtractionManifest(entry),
     ...(options.asOf ? { asOf: options.asOf } : {}),
@@ -244,6 +247,33 @@ export function matchNormalizedGrant<TPayload>(
       ? { confirmationQuestionBindings: options.confirmationQuestionBindings }
       : {}),
   });
+}
+
+function discoveryMatchingResult(): MatchResult {
+  return {
+    eligibility: "conditional",
+    fit_score: 0,
+    rule_trace: [],
+    unknown_fields: [],
+    ruleset_ver: RULESET_VERSION,
+    scoring_ver: SCORING_VERSION,
+    criteria_extracted: false,
+    review_gate: {
+      tier: "needs_core_review",
+      scoreDisplay: "hidden",
+      reasons: [{
+        code: "unstructured_criteria",
+        dimension: "other",
+        label: "지원 조건은 공고문에서 확인해 주세요.",
+      }],
+    },
+    quality: {
+      eligibilityConfidence: "low",
+      verificationCompleteness: 0,
+      evidenceCoverage: 0,
+      extractionReadiness: "unstructured",
+    },
+  };
 }
 
 function unstructuredCriteriaResult(): MatchResult {

@@ -139,11 +139,10 @@ opsReviewGrant.extraction_manifest = {
   reviewedAt: null,
 };
 const servingBoundary = buildDashboard({ company, grants: [...grants, opsReviewGrant] });
-assert.equal(servingBoundary.matches.length, 1, "OPS 검수 대기 공고를 대시보드 카드에 노출하면 안 된다");
-assert.equal(servingBoundary.matches[0]?.sourceId, "PBLN_TEST_CONFIRMATION");
-assert.equal(servingBoundary.counts.conditional, 1, "사용자 대시보드 건수는 서빙 가능한 공고만 집계해야 한다");
-assert.equal(servingBoundary.counts.needsCoreReview, 0);
-assert.equal(servingBoundary.nextQuestion?.affectedGrantCount, 1, "숨긴 공고가 대시보드 질문을 만들면 안 된다");
+assert.equal(servingBoundary.matches.length, 2, "원문 확인 필요 공고도 대시보드에서 접근할 수 있어야 한다");
+assert.equal(servingBoundary.counts.conditional, 2, "확인 필요 공고도 대시보드 전체 건수에 포함한다");
+assert.equal(servingBoundary.counts.needsCoreReview, 1);
+assert.equal(servingBoundary.nextQuestion?.affectedGrantCount, 1, "core 검수 사유를 회사 프로필 질문으로 만들면 안 된다");
 
 const confirmedPass = buildDashboard({
   company,
@@ -218,9 +217,10 @@ reviewedQuestionGrant.extraction_manifest = {
 };
 assert.equal(
   buildTeaser({ company, grants: [reviewedQuestionGrant] }).matches.length,
-  0,
-  "질문 결속 없는 required text_only는 기존 OPS gate에서 숨긴다",
+  1,
+  "질문 결속 없는 required text_only도 원문 확인 필요 후보로 노출한다",
 );
+assert.equal(buildTeaser({ company, grants: [reviewedQuestionGrant] }).counts.needsCoreReview, 1);
 const reviewedQuestionTeaser = buildTeaser({
   company,
   grants: [reviewedQuestionGrant],
@@ -240,5 +240,22 @@ const reviewedQuestionTeaser = buildTeaser({
 assert.equal(reviewedQuestionTeaser.matches.length, 1);
 assert.equal(reviewedQuestionTeaser.matches[0]?.recommendationTier, "needs_profile_input");
 assert.equal(reviewedQuestionTeaser.counts.needsCoreReview, 0);
+
+const discoveryGrant = structuredClone(grants[0]!);
+discoveryGrant.matching_evidence = {
+  level: "discovery",
+  sourceRevisionSha256: "a".repeat(64),
+  reason: "unreviewed",
+};
+const discoveryTeaser = buildTeaser({
+  company: { prior_award_history: { records: [], known_programs: [], known_program_types: [] } },
+  grants: [discoveryGrant],
+});
+assert.equal(discoveryTeaser.matches.length, 1);
+assert.equal(discoveryTeaser.matches[0]?.recommendationTier, "needs_core_review");
+assert.equal(discoveryTeaser.matches[0]?.scoreDisplay, "hidden");
+assert.equal(discoveryTeaser.matches[0]?.ruleTrace.length, 0);
+assert.equal(discoveryTeaser.matches[0]?.ranking, undefined);
+assert.equal(discoveryTeaser.nextQuestion, null, "discovery를 회사 프로필 질문으로 바꾸면 안 된다");
 
 console.log("build-dashboard confirmations: ok");

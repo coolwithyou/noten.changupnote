@@ -37,21 +37,26 @@ assert.match(
 );
 assert.match(
   activeListSource,
-  /listServingPromotionGrantIds\(\)/,
+  /listServingPromotionGrantIds\(promotionSnapshotForFilter\)/,
   "deep-analysis-only reads must resolve trusted promotion provenance before querying grants",
 );
 const promotionResolverSource = between(
   repositorySource,
-  "private async listServingPromotionGrantIds(",
-  "async findGrantById(",
+  "export async function loadPromotionServingRequestSnapshot(",
+  "export interface PromotionServingHydrationItem",
 );
 assert.match(promotionResolverSource, /analysisLabPromotionItems/);
 assert.match(promotionResolverSource, /status, "applied"/);
 assert.match(promotionResolverSource, /\["active", "canary_passed"\]/);
 assert.match(
   promotionResolverSource,
-  /filter\(isPromotionItemServingEligible\)/,
-  "serving provenance must require an applied item, active release, and the shared evidence verifier",
+  /buildPromotionServingRequestSnapshot\(\{ items: itemRows, releases: releaseRows \}\)/,
+  "serving provenance must require an applied item, active release, and the shared snapshot verifier",
+);
+assert.match(
+  promotionResolverSource,
+  /deepRunSourceRevisionSha256: schema\.grantDeepAnalysisRuns\.sourceRevisionSha256/,
+  "matching evidence must retain the source revision sealed by the promoted run",
 );
 assert.match(
   between(repositorySource, "async findGrantById(", "async listGrantsByIds("),
@@ -121,8 +126,8 @@ assert.match(
     "async function loadServiceGrantUniverseUncached(",
     "async function loadServiceGrantsFromSource(",
   ),
-  /getRepositoryAdapterName\(\) === "drizzle"[\s\S]*requireDeepAnalysisPromotion: true/,
-  "production teaser/dashboard matching must request only promoted deep-analysis grants",
+  /matchingDiscoveryCandidatesEnabled\(\)[\s\S]*matchingEvidenceScope: "include_discovery"[\s\S]*requireDeepAnalysisPromotion: true/,
+  "production matching must use safe discovery projection behind the feature flag and retain verified-only fallback",
 );
 
 console.log("grant serving visibility tests passed");

@@ -2315,6 +2315,62 @@
         },
         "additionalProperties": false
       },
+      "MatchingEvidence": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "level",
+              "sourceRevisionSha256"
+            ],
+            "properties": {
+              "level": {
+                "type": "string",
+                "const": "verified"
+              },
+              "sourceRevisionSha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              }
+            },
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "required": [
+              "level",
+              "sourceRevisionSha256",
+              "reason"
+            ],
+            "properties": {
+              "level": {
+                "type": "string",
+                "const": "discovery"
+              },
+              "sourceRevisionSha256": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "reason": {
+                "type": "string",
+                "enum": [
+                  "unreviewed",
+                  "source_changed",
+                  "evidence_unavailable"
+                ]
+              }
+            },
+            "additionalProperties": false
+          }
+        ]
+      },
       "MatchCard": {
         "type": "object",
         "required": [
@@ -2353,6 +2409,9 @@
           },
           "title": {
             "type": "string"
+          },
+          "matchingEvidence": {
+            "$ref": "#/components/schemas/MatchingEvidence"
           },
           "agency": {
             "anyOf": [
@@ -3700,6 +3759,9 @@
           "schedule"
         ],
         "properties": {
+          "matchingEvidence": {
+            "$ref": "#/components/schemas/MatchingEvidence"
+          },
           "grant": {
             "$ref": "#/components/schemas/GrantDetail"
           },

@@ -23,5 +23,6 @@ export function withMatchRanking<TPayload>(
   match: MatchResult,
   options: { asOf?: Date } = {},
 ): MatchResult {
+  if (entry.matching_evidence?.level === "discovery") return match;
   return { ...match, ranking: calculateMatchRanking(entry, company, match, options) };
 }

@@ -195,7 +195,7 @@ export async function loadServiceGrants({
 // D-day 등 asOf 민감 값은 스냅샷 빌더가 매 요청의 asOf로 다시 계산한다.
 // promise를 캐시해 동시 요청도 hydration 1회에 합류시키고, 실패 시엔 비워서 다음 요청이 재시도하게 한다.
 const GRANT_UNIVERSE_CACHE_TTL_MS = 2 * 60 * 1000;
-const grantUniverseCache = new Map<number, {
+const grantUniverseCache = new Map<string, {
   asOfMs: number;
   cachedAtMs: number;
   task: Promise<Array<NormalizedGrant<ServiceGrantPayload>>>;
@@ -219,7 +219,9 @@ export async function loadServiceGrantUniverse(input: {
   }
   const asOfMs = input.asOf.getTime();
   const nowMs = Date.now();
-  const cached = grantUniverseCache.get(scanLimit);
+  const discoveryEnabled = matchingDiscoveryCandidatesEnabled();
+  const cacheKey = `${scanLimit}:${discoveryEnabled ? "discovery-v1" : "verified-v1"}`;
+  const cached = grantUniverseCache.get(cacheKey);
   if (
     cached &&
     nowMs - cached.cachedAtMs < GRANT_UNIVERSE_CACHE_TTL_MS &&
@@ -229,10 +231,10 @@ export async function loadServiceGrantUniverse(input: {
     return cached.task;
   }
   const task = loadServiceGrantUniverseUncached({ asOf: input.asOf, scanLimit });
-  grantUniverseCache.set(scanLimit, { asOfMs, cachedAtMs: nowMs, task });
+  grantUniverseCache.set(cacheKey, { asOfMs, cachedAtMs: nowMs, task });
   task.catch(() => {
-    if (grantUniverseCache.get(scanLimit)?.task === task) {
-      grantUniverseCache.delete(scanLimit);
+    if (grantUniverseCache.get(cacheKey)?.task === task) {
+      grantUniverseCache.delete(cacheKey);
     }
   });
   return task;
@@ -246,10 +248,12 @@ async function loadServiceGrantUniverseUncached(input: {
     asOf: input.asOf,
     // 상한을 넘겼는지 검출하기 위한 sentinel 한 건을 추가한다.
     limit: input.scanLimit + 1,
-    // 실제 사용자 매칭은 운영 승격 원장이 있는 딥분석 criterion만 소비한다.
+    // discovery 경로는 미승격 공고도 읽되 repository의 안전 projection을 거쳐 criteria를 제거한다.
     // runtime adapter는 promotion ledger가 없는 테스트·샘플 저장소이므로 기존 fixture 의미를 유지한다.
     ...(getRepositoryAdapterName() === "drizzle"
-      ? { requireDeepAnalysisPromotion: true }
+      ? matchingDiscoveryCandidatesEnabled()
+        ? { matchingEvidenceScope: "include_discovery" as const }
+        : { requireDeepAnalysisPromotion: true }
       : {}),
   });
   if (grants.length > input.scanLimit) {
@@ -394,7 +398,7 @@ export async function loadServiceDashboard(options: {
       ? loadCriterionConfirmations({
         repositories: resolveServiceRepositories(),
         companyId: stateCompanyId,
-        grants,
+        grants: grantsWithVerifiedMatchingEvidence(grants),
       })
       : undefined,
     loadMatchingConfirmationQuestionContextOrEmpty(persistedGrantIds(grants)),
@@ -489,6 +493,9 @@ export async function loadServiceApplySheet(
     resolveServiceRepositories().grants.findGrantById(grantId, {
       asOf,
       limit: options.limit ?? 80,
+      ...(getRepositoryAdapterName() === "drizzle" && matchingDiscoveryCandidatesEnabled()
+        ? { matchingEvidenceScope: "include_discovery" as const }
+        : {}),
     }),
   ]);
   if (!grants) return null;
@@ -1452,7 +1459,8 @@ export async function loadOwnedCompanyMatching(input: {
   ]);
   const [confirmationsByGrantId, questionContext] = await Promise.all([
     loadCriterionConfirmations({
-      repositories: getServiceRepositories(), companyId: input.companyId, grants,
+      repositories: getServiceRepositories(), companyId: input.companyId,
+      grants: grantsWithVerifiedMatchingEvidence(grants),
     }),
     loadMatchingConfirmationQuestionContextOrEmpty(persistedGrantIds(grants)),
   ]);
@@ -1514,7 +1522,20 @@ export async function loadProductTeaser(
 }
 
 function persistedGrantIds<TPayload>(grants: Array<NormalizedGrant<TPayload>>): string[] {
-  return grants.flatMap((entry) => typeof entry.grant.id === "string" ? [entry.grant.id] : []);
+  return grantsWithVerifiedMatchingEvidence(grants)
+    .flatMap((entry) => typeof entry.grant.id === "string" ? [entry.grant.id] : []);
+}
+
+function grantsWithVerifiedMatchingEvidence<TPayload>(
+  grants: Array<NormalizedGrant<TPayload>>,
+): Array<NormalizedGrant<TPayload>> {
+  return grants.filter((entry) =>
+    entry.matching_evidence === undefined || entry.matching_evidence.level === "verified"
+  );
+}
+
+function matchingDiscoveryCandidatesEnabled(): boolean {
+  return process.env.MATCH_DISCOVERY_CANDIDATES_ENABLED?.trim().toLowerCase() === "true";
 }
 
 export async function resolveAnonymousProductCompanyProfile(
@@ -1750,7 +1771,9 @@ async function persistMatchStates(input: {
 }) {
   if (!input.companyId) return;
   const repositories = resolveServiceRepositories();
-  const requestedGrantIds = input.grants.flatMap((grant) => grant.grant.id ? [grant.grant.id] : []);
+  const verifiedGrants = grantsWithVerifiedMatchingEvidence(input.grants);
+  const requestedGrantIds = verifiedGrants.flatMap((grant) => grant.grant.id ? [grant.grant.id] : []);
+  if (requestedGrantIds.length === 0) return;
   const inputBindings = await repositories.matches.captureMatchStateInputBindings({
     companyIds: [input.companyId],
     grantIds: requestedGrantIds,
@@ -1768,7 +1791,8 @@ async function persistMatchStates(input: {
   await refreshMatchStates({
     repositories,
     company: resolution.profile,
-    grants: currentUniverse.filter((grant) => grant.grant.id && requested.has(grant.grant.id)),
+    grants: grantsWithVerifiedMatchingEvidence(currentUniverse)
+      .filter((grant) => grant.grant.id && requested.has(grant.grant.id)),
     asOf: input.asOf,
     companyId: input.companyId,
     inputBindings,

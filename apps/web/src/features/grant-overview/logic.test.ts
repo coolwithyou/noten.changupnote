@@ -16,8 +16,10 @@ function sheetFixture(input: {
   needsCheck?: ApplySheet["needsCheck"];
   documents?: ApplySheet["documents"];
   draftableDocuments?: ApplySheet["applicationPrep"]["draftableDocuments"];
+  matchingEvidence?: ApplySheet["matchingEvidence"];
 } = {}): ApplySheet {
   return {
+    ...(input.matchingEvidence ? { matchingEvidence: input.matchingEvidence } : {}),
     grant: { status: input.status ?? "open" },
     needsCheck: input.needsCheck ?? [],
     documents: input.documents ?? [],
@@ -37,6 +39,20 @@ function previewFixture(input: Partial<GrantPreviewAvailability> = {}): GrantPre
 }
 
 assert.equal(grantOverviewVerdict(sheetFixture()), "open");
+const discoverySheet = sheetFixture({
+  matchingEvidence: {
+    level: "discovery",
+    sourceRevisionSha256: "a".repeat(64),
+    reason: "unreviewed",
+  },
+  draftableDocuments: [{ hwpxTemplateAvailable: true }] as ApplySheet["applicationPrep"]["draftableDocuments"],
+});
+assert.equal(grantOverviewVerdict(discoverySheet), "check_source");
+assert.equal(grantOverviewCta(discoverySheet, previewFixture({ readySurfaceCount: 1 })).mode, "unknown");
+assert.equal(grantOverviewVerdict(sheetFixture({
+  status: "closed",
+  matchingEvidence: discoverySheet.matchingEvidence,
+})), "closed");
 assert.equal(
   grantOverviewVerdict(
     sheetFixture({

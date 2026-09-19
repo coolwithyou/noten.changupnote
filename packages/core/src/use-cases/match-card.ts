@@ -31,6 +31,7 @@ export function toMatchCard<TPayload>(
   const grantId = grantKey(grant);
   const detailUrl = `/grants/${encodeURIComponent(grantId)}`;
   const reviewGate = entry.match.review_gate;
+  const discovery = entry.item.matching_evidence?.level === "discovery";
   // 자가신고 확인으로 해소·확정된 entry 수("본인 확인 기반" 보조 뱃지 근거). RuleTraceChip 은
   // 표시 요약이라 resolution 을 싣지 않으므로 원본 rule_trace 에서 센다. 0이면 필드를 싣지 않는다
   // (confirmationQuestionCount 관례와 동일).
@@ -43,6 +44,9 @@ export function toMatchCard<TPayload>(
     source: grant.source,
     sourceId: grant.source_id,
     title: grant.title,
+    ...(entry.item.matching_evidence
+      ? { matchingEvidence: entry.item.matching_evidence }
+      : {}),
     agency: grant.agency_operator ?? grant.agency_jurisdiction ?? null,
     status: grant.status,
     eligibility: entry.match.eligibility,
@@ -50,8 +54,8 @@ export function toMatchCard<TPayload>(
     fitScore: entry.match.fit_score,
     quality: entry.match.quality,
     ...(entry.match.ranking ? { ranking: entry.match.ranking } : {}),
-    supportAmount: normalizeSupportAmount(grant.support_amount),
-    benefits: deriveGrantBenefits(grant),
+    supportAmount: normalizeSupportAmount(discovery ? null : grant.support_amount),
+    benefits: discovery ? [] : deriveGrantBenefits(grant),
     applyEnd: grant.apply_end ?? null,
     dDay: daysUntil(grant.apply_end ?? null, options.asOf),
     ruleTrace: entry.match.rule_trace.map((trace) => toRuleTraceChip(trace, options)),

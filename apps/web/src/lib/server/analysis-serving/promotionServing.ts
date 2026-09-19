@@ -14,6 +14,7 @@ export interface PromotionServingLedgerItem {
   deepAnalysisRunId: string | null;
   releaseManifestSha256: string;
   manifest: unknown;
+  deepRunSourceRevisionSha256?: string | null;
 }
 
 export interface PromotionServingItemBinding {
@@ -23,6 +24,7 @@ export interface PromotionServingItemBinding {
   planSha256: string;
   deepAnalysisRunId: string | null;
   releaseManifestSha256: string;
+  deepRunSourceRevisionSha256?: string | null;
 }
 
 export interface PromotionServingReleaseDocument {
@@ -35,11 +37,13 @@ export type PromotionServingEvidence =
   | {
       kind: "production_deep_run";
       deepAnalysisRunId: string;
+      sourceRevisionSha256?: string | null;
       authoringReadiness: AuthoringFeatureReadiness;
     }
   | {
       kind: "verified_local_lab";
       evidence: VerifiedLocalLabSourceEvidence;
+      sourceRevisionSha256: string | null;
       authoringReadiness: AuthoringFeatureReadiness;
     };
 
@@ -81,6 +85,7 @@ export function resolvePromotionServingEvidence(
     return {
       kind: "production_deep_run",
       deepAnalysisRunId: item.deepAnalysisRunId,
+      sourceRevisionSha256: item.deepRunSourceRevisionSha256 ?? null,
       authoringReadiness: UNVERIFIED_AUTHORING_READINESS,
     };
   }
@@ -137,6 +142,7 @@ export function buildPromotionServingRequestSnapshot<TItem extends PromotionServ
         evidence: {
           kind: "production_deep_run",
           deepAnalysisRunId: item.deepAnalysisRunId,
+          sourceRevisionSha256: item.deepRunSourceRevisionSha256 ?? null,
           authoringReadiness: UNVERIFIED_AUTHORING_READINESS,
         },
       });
@@ -179,6 +185,7 @@ function resolveVerifiedLocalLabItem(
   return {
     kind: "verified_local_lab",
     evidence: artifact.localLabEvidence,
+    sourceRevisionSha256: artifact.sourceRevisionSha256 ?? null,
     authoringReadiness: authoringReadinessForPromotionPlan(plan),
   };
 }

@@ -91,6 +91,7 @@ import {
   type PromotionServingItemBinding,
   type PromotionServingRequestSnapshot,
 } from "@/lib/server/analysis-serving/promotionServing";
+import { projectMatchingCandidates } from "@/lib/server/analysis-serving/matchingCandidateProjection";
 import {
   applyApplicationRepairAuthoringOverlays,
   resolveApplicationRepairAuthoringOverlays,
@@ -154,6 +155,7 @@ export async function loadPromotionServingRequestSnapshot(
       promptVersion: schema.grantDeepAnalysisRuns.promptVersion,
       modelPolicyVersion: schema.grantDeepAnalysisRuns.modelPolicyVersion,
       deepRunStatus: schema.grantDeepAnalysisRuns.status,
+      deepRunSourceRevisionSha256: schema.grantDeepAnalysisRuns.sourceRevisionSha256,
     })
     .from(schema.analysisLabPromotionItems)
     .innerJoin(
@@ -430,9 +432,12 @@ class DrizzleGrantRepository<TPayload> implements GrantRepository<TPayload> {
       session,
       promotionSnapshot,
     );
-    return options.includeConfirmedDuplicates
+    const canonical = options.includeConfirmedDuplicates
       ? hydrated
       : collapseConfirmedGrantOccurrences(hydrated, confirmedLinks);
+    return options.matchingEvidenceScope === "include_discovery"
+      ? this.projectMatchingEvidence(canonical, session, promotionSnapshot)
+      : canonical;
   }
 
   private listServingPromotionGrantIds(
@@ -441,16 +446,17 @@ class DrizzleGrantRepository<TPayload> implements GrantRepository<TPayload> {
     return uniqueStrings(snapshot.items.map(({ item }) => item.grantId));
   }
 
-  async findGrantById(grantId: string, _options: GrantListOptions = {}): Promise<NormalizedGrant<TPayload> | null> {
+  async findGrantById(grantId: string, options: GrantListOptions = {}): Promise<NormalizedGrant<TPayload> | null> {
     return withPromotionServingReadSnapshot(
       this.db.client,
-      (session) => this.findGrantByIdInSnapshot(session, grantId),
+      (session) => this.findGrantByIdInSnapshot(session, grantId, options),
     );
   }
 
   async findGrantByIdInSnapshot(
     session: CunoteDbSession,
     grantId: string,
+    options: GrantListOptions = {},
   ): Promise<NormalizedGrant<TPayload> | null> {
     const parsed = parseGrantId(grantId);
     const rows = await session
@@ -493,7 +499,26 @@ class DrizzleGrantRepository<TPayload> implements GrantRepository<TPayload> {
       session,
       promotionSnapshot,
     );
-    return hydrated[0] ?? null;
+    if (options.matchingEvidenceScope !== "include_discovery") return hydrated[0] ?? null;
+    return (await this.projectMatchingEvidence(hydrated, session, promotionSnapshot))[0] ?? null;
+  }
+
+  private async projectMatchingEvidence(
+    grants: Array<NormalizedGrant<TPayload>>,
+    session: CunoteDbSession,
+    promotionSnapshot: PromotionServingRequestSnapshot<PromotionServingHydrationItem>,
+  ): Promise<Array<NormalizedGrant<TPayload>>> {
+    const grantIds = grants.flatMap((entry) => entry.grant.id ? [entry.grant.id] : []);
+    const currentSources = await loadDeepAnalysisSourceBindings({ db: session, grantIds });
+    return projectMatchingCandidates({
+      entries: grants,
+      servingEvidence: promotionSnapshot.items.map(({ item, evidence }) => ({
+        grantId: item.grantId,
+        appliedAt: item.appliedAt,
+        sourceRevisionSha256: evidence.sourceRevisionSha256 ?? null,
+      })),
+      currentSources,
+    });
   }
 
   /**
@@ -658,11 +683,12 @@ export async function listActiveGrantsInPromotionServingSnapshot<TPayload = unkn
 export async function findGrantByIdInPromotionServingSnapshot<TPayload = unknown>(
   session: CunoteDbSession,
   grantId: string,
+  options: GrantListOptions = {},
 ): Promise<NormalizedGrant<TPayload> | null> {
   const repository = new DrizzleGrantRepository<TPayload>({
     dialect: "drizzle", client: session as unknown as CunoteDb,
   });
-  return repository.findGrantByIdInSnapshot(session, grantId);
+  return repository.findGrantByIdInSnapshot(session, grantId, options);
 }
 
 export interface ReviewedExtractionMetadataRow {

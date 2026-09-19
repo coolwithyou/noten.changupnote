@@ -70,19 +70,17 @@ export function buildDashboard<TPayload>({
     ),
   }));
   const rankedMatched = sortMatchedGrants(matched);
-  // OPS가 해소할 자동 검수·승격 대기 상태는 사용자 대시보드에 노출하지 않는다.
-  // 카드뿐 아니라 질문·건수·로드맵·행동 큐도 같은 서빙 가능 집합에서 계산한다.
-  const servingReady = rankedMatched.filter((entry) =>
-    recommendationTierForMatch(entry.match) !== "needs_core_review"
-  );
-  const sortedMatched = servingReady.slice(0, limit);
+  const sortedMatched = rankedMatched.slice(0, limit);
   const matches = sortedMatched.map((entry) => toMatchCard(entry, { asOf }));
-  const nextQuestion = planProfileQuestions(servingReady, {
+  const profileQuestionCandidates = rankedMatched.filter((entry) =>
+    recommendationTierForMatch(entry.match) === "needs_profile_input"
+  );
+  const nextQuestion = planProfileQuestions(profileQuestionCandidates, {
     asOf,
     limit: 1,
     excludeDimensions: activeUnknownQuestionDimensions(company, asOf),
   })[0]?.question;
-  const counts = dashboardCounts(servingReady, asOf);
+  const counts = dashboardCounts(rankedMatched, asOf);
 
   const dashboard: DashboardResult = {
     company: companySummary(company),

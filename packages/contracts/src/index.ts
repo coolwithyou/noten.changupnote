@@ -472,11 +472,24 @@ export interface NormalizedGrant<TPayload = unknown> {
   raw: GrantRaw<TPayload>;
   grant: Grant;
   criteria: GrantCriterion[];
+  /** 사용자 매칭에 사용할 수 있는 근거 수준. 부재는 기존 내부/fixture 경로다. */
+  matching_evidence?: MatchingEvidence;
   /** 공고 입력·첨부·조건 추출의 완전성. 미제공 시 소비 시점에 raw/criteria에서 재계산한다. */
   extraction_manifest?: GrantExtractionManifest;
   /** 검증된 serving release의 작성 기능 projection. 구 release/운영 런 부재는 unverified로 소비한다. */
   authoring_readiness?: AuthoringFeatureReadiness;
 }
+
+export type MatchingEvidence =
+  | {
+      level: "verified";
+      sourceRevisionSha256: string;
+    }
+  | {
+      level: "discovery";
+      sourceRevisionSha256: string | null;
+      reason: "unreviewed" | "source_changed" | "evidence_unavailable";
+    };
 
 export interface GrantExtractionManifest {
   grantId: string;

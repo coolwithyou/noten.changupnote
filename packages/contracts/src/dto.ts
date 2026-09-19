@@ -262,6 +262,8 @@ export interface MatchCard {
   source: Grant["source"];
   sourceId: string;
   title: string;
+  /** verified만 개인화 자격·점수 근거로 사용한다. discovery는 기본 공고 노출 전용이다. */
+  matchingEvidence?: import("./index.js").MatchingEvidence;
   agency: string | null;
   status: GrantStatus;
   eligibility: Eligibility;
@@ -364,6 +366,7 @@ export interface RoadmapNode {
 }
 
 export interface ApplySheet {
+  matchingEvidence?: import("./index.js").MatchingEvidence;
   grant: GrantDetail;
   satisfied: RuleTraceChip[];
   needsCheck: RuleTraceChip[];

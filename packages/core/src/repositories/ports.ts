@@ -29,6 +29,8 @@ export interface GrantListOptions {
    * production DB adapter는 applied item과 active/canary-passed release provenance를 함께 요구한다.
    */
   requireDeepAnalysisPromotion?: boolean;
+  /** 사용자 제품에서 검증 결과와 안전한 기본 공고 후보를 함께 읽는다. */
+  matchingEvidenceScope?: "include_discovery";
 }
 
 export interface GrantRepository<TPayload = unknown> {

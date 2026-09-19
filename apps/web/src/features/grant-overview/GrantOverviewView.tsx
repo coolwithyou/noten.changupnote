@@ -65,6 +65,7 @@ export function GrantOverviewView({
   const workspaceHref = `/grants/${encodeURIComponent(grantId)}/workspace${workspaceQuery ? `?${workspaceQuery}` : ""}`;
   const verdict = grantOverviewVerdict(sheet);
   const cta = grantOverviewCta(sheet, previewAvailability);
+  const discovery = sheet.matchingEvidence?.level === "discovery";
   const showConversionPoll = (previewAvailability?.pendingSurfaceCount ?? 0) > 0;
   // 과금 접점 ①: 도우미 사용(초안 생성)이 시작되는 모드에서만 시작 고지 칩을 노출한다.
   const usageChipRemaining =
@@ -103,6 +104,13 @@ export function GrantOverviewView({
         </div>
       ) : null}
 
+      {discovery ? (
+        <div className="mt-5 rounded-2xl border border-border-subtle bg-surface-soft px-4 py-3.5 text-sm leading-6 text-text-secondary">
+          <strong className="block text-ink">지원 조건 확인이 필요한 공고예요</strong>
+          <span>현재는 제목·기관·일정 같은 기본 정보만 안내합니다. 자격과 제출 조건은 공고 원문에서 확인해 주세요.</span>
+        </div>
+      ) : null}
+
       {/* ② 핵심 3지표 */}
       <section className="mt-7" aria-label="공고 핵심 정보">
         <dl className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)_auto_minmax(0,1fr)] overflow-hidden rounded-2xl border border-border-subtle">
@@ -119,15 +127,40 @@ export function GrantOverviewView({
 
       {/* ③ 작성 지원 모드별 주 CTA 1개 */}
       <section className="mt-6">
-        <GrantWorkspaceLink
-          href={workspaceHref}
-          label={adminPreview ? "관리자로 지원서 작성 흐름 확인" : virtualCompanyName ? "가상 기업으로 지원서 미리보기" : cta.label}
-          className={buttonVariants({
-            variant: cta.variant,
-            size: "lg",
-            className: "w-full text-balance whitespace-normal",
-          })}
-        />
+        {discovery ? (
+          sheet.deepLink ? (
+            <a
+              href={sheet.deepLink}
+              target="_blank"
+              rel="noreferrer"
+              className={buttonVariants({
+                variant: cta.variant,
+                size: "lg",
+                className: "w-full text-balance whitespace-normal",
+              })}
+            >
+              {cta.label}
+            </a>
+          ) : (
+            <span className={buttonVariants({
+              variant: "outline",
+              size: "lg",
+              className: "pointer-events-none w-full text-balance whitespace-normal opacity-60",
+            })}>
+              공고 원문 링크 확인 필요
+            </span>
+          )
+        ) : (
+          <GrantWorkspaceLink
+            href={workspaceHref}
+            label={adminPreview ? "관리자로 지원서 작성 흐름 확인" : virtualCompanyName ? "가상 기업으로 지원서 미리보기" : cta.label}
+            className={buttonVariants({
+              variant: cta.variant,
+              size: "lg",
+              className: "w-full text-balance whitespace-normal",
+            })}
+          />
+        )}
         <div className="mt-2.5 flex flex-wrap items-center justify-center gap-x-2.5 gap-y-1.5">
           <p className="text-center text-[13px] leading-5 text-text-tertiary">
             {adminPreview

@@ -44,9 +44,10 @@ assert.equal(limitedDashboard.matches.length, 1, "dashboard response limit shoul
 assert.ok(limitedEvaluatedCount > limitedDashboard.matches.length, "dashboard counts must evaluate beyond response limit");
 const bizInfoMatch = dashboard.matches.find((match) => match.source === "bizinfo");
 
-// 자동 검수·승격 전 needs_core_review 공고는 일반 사용자 대시보드에서 숨기되,
-// 관리자·개발 검증용 상세 접근과 신청 문서 계약은 계속 확인할 수 있어야 한다.
-assert.equal(bizInfoMatch, undefined, "dashboard should hide unreviewed BizInfo sample match");
+// 자동 검수·승격 전 needs_core_review 공고도 원문 확인 후보로 접근 가능해야 한다.
+// runtime sample은 promotion ledger가 없으므로 discovery projection 자체가 아니라 UI 계약을 검증한다.
+assert.equal(bizInfoMatch?.recommendationTier, "needs_core_review");
+assert.equal(bizInfoMatch?.scoreDisplay, "hidden");
 assert.ok(dashboard.matches.length > 1, "dashboard should expose multiple service matches");
 const bizInfoApplySheet = await loadServiceApplySheet(encodeURIComponent("bizinfo:PBLN_SAMPLE"), {
   companyId: company.id,
@@ -69,7 +70,7 @@ console.log(JSON.stringify({
   checked: [
     "service_grants_kstartup_sample",
     "service_grants_bizinfo_sample",
-    "service_dashboard_hides_unreviewed_bizinfo_match",
+    "service_dashboard_exposes_unreviewed_bizinfo_as_source_check",
     "service_dashboard_full_scan_separate_from_response_limit",
     "service_bizinfo_apply_documents",
     "service_bizinfo_apply_attachments",
@@ -78,7 +79,10 @@ console.log(JSON.stringify({
     source: entry.grant.source,
     sourceId: entry.grant.source_id,
   })),
-  bizInfoMatch: null,
+  bizInfoMatch: {
+    recommendationTier: bizInfoMatch.recommendationTier,
+    scoreDisplay: bizInfoMatch.scoreDisplay,
+  },
   bizInfoApplySheet: {
     documents: bizInfoApplySheet.documents.map((document) => document.name),
     sourceAttachments: bizInfoApplySheet.sourceAttachments.map((attachment) => attachment.filename),

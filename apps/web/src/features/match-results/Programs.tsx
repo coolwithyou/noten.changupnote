@@ -176,6 +176,7 @@ export function ProgramsExperience({
           count={groups.checkSource.length}
           matches={groups.checkSource}
           status="check_source"
+          defaultOpen
           emptyCopy="원문이나 공식 정보 확인이 필요한 공고는 현재 목록에 없어요."
           onOpenProfile={onOpenProfile}
           onPrepare={onPrepare}
@@ -217,6 +218,7 @@ function ResultBucket({
   label,
   count,
   countClassName,
+  defaultOpen = false,
   matches,
   status,
   emptyCopy,
@@ -230,6 +232,7 @@ function ResultBucket({
   label: string;
   count: number;
   countClassName?: string;
+  defaultOpen?: boolean;
   matches: MatchCard[];
   status: VerdictStatus;
   emptyCopy: string;
@@ -240,7 +243,7 @@ function ResultBucket({
   virtualBizNo?: string | null;
   companyId?: string | null;
 }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(defaultOpen);
   return (
     <Collapsible open={open} onOpenChange={setOpen} className="border-b border-border-subtle">
       <CollapsibleTrigger className="flex w-full cursor-pointer items-center justify-between px-1 py-[17px] text-left outline-none focus-visible:ring-3 focus-visible:ring-ring/20">
@@ -452,16 +455,22 @@ function ExpandedProgramCard({
       </div>
 
       <div className="mt-4 border-t border-border-subtle pt-4 text-[15px] text-ink">
-        필수 자격 <strong>{criteria.hardPassed.length}/{hardTotal}</strong> 충족
-        {criteria.hardNeedsCheck.length === 0 && criteria.hardFailed.length === 0 ? (
-          <CheckIcon className="ml-1 inline size-4 text-brand-mint-ink" strokeWidth={3} />
-        ) : null}
-        {criteria.hardNeedsCheck.length > 0 ? (
+        {match.matchingEvidence?.level === "discovery" ? (
+          <span>모집 중인 공고예요. 지원 조건을 공고문에서 확인해 주세요.</span>
+        ) : (
           <>
-            <span className="mx-2 text-text-quaternary">·</span>
-            자격 확인 필요 <strong className="text-brand">{criteria.hardNeedsCheck.length}건</strong>
+            필수 자격 <strong>{criteria.hardPassed.length}/{hardTotal}</strong> 충족
+            {criteria.hardNeedsCheck.length === 0 && criteria.hardFailed.length === 0 ? (
+              <CheckIcon className="ml-1 inline size-4 text-brand-mint-ink" strokeWidth={3} />
+            ) : null}
+            {criteria.hardNeedsCheck.length > 0 ? (
+              <>
+                <span className="mx-2 text-text-quaternary">·</span>
+                자격 확인 필요 <strong className="text-brand">{criteria.hardNeedsCheck.length}건</strong>
+              </>
+            ) : null}
           </>
-        ) : null}
+        )}
       </div>
 
       {criteria.hardPassed.length > 0 ? (

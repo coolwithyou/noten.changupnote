@@ -441,16 +441,16 @@ assert.equal(trustGateTeaser.recommendableMatches?.[0]?.quality?.evidenceCoverag
 assert.equal(trustGateTeaser.recommendableMatches?.[0]?.quality?.extractionReadiness, "structured_unreviewed");
 assert.equal(
   trustGateTeaser.reviewNeededMatches?.some((match) => match.sourceId === industryQuestionGrant.grant.source_id),
-  false,
-  "업종 미확인처럼 OPS 핵심 검수가 필요한 공고는 사용자 검토 카드에 노출하면 안 된다",
+  true,
+  "업종 미확인처럼 핵심 확인이 필요한 공고도 원문 확인 후보로 노출해야 한다",
 );
 assert.equal(
   trustGateTeaser.matches.some((match) => match.sourceId === industryQuestionGrant.grant.source_id),
-  false,
+  true,
 );
 assert.equal(trustGateTeaser.matches[0]?.sourceId, simpleRecommendableGrant.grant.source_id);
 assert.equal(trustGateTeaser.counts.recommendable, 1);
-assert.equal(trustGateTeaser.counts.reviewNeeded, 0);
+assert.equal(trustGateTeaser.counts.reviewNeeded, 1);
 assert.equal(trustGateTeaser.counts.notRecommended, 1);
 assert.equal(trustGateTeaser.searchContext?.evaluatedGrantCount, 3);
 assert.equal(trustGateTeaser.reviewNeededMatches?.some((match) => match.sourceId === notRecommendedTrustGateGrant.grant.source_id), false);
@@ -473,12 +473,12 @@ const unverifiedCoreTeaser = buildTeaser({
   asOf,
   limit: 10,
 });
-assert.equal(unverifiedCoreTeaser.counts.eligible, 0);
+assert.equal(unverifiedCoreTeaser.counts.eligible, 1);
 assert.equal(unverifiedCoreTeaser.counts.recommendable, 0);
-assert.equal(unverifiedCoreTeaser.counts.reviewNeeded, 0);
+assert.equal(unverifiedCoreTeaser.counts.reviewNeeded, 1);
 assert.equal(unverifiedCoreTeaser.counts.notRecommended, 0);
 assert.equal(unverifiedCoreTeaser.recommendableMatches?.length, 0);
-assert.equal(unverifiedCoreTeaser.reviewNeededMatches?.length, 0);
+assert.equal(unverifiedCoreTeaser.reviewNeededMatches?.length, 1);
 assert.equal(unverifiedCoreTeaser.conditionalUpside, 0);
 assert.equal(unverifiedCoreTeaser.searchContext?.evaluatedGrantCount, 1);
 
@@ -500,10 +500,9 @@ const industryQuestionDashboard = buildDashboard({
   limit: 10,
 });
 assert.equal(industryQuestionDashboard.counts.needsProfileInput, 0);
-assert.equal(industryQuestionDashboard.counts.needsCoreReview, 0);
-assert.equal(industryQuestionDashboard.matches.length, 0);
+assert.equal(industryQuestionDashboard.counts.needsCoreReview, 1);
+assert.equal(industryQuestionDashboard.matches.length, 1);
 assert.equal(industryQuestionDashboard.nextQuestion, undefined);
-assert.equal(industryQuestionDashboard.actionQueue.length, 0);
 
 const balancedReviewTeaser = buildTeaser({
   company: { ...company, industries: [] },
@@ -528,8 +527,8 @@ const balancedReviewTeaser = buildTeaser({
 assert.equal(balancedReviewTeaser.matches.length, 3);
 assert.equal(
   balancedReviewTeaser.matches.some((match) => match.recommendationTier === "needs_core_review"),
-  false,
-  "OPS 핵심 검수 대기 공고는 제한된 사용자 검토 카드에도 포함하면 안 된다",
+  true,
+  "핵심 확인 필요 공고도 제한된 사용자 검토 카드에 최소 한 건 포함해야 한다",
 );
 assert.equal(balancedReviewTeaser.searchContext?.evaluatedGrantCount, 4);
 
@@ -643,7 +642,7 @@ console.log(JSON.stringify({
     "trust_gate_excludes_not_recommended_from_review_needed",
     "trust_gate_needs_review_blocks_recommendable",
     "trust_gate_fit_sort_hidden_downrank",
-    "core_review_hidden_from_user_cards_questions_actions",
+    "core_review_visible_without_profile_question",
     "search_context_preserves_evaluated_grant_count",
     "notification_feed_deadline",
     "notification_feed_soon_eligible",

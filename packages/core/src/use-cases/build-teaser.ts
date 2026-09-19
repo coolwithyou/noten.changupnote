@@ -63,17 +63,15 @@ export function buildTeaser<TPayload>({
     }), { asOf }),
   }));
   const sorted = sortMatchedGrants(matched);
-  // 자동 검수·승격이 끝나지 않은 공고의 불확실성은 OPS가 해소할 문제다.
-  // 일반 사용자에게 카드나 질문으로 넘기지 않고, 전체 대조 범위(searchContext)에만 포함한다.
-  const servingReady = sorted.filter((entry) =>
-    recommendationTierForMatch(entry.match) !== "needs_core_review"
+  const profileQuestionCandidates = sorted.filter((entry) =>
+    recommendationTierForMatch(entry.match) === "needs_profile_input"
   );
-  const nextQuestion = planProfileQuestions(servingReady, {
+  const nextQuestion = planProfileQuestions(profileQuestionCandidates, {
     asOf,
     limit: 1,
     excludeDimensions: activeUnknownQuestionDimensions(company, asOf),
   })[0]?.question ?? null;
-  const cards = servingReady.map((entry) => toMatchCard(entry, { asOf }));
+  const cards = sorted.map((entry) => toMatchCard(entry, { asOf }));
   const allRecommendableCards = cards.filter(isRecommendableCard);
   const openRecommendableCards = allRecommendableCards.filter((card) => card.status === "open");
   const visibleRecommendableCards = allRecommendableCards.filter(
@@ -83,6 +81,9 @@ export function buildTeaser<TPayload>({
   const balancedReviewNeededCards = balanceReviewNeededCards(reviewNeededCards);
   const needsProfileInputCount = cards.filter(
     (card) => recommendationTierForCard(card) === "needs_profile_input",
+  ).length;
+  const needsCoreReviewCount = cards.filter(
+    (card) => recommendationTierForCard(card) === "needs_core_review",
   ).length;
   const oneAnswerCount = cards.filter(isOneAnswerCard).length;
   const notRecommendedCards = cards.filter(isNotRecommendedCard);
@@ -95,16 +96,16 @@ export function buildTeaser<TPayload>({
     ...(reviewNeededLimit === undefined ? {} : { reviewNeededLimit }),
   });
   const visibleMatches = [...recommendableMatches, ...reviewNeededMatches];
-  const counts = countByEligibility(servingReady.map((entry) => entry.match));
-  const deadlineSoon = servingReady.filter((entry) => {
+  const counts = countByEligibility(sorted.map((entry) => entry.match));
+  const deadlineSoon = sorted.filter((entry) => {
     const dDay = daysUntil(entry.item.grant.apply_end ?? null, asOf);
     return entry.match.eligibility !== "ineligible" && dDay !== null && dDay >= 0 && dDay <= 7;
   }).length;
 
   const result: TeaserResult = {
     attributes: companyAttributes(company),
-    estimatedMaxAmount: sumRecommendableAmount(servingReady),
-    conditionalUpside: sumReviewNeededAmount(servingReady),
+    estimatedMaxAmount: sumRecommendableAmount(sorted),
+    conditionalUpside: sumReviewNeededAmount(sorted),
     counts: {
       ...counts,
       deadlineSoon,
@@ -113,7 +114,7 @@ export function buildTeaser<TPayload>({
       reviewNeeded: reviewNeededCards.length,
       needsProfileInput: needsProfileInputCount,
       oneAnswer: oneAnswerCount,
-      needsCoreReview: 0,
+      needsCoreReview: needsCoreReviewCount,
       preparable: cards.filter(isPreparableMatchCard).length,
       notRecommended: notRecommendedCards.length,
     },
@@ -177,6 +178,7 @@ function balanceReviewNeededCards(cards: MatchCard[]): MatchCard[] {
     cards.filter((card) =>
       recommendationTierForCard(card) === "needs_profile_input" && !isOneAnswerCard(card)
     ),
+    cards.filter((card) => recommendationTierForCard(card) === "needs_core_review"),
   ];
   const result: MatchCard[] = [];
   for (let index = 0; result.length < cards.length; index += 1) {
@@ -202,7 +204,8 @@ function isRecommendableCard(card: MatchCard): boolean {
 }
 
 function isReviewNeededCard(card: MatchCard): boolean {
-  return recommendationTierForCard(card) === "needs_profile_input";
+  const tier = recommendationTierForCard(card);
+  return tier === "needs_profile_input" || tier === "needs_core_review";
 }
 
 function isNotRecommendedCard(card: MatchCard): boolean {

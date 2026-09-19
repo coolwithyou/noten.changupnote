@@ -96,8 +96,16 @@ export function buildApplySheet<TPayload>({
       ? { ...document, documentKey: legacyDocumentKey }
       : document;
   });
+  if (entry.item.matching_evidence?.level === "discovery") {
+    applicationPrep.profileCopyFields = [];
+    applicationPrep.planDraftPrompts = [];
+    applicationPrep.missingProfileFields = [];
+  }
 
   return {
+    ...(entry.item.matching_evidence
+      ? { matchingEvidence: entry.item.matching_evidence }
+      : {}),
     grant: {
       id: grantKey(grant),
       source: grant.source,

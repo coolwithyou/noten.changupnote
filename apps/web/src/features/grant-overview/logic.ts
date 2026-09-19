@@ -27,6 +27,7 @@ export interface GrantOverviewTraceAction {
  */
 export function grantOverviewVerdict(sheet: ApplySheet): VerdictStatus {
   if (sheet.grant.status === "closed") return "closed";
+  if (sheet.matchingEvidence?.level === "discovery") return "check_source";
   if (sheet.needsCheck.some((trace) => trace.result === "fail")) return "closed";
 
   // 접수 예정과 수집 상태 미확인은 신청 가능 판정이 아니다. 예정 안내는 NoticeCard가 맡고,
@@ -94,6 +95,14 @@ export function grantOverviewCta(
   sheet: ApplySheet,
   availability: GrantPreviewAvailability | null,
 ): GrantOverviewCta {
+  if (sheet.matchingEvidence?.level === "discovery") {
+    return {
+      mode: "unknown",
+      label: "공고 원문에서 조건 확인",
+      caption: "아직 자격 조건 분석이 확정되지 않아 원문 정보를 먼저 안내해요",
+      variant: "outline",
+    };
+  }
   const documents = sheet.applicationPrep.draftableDocuments;
   const templateCount = documents.filter((document) => document.hwpxTemplateAvailable).length;
   const readySurfaceCount = Math.max(0, availability?.readySurfaceCount ?? 0);
