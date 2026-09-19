@@ -295,6 +295,49 @@ export interface PromotionReleaseContinuationBinding {
   sourceArtifacts: PromotionSourceArtifact[];
 }
 
+/** 실패한 shadow의 공고별 오류만 격리한다. 잔여 대상은 모든 gate를 새로 통과해야 한다. */
+export function assertPromotionShadowSubsetContinuationBinding(
+  previous: PromotionReleaseManifest,
+  current: PromotionReleaseContinuationBinding,
+  shadow: Record<string, unknown>,
+): { refreshedSourceGrantIds: string[] } {
+  if (
+    shadow.schema !== "analysis-lab-promotion-shadow-v1"
+    || shadow.verdict !== "FAIL"
+    || shadow.releaseId !== previous.releaseId
+    || shadow.manifestSha256 !== previous.manifestSha256
+    || shadow.releasePlanSha256 !== previous.releasePlanSha256
+    || !Array.isArray(shadow.sourceDrift) || shadow.sourceDrift.length !== 0
+    || !Array.isArray(shadow.baselineDrift) || shadow.baselineDrift.length !== 0
+    || !Array.isArray(shadow.guardIssues) || shadow.guardIssues.length === 0
+  ) {
+    throw new Error("shadow 부분 계속은 결속된 공고별 실패에만 허용됩니다.");
+  }
+  const previousIds = new Set(previous.plans.map((item) => item.grantId));
+  const failedIds = new Set<string>();
+  for (const issue of shadow.guardIssues) {
+    const grantId = typeof issue === "string" ? (issue.split(":")[0] ?? "") : "";
+    if (!previousIds.has(grantId)) {
+      throw new Error("shadow 공유 오류는 공고 제외로 우회할 수 없습니다.");
+    }
+    failedIds.add(grantId);
+  }
+  const retained = previous.plans.filter((item) => !failedIds.has(item.grantId));
+  const currentIds = new Set(current.plans.map((item) => item.grantId));
+  if (
+    retained.length === 0
+    || current.plans.length !== retained.length
+    || currentIds.size !== retained.length
+    || retained.some((item) => !currentIds.has(item.grantId))
+  ) {
+    throw new Error("shadow 부분 계속은 실패 공고만 정확히 제외해야 합니다.");
+  }
+  return assertPromotionReleaseContinuationBinding({
+    plans: retained,
+    sourceArtifacts: previous.sourceArtifacts.filter((item) => currentIds.has(item.grantId)),
+  }, current);
+}
+
 /**
  * 실패한 immutable gate를 새 release revision으로 다시 실행할 때의 권한 상속 경계.
  *

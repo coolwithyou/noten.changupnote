@@ -10,6 +10,7 @@ import {
 } from "./application-precompute-release";
 import {
   assertPromotionReleaseContinuationBinding,
+  assertPromotionShadowSubsetContinuationBinding,
   assertManifestConfirmation,
   createPromotionReleaseManifest,
   hashFile,
@@ -71,6 +72,7 @@ function selectCanaries(
 }
 
 type PreparedGateArtifact = {
+  [key: string]: unknown;
   schema?: unknown;
   releaseId?: unknown;
   releasePlanSha256?: unknown;
@@ -110,6 +112,7 @@ function assertPreparedGateBinding(
 /**
  * prepared item은 실제 승격 중복이 아니라 release revision 예약이다. 동일 exact cohort의
  * 이전 revision이 immutable gate에서 실패한 경우에만 더 높은 revision으로 재시도한다.
+ * shadow 공고별 실패는 해당 실패 공고만 정확히 제외한 같은 cohort의 상위 revision도 허용한다.
  * 현재 admission으로 승인할 수 없는 legacy 예약과 완전 rollback은 충돌에서 제외한다.
  * 진행 중이거나 승인 가능한 exact release, 다른 exact cohort의 부분 겹침은 fail-closed한다.
  */
@@ -158,7 +161,10 @@ async function assertPreparedRevisionCanAdvance(input: {
     const sameExactCohort = manifest.cohortLabel === input.cohort
       && existing.length === requested.length
       && existing.every((grantId, index) => grantId === requested[index]);
-    if (!sameExactCohort) {
+    const sameCohortSubset = manifest.cohortLabel === input.cohort
+      && requested.length > 0 && requested.length < existing.length
+      && requested.every((grantId) => existing.includes(grantId));
+    if (!sameExactCohort && !sameCohortSubset) {
       throw new Error(`다른 prepared release와 대상이 겹칩니다: ${release.releaseId}`);
     }
     if (input.revision <= release.revision) {
@@ -172,6 +178,7 @@ async function assertPreparedRevisionCanAdvance(input: {
     }
     assertPreparedGateBinding(release.releaseId, manifest, "aggregate", aggregate);
     if (aggregate.verdict === "ITERATE" || aggregate.verdict === "STOP") {
+      // Aggregate 실패는 공고별 shadow 격리 근거가 아니다.
       const continuation = assertPromotionReleaseContinuationBinding(manifest, input);
       continuation.refreshedSourceGrantIds.forEach((grantId) => refreshedSourceGrantIds.add(grantId));
       supersededReleaseIds.push(release.releaseId);
@@ -187,7 +194,9 @@ async function assertPreparedRevisionCanAdvance(input: {
     }
     assertPreparedGateBinding(release.releaseId, manifest, "shadow", shadow);
     if (shadow.verdict === "FAIL") {
-      const continuation = assertPromotionReleaseContinuationBinding(manifest, input);
+      const continuation = sameExactCohort
+        ? assertPromotionReleaseContinuationBinding(manifest, input)
+        : assertPromotionShadowSubsetContinuationBinding(manifest, input, shadow);
       continuation.refreshedSourceGrantIds.forEach((grantId) => refreshedSourceGrantIds.add(grantId));
       supersededReleaseIds.push(release.releaseId);
       continue;

@@ -7,6 +7,7 @@ import {
 } from "./promotion-gate-evidence";
 import {
   assertPromotionReleaseContinuationBinding,
+  assertPromotionShadowSubsetContinuationBinding,
   assertManifestConfirmation,
   canonicalJson,
   createPromotionReleaseManifest,
@@ -276,6 +277,42 @@ const verifiedLocalSource = {
     auditTransport: "claude-cli" as const,
   },
 };
+
+{
+  const base = manifest();
+  const basePlan = base.plans[0]!;
+  const baseSource = base.sourceArtifacts[0]!;
+  const excludedId = "shadow-failed-grant";
+  const previous = {
+    ...base,
+    plans: [...base.plans, { ...basePlan, grantId: excludedId }],
+    sourceArtifacts: [...base.sourceArtifacts, { ...baseSource, grantId: excludedId }],
+  };
+  const shadow = {
+    schema: "analysis-lab-promotion-shadow-v1", verdict: "FAIL",
+    releaseId: previous.releaseId, manifestSha256: previous.manifestSha256,
+    releasePlanSha256: previous.releasePlanSha256,
+    sourceDrift: [], baselineDrift: [], guardIssues: [`${excludedId}:company:test`],
+  };
+  assert.deepEqual(assertPromotionShadowSubsetContinuationBinding(previous, base, shadow),
+    { refreshedSourceGrantIds: [] });
+  for (const invalid of [
+    { ...shadow, verdict: "PASS" },
+    { ...shadow, manifestSha256: "other" },
+    { ...shadow, sourceDrift: [excludedId] },
+    { ...shadow, baselineDrift: [excludedId] },
+    { ...shadow, guardIssues: [] },
+    { ...shadow, guardIssues: ["record_count:1/2"] },
+    { ...shadow, guardIssues: [`${basePlan.grantId}:unsafe_plan`] },
+  ]) assert.throws(() => assertPromotionShadowSubsetContinuationBinding(previous, base, invalid));
+  assert.throws(() => assertPromotionShadowSubsetContinuationBinding(previous, previous, shadow));
+  assert.throws(() => assertPromotionShadowSubsetContinuationBinding(previous, {
+    ...base, plans: [{ ...basePlan, planSha256: "changed" }],
+  }, shadow), /promotion material/);
+  assert.throws(() => assertPromotionShadowSubsetContinuationBinding(previous, {
+    ...base, sourceArtifacts: [{ ...baseSource, runSha256: "changed" }],
+  }, shadow), /promotion material/);
+}
 
 {
   const previousPlan: PromotionReleasePlanItem = {
