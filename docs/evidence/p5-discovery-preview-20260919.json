@@ -1,0 +1,47 @@
+{
+  "schema": "p5-discovery-preview-acceptance-v1",
+  "dateKst": "2026-09-19",
+  "initialPreview": {
+    "sourceSha": "8e3e27309dbd8a332f9219178edf46c950aab5e4",
+    "deploymentId": "dpl_BjyRr7dbP92tRPeC62EiXcGErYEC",
+    "url": "https://changupnote-b64p5orwt-noten.vercel.app",
+    "build": "READY",
+    "productionChanged": false,
+    "browser": "agent-browser, protected preview, existing virtual company 0000000001",
+    "cases": [
+      {
+        "kind": "discovery",
+        "grantId": "7208dd0d-72ab-4a8a-8c19-4720dad13bb0",
+        "result": "PASS",
+        "observed": "원문 확인 필요; 금액 미확인; 매칭 확인 중; CTA 공고 원문에서 조건 확인",
+        "sourceUrl": "https://www.bizinfo.go.kr/sii/siia/selectSIIA200Detail.do?pblancId=PBLN_000000000126641",
+        "note": "가상기업 CTA 보조 문구는 작성 화면 대신 원문 확인으로 수정 예정"
+      },
+      {
+        "kind": "verified_hard_fail",
+        "grantId": "a73bb12f-70d6-4851-b43f-f91b87349b07",
+        "result": "PASS",
+        "observed": "이번엔 어려움; 자격 요건 펼침에서 미충족, 대상 지역26/회사 충남 표시"
+      },
+      {
+        "kind": "verified_needs_core_review",
+        "grantId": "dd932817-77ba-44ed-bf89-c9e5b8fdc0e0",
+        "result": "FAIL",
+        "observed": "core needs_core_review이나 상세 뱃지는 답하면 확정",
+        "cause": "ApplySheet가 엔진 review gate를 전달하지 않아 상세가 trace에서 재추정"
+      }
+    ],
+    "matchesPage": {
+      "path": "/matches?biz=0000000001",
+      "result": "FAIL",
+      "observed": "공고1508건 집계가 있지만 원문 확인 후보만 있는 결과를 빈 상태로 표시",
+      "cause": "웹 응답 reviewNeededMatches에서 needs_core_review 누락 및 noMatchingGrants에서 checkSource 무시"
+    }
+  },
+  "finalPreview": null,
+  "remaining": [
+    "수정 소스 최종 preview build 및 영향 경로 브라우저 확인",
+    "실제 사용자 로그인 기반 대시보드 pagination 인수",
+    "승인된 범위 밖인 production 반영"
+  ]
+}

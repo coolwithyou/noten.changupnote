@@ -1,11 +1,28 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import type { ProductTeaserResult } from "@cunote/contracts";
 import {
+  hasDisplayableMatchResults,
   OWNED_PROFILE_NOTICE,
   OWNED_PROFILE_SAVED_NOTICE,
   profileDrawerReducer,
   type ProfileDrawerState,
 } from "./MatchResultsExperience";
+
+const discoveryOnlyTeaser = {
+  matches: [{ grantId: "discovery", status: "unknown" }],
+  counts: { openNow: 0, oneAnswer: 0, preparable: 0 },
+  nextQuestion: null,
+} as unknown as ProductTeaserResult;
+assert.equal(
+  hasDisplayableMatchResults(discoveryOnlyTeaser),
+  true,
+  "원문 확인 후보만 있어도 빈 결과 화면으로 보내면 안 됩니다.",
+);
+assert.equal(
+  hasDisplayableMatchResults({ ...discoveryOnlyTeaser, matches: [] }),
+  false,
+);
 
 const initialState = (): ProfileDrawerState => ({
   open: false,
@@ -112,5 +129,10 @@ assert.equal(
   false,
   "catch 경로에는 회사 프로필 진입 처리가 없어야 합니다.",
 );
+
+const analysisScopeSource = readFileSync(new URL("./AnalysisScopeCard.tsx", import.meta.url), "utf8");
+assert.ok(analysisScopeSource.includes("공개 공고 후보"));
+assert.ok(analysisScopeSource.includes("미확정 조건은 원문 확인 대상으로 남겨요"));
+assert.equal(analysisScopeSource.includes("모집 공고"), false);
 
 console.log("match results profile drawer: per-company entry, explicit open, privacy copy and stale guard passed");

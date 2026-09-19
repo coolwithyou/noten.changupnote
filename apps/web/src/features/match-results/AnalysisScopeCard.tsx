@@ -38,11 +38,11 @@ export function AnalysisScopeCard({
           분석 범위
         </h2>
         <p className="text-sm font-bold text-brand">
-          모집 공고 {context.evaluatedGrantCount.toLocaleString("ko-KR")}건 · {ANALYSIS_AXIS_COUNT}개 기준
+          공개 공고 후보 {context.evaluatedGrantCount.toLocaleString("ko-KR")}건 · 확인 조건 {ANALYSIS_AXIS_COUNT}개
         </p>
       </div>
       <p className="mt-2 text-[13px] leading-6 text-text-secondary">
-        공고의 신청자격·제외조건·우대·평가항목을 회사 정보와 대조했어요.
+        확인된 조건은 회사 정보와 비교하고, 미확정 조건은 원문 확인 대상으로 남겨요.
       </p>
       <div className="mt-3 grid gap-2 sm:grid-cols-2">
         {ANALYSIS_AXIS_GROUPS.map((group) => (

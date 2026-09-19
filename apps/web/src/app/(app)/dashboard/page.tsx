@@ -13,7 +13,7 @@ export default async function DashboardPage() {
     limit: 40,
     writeMatchStates: false,
   });
-  return <DashboardView dashboard={dashboard} />;
+  return <DashboardView dashboard={dashboard} companyId={access.companyId} />;
 }
 
 async function loadDashboardAccess() {

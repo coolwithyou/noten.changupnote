@@ -3762,6 +3762,22 @@
           "matchingEvidence": {
             "$ref": "#/components/schemas/MatchingEvidence"
           },
+          "recommendationTier": {
+            "type": "string",
+            "enum": [
+              "recommendable",
+              "needs_profile_input",
+              "needs_core_review",
+              "not_recommended"
+            ]
+          },
+          "scoreDisplay": {
+            "type": "string",
+            "enum": [
+              "numeric",
+              "hidden"
+            ]
+          },
           "grant": {
             "$ref": "#/components/schemas/GrantDetail"
           },

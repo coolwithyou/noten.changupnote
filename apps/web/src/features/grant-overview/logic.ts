@@ -23,12 +23,18 @@ export interface GrantOverviewTraceAction {
 
 /**
  * ApplySheet가 보존하는 실제 판정 흔적을 화면의 고정 4상태 어휘로 투영한다.
- * 상세 계약에는 recommendationTier가 없으므로 hard fail/추가 답변 여부만 보수적으로 사용한다.
+ * matcher의 검수 단계가 있으면 상세 화면이 trace만으로 더 낙관적인 판정을 다시 만들지 않는다.
+ * legacy sheet에는 검수 단계가 없을 수 있으므로 그때만 기존 trace 기반 판정을 유지한다.
  */
 export function grantOverviewVerdict(sheet: ApplySheet): VerdictStatus {
   if (sheet.grant.status === "closed") return "closed";
-  if (sheet.matchingEvidence?.level === "discovery") return "check_source";
   if (sheet.needsCheck.some((trace) => trace.result === "fail")) return "closed";
+  if (sheet.matchingEvidence?.level === "discovery") return "check_source";
+
+  if (sheet.recommendationTier === "not_recommended") return "closed";
+  if (sheet.recommendationTier === "needs_core_review" || sheet.scoreDisplay === "hidden") {
+    return "check_source";
+  }
 
   // 접수 예정과 수집 상태 미확인은 신청 가능 판정이 아니다. 예정 안내는 NoticeCard가 맡고,
   // 고정 4상태 뱃지에서는 원문 확인 필요로 보수적으로 표현한다.
@@ -46,10 +52,15 @@ export function grantOverviewVerdict(sheet: ApplySheet): VerdictStatus {
     unresolved.length > 0
     && progressiveUnknowns.length === unresolved.length
     && progressiveDimensions.size === 1
+    && (
+      sheet.recommendationTier === undefined
+      || sheet.recommendationTier === "needs_profile_input"
+    )
   ) {
     return "one_answer";
   }
   if (unresolved.length > 0) return "check_source";
+  if (sheet.recommendationTier === "needs_profile_input") return "check_source";
   return "open";
 }
 

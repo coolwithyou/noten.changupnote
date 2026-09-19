@@ -1528,6 +1528,11 @@ export const appV1OpenApi = {
         ],
         properties: {
           matchingEvidence: ref("MatchingEvidence"),
+          recommendationTier: {
+            type: "string",
+            enum: ["recommendable", "needs_profile_input", "needs_core_review", "not_recommended"],
+          },
+          scoreDisplay: { type: "string", enum: ["numeric", "hidden"] },
           grant: ref("GrantDetail"),
           satisfied: arrayOf(ref("RuleTraceChip")),
           needsCheck: arrayOf(ref("RuleTraceChip")),

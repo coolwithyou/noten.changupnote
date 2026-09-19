@@ -367,6 +367,10 @@ export interface RoadmapNode {
 
 export interface ApplySheet {
   matchingEvidence?: import("./index.js").MatchingEvidence;
+  /** matcher가 계산한 실제 추천 검수 단계. 없는 legacy sheet는 상세 화면의 기존 판정을 유지한다. */
+  recommendationTier?: MatchRecommendationTier;
+  /** matcher 검수 단계에 따른 점수 노출 정책. */
+  scoreDisplay?: MatchScoreDisplay;
   grant: GrantDetail;
   satisfied: RuleTraceChip[];
   needsCheck: RuleTraceChip[];

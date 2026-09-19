@@ -17,9 +17,13 @@ function sheetFixture(input: {
   documents?: ApplySheet["documents"];
   draftableDocuments?: ApplySheet["applicationPrep"]["draftableDocuments"];
   matchingEvidence?: ApplySheet["matchingEvidence"];
+  recommendationTier?: ApplySheet["recommendationTier"];
+  scoreDisplay?: ApplySheet["scoreDisplay"];
 } = {}): ApplySheet {
   return {
     ...(input.matchingEvidence ? { matchingEvidence: input.matchingEvidence } : {}),
+    ...(input.recommendationTier ? { recommendationTier: input.recommendationTier } : {}),
+    ...(input.scoreDisplay ? { scoreDisplay: input.scoreDisplay } : {}),
     grant: { status: input.status ?? "open" },
     needsCheck: input.needsCheck ?? [],
     documents: input.documents ?? [],
@@ -172,6 +176,60 @@ assert.equal(
     sheetFixture({ needsCheck: [{ result: "fail" }] as ApplySheet["needsCheck"] }),
   ),
   "closed",
+);
+assert.equal(
+  grantOverviewVerdict(
+    sheetFixture({
+      recommendationTier: "needs_core_review",
+      scoreDisplay: "hidden",
+      needsCheck: [
+        {
+          dimension: "industry",
+          result: "unknown",
+          action: { type: "progressive", target: "industry", label: "지금 확인" },
+        },
+      ] as ApplySheet["needsCheck"],
+    }),
+  ),
+  "check_source",
+);
+assert.equal(
+  grantOverviewVerdict(sheetFixture({
+    recommendationTier: "needs_core_review",
+    scoreDisplay: "hidden",
+    needsCheck: [{ result: "fail" }] as ApplySheet["needsCheck"],
+  })),
+  "closed",
+);
+assert.equal(
+  grantOverviewVerdict(sheetFixture({ recommendationTier: "not_recommended", scoreDisplay: "hidden" })),
+  "closed",
+);
+assert.equal(
+  grantOverviewVerdict(sheetFixture({ recommendationTier: "recommendable", scoreDisplay: "numeric" })),
+  "open",
+);
+assert.equal(
+  grantOverviewVerdict(sheetFixture({ recommendationTier: "recommendable", scoreDisplay: "hidden" })),
+  "check_source",
+);
+assert.equal(
+  grantOverviewVerdict(sheetFixture({
+    recommendationTier: "needs_profile_input",
+    scoreDisplay: "numeric",
+    needsCheck: [
+      {
+        dimension: "industry",
+        result: "unknown",
+        action: { type: "progressive", target: "industry", label: "지금 확인" },
+      },
+    ] as ApplySheet["needsCheck"],
+  })),
+  "one_answer",
+);
+assert.equal(
+  grantOverviewVerdict(sheetFixture({ recommendationTier: "needs_profile_input", scoreDisplay: "numeric" })),
+  "check_source",
 );
 
 const templateSheet = sheetFixture({

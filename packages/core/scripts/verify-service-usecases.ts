@@ -117,10 +117,11 @@ const closingTransition = calculateMatchTransitionWindow(matchGrantCriteria(clos
 assert.equal(closingTransition.eligibleFrom, null);
 assert.equal(closingTransition.eligibleUntil?.toISOString().slice(0, 10), "2026-09-01");
 
+const soonMatchResult = matchGrantCriteria(soonGrant.criteria, company);
 const sheet = buildApplySheet({
   entry: {
     item: soonGrant,
-    match: matchGrantCriteria(soonGrant.criteria, company),
+    match: soonMatchResult,
   },
   company,
   asOf,
@@ -128,6 +129,8 @@ const sheet = buildApplySheet({
 assert.equal(sheet.needsCheck.find((trace) => trace.dimension === "biz_age")?.unlock?.etaDate, "2026-08-01");
 assert.equal(sheet.applicationPrep.autoSubmitSupported, false);
 assert.equal(sheet.applyMethod, "온라인 접수");
+assert.equal(sheet.recommendationTier, soonMatchResult.review_gate?.tier);
+assert.equal(sheet.scoreDisplay, soonMatchResult.review_gate?.scoreDisplay);
 assert.equal(
   sheet.applicationPrep.profileCopyFields.find((field) => field.label === "접수 방법")?.value,
   "온라인 접수",

@@ -163,7 +163,7 @@ export function GrantOverviewView({
         )}
         <div className="mt-2.5 flex flex-wrap items-center justify-center gap-x-2.5 gap-y-1.5">
           <p className="text-center text-[13px] leading-5 text-text-tertiary">
-            {adminPreview
+            {discovery ? cta.caption : adminPreview
               ? "모든 공고를 읽기 전용으로 열어 빠른 작성 연결 상태를 확인해요"
               : virtualCompanyName ? "실제 회사나 초안에 저장하지 않고 작성 화면을 확인해요" : cta.caption}
           </p>

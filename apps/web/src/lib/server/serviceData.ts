@@ -68,6 +68,7 @@ import {
   loadCriterionConfirmations,
   refreshMatchStates,
 } from "./matches/matchStateRefresh";
+import { isReviewNeededMatchCard } from "./matches/matchBucketClassification";
 import { notifyPopbillFailure } from "./adminNotifications";
 import { getConsentStore } from "./consents/consentStore";
 import { resolveDataGoKrServiceKey } from "./dataGoKrServiceKey";
@@ -1501,8 +1502,7 @@ export async function loadProductTeaser(
   result.matches = await annotateMatchCardConfirmationQuestions(result.matches, questionContext);
   result.recommendableMatches = result.matches.filter((match) =>
     recommendationTierForMatch(match) === "recommendable" && match.status === "open");
-  result.reviewNeededMatches = result.matches.filter((match) =>
-    recommendationTierForMatch(match) === "needs_profile_input");
+  result.reviewNeededMatches = result.matches.filter(isReviewNeededMatchCard);
   if (!virtualScenarioForRequest(body, asOf)) {
     try {
       await recordLandingMatchObservation({

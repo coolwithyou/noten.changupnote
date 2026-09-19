@@ -11,7 +11,13 @@ import {
 import { DashboardMatchTabs } from "@/features/dashboard/DashboardMatchTabs";
 import { dashboardActionHref } from "@/features/dashboard/dashboardPresentation";
 
-export function DashboardView({ dashboard }: { dashboard: DashboardResult & { profileView: MatchingProfileView } }) {
+export function DashboardView({
+  dashboard,
+  companyId,
+}: {
+  dashboard: DashboardResult & { profileView: MatchingProfileView };
+  companyId: string;
+}) {
   const primaryAction = selectPrimaryAction(dashboard.actionQueue);
   const companyName = dashboard.company.name?.trim();
 
@@ -25,6 +31,8 @@ export function DashboardView({ dashboard }: { dashboard: DashboardResult & { pr
       <PrimaryActionCard action={primaryAction} />
 
       <DashboardMatchTabs
+        key={`${companyId}:${dashboard.profileView.asOf}`}
+        companyId={companyId}
         counts={dashboard.counts}
         matches={dashboard.matches}
         profileView={dashboard.profileView}

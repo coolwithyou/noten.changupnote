@@ -106,6 +106,12 @@ export function buildApplySheet<TPayload>({
     ...(entry.item.matching_evidence
       ? { matchingEvidence: entry.item.matching_evidence }
       : {}),
+    ...(entry.match.review_gate
+      ? {
+        recommendationTier: entry.match.review_gate.tier,
+        scoreDisplay: entry.match.review_gate.scoreDisplay,
+      }
+      : {}),
     grant: {
       id: grantKey(grant),
       source: grant.source,

@@ -1,12 +1,13 @@
 "use client";
 
 import { useState } from "react";
-import type { DashboardResult, MatchCard, MatchingProfileView } from "@cunote/contracts";
+import type { ActionResult, DashboardResult, MatchCard, MatchingProfileView } from "@cunote/contracts";
 import { NoticeCard, type NoticeCardStatus } from "@/components/app/notice-card";
 import { PrecisionGauge } from "@/components/app/precision-gauge";
 import { Button } from "@/components/ui/button";
 import { Empty, EmptyDescription } from "@/components/ui/empty";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { COMPANY_CONTEXT_HEADER, companyScopedFetch } from "@/lib/navigation/companyContext";
 import {
   formatDday,
   groupMatchesForDisplay,
@@ -14,24 +15,45 @@ import {
 } from "@/features/match-results/logic";
 import { buildSupportSummary } from "@/features/match-results/support-summary";
 import { dashboardPrecision } from "@/features/dashboard/dashboardPresentation";
+import {
+  dashboardMatchesPagePath,
+  initialDashboardMatchCursor,
+  mergeUniqueMatches,
+} from "@/features/dashboard/dashboardMatchPagination";
 
 type DashboardTab = "open" | "one-answer" | "all";
 
 const DEFAULT_VISIBLE_COUNT = 5;
 
+interface MatchesPagePayload {
+  matches: MatchCard[];
+  cursor: string | null;
+  hasMore: boolean;
+  total: number;
+}
+
 export function DashboardMatchTabs({
+  companyId,
   counts,
   matches,
   profileView,
 }: {
+  companyId: string;
   counts: DashboardResult["counts"];
   matches: MatchCard[];
   profileView: MatchingProfileView;
 }) {
+  const initialAllCount = fullResultCount(counts, matches.length);
+  const [allMatches, setAllMatches] = useState(matches);
+  const [allReportedCount, setAllReportedCount] = useState(initialAllCount);
+  const [allCursor, setAllCursor] = useState<string | null>(() =>
+    initialDashboardMatchCursor(matches.length, initialAllCount)
+  );
+  const [allRequestState, setAllRequestState] = useState<"idle" | "loading" | "error">("idle");
+  const [allError, setAllError] = useState<string | null>(null);
   const groups = groupMatchesForDisplay(matches);
   const openCount = Math.max(counts.openNow ?? 0, groups.open.length);
   const oneAnswerCount = Math.max(counts.oneAnswer ?? 0, groups.oneAnswer.length);
-  const allCount = fullResultCount(counts, matches.length);
   const defaultTab: DashboardTab = groups.open.length > 0
     ? "open"
     : groups.oneAnswer.length > 0
@@ -47,7 +69,7 @@ export function DashboardMatchTabs({
       >
         <DashboardTabTrigger value="open" label="지금 가능" count={openCount} />
         <DashboardTabTrigger value="one-answer" label="답하면 확정" count={oneAnswerCount} />
-        <DashboardTabTrigger value="all" label="전체" count={allCount} />
+        <DashboardTabTrigger value="all" label="전체" count={allReportedCount} />
       </TabsList>
 
       <div className="rounded-2xl border border-brand-tint bg-landing-step-blue px-5 py-[18px] shadow-[var(--shadow-landing-step)]">
@@ -73,9 +95,13 @@ export function DashboardMatchTabs({
       />
       <DashboardTabContent
         value="all"
-        matches={matches}
-        reportedCount={allCount}
+        matches={allMatches}
+        reportedCount={allReportedCount}
         emptyCopy="현재 확인된 매칭 결과가 없어요."
+        hasMore={allCursor !== null}
+        loadingMore={allRequestState === "loading"}
+        loadMoreError={allError}
+        onLoadMore={() => void loadMoreAllMatches()}
       />
 
       <a
@@ -86,6 +112,29 @@ export function DashboardMatchTabs({
       </a>
     </Tabs>
   );
+
+  async function loadMoreAllMatches() {
+    if (!allCursor || allRequestState === "loading") return;
+    setAllRequestState("loading");
+    setAllError(null);
+    try {
+      const response = await companyScopedFetch(dashboardMatchesPagePath(allCursor), {
+        cache: "no-store",
+        headers: { [COMPANY_CONTEXT_HEADER]: companyId },
+      });
+      const payload = await response.json() as ActionResult<MatchesPagePayload>;
+      if (!response.ok || !payload.ok || !payload.data) {
+        throw new Error(payload.error?.message ?? "다음 매칭 결과를 불러오지 못했습니다.");
+      }
+      setAllMatches((current) => mergeUniqueMatches(current, payload.data!.matches));
+      setAllReportedCount(payload.data.total);
+      setAllCursor(payload.data.hasMore ? payload.data.cursor : null);
+      setAllRequestState("idle");
+    } catch (caught) {
+      setAllRequestState("error");
+      setAllError(caught instanceof Error ? caught.message : "다음 매칭 결과를 불러오지 못했습니다.");
+    }
+  }
 }
 
 function DashboardTabTrigger({
@@ -113,11 +162,19 @@ function DashboardTabContent({
   matches,
   reportedCount,
   emptyCopy,
+  hasMore = false,
+  loadingMore = false,
+  loadMoreError = null,
+  onLoadMore,
 }: {
   value: DashboardTab;
   matches: MatchCard[];
   reportedCount: number;
   emptyCopy: string;
+  hasMore?: boolean;
+  loadingMore?: boolean;
+  loadMoreError?: string | null;
+  onLoadMore?: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const visibleMatches = expanded ? matches : matches.slice(0, DEFAULT_VISIBLE_COUNT);
@@ -148,9 +205,25 @@ function DashboardTabContent({
               {hiddenLoadedCount.toLocaleString("ko-KR")}건 더 보기
             </Button>
           ) : null}
+          {onLoadMore && hasMore && (expanded || hiddenLoadedCount === 0) ? (
+            <Button
+              type="button"
+              variant="ghost"
+              disabled={loadingMore}
+              onClick={onLoadMore}
+              className="w-full text-text-secondary"
+            >
+              {loadingMore ? "불러오는 중" : "다음 40건 불러오기"}
+            </Button>
+          ) : null}
+          {loadMoreError ? (
+            <p className="px-1 text-center text-sm leading-5 text-destructive" role="alert">
+              {loadMoreError} 다시 시도해 주세요.
+            </p>
+          ) : null}
           {unavailableCount > 0 ? (
             <p className="px-1 text-center text-xs leading-5 text-text-tertiary">
-              우선순위가 높은 {matches.length.toLocaleString("ko-KR")}건을 먼저 보여드려요.
+              전체 {reportedCount.toLocaleString("ko-KR")}건 중 {matches.length.toLocaleString("ko-KR")}건을 불러왔어요.
             </p>
           ) : null}
         </div>

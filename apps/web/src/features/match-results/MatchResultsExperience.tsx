@@ -363,14 +363,7 @@ export function MatchResultsExperience() {
   }
 
   const displayGroups = teaser ? groupMatchesForDisplay(teaser.matches) : null;
-  const noMatchingGrants = Boolean(
-    teaser &&
-      (teaser.counts.openNow ?? displayGroups?.open.length ?? 0) === 0 &&
-      (teaser.counts.oneAnswer ?? displayGroups?.oneAnswer.length ?? 0) === 0 &&
-      (teaser.counts.preparable ?? displayGroups?.preparable.length ?? 0) === 0 &&
-      (displayGroups?.upcoming.length ?? 0) === 0 &&
-      teaser.nextQuestion === null,
-  );
+  const noMatchingGrants = Boolean(teaser && !hasDisplayableMatchResults(teaser));
   const coverage = teaser ? matchingProfileCoverage(teaser) : null;
   const visibleNextQuestion = teaser?.nextQuestion &&
     !answeredQuestionIdentities.has(profileQuestionIdentity(teaser.nextQuestion))
@@ -476,6 +469,18 @@ export function MatchResultsExperience() {
         ) : null}
       </main>
     </div>
+  );
+}
+
+export function hasDisplayableMatchResults(teaser: ProductTeaserResult): boolean {
+  const groups = groupMatchesForDisplay(teaser.matches);
+  return (
+    (teaser.counts.openNow ?? groups.open.length) > 0
+    || (teaser.counts.oneAnswer ?? groups.oneAnswer.length) > 0
+    || (teaser.counts.preparable ?? groups.preparable.length) > 0
+    || groups.checkSource.length > 0
+    || groups.upcoming.length > 0
+    || teaser.nextQuestion !== null
   );
 }
 
