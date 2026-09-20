@@ -499,6 +499,7 @@ function reviewedProjectionPlanCriteriaMatch(
     outputToCriterion.set(item.outputPosition, item.criterionIndex);
   }
   const changedCriterionIndexes: number[] = [];
+  const changedPositions = new Set<number>();
   for (let position = 0; position < after.length; position += 1) {
     const previousCriterion = before[position];
     const currentCriterion = after[position];
@@ -513,22 +514,71 @@ function reviewedProjectionPlanCriteriaMatch(
       || !hasCriterionTextNote(currentCriterion.value)
     ) return false;
     changedCriterionIndexes.push(criterionIndex);
+    changedPositions.add(position);
   }
   changedCriterionIndexes.sort((left, right) => left - right);
-  return canonicalJson(changedCriterionIndexes)
-    === canonicalJson(carryforward.changedCriterionIndexes);
+  if (
+    canonicalJson(changedCriterionIndexes)
+      !== canonicalJson(carryforward.changedCriterionIndexes)
+    || previous.promotionPlan.criterionStableKeys.length
+      !== current.promotionPlan.criterionStableKeys.length
+    || current.promotionPlan.criterionStableKeys.some((key, position) => (
+      !key
+      || (!changedPositions.has(position)
+        && key !== previous.promotionPlan.criterionStableKeys[position])
+    ))
+  ) return false;
+  return authoringGuideChangeMatchesCriteria(previous.promotionPlan, current.promotionPlan);
+}
+
+function authoringGuideChangeMatchesCriteria(
+  previous: GrantPromotionPlan,
+  current: GrantPromotionPlan,
+): boolean {
+  if (previous.authoringGuide === null || current.authoringGuide === null) {
+    return previous.authoringGuide === current.authoringGuide;
+  }
+  if (previous.authoringGuide === undefined || current.authoringGuide === undefined) {
+    return previous.authoringGuide === current.authoringGuide;
+  }
+  const { evidenceChecklist: _previousChecklist, ...previousGuide } = previous.authoringGuide;
+  const { evidenceChecklist: _currentChecklist, ...currentGuide } = current.authoringGuide;
+  return canonicalJson(previousGuide) === canonicalJson(currentGuide)
+    && canonicalJson(previous.authoringGuide.evidenceChecklist)
+      === canonicalJson(authoringGuideChecklistFromCriteria(previous.criteria))
+    && canonicalJson(current.authoringGuide.evidenceChecklist)
+      === canonicalJson(authoringGuideChecklistFromCriteria(current.criteria));
+}
+
+function authoringGuideChecklistFromCriteria(criteria: readonly GrantCriterion[]) {
+  return criteria.flatMap((criterion) => {
+    const sourceSpan = (criterion.source_span ?? "").normalize("NFC").replace(/\s+/gu, " ").trim();
+    return sourceSpan ? [{
+      dimension: criterion.dimension,
+      kind: criterion.kind,
+      operator: criterion.operator,
+      value: criterion.value,
+      sourceSpan,
+    }] : [];
+  });
 }
 
 function reviewedProjectionContinuationPlan(
   current: PromotionReleasePlanItem,
   previous: PromotionReleasePlanItem,
 ): PromotionReleasePlanItem {
+  const { authoringGuide: _currentAuthoringGuide, ...currentPromotionWithoutAuthoringGuide } =
+    current.promotionPlan;
   return {
     ...current,
     planSha256: previous.planSha256,
     promotionPlan: {
-      ...current.promotionPlan,
+      ...currentPromotionWithoutAuthoringGuide,
       criteria: previous.promotionPlan.criteria,
+      criterionStableKeys: previous.promotionPlan.criterionStableKeys,
+      ...(previous.promotionPlan.authoringGuide !== undefined ? {
+        authoringGuide: previous.promotionPlan.authoringGuide,
+      } : {}),
     },
     ...(current.analysisLaunchReadiness && previous.analysisLaunchReadiness ? {
       analysisLaunchReadiness: {
