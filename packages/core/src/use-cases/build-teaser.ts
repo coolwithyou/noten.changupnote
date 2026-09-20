@@ -64,7 +64,8 @@ export function buildTeaser<TPayload>({
   }));
   const sorted = sortMatchedGrants(matched);
   const profileQuestionCandidates = sorted.filter((entry) =>
-    recommendationTierForMatch(entry.match) === "needs_profile_input"
+    entry.match.eligibility === "conditional"
+    && entry.item.matching_evidence?.level !== "discovery"
   );
   const nextQuestion = planProfileQuestions(profileQuestionCandidates, {
     asOf,

@@ -1,27 +1,41 @@
 import type { RuleTraceChip } from "@cunote/contracts";
+import { explainCondition } from "@cunote/core";
 import { AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Card, CardContent } from "@/components/ui/card";
 import { Empty, EmptyDescription } from "@/components/ui/empty";
 import { StatusBadge } from "@/components/app/status-badge";
 import { buttonVariants } from "@/components/ui/button";
-import { grantOverviewTraceAction } from "./logic";
+import { withCompanyContext } from "@/lib/navigation/companyContext";
 
-/**
- * 아코디언 ① 자격 요건과 내 회사 매칭 (계획 §4.2, §8 P1-2).
- * 구 ApplySheetView 의 "이미 충족"/"확인 필요" 체크리스트(비공개 내부 함수)를
- * 접힌 아코디언 1개로 이관한다. 원본 데이터(sheet.satisfied/needsCheck)는 그대로 재사용하고
- * 로더는 건드리지 않는다.
- */
+type ExplainedCondition = ReturnType<typeof explainCondition>;
+
+/** 판정에 사용한 필수·제외 조건을 원문, 회사값, 이유, 행동 순서로 모두 보여준다. */
 export function EligibilityMatchAccordion({
+  grantId,
+  companyId,
+  virtualBizNo,
   satisfied,
   needsCheck,
   sourceUrl,
 }: {
+  grantId: string;
+  companyId: string | null;
+  virtualBizNo: string | null;
   satisfied: RuleTraceChip[];
   needsCheck: RuleTraceChip[];
   sourceUrl: string | null;
 }) {
-  const summary = `충족 ${satisfied.length.toLocaleString("ko-KR")}건 · 확인 필요 ${needsCheck.length.toLocaleString("ko-KR")}건`;
+  const all = [...satisfied, ...needsCheck];
+  const hardConditions = all
+    .filter((trace) => trace.kind === "required" || trace.kind === "exclusion")
+    .map(explainCondition)
+    .sort((left, right) => conditionOrder(left) - conditionOrder(right));
+  const preferredConditions = all
+    .filter((trace) => trace.kind === "preferred")
+    .map(explainCondition);
+  const passed = hardConditions.filter((condition) => condition.trace.result === "pass").length;
+  const failed = hardConditions.filter((condition) => condition.trace.result === "fail").length;
+  const unknown = hardConditions.filter((condition) => condition.pending).length;
 
   return (
     <AccordionItem value="eligibility" className="border-b border-border-subtle">
@@ -29,111 +43,154 @@ export function EligibilityMatchAccordion({
         자격 요건
       </AccordionTrigger>
       <AccordionContent className="px-1 pb-5">
-        <p className="text-xs text-muted-foreground">{summary}</p>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <TraceGroup
-            title="이미 충족"
-            items={satisfied}
-            emptyText="자동 충족으로 확인된 조건이 없습니다."
-            sourceUrl={sourceUrl}
-          />
-          <TraceGroup
-            title="확인 필요"
-            items={needsCheck}
-            emptyText="추가 입력이 필요한 조건이 없습니다."
-            sourceUrl={sourceUrl}
-          />
-        </div>
+        <p className="text-xs text-muted-foreground">
+          충족 확인 {passed.toLocaleString("ko-KR")} · 미충족 {failed.toLocaleString("ko-KR")} · 미확인 {unknown.toLocaleString("ko-KR")}
+        </p>
+        {hardConditions.length > 0 ? (
+          <div className="mt-4 grid gap-3">
+            {hardConditions.map((condition, index) => (
+              <ConditionItem
+                key={`${condition.trace.criterionId ?? condition.trace.dimension}-${condition.trace.kind}-${index}`}
+                condition={condition}
+                grantId={grantId}
+                companyId={companyId}
+                virtualBizNo={virtualBizNo}
+                sourceUrl={sourceUrl}
+              />
+            ))}
+          </div>
+        ) : (
+          <Empty className="panel-empty mt-4">
+            <EmptyDescription>비교할 필수·제외 조건이 아직 정리되지 않았어요. 공고 원문을 확인해 주세요.</EmptyDescription>
+          </Empty>
+        )}
+        {preferredConditions.length > 0 ? (
+          <section className="mt-5 border-t border-border-subtle pt-4">
+            <h4 className="text-sm font-semibold text-foreground">우대·평가 참고</h4>
+            <div className="mt-2 grid gap-3">
+              {preferredConditions.map((condition, index) => (
+                <ConditionItem
+                  key={`${condition.trace.criterionId ?? condition.trace.dimension}-preferred-${index}`}
+                  condition={condition}
+                  grantId={grantId}
+                  companyId={companyId}
+                  virtualBizNo={virtualBizNo}
+                  sourceUrl={sourceUrl}
+                />
+              ))}
+            </div>
+          </section>
+        ) : null}
       </AccordionContent>
     </AccordionItem>
   );
 }
 
-function TraceGroup({
-  title,
-  items,
-  emptyText,
+function ConditionItem({
+  condition,
+  grantId,
+  companyId,
+  virtualBizNo,
   sourceUrl,
 }: {
-  title: string;
-  items: RuleTraceChip[];
-  emptyText: string;
+  condition: ExplainedCondition;
+  grantId: string;
+  companyId: string | null;
+  virtualBizNo: string | null;
   sourceUrl: string | null;
 }) {
-  return (
-    <section className="grid gap-2">
-      <h4 className="text-sm font-semibold text-foreground">{title}</h4>
-      {items.map((item) => (
-        <TraceItem
-          key={`${item.dimension}-${item.kind}-${item.label}`}
-          item={item}
-          sourceUrl={sourceUrl}
-        />
-      ))}
-      {items.length === 0 ? (
-        <Empty className="panel-empty">
-          <EmptyDescription>{emptyText}</EmptyDescription>
-        </Empty>
-      ) : null}
-    </section>
-  );
-}
+  const action = conditionAction(condition, grantId, companyId, virtualBizNo, sourceUrl);
 
-function TraceItem({ item, sourceUrl }: { item: RuleTraceChip; sourceUrl: string | null }) {
   return (
     <Card size="sm">
-      <CardContent className="grid gap-2">
-        <div className="flex flex-wrap items-start justify-between gap-2">
-          <StatusBadge tone={traceTone(item.result)}>{traceResultLabel(item.result)}</StatusBadge>
-          <h3 className="flex-1 text-sm font-semibold">{item.label}</h3>
+      <CardContent className="grid gap-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <StatusBadge tone={traceTone(condition.trace.result)}>{condition.statusLabel}</StatusBadge>
+          <span className="text-xs font-semibold text-muted-foreground">
+            {condition.trace.kind === "required"
+              ? "필수 조건"
+              : condition.trace.kind === "exclusion"
+                ? "제외 조건"
+                : "우대·평가"}
+          </span>
         </div>
-        {item.companyValue || item.sourceSpan ? (
-          <p className="text-sm leading-6 text-muted-foreground">
-            {item.companyValue ? `회사값 ${item.companyValue}` : item.sourceSpan}
-          </p>
-        ) : null}
-        {item.unlock ? (
-          <p className="text-sm leading-6 text-muted-foreground">
-            {item.unlock.detail}
-            {item.unlock.etaDate ? ` · ${formatEtaDate(item.unlock.etaDate)}` : ""}
-          </p>
-        ) : null}
-        {item.action ? <TraceActionLink action={item.action} sourceUrl={sourceUrl} /> : null}
+        <dl className="grid gap-3 text-sm leading-6 sm:grid-cols-2">
+          <ConditionFact label="공고 조건" value={condition.requirement} />
+          <ConditionFact label="회사 정보" value={condition.companyValue} />
+          <ConditionFact label="현재 판단" value={condition.reason} />
+          <div className="min-w-0">
+            <dt className="text-xs font-semibold text-muted-foreground">다음 행동</dt>
+            <dd className="break-words text-foreground">{conditionActionText(condition)}</dd>
+            {action ? (
+              <a
+                className={buttonVariants({ variant: "outline", size: "sm", className: "mt-2 justify-self-start" })}
+                href={action.href}
+                {...(action.external ? { target: "_blank", rel: "noreferrer" } : {})}
+              >
+                {action.label}
+              </a>
+            ) : null}
+          </div>
+        </dl>
       </CardContent>
     </Card>
   );
 }
 
-function TraceActionLink({
-  action,
-  sourceUrl,
-}: {
-  action: NonNullable<RuleTraceChip["action"]>;
-  sourceUrl: string | null;
-}) {
-  const resolved = grantOverviewTraceAction(action, sourceUrl);
-  if (!resolved) return null;
-
+function ConditionFact({ label, value }: { label: string; value: string }) {
   return (
-    <a
-      className={buttonVariants({ variant: "outline", size: "sm", className: "justify-self-start" })}
-      href={resolved.href}
-      {...(resolved.external ? { target: "_blank", rel: "noreferrer" } : {})}
-    >
-      {action.label}
-    </a>
+    <div className="min-w-0">
+      <dt className="text-xs font-semibold text-muted-foreground">{label}</dt>
+      <dd className="break-words text-foreground">{value}</dd>
+    </div>
   );
 }
 
-function formatEtaDate(value: string): string {
-  return value.replaceAll("-", ".");
+function conditionOrder(condition: ExplainedCondition): number {
+  if (condition.trace.result === "fail") return 0;
+  if (condition.action === "company_profile" || condition.action === "user_confirmation") return 1;
+  if (condition.pending) return 2;
+  return 3;
 }
 
-function traceResultLabel(result: RuleTraceChip["result"]): string {
-  if (result === "pass") return "충족";
-  if (result === "unknown") return "확인";
-  if (result === "text_only") return "원문";
-  return "미충족";
+function conditionActionText(condition: ExplainedCondition): string {
+  if (condition.trace.result === "pass") return "추가로 할 일이 없어요.";
+  if (condition.trace.result === "fail") return "공고 원문에서 불일치 근거와 예외 조건을 확인해 주세요.";
+  if (condition.action === "company_profile") return "이 조건과 비교할 회사 정보를 입력해 주세요.";
+  if (condition.action === "user_confirmation") return "이 공고에 검수된 확인 질문이 있으면 답해 주세요.";
+  return "공고 원문에서 조건의 문맥과 예외를 확인해 주세요.";
+}
+
+function conditionAction(
+  condition: ExplainedCondition,
+  grantId: string,
+  companyId: string | null,
+  virtualBizNo: string | null,
+  sourceUrl: string | null,
+): { href: string; label: string; external: boolean } | null {
+  if (condition.trace.result === "pass") return null;
+  const context = new URLSearchParams();
+  if (virtualBizNo) context.set("biz", virtualBizNo);
+  if (condition.action === "company_profile") {
+    context.set("profile", condition.trace.dimension);
+    const href = `/matches?${context.toString()}#profile`;
+    return {
+      href: companyId ? withCompanyContext(href, companyId) : href,
+      label: "이 회사 정보 확인하기",
+      external: false,
+    };
+  }
+  if (condition.action === "user_confirmation") {
+    context.set("confirm", grantId);
+    const href = `/matches?${context.toString()}`;
+    return {
+      href: companyId ? withCompanyContext(href, companyId) : href,
+      label: "이 공고 질문 확인하기",
+      external: false,
+    };
+  }
+  if (!sourceUrl) return null;
+  return { href: sourceUrl, label: "공고 원문 근거 보기", external: true };
 }
 
 function traceTone(result: RuleTraceChip["result"]) {

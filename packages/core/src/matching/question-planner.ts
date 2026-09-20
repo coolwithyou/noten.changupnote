@@ -38,6 +38,7 @@ interface QuestionCandidate {
   grantId: string;
   dDay: number | null;
   onlyRemainingDimension: boolean;
+  sourceReviewRemains: boolean;
 }
 
 const DIMENSION_TIE_BREAK: CriterionDimension[] = [
@@ -97,11 +98,10 @@ function candidatesForMatch<TPayload>(
   entry: MatchedGrant<TPayload>,
   asOf: Date,
 ): QuestionCandidate[] {
-  if (entry.match.eligibility === "ineligible") return [];
-  if (
-    entry.match.quality.extractionReadiness === "partial" ||
-    entry.match.quality.extractionReadiness === "unstructured"
-  ) return [];
+  if (entry.match.eligibility === "ineligible" || entry.item.matching_evidence?.level === "discovery" || entry.item.grant.status !== "open") return [];
+  if (entry.match.quality.extractionReadiness === "unstructured") return [];
+  const partial = entry.match.quality.extractionReadiness === "partial";
+  const sourceReviewRemains = entry.match.review_gate?.tier === "needs_core_review" || partial;
   const hardUnknowns = entry.match.rule_trace
     .map((trace, index) => ({ trace, criterion: entry.item.criteria[index] }))
     .filter((item): item is { trace: RuleTraceEntry; criterion: GrantCriterion } =>
@@ -111,7 +111,8 @@ function candidatesForMatch<TPayload>(
   const resolvable = hardUnknowns.filter(({ trace, criterion }) =>
     trace.dimension !== "premises"
     && trace.unresolved_reason === "company_profile_missing"
-    && isProfileResolvableCriterion(criterion));
+    && isProfileResolvableCriterion(criterion)
+    && (!partial || criterion.needs_review === false));
   if (resolvable.length === 0) return [];
 
   const unresolvedDimensions = new Set(hardUnknowns.map((item) => item.trace.dimension));
@@ -124,8 +125,9 @@ function candidatesForMatch<TPayload>(
     criterion,
     grantId,
     dDay,
+    sourceReviewRemains,
     onlyRemainingDimension:
-      allHardUnknownsProfileResolvable &&
+      !sourceReviewRemains && allHardUnknownsProfileResolvable &&
       unresolvedDimensions.size === 1 &&
       isExhaustiveQuestionDimension(trace.dimension),
   }));
@@ -174,6 +176,7 @@ function planDimensionQuestion(
     inputType: priorAwardContext ? "boolean" : rangeStage ? "select" : definition.inputType,
     framing: framingFor(dimension, affectedGrantIds.length, resolvesGrantIds.length),
     affectedGrantCount: affectedGrantIds.length,
+    sourceReviewRemainingGrantCount: unique(scopedCandidates.filter((candidate) => candidate.sourceReviewRemains).map((candidate) => candidate.grantId)).length,
     preciseFollowUp: definition.preciseFollowUp,
     responseStage: rangeStage ? "range" : preciseStage ? "precise" : "direct",
   };

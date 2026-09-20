@@ -10,10 +10,10 @@ export type VerdictStatus = "open" | "one_answer" | "check_source" | "closed";
 
 /** 상태별 고정 라벨. UI 어느 곳에서든 이 표기를 그대로 쓴다. */
 export const VERDICT_LABEL: Record<VerdictStatus, string> = {
-  open: "지금 신청 가능",
-  one_answer: "답하면 확정",
-  check_source: "원문 확인 필요",
-  closed: "이번엔 어려움",
+  open: "자격 충족 확인",
+  one_answer: "내 정보 확인",
+  check_source: "공고 조건 확인",
+  closed: "현재 신청 어려움",
 };
 
 const VERDICT_CLASS: Record<VerdictStatus, string> = {

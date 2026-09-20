@@ -19,6 +19,7 @@ export async function POST(request: Request, context: RouteContext) {
   try {
     const [{ companyId, grantId }, body] = await Promise.all([context.params, readMatchEventRequest(request)]);
     const access = await requireAppCompanyAccess(request, companyId);
+    if (body.journey && process.env.CUNOTE_MATCH_JOURNEY_ENABLED !== "true") return new Response(null, { status: 204 });
     const input = buildSaveMatchEventInput({
       companyId,
       grantId: decodeGrantIdSegment(grantId),

@@ -1,12 +1,13 @@
 "use client";
 
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Check, ChevronRight, CircleDashed, CircleDot, Plus, X } from "lucide-react";
 import type {
   CriterionDimension,
   MatchingProfileAnswerRequest,
   ProductTeaserResult,
 } from "@cunote/contracts";
+import { TeaserQuestionForm } from "./TeaserQuestionForm";
 import { Progress } from "@/components/ui/progress";
 import { profileSourceHelp } from "./profileSourceHelp";
 import { BASIC_PROFILE_DIMENSIONS, buildProfileCompletion, profileInputState, PROFILE_INPUT_STATE_LABELS, type ProfileInputState } from "./profileCompletion";
@@ -123,6 +124,7 @@ export function ProfileSection({
   savedCompany = false,
   companyId,
   profileWriteAllowed = false,
+  initialField = null,
 }: {
   teaser: ProductTeaserResult;
   onAnswer: (answer: MatchingProfileAnswerRequest) => Promise<void>;
@@ -138,7 +140,9 @@ export function ProfileSection({
   savedCompany?: boolean;
   companyId?: string | null;
   profileWriteAllowed?: boolean;
+  initialField?: CriterionDimension | null;
 }) {
+  const targetedQuestion = initialField && teaser.nextQuestion?.dimension === initialField ? teaser.nextQuestion : null;
   const fields = useMemo(() => buildProfileFields(teaser), [teaser]);
   const coverage = matchingProfileCoverage(teaser);
   const canEditProfile = !companyId || profileWriteAllowed;
@@ -185,6 +189,22 @@ export function ProfileSection({
     setSavedFeedback(null);
     setView("profile");
   }, [companyId, profileWriteAllowed]);
+
+  const openedTargetRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!open) { openedTargetRef.current = null; return; }
+    if (!initialField) return;
+    const targetKey = `${companyId ?? "anonymous"}:${initialField}`;
+    if (openedTargetRef.current === targetKey) return;
+    openedTargetRef.current = targetKey;
+    setActiveFieldKey(targetedQuestion ? null : initialField);
+    setView(initialField === "prior_award" ? "prior_award"
+      : ["tax_compliance", "credit_status", "sanction"].includes(initialField) ? "disqualification" : "profile");
+    const frame = requestAnimationFrame(() => {
+      document.getElementById(targetedQuestion ? "matching-profile-target-question" : `matching-profile-${initialField}`)?.scrollIntoView({ block: "center" });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [open, initialField, targetedQuestion, companyId]);
 
   async function submitProfileField(
     row: ProfileSheetRow,
@@ -237,6 +257,15 @@ export function ProfileSection({
 
             <ScrollArea className="min-h-0 flex-1">
               <div className="px-6 pb-6">
+                {targetedQuestion && canEditProfile ? (
+                  <section id="matching-profile-target-question" className="mt-5 rounded-xl border border-border-subtle p-4">
+                    <h3 className="text-sm font-bold">{targetedQuestion.prompt}</h3>
+                    <p className="my-3 text-sm leading-6 text-text-secondary">
+                      공고에서 요구하는 신청 조건을 확인해 주세요. 답변 후에도 별도 원문 확인은 남을 수 있어요.
+                    </p>
+                    <TeaserQuestionForm question={targetedQuestion} onAnswer={onAnswer} submitting={submitting} />
+                  </section>
+                ) : null}
                 {savedFeedback ? (
                   <Alert className="mt-4 border-brand-mint/30 bg-brand-mint-soft text-brand-mint-ink">
                     <Check aria-hidden />
@@ -366,7 +395,7 @@ function ProfileSheetGroup({
       >
         {rows.length > 0 ? (
           rows.map((row, index) => (
-            <Fragment key={row.key}>
+            <div key={row.key} id={`matching-profile-${row.key}`}>
               <ProfileSheetRowView
                 row={row}
                 active={row.field?.key === activeFieldKey}
@@ -383,7 +412,7 @@ function ProfileSheetGroup({
               {index < rows.length - 1 ? (
                 <Separator className={tone === "automatic" ? "bg-brand-mint/15" : "bg-border-subtle"} />
               ) : null}
-            </Fragment>
+            </div>
           ))
         ) : (
           <p className="py-3 text-sm text-muted-foreground">

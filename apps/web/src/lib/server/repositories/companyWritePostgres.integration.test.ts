@@ -72,6 +72,22 @@ try {
   assert.equal((await repo.resolveCompanyProfile({ companyId: creationId, userId }))!.employees_count, reopened.employees_count);
   await verifyDocumentJourneyPostgres({ admin, socket, access: { companyId: creationId, userId, role: "owner", mode: "session" } });
   const [grant] = await admin`select id from grants limit 1`;
+  // 신규 계측도 기존 match_events RLS와 같은 회사 결속을 사용한다.
+  const matchRepo = createDrizzleRepositories({ dialect: "drizzle", client: drizzle(client, { schema }) }).matches;
+  const journey = { version: 1 as const, sessionId: crypto.randomUUID(), action: "card_open" as const,
+    elapsedMs: 120, evidence: "verified" as const, eligibility: "conditional" as const };
+  const receipt = await matchRepo.saveMatchEvent({ companyId: creationId, userId, grantId: grant!.id,
+    event: "clicked", rulesetVer: "match-journey-v1", journey });
+  assert.equal(receipt.persisted, true);
+  const [storedJourney] = await admin`select journey from match_events where id=${receipt.id}::uuid`;
+  assert.deepEqual(storedJourney!.journey, journey);
+  const stranger = crypto.randomUUID();
+  await admin`insert into users(id,email) values (${stranger},${`${stranger}@example.invalid`})`;
+  await assert.rejects(() => matchRepo.saveMatchEvent({ companyId: creationId, userId: stranger,
+    grantId: grant!.id, event: "clicked", journey }));
+  const legacyReceipt = await matchRepo.saveMatchEvent({ companyId: creationId, userId, grantId: grant!.id, event: "clicked" });
+  assert.equal(legacyReceipt.persisted, true);
+  console.log("PASS: match journey migration, persisted metadata, legacy event and cross-company RLS denial");
   const releaseDbId = crypto.randomUUID();
   const itemId = crypto.randomUUID();
   await admin`insert into analysis_lab_promotion_releases

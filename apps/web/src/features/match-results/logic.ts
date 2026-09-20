@@ -19,6 +19,7 @@ import {
   answerableHardUnknownDimensions,
   hasUnanswerableHardUnknown,
   isPreparableMatchCard,
+  explainMatch,
 } from "@cunote/core";
 import { URGENT_MAX_DDAY } from "@/components/app/notice-card";
 import type { VerdictStatus } from "@/components/app/verdict-badge";
@@ -852,6 +853,8 @@ export interface AnswerImpactSummary {
   previousKnown: number;
   nextKnown: number;
   coverageDelta: number;
+  resolvedConditions?: number;
+  remainingSourceConditions?: number;
 }
 
 /** 동일 공고 id의 전후 판정만 비교한다. 선정 가능성이나 확률로 해석하지 않는다. */
@@ -877,6 +880,21 @@ export function summarizeAnswerImpact(
     if (next === "closed") newlyClosed += 1;
   }
 
+  const beforeCards = new Map(before.matches.map((match) => [match.grantId, match]));
+  let resolvedConditions = 0;
+  let remainingSourceConditions = 0;
+  for (const match of after.matches) {
+    const prior = beforeCards.get(match.grantId);
+    if (!prior || !prior.matchingEvidence || !match.matchingEvidence
+      || prior.matchingEvidence.sourceRevisionSha256 !== match.matchingEvidence.sourceRevisionSha256
+      || prior.matchingEvidence.level !== "verified" || match.matchingEvidence.level !== "verified") continue;
+    const previousConditions = new Map(prior.ruleTrace.filter((trace) => trace.criterionId).map((trace) => [trace.criterionId, trace]));
+    for (const condition of explainMatch(match).conditions) {
+      const previous = condition.trace.criterionId ? previousConditions.get(condition.trace.criterionId) : undefined;
+      if (previous && (previous.result === "unknown" || previous.result === "text_only") && !condition.pending) resolvedConditions += 1;
+    }
+    remainingSourceConditions += explainMatch(match).source.length;
+  }
   const previousKnown = matchingProfileCoverage(before).known;
   const nextKnown = matchingProfileCoverage(after).known;
   return {
@@ -887,6 +905,8 @@ export function summarizeAnswerImpact(
     previousKnown,
     nextKnown,
     coverageDelta: nextKnown - previousKnown,
+    resolvedConditions,
+    remainingSourceConditions,
   };
 }
 

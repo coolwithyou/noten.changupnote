@@ -180,6 +180,21 @@ assert.equal(
   "공고 추출 미완료를 기업 질문으로 떠넘기지 않는다",
 );
 
+// 일부 조건은 검수됐지만 다른 원문 확인이 남는 공고: 해소 범위를 정직하게 분리한다.
+const reviewedPartial = structuredClone(extractionIncomplete);
+reviewedPartial.item.criteria[0]!.needs_review = false;
+const partialPlan = planProfileQuestions([reviewedPartial], { asOf });
+assert.equal(partialPlan[0]?.question.dimension, "revenue");
+assert.equal(partialPlan[0]?.resolvesGrantCount, 0);
+assert.equal(partialPlan[0]?.question.sourceReviewRemainingGrantCount, 1);
+assert.doesNotMatch(partialPlan[0]?.question.framing ?? "", /판정을 확정/);
+const discoveryPartial = structuredClone(reviewedPartial);
+discoveryPartial.item.matching_evidence = { level: "discovery", sourceRevisionSha256: null, reason: "unreviewed" };
+assert.equal(planProfileQuestions([discoveryPartial], { asOf }).length, 0);
+const closedPartial = structuredClone(reviewedPartial);
+closedPartial.item.grant.status = "closed";
+assert.equal(planProfileQuestions([closedPartial], { asOf }).length, 0);
+
 const ineligible = matched("ineligible", "2026-07-13", [{
   dimension: "region",
   operator: "in",

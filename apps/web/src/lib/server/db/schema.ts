@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import type { GrantAuthoringGuideV1 } from "@cunote/contracts";
+import type { GrantAuthoringGuideV1, MatchJourneyEvent } from "@cunote/contracts";
 import {
   type AnyPgColumn,
   bigint,
@@ -2616,6 +2616,7 @@ export const matchGrantInputRevisions = pgTable("match_grant_input_revisions", {
 });
 
 export const matchEvents = pgTable("match_events", {
+  journey: jsonb("journey").$type<MatchJourneyEvent>(),
   id: uuid("id").defaultRandom().primaryKey(),
   companyId: uuid("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
   grantId: uuid("grant_id").notNull().references(() => grants.id, { onDelete: "cascade" }),

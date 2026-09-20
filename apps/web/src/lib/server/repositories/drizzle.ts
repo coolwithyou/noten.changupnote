@@ -1335,20 +1335,20 @@ class DrizzleMatchRepository<TPayload> implements MatchRepository<TPayload> {
     const grantId = await this.resolveGrantRowId(input.grantId);
     if (!grantId) throw new Error("공고를 찾지 못했습니다.");
 
-    const [row] = await this.withOptionalUser(input.userId, async (db) => db
-      .insert(schema.matchEvents)
-      .values({
-        companyId: input.companyId,
-        grantId,
-        event: input.event,
-        rulesetVer: input.rulesetVer ?? "unknown",
-      })
-      .returning({ id: schema.matchEvents.id, ts: schema.matchEvents.ts }));
+    // 비활성 경로는 기존 열만 지정하여 마이그레이션 전 일반 이벤트 저장도 유지한다.
+    const [row] = await this.withOptionalUser(input.userId, async (db) => input.journey
+      ? db.insert(schema.matchEvents).values({ companyId: input.companyId, grantId,
+        event: input.event, rulesetVer: input.rulesetVer ?? "unknown", journey: input.journey,
+      }).returning({ id: schema.matchEvents.id, ts: schema.matchEvents.ts })
+      : db.execute<{ id: string; ts: Date }>(sql`insert into match_events (company_id, grant_id, event, ruleset_ver)
+          values (${input.companyId}::uuid, ${grantId}::uuid, ${input.event}::match_event, ${input.rulesetVer ?? "unknown"})
+          returning id, ts`));
     if (!row) throw new Error("매칭 이벤트 저장 결과가 없습니다.");
 
     return {
       id: row.id,
-      acceptedAt: row.ts.toISOString(),
+      acceptedAt: new Date(row.ts).toISOString(),
+      persisted: true,
     };
   }
 

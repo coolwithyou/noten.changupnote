@@ -435,7 +435,22 @@ assert.deepEqual(summarizeAnswerImpact(beforeImpact, afterImpact), {
   previousKnown: 0,
   nextKnown: 1,
   coverageDelta: 1,
+  resolvedConditions: 0,
+  remainingSourceConditions: 0,
 });
+
+const partialBefore: MatchCard = { ...answerMatch,
+  matchingEvidence: { level: "verified", sourceRevisionSha256: "same-source" },
+  recommendationTier: "needs_core_review",
+  ruleTrace: [{ ...answerMatch.ruleTrace[0]!, criterionId: "profile-condition", label: "기업 유형", result: "unknown" }],
+};
+const partialAfter: MatchCard = { ...partialBefore,
+  ruleTrace: [{ ...partialBefore.ruleTrace[0]!, result: "pass" }],
+};
+assert.equal(summarizeAnswerImpact(teaserFixture([partialBefore], 0), teaserFixture([partialAfter], 1)).resolvedConditions, 1);
+assert.equal(summarizeAnswerImpact(teaserFixture([partialBefore], 0), teaserFixture([{ ...partialAfter,
+  matchingEvidence: { level: "verified", sourceRevisionSha256: "changed-source" },
+}], 1)).resolvedConditions, 0, "원문이 바뀐 조건을 답변의 해소 성과로 집계하지 않는다");
 
 const criterionPresentation = matchCriterionPresentation({
   ...openMatch,

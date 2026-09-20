@@ -1226,6 +1226,7 @@ export const appV1OpenApi = {
           }),
           framing: { type: "string" },
           affectedGrantCount: { type: "integer", minimum: 0 },
+          sourceReviewRemainingGrantCount: { type: "integer", minimum: 0 },
           priorAwardContext: {
             type: "object",
             required: ["scope", "requiresYear"],
@@ -2304,6 +2305,8 @@ export const appV1OpenApi = {
       MatchEventRequest: {
         type: "object",
         properties: {
+          companyId: { type: "string" },
+          journey: ref("MatchJourneyEvent"),
           event: { type: "string", enum: ["surfaced", "clicked", "saved", "apply_click"] },
           type: {
             type: "string",
@@ -2333,6 +2336,20 @@ export const appV1OpenApi = {
         properties: {
           id: { type: "string" },
           acceptedAt: { type: "string", format: "date-time" },
+          persisted: { type: "boolean" },
+        },
+        additionalProperties: false,
+      },
+      MatchJourneyEvent: {
+        type: "object",
+        required: ["version", "sessionId", "action", "elapsedMs", "evidence", "eligibility"],
+        properties: {
+          version: { type: "integer", enum: [1] },
+          sessionId: { type: "string", format: "uuid" },
+          action: { type: "string", enum: ["card_open", "profile_start", "confirmation_start", "detail_open", "preparation_start"] },
+          elapsedMs: { type: "integer", minimum: 0, maximum: 86400000 },
+          evidence: { type: "string", enum: ["verified", "discovery", "legacy"] },
+          eligibility: { type: "string", enum: ["eligible", "conditional", "ineligible"] },
         },
         additionalProperties: false,
       },

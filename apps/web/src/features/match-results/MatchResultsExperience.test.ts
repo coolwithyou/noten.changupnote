@@ -131,7 +131,8 @@ assert.equal(
 );
 
 const analysisScopeSource = readFileSync(new URL("./AnalysisScopeCard.tsx", import.meta.url), "utf8");
-assert.ok(analysisScopeSource.includes("공개 공고 후보"));
+assert.ok(analysisScopeSource.includes("공개 공고"));
+assert.ok(analysisScopeSource.includes("위에 표시된 후보 수와 같지 않을 수 있어요"));
 assert.ok(analysisScopeSource.includes("미확정 조건은 원문 확인 대상으로 남겨요"));
 assert.equal(analysisScopeSource.includes("모집 공고"), false);
 

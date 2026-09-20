@@ -6,6 +6,7 @@ import type {
   MatchFeedbackProvenance,
   MatchFeedbackReasonCode,
   MatchEventKind,
+  MatchJourneyEvent,
   MatchOutcome,
   MatchResult,
   NormalizedGrant,
@@ -174,6 +175,7 @@ export interface MatchRepository<TPayload = unknown> {
 }
 
 export interface SaveMatchEventInput {
+  journey?: MatchJourneyEvent;
   companyId: string;
   grantId: string;
   event: MatchEventKind;
@@ -182,6 +184,7 @@ export interface SaveMatchEventInput {
 }
 
 export interface MatchEventReceipt {
+  persisted?: boolean;
   id: string;
   acceptedAt: string;
 }

@@ -303,4 +303,5 @@ assert.equal(
   "최대 3,000만 원",
 );
 assert.equal(formatDday(21), "D-21");
-assert.equal(formatEligibilitySummary(3, 2), "충족 3 · 확인 2");
+assert.equal(formatEligibilitySummary(3, 2), "충족 확인 3 · 미충족 0 · 미확인 2");
+assert.equal(formatEligibilitySummary(1, 2, 1), "충족 확인 1 · 미충족 1 · 미확인 2");

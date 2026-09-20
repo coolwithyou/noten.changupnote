@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import type {
   ActionResult,
   GrantConfirmationSubmitResult,
+  CriterionDimension,
   MatchingProfileAnswerRequest,
   OwnedCompanyMatchingResult,
   ProductTeaserResult,
@@ -28,6 +29,7 @@ import { AnalysisScopeCard } from "./AnalysisScopeCard";
 import { confirmationResultAction } from "./confirmationRequestScope";
 import {
   TEASER_FALLBACK_MESSAGE,
+  PROFILE_DIMENSION_LABELS,
   TeaserError,
   confirmationResumePath,
   groupMatchesForDisplay,
@@ -92,6 +94,11 @@ export function MatchResultsExperience() {
     open: false,
     enteredCompanyIds: new Set<string>(),
   }));
+  const [profileTarget, setProfileTarget] = useState<CriterionDimension | null>(null);
+  function openProfile(dimension?: CriterionDimension) {
+    setProfileTarget(dimension ?? null);
+    dispatchProfileDrawer({ type: "set_open", open: true });
+  }
   const [answerImpact, setAnswerImpact] = useState<AnswerImpactSummary | null>(null);
   const [answeredQuestionIdentities, setAnsweredQuestionIdentities] = useState<Set<string>>(
     () => new Set(),
@@ -100,6 +107,16 @@ export function MatchResultsExperience() {
   const requestSeqRef = useRef(0);
   const answerPendingRef = useRef(false);
   const [draftNotice, setDraftNotice] = useState("입력한 정보는 회사 저장 전까지 이 탭에서만 임시 보관됩니다.");
+
+  const resumedProfileRef = useRef(false);
+  useEffect(() => {
+    if (status !== "ready" || resumedProfileRef.current) return;
+    const field = new URLSearchParams(window.location.search).get("profile");
+    if (!field || !Object.hasOwn(PROFILE_DIMENSION_LABELS, field)) return;
+    resumedProfileRef.current = true;
+    setProfileTarget(field as CriterionDimension);
+    dispatchProfileDrawer({ type: "set_open", open: true });
+  }, [status]);
 
   const acceptOwnedMatching = useCallback((result: OwnedCompanyMatchingResult) => {
     setCompanyId(result.companyId);
@@ -400,11 +417,10 @@ export function MatchResultsExperience() {
               questionsExhausted={teaser.nextQuestion === null}
               answeredCurrentQuestion={answeredCurrentQuestion}
             />
-            <AnalysisScopeCard context={teaser.searchContext} />
             {noMatchingGrants ? (
               <NoMatchingGrantsState
                 onSubscribe={() => void saveAndContinue()}
-                onOpenProfile={() => dispatchProfileDrawer({ type: "set_open", open: true })}
+                onOpenProfile={openProfile}
                 saving={continuing}
               />
             ) : (
@@ -422,7 +438,7 @@ export function MatchResultsExperience() {
                   companyId={companyId}
                   virtualBizNo={bizNo && isVirtualCompanyBizNo(bizNo) ? bizNo : null}
                   onPrepare={saveAndContinue}
-                  onOpenProfile={() => dispatchProfileDrawer({ type: "set_open", open: true })}
+                  onOpenProfile={openProfile}
                   preparing={continuing}
                   newGrantIds={new Set(answerImpact?.newlyOpenGrantIds ?? [])}
                   onConfirmationSaved={applyConfirmationResult}
@@ -450,7 +466,12 @@ export function MatchResultsExperience() {
                 ) : null}
               </>
             )}
+            <details className="mt-8 rounded-2xl border border-border-subtle p-5">
+              <summary className="cursor-pointer text-sm font-semibold text-text-secondary">분석 범위와 기업정보 확인 현황</summary>
+              <AnalysisScopeCard context={teaser.searchContext} />
+            </details>
             <ProfileSection
+              initialField={profileTarget}
               teaser={teaser}
               onAnswer={applyAnswer}
               submitting={profileSubmitting || continuing}
