@@ -93,6 +93,20 @@ export function matchingHistoryReviewDisposition(
   return inspection === "blocked" ? "held" : inspection ?? "pending";
 }
 
+export async function inspectMatchingHistoryReview(input: {
+  readonly launchReceiptSha256: string;
+  readonly grantId: string;
+  readonly repositoryRoot: string;
+}, inspect = inspectAnalysisLaunchIndependentReview): Promise<AnalysisLaunchIndependentReviewInspection | null> {
+  try {
+    return await inspect(input);
+  } catch (error) {
+    const expected = `exact 대상을 검수한 independent review manifest가 없습니다: ${input.launchReceiptSha256}`;
+    if (error instanceof Error && error.message === expected) return null;
+    throw error;
+  }
+}
+
 export function activeLaunchGrantShaFromRuntime(
   runtime: DeepAnalysisRuntimeAdmissionSnapshot,
 ): string | null {
@@ -507,7 +521,7 @@ export async function readVerifiedCurrentLaunchHistory(
           const reviewRoot = join(root, "spike-out", "analysis-lab", "independent-review", latest.sha256);
           const reviewComplete = await hasIndependentReviewAggregate(reviewRoot);
           const review = reviewComplete
-            ? await inspectAnalysisLaunchIndependentReview({
+            ? await inspectMatchingHistoryReview({
                 launchReceiptSha256: latest.sha256,
                 grantId: target.grantId,
                 repositoryRoot: root,

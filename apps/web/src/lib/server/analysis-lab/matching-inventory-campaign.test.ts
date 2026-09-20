@@ -31,6 +31,7 @@ import {
   activeLaunchGrantShaFromRuntime,
   applyActiveLaunchOwnership,
   classifyCampaignTerminalHistoryOutcome,
+  inspectMatchingHistoryReview,
   matchingHistoryReviewDisposition,
   prepareMatchingInventoryCampaign,
   readActiveLaunchManifest,
@@ -120,6 +121,24 @@ test("active owner는 drift보다 먼저 보류하고 KST 저장 달력일로 �
     new Date("2026-09-18T00:00:00.000Z"),
     new Date("2026-09-18T15:00:00.000Z"),
   ), false);
+});
+
+test("다른 target만 검수된 receipt는 현재 target을 pending으로 격리한다", async () => {
+  const receiptSha256 = hex("a");
+  const input = {
+    launchReceiptSha256: receiptSha256,
+    grantId: id(1),
+    repositoryRoot: "/mock",
+  };
+  const missingExactTarget = async () => {
+    throw new Error(`exact 대상을 검수한 independent review manifest가 없습니다: ${receiptSha256}`);
+  };
+  assert.equal(await inspectMatchingHistoryReview(input, missingExactTarget), null);
+  assert.equal(matchingHistoryReviewDisposition(null), "pending");
+  await assert.rejects(
+    () => inspectMatchingHistoryReview(input, async () => { throw new Error("run artifact SHA가 다릅니다"); }),
+    /run artifact SHA/,
+  );
 });
 
 test("campaign index는 child를 content-address하고 live authority 없이 순차 범위만 봉인한다", async () => {
