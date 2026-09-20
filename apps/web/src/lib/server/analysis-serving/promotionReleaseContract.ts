@@ -1,5 +1,6 @@
 // 순수 receipt 계약. 파일 읽기·쓰기와 모델 실행을 import하지 않는다.
 import { createHash, createHmac } from "node:crypto";
+import type { GrantCriterion } from "@cunote/contracts";
 import type { DeepAnalysisPromotionReadiness } from "../deep-analysis/promotion";
 import type { DeepRepairPromotionReadiness } from "../analysis-lab/deep-repair-promotion";
 import type { AnalysisLaunchPromotionReadiness } from "../analysis-lab/analysis-launch-promotion";
@@ -19,6 +20,8 @@ export const PROMOTION_APPROVAL_SCHEMA = "analysis-lab-promotion-approval-v1" as
 export const VERIFIED_LOCAL_LAB_SOURCE_SCHEMA = "verified-local-lab-source-v1" as const;
 export const VERIFIED_DEEP_REPAIR_SOURCE_SCHEMA = "verified-deep-repair-source-v1" as const;
 export const VERIFIED_ANALYSIS_LAUNCH_SOURCE_SCHEMA = "verified-analysis-launch-source-v1" as const;
+export const ANALYSIS_LAUNCH_MATCHING_PROJECTION_REVIEW_CARRYFORWARD_SCHEMA =
+  "analysis-launch-matching-projection-review-carryforward-v1" as const;
 export const MANUAL_CONFIRMATION_EVALUATION_SELECTION_SCHEMA =
   "manual-confirmation-evaluation-selection-v1" as const;
 export const MIN_CONFIRM_HASH_PREFIX = 12;
@@ -102,6 +105,17 @@ export interface VerifiedAnalysisLaunchSourceEvidence {
   /** 신규 launch만 기록한다. 역사 부재는 verified로 추정하지 않는다. */
   primaryMatchingProjectionSnapshotSha256?: string;
   primaryMatchingProjectionContractVersion?: string;
+  /** 독립 검수 뒤 normalizer의 무손실 text_only 보존 수정만 현행 projection으로 승계한다. */
+  primaryMatchingProjectionReviewCarryforward?: AnalysisLaunchMatchingProjectionReviewCarryforward;
+}
+
+export interface AnalysisLaunchMatchingProjectionReviewCarryforward {
+  schema: typeof ANALYSIS_LAUNCH_MATCHING_PROJECTION_REVIEW_CARRYFORWARD_SCHEMA;
+  policyVersion: "lossless-text-only-note-v1";
+  mode: "runtime_only" | "lossless_text_only_restore";
+  historicalSnapshotSha256: string;
+  currentSnapshotSha256: string;
+  changedCriterionIndexes: number[];
 }
 
 export interface PromotionSourceArtifact {
@@ -393,6 +407,197 @@ export function assertPromotionReleaseContinuationBinding(
     );
   }
   return { refreshedSourceGrantIds };
+}
+
+/**
+ * 모든 gate를 통과했지만 현재 build에서는 승인할 수 없는 prepared 예약을, 독립 검수된
+ * text_only 무손실 승계 revision으로만 대체한다. 이전 artifact는 수정하지 않는다.
+ */
+export function assertPromotionReviewedProjectionContinuationBinding(
+  previous: Pick<PromotionReleaseManifest, "plans" | "sourceArtifacts">,
+  current: PromotionReleaseContinuationBinding,
+): { refreshedSourceGrantIds: string[] } {
+  const previousPlans = new Map(previous.plans.map((item) => [item.grantId, item]));
+  const previousSources = new Map(previous.sourceArtifacts.map((item) => [item.grantId, item]));
+  const currentSources = new Map(current.sourceArtifacts.map((item) => [item.grantId, item]));
+  const changed: string[] = [];
+  const refreshedSourceGrantIds: string[] = [];
+  for (const currentPlan of current.plans) {
+    const grantId = currentPlan.grantId;
+    const previousPlan = previousPlans.get(grantId);
+    const previousSource = previousSources.get(grantId);
+    const currentSource = currentSources.get(grantId);
+    const previousLaunch = previousSource?.localLabEvidence?.analysisLaunch;
+    const currentLaunch = currentSource?.localLabEvidence?.analysisLaunch;
+    const carryforward = currentLaunch?.primaryMatchingProjectionReviewCarryforward;
+    if (
+      !previousPlan
+      || !previousSource
+      || !currentSource
+      || !previousLaunch
+      || !currentLaunch
+      || !carryforward
+      || previousLaunch.primaryMatchingProjectionSnapshotSha256
+        !== carryforward.historicalSnapshotSha256
+      || currentLaunch.primaryMatchingProjectionSnapshotSha256
+        !== carryforward.currentSnapshotSha256
+      || previousLaunch.primaryMatchingProjectionContractVersion
+        !== "grant-llm-criteria-normalization-v2"
+      || currentLaunch.primaryMatchingProjectionContractVersion
+        !== "grant-llm-criteria-normalization-v3"
+    ) {
+      changed.push(`${grantId}:carryforward_binding`);
+      continue;
+    }
+    if (!reviewedProjectionPlanCriteriaMatch(previousPlan, currentPlan, carryforward)) {
+      changed.push(`${grantId}:projection_material`);
+      continue;
+    }
+    if (
+      sha256Canonical(reviewedProjectionContinuationPlan(currentPlan, previousPlan))
+        !== sha256Canonical(previousPlan)
+    ) {
+      changed.push(`${grantId}:promotion_material`);
+    }
+    if (
+      sha256Canonical(reviewedProjectionContinuationSource(currentSource, previousSource))
+        !== sha256Canonical(previousSource)
+    ) {
+      changed.push(`${grantId}:source_material`);
+    }
+    if (previousSource.sourceRevisionSha256 !== currentSource.sourceRevisionSha256) {
+      refreshedSourceGrantIds.push(grantId);
+    }
+  }
+  if (current.plans.length === 0 || currentSources.size !== current.plans.length) {
+    changed.push("cohort_binding");
+  }
+  if (changed.length > 0) {
+    throw new Error(
+      `이전 prepared release와 검수 projection 승계 결속이 다릅니다: ${changed.join(", ")}`,
+    );
+  }
+  return { refreshedSourceGrantIds };
+}
+
+function reviewedProjectionPlanCriteriaMatch(
+  previous: PromotionReleasePlanItem,
+  current: PromotionReleasePlanItem,
+  carryforward: AnalysisLaunchMatchingProjectionReviewCarryforward,
+): boolean {
+  const before = previous.promotionPlan.criteria;
+  const after = current.promotionPlan.criteria;
+  if (before.length !== after.length) return false;
+  const outputToCriterion = new Map<number, number>();
+  for (const item of current.promotionPlan.conversion.items ?? []) {
+    if (item.outputPosition === null) continue;
+    if (outputToCriterion.has(item.outputPosition)) return false;
+    outputToCriterion.set(item.outputPosition, item.criterionIndex);
+  }
+  const changedCriterionIndexes: number[] = [];
+  for (let position = 0; position < after.length; position += 1) {
+    const previousCriterion = before[position];
+    const currentCriterion = after[position];
+    if (!previousCriterion || !currentCriterion) return false;
+    if (canonicalJson(previousCriterion) === canonicalJson(currentCriterion)) continue;
+    const criterionIndex = outputToCriterion.get(position);
+    if (
+      criterionIndex === undefined
+      || canonicalJson(withoutCriterionValue(previousCriterion))
+        !== canonicalJson(withoutCriterionValue(currentCriterion))
+      || !isStructurallyEmptyCriterionValue(previousCriterion.value)
+      || !hasCriterionTextNote(currentCriterion.value)
+    ) return false;
+    changedCriterionIndexes.push(criterionIndex);
+  }
+  changedCriterionIndexes.sort((left, right) => left - right);
+  return canonicalJson(changedCriterionIndexes)
+    === canonicalJson(carryforward.changedCriterionIndexes);
+}
+
+function reviewedProjectionContinuationPlan(
+  current: PromotionReleasePlanItem,
+  previous: PromotionReleasePlanItem,
+): PromotionReleasePlanItem {
+  return {
+    ...current,
+    planSha256: previous.planSha256,
+    promotionPlan: {
+      ...current.promotionPlan,
+      criteria: previous.promotionPlan.criteria,
+    },
+    ...(current.analysisLaunchReadiness && previous.analysisLaunchReadiness ? {
+      analysisLaunchReadiness: {
+        ...current.analysisLaunchReadiness,
+        sourceRevisionSha256: previous.analysisLaunchReadiness.sourceRevisionSha256,
+        primaryMatchingProjectionSnapshotSha256:
+          previous.analysisLaunchReadiness.primaryMatchingProjectionSnapshotSha256!,
+      },
+    } : {}),
+  };
+}
+
+function reviewedProjectionContinuationSource(
+  current: PromotionSourceArtifact,
+  previous: PromotionSourceArtifact,
+): PromotionSourceArtifact {
+  const currentLaunch = current.localLabEvidence!.analysisLaunch!;
+  const previousLaunch = previous.localLabEvidence!.analysisLaunch!;
+  const {
+    primaryMatchingProjectionReviewCarryforward: _currentCarryforward,
+    ...currentLaunchWithoutCarryforward
+  } = currentLaunch;
+  return {
+    ...current,
+    sourceRevisionSha256: previous.sourceRevisionSha256!,
+    ...(current.applicationPrecompute && previous.applicationPrecompute ? {
+      applicationPrecompute: {
+        ...current.applicationPrecompute,
+        releaseId: previous.applicationPrecompute.releaseId,
+      },
+    } : {}),
+    localLabEvidence: {
+      ...current.localLabEvidence!,
+      analysisLaunch: {
+        ...currentLaunchWithoutCarryforward,
+        sourceRevisionSha256: previousLaunch.sourceRevisionSha256,
+        primaryMatchingProjectionSnapshotSha256:
+          previousLaunch.primaryMatchingProjectionSnapshotSha256!,
+        primaryMatchingProjectionContractVersion:
+          previousLaunch.primaryMatchingProjectionContractVersion!,
+        ...(previousLaunch.primaryMatchingProjectionReviewCarryforward ? {
+          primaryMatchingProjectionReviewCarryforward:
+            previousLaunch.primaryMatchingProjectionReviewCarryforward,
+        } : {}),
+      },
+    },
+  };
+}
+
+function withoutCriterionValue(criterion: GrantCriterion): Omit<GrantCriterion, "value"> {
+  const { value: _value, ...rest } = criterion;
+  return rest;
+}
+
+function hasCriterionTextNote(value: unknown): boolean {
+  return Boolean(
+    value
+    && typeof value === "object"
+    && !Array.isArray(value)
+    && typeof (value as Record<string, unknown>).note === "string"
+    && ((value as Record<string, unknown>).note as string).trim(),
+  );
+}
+
+function isStructurallyEmptyCriterionValue(value: unknown): boolean {
+  if (value === null || value === undefined) return true;
+  if (typeof value === "string") return value.trim().length === 0;
+  if (Array.isArray(value)) return value.every(isStructurallyEmptyCriterionValue);
+  if (typeof value === "object") {
+    return Object.values(value as Record<string, unknown>)
+      .every(isStructurallyEmptyCriterionValue);
+  }
+  return false;
 }
 
 function continuationPlanProjection(item: PromotionReleasePlanItem): PromotionReleasePlanItem {
@@ -863,6 +1068,14 @@ export function validatePromotionReleaseManifest(value: unknown): PromotionRelea
           ? readiness.authoringEvidenceReasons.length === 0
           : readiness.authoringEvidenceReasons.length > 0)
       );
+      const projectionCarryforward = evidence?.primaryMatchingProjectionReviewCarryforward;
+      const projectionCarryforwardValid = projectionCarryforward === undefined || (
+        readiness?.primaryMatchingProjectionStatus === "verified"
+        && projectionCarryforward.currentSnapshotSha256
+          === readiness.primaryMatchingProjectionSnapshotSha256
+        && projectionCarryforward.currentSnapshotSha256
+          === evidence?.primaryMatchingProjectionSnapshotSha256
+      );
       if (
         !readiness
         || (readiness.disposition !== "ready" && readiness.disposition !== "conditional")
@@ -874,6 +1087,7 @@ export function validatePromotionReleaseManifest(value: unknown): PromotionRelea
         || evidence.sourceRevisionSha256 !== readiness.sourceRevisionSha256
         || source.localLabEvidence.inputSha256 !== readiness.inputSha256
         || evidence.attachmentManifestSha256 !== readiness.attachmentManifestSha256
+        || !projectionCarryforwardValid
         || !splitMetadataValid
         || (splitReadiness
           ? splitReadiness.matching.status !== "ready"
@@ -1021,6 +1235,35 @@ export function isVerifiedLocalLabSourceArtifact(
   }
   if (evidence.reviewMethod === "analysis_launch_independent_review") {
     const launch = evidence.analysisLaunch;
+    const projectionPresent = launch?.primaryMatchingProjectionSnapshotSha256 !== undefined
+      || launch?.primaryMatchingProjectionContractVersion !== undefined;
+    const projectionValid = !projectionPresent || (
+      isSha256(launch?.primaryMatchingProjectionSnapshotSha256)
+      && Boolean(launch?.primaryMatchingProjectionContractVersion?.trim())
+    );
+    const carryforward = launch?.primaryMatchingProjectionReviewCarryforward;
+    const carryforwardValid = carryforward === undefined || (
+      carryforward.schema === ANALYSIS_LAUNCH_MATCHING_PROJECTION_REVIEW_CARRYFORWARD_SCHEMA
+      && carryforward.policyVersion === "lossless-text-only-note-v1"
+      && (carryforward.mode === "runtime_only"
+        || carryforward.mode === "lossless_text_only_restore")
+      && isSha256(carryforward.historicalSnapshotSha256)
+      && isSha256(carryforward.currentSnapshotSha256)
+      && carryforward.historicalSnapshotSha256 !== carryforward.currentSnapshotSha256
+      && carryforward.currentSnapshotSha256 === launch?.primaryMatchingProjectionSnapshotSha256
+      && Array.isArray(carryforward.changedCriterionIndexes)
+      && carryforward.changedCriterionIndexes.every(
+        (index) => Number.isSafeInteger(index) && index >= 0,
+      )
+      && new Set(carryforward.changedCriterionIndexes).size
+        === carryforward.changedCriterionIndexes.length
+      && carryforward.changedCriterionIndexes.every(
+        (index, position, indexes) => position === 0 || indexes[position - 1]! < index,
+      )
+      && (carryforward.mode === "runtime_only"
+        ? carryforward.changedCriterionIndexes.length === 0
+        : carryforward.changedCriterionIndexes.length > 0)
+    );
     return launch?.schema === VERIFIED_ANALYSIS_LAUNCH_SOURCE_SCHEMA
       && isSha256(launch.launchReceiptSha256)
       && isSha256(launch.launchManifestSha256)
@@ -1036,6 +1279,8 @@ export function isVerifiedLocalLabSourceArtifact(
       && Boolean(launch.validatorVersion.trim())
       && (launch.applicationFieldAnalysisVersion === null
         || Boolean(launch.applicationFieldAnalysisVersion.trim()))
+      && projectionValid
+      && carryforwardValid
       && artifact.sourceRevisionSha256 === launch.sourceRevisionSha256
       && artifact.aiReviewSha256 === undefined
       && artifact.auditSha256 === undefined

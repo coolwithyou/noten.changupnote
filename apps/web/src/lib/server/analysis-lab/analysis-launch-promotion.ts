@@ -4,6 +4,7 @@ import { join, relative, resolve, sep } from "node:path";
 import type {
   LabCriterionVerdict,
   LabMissedConditionImpact,
+  LabPrimaryMatchingProjectionSnapshot,
   LabPrimaryPassIssue,
   LabRun,
 } from "@/lib/server/analysis-lab/lab-contract";
@@ -23,10 +24,10 @@ import {
   INDEPENDENT_REVIEW_MANIFEST_SCHEMA,
   INDEPENDENT_REVIEW_PACKET_SCHEMA,
   deriveIndependentReviewAxes,
-  resolveIndependentReviewProjection,
 } from "./independent-review-packet";
 import {
   type AnalysisLaunchManifest,
+  type AnalysisLaunchMatchingProjectionBinding,
   type AnalysisLaunchReceipt,
   type AnalysisLaunchReceiptTarget,
 } from "./launch-batch-artifacts";
@@ -41,8 +42,10 @@ import {
   VERIFIED_ANALYSIS_LAUNCH_SOURCE_SCHEMA,
   VERIFIED_LOCAL_LAB_SOURCE_SCHEMA,
   sha256Canonical,
+  type AnalysisLaunchMatchingProjectionReviewCarryforward,
   type PromotionSourceArtifact,
 } from "./promotion-release";
+import { resolveReviewedMatchingProjectionForPromotion } from "./matching-projection-review-carryforward";
 import type { PromotionCandidate } from "./promotion-candidates";
 import { findMonorepoRoot } from "./run-store";
 import { isPublishableLabRun } from "./run-outcome";
@@ -220,6 +223,9 @@ interface LoadedTarget {
   primaryMatchingProjectionStatus: "verified" | "unverified";
   primaryMatchingProjectionSnapshotSha256: string | null;
   primaryMatchingProjectionContractVersion?: string | null;
+  primaryMatchingProjectionSnapshot?: LabPrimaryMatchingProjectionSnapshot | null;
+  primaryMatchingProjectionReviewCarryforward?:
+    AnalysisLaunchMatchingProjectionReviewCarryforward | null;
   /** loadAndVerifyTarget은 항상 설정하며, readiness 순수 함수 fixture만 생략할 수 있다. */
   reviewRisk?: PromotionReviewRisk;
 }
@@ -466,6 +472,9 @@ export async function loadAnalysisLaunchPromotionCohort(input: {
         origin: "analysis_launch",
         analysisLaunchReceiptSha256: loaded.launch.receiptSha256,
         reviewRisk: loaded.reviewRisk!,
+        ...(loaded.primaryMatchingProjectionSnapshot ? {
+          reviewedMatchingProjection: loaded.primaryMatchingProjectionSnapshot,
+        } : {}),
         sidecar: null,
         manualEvaluationSidecar,
         ...(!selectedManual?.legacyShaOnly && selectedManual ? {
@@ -521,6 +530,10 @@ export async function loadAnalysisLaunchPromotionCohort(input: {
               loaded.primaryMatchingProjectionSnapshotSha256!,
             primaryMatchingProjectionContractVersion:
               loaded.primaryMatchingProjectionContractVersion!,
+            ...(loaded.primaryMatchingProjectionReviewCarryforward ? {
+              primaryMatchingProjectionReviewCarryforward:
+                loaded.primaryMatchingProjectionReviewCarryforward,
+            } : {}),
           } : {}),
         },
       },
@@ -593,6 +606,14 @@ export async function verifyAnalysisLaunchPromotionSourceArtifactDetailed(
       ["field_analysis", evidence.applicationFieldAnalysisVersion, expected.localLabEvidence?.analysisLaunch?.applicationFieldAnalysisVersion],
       ["primary_matching_projection", evidence.primaryMatchingProjectionSnapshotSha256, expected.localLabEvidence?.analysisLaunch?.primaryMatchingProjectionSnapshotSha256],
       ["primary_matching_projection_contract", evidence.primaryMatchingProjectionContractVersion, expected.localLabEvidence?.analysisLaunch?.primaryMatchingProjectionContractVersion],
+      [
+        "primary_matching_projection_review_carryforward",
+        sha256Canonical(evidence.primaryMatchingProjectionReviewCarryforward ?? null),
+        sha256Canonical(
+          expected.localLabEvidence?.analysisLaunch
+            ?.primaryMatchingProjectionReviewCarryforward ?? null,
+        ),
+      ],
       ["manual_confirmation_evaluations", artifact.manualConfirmationEvaluationsSha256 ?? null, expected.manualConfirmationEvaluationsSha256 ?? null],
       [
         "manual_confirmation_evaluation_selection",
@@ -888,32 +909,44 @@ async function loadAndVerifyTarget(
     status: "verified" | "unverified";
     snapshotSha256: string | null;
     contractVersion: string | null;
+    carryforward: AnalysisLaunchMatchingProjectionReviewCarryforward | null;
+    snapshot: LabPrimaryMatchingProjectionSnapshot | null;
   };
+  const reviewFindings = launch.review.findingsBySequence.get(target.sequence) ?? [];
   if (independentReviewPolicyRank(launch.review.reviewPolicyVersion) >= 9) {
     const packetProjection = record(
       packetBody.primaryMatchingProjection,
       "review packet primary matching projection",
     );
-    const expectedProjection = resolveIndependentReviewProjection(run, target).binding;
-    if (sha256Canonical(packetProjection) !== sha256Canonical(expectedProjection)) {
-      throw new Error(`independent review packet matching projection 결속이 다릅니다: ${target.grantId}`);
-    }
+    const resolution = resolveReviewedMatchingProjectionForPromotion({
+      run,
+      target,
+      reviewedPacketBinding: packetProjection as unknown as
+        AnalysisLaunchMatchingProjectionBinding & {
+          provenance: "run_snapshot" | "derived_current";
+        },
+      reviewFindings,
+    });
     matchingProjection = {
       status: "verified",
-      snapshotSha256: expectedProjection.snapshotSha256,
-      contractVersion: expectedProjection.conversionContractVersion,
+      snapshotSha256: resolution.binding.snapshotSha256,
+      contractVersion: resolution.binding.conversionContractVersion,
+      carryforward: resolution.carryforward,
+      snapshot: resolution.snapshot,
     };
   } else {
     const legacyProjection = verifyAnalysisLaunchPrimaryMatchingProjection(run, target);
     matchingProjection = {
       ...legacyProjection,
       contractVersion: target.primaryMatchingProjection?.conversionContractVersion ?? null,
+      carryforward: null,
+      snapshot: run.primaryMatchingProjection ?? null,
     };
   }
   const reviewRisk = assessIndependentReviewFindingsRisk({
     run,
     reviewMode: launch.review.reviewMode,
-    findings: launch.review.findingsBySequence.get(target.sequence) ?? [],
+    findings: reviewFindings,
   });
   return {
     launch,
@@ -923,6 +956,8 @@ async function loadAndVerifyTarget(
     primaryMatchingProjectionStatus: matchingProjection.status,
     primaryMatchingProjectionSnapshotSha256: matchingProjection.snapshotSha256,
     primaryMatchingProjectionContractVersion: matchingProjection.contractVersion,
+    primaryMatchingProjectionSnapshot: matchingProjection.snapshot,
+    primaryMatchingProjectionReviewCarryforward: matchingProjection.carryforward,
     reviewRisk,
   };
 }

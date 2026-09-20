@@ -10,6 +10,7 @@ import {
 } from "./application-precompute-release";
 import {
   assertPromotionReleaseContinuationBinding,
+  assertPromotionReviewedProjectionContinuationBinding,
   assertPromotionShadowSubsetContinuationBinding,
   assertManifestConfirmation,
   createPromotionReleaseManifest,
@@ -125,6 +126,8 @@ async function assertPreparedRevisionCanAdvance(input: {
   grantIds: readonly string[];
   plans: PromotionReleasePlanItem[];
   sourceArtifacts: ReturnType<typeof validatePromotionReleaseManifest>["sourceArtifacts"];
+  supersedePreparedReleaseId?: string;
+  supersedeExcludedGrantIds?: readonly string[];
 }): Promise<{ supersededReleaseIds: string[]; refreshedSourceGrantIds: string[] }> {
   const db = getCunoteDb();
   const rows = await db
@@ -145,7 +148,11 @@ async function assertPreparedRevisionCanAdvance(input: {
   const requested = [...input.grantIds].sort();
   const supersededReleaseIds: string[] = [];
   const refreshedSourceGrantIds = new Set<string>();
+  let supersedePreparedReleaseSeen = false;
   for (const release of releases) {
+    if (release.releaseId === input.supersedePreparedReleaseId) {
+      supersedePreparedReleaseSeen = true;
+    }
     if (release.status === "rolled_back") continue;
     if (release.status !== "prepared") {
       throw new Error(
@@ -222,7 +229,28 @@ async function assertPreparedRevisionCanAdvance(input: {
     if (dryRun.verdict !== "PASS") {
       throw new Error(`기존 prepared release dry-run 판정을 해석할 수 없습니다: ${release.releaseId}`);
     }
+    if (release.releaseId === input.supersedePreparedReleaseId) {
+      const expectedExcluded = existing.filter((grantId) => !requested.includes(grantId));
+      const declaredExcluded = [...(input.supersedeExcludedGrantIds ?? [])].sort();
+      if (
+        expectedExcluded.length !== declaredExcluded.length
+        || expectedExcluded.some((grantId, index) => grantId !== declaredExcluded[index])
+      ) {
+        throw new Error(
+          `prepared release 제외 대상을 exact로 선언해야 합니다: ${expectedExcluded.join(",")}`,
+        );
+      }
+      const continuation = assertPromotionReviewedProjectionContinuationBinding(manifest, input);
+      continuation.refreshedSourceGrantIds.forEach((grantId) => refreshedSourceGrantIds.add(grantId));
+      supersededReleaseIds.push(release.releaseId);
+      continue;
+    }
     throw new Error(`기존 prepared release가 모든 gate를 통과해 대체할 수 없습니다: ${release.releaseId}`);
+  }
+  if (input.supersedePreparedReleaseId && !supersedePreparedReleaseSeen) {
+    throw new Error(
+      `명시한 prepared release를 겹치는 대상에서 찾지 못했습니다: ${input.supersedePreparedReleaseId}`,
+    );
   }
   return {
     supersededReleaseIds,
@@ -243,6 +271,14 @@ async function prepare(): Promise<number> {
     .map((value) => value.trim())
     .filter(Boolean);
   const revision = Number(readArg("revision") ?? "1");
+  const supersedePreparedReleaseId = readArg("supersede-prepared")?.trim();
+  const supersedeExcludedGrantIds = (readArg("supersede-excluded-grantIds") ?? "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+  if (!supersedePreparedReleaseId && supersedeExcludedGrantIds.length > 0) {
+    throw new Error("--supersede-excluded-grantIds에는 --supersede-prepared가 필요합니다.");
+  }
   if (hasFlag("require-kordoc")) {
     throw new Error("--require-kordoc은 RHWP 작성 가이드 전환으로 폐기됐습니다.");
   }
@@ -429,6 +465,8 @@ async function prepare(): Promise<number> {
     grantIds: exactGrantIds,
     plans: planItems,
     sourceArtifacts,
+    ...(supersedePreparedReleaseId ? { supersedePreparedReleaseId } : {}),
+    ...(supersedeExcludedGrantIds.length > 0 ? { supersedeExcludedGrantIds } : {}),
   });
   if (continuation.supersededReleaseIds.length > 0) {
     console.log(`[release] 실패 revision 대체: ${continuation.supersededReleaseIds.join(", ")}`);
@@ -538,6 +576,9 @@ async function inspectReceiptBackedCohort(): Promise<number> {
         launchReceiptSha256: candidate.readiness.launchReceiptSha256,
         independentReviewAggregateSha256:
           candidate.readiness.independentReviewAggregateSha256,
+        primaryMatchingProjectionReviewCarryforward:
+          candidate.sourceArtifact.localLabEvidence?.analysisLaunch
+            ?.primaryMatchingProjectionReviewCarryforward ?? null,
         applicationRoundtrip: candidate.source.run.applicationRoundtrip,
         criteriaCount: candidate.plan.criteria.length,
       })),

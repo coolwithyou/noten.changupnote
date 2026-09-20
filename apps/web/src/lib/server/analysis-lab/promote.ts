@@ -24,6 +24,7 @@ import type {
   LabAudit,
   LabConfirmationOption,
   LabConfirmationReusable,
+  LabPrimaryMatchingProjectionSnapshot,
   LabReview,
   LabRun,
 } from "@/lib/server/analysis-lab/lab-contract";
@@ -393,6 +394,8 @@ export function planGrantPromotion(input: {
   analysisLaunchReceiptSha256?: string;
   /** exact 독립 검수 aggregate에서 계산한 영향도. launch 경로는 review를 가장하지 않고 이 값을 넘긴다. */
   reviewRisk?: PromotionReviewRisk;
+  /** 독립 검수 승계 정책이 검증한 현행 projection. immutable run 자체는 바꾸지 않는다. */
+  reviewedMatchingProjection?: LabPrimaryMatchingProjectionSnapshot;
   /** <runId>.confirmations.json 사이드카(없으면 null) — 병합 규칙은 confirmations.ts 그대로. */
   sidecar: LabConfirmationsFile | null;
   /** 사람 검수자가 별도 불변 sidecar로 확정한 3상태 질문. */
@@ -405,7 +408,8 @@ export function planGrantPromotion(input: {
   if (!isPublishableLabRun(input.run)) {
     throw new Error(`발행 가능한 런이 아닙니다: ${input.run.runId}`);
   }
-  if (input.run.primaryMatchingProjection) {
+  const matchingProjection = input.reviewedMatchingProjection ?? input.run.primaryMatchingProjection;
+  if (matchingProjection) {
     const projectionInspection = inspectPrimaryMatchingProjectionSnapshot(
       primaryProjectionSource({
         runId: input.run.runId,
@@ -418,7 +422,7 @@ export function planGrantPromotion(input: {
           : {}),
         criteria: input.run.criteria,
       }),
-      input.run.primaryMatchingProjection,
+      matchingProjection,
     );
     if (projectionInspection.status !== "verified") {
       throw new Error(
