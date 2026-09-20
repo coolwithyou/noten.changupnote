@@ -31,7 +31,9 @@ import type { AnalysisLaunchIndependentReviewInspection } from "./analysis-launc
 import { readAnalysisLaunchStatus, type AnalysisLaunchStatus } from "./launch-status";
 import {
   classifyMatchingInventorySnapshot,
+  createMatchingCampaignRunNextPlan,
   createMatchingCampaignIndex,
+  MATCHING_CAMPAIGN_MAX_CHILD_TARGETS,
   partitionMatchingCampaignGrantIds,
   readMatchingCampaignIndex,
   selectMatchingCampaignResume,
@@ -236,9 +238,12 @@ export function readCurrentInventoryHistoryTargetIds(value: unknown): readonly s
 export async function prepareMatchingInventoryCampaign(input: {
   readonly asOf: Date;
   readonly allowedStage: MatchingCampaignIndex["execution"]["allowedStage"];
+  readonly childSize?: number;
   readonly dependencies?: MatchingCampaignProductionDependencies;
 }) {
   const dependencies = input.dependencies ?? defaultDependencies();
+  const childSize = input.childSize ?? MATCHING_CAMPAIGN_MAX_CHILD_TARGETS;
+  partitionMatchingCampaignGrantIds([], childSize);
   const current = await dependencies.readCurrentTargets(input.asOf);
   if (current.length === 0) throw new Error("현행 지원 가능 matching campaign 모집단이 없습니다.");
   const history = await dependencies.readHistory(current);
@@ -269,7 +274,9 @@ export async function prepareMatchingInventoryCampaign(input: {
         && classified.category === "prepared_not_started"
         && targetHistory?.manifestSha256 === record.manifestSha256;
     });
-    if (exactReusableManifest && !existingManifestShas.has(record.manifestSha256)) {
+    if (exactReusableManifest
+      && record.manifest.targets.length <= childSize
+      && !existingManifestShas.has(record.manifestSha256)) {
       existingManifestShas.add(record.manifestSha256);
       children.push({ manifest: record.manifest, manifestSha256: record.manifestSha256 });
       for (const target of record.manifest.targets) reusedPreparedGrantIds.add(target.grantId);
@@ -283,23 +290,36 @@ export async function prepareMatchingInventoryCampaign(input: {
       || (entry.category === "prepared_not_started" && !reusedPreparedGrantIds.has(entry.grantId))
     ))
     .map((entry) => entry.grantId);
-  for (const grantIds of partitionMatchingCampaignGrantIds(currentPrepareIds)) {
+  for (const grantIds of partitionMatchingCampaignGrantIds(currentPrepareIds, childSize)) {
     children.push(await dependencies.prepareCurrent(grantIds, classification));
   }
 
-  const terminalSources = new Map<string, { manifestSha256: string; grantSha256: string }>();
+  const terminalSources = new Map<string, {
+    manifestSha256: string;
+    grantSha256: string;
+    targetGrantIds: string[];
+  }>();
   for (const entry of classification.entries) {
     if (!entry.campaignEligible || entry.category !== "terminal_recovery") continue;
     const record = history.get(entry.grantId);
     if (!record?.manifestSha256 || !record.grantSha256) {
       throw new Error(`terminal recovery source가 없습니다: ${entry.grantId}`);
     }
-    terminalSources.set(`${record.manifestSha256}:${record.grantSha256}`, {
+    const key = `${record.manifestSha256}:${record.grantSha256}`;
+    const source = terminalSources.get(key) ?? {
       manifestSha256: record.manifestSha256,
       grantSha256: record.grantSha256,
-    });
+      targetGrantIds: [],
+    };
+    source.targetGrantIds.push(entry.grantId);
+    terminalSources.set(key, source);
   }
   for (const source of terminalSources.values()) {
+    if (source.targetGrantIds.length > childSize) {
+      throw new Error(
+        `terminal recovery source가 child-size를 초과합니다: ${source.manifestSha256} (${source.targetGrantIds.length} > ${childSize})`,
+      );
+    }
     children.push(await dependencies.prepareTerminal(source.manifestSha256, source.grantSha256));
   }
 
@@ -311,6 +331,7 @@ export async function prepareMatchingInventoryCampaign(input: {
     children,
     allowedStage: input.allowedStage,
     now: new Date(),
+    childSize,
   });
   if (index.snapshot.classificationSha256 !== storedClassification.sha256) {
     throw new Error("campaign index classification 결속이 저장 artifact와 다릅니다.");
@@ -337,10 +358,39 @@ export async function readMatchingCampaignResumeStatus(input: {
   const campaign = await readMatchingCampaignIndex(root, input.campaignSha256);
   const receipts = await readCampaignReceipts(root, campaign);
   const selection = selectMatchingCampaignResume({ campaign, receipts });
-  const grantSha256s = selection.status === "resume_child"
-    ? await readGrantSha256s(root, selection.childManifestSha256)
+  const child = selection.status === "resume_child"
+    ? campaign.children[selection.childSequence]
+    : null;
+  if (selection.status === "resume_child" && child?.manifestSha256 !== selection.childManifestSha256) {
+    throw new Error("campaign status next child 결속이 다릅니다.");
+  }
+  const grantSha256s = child
+    ? await readGrantSha256s(root, child.manifestSha256, child.targetCount)
     : [];
   return Object.freeze({ campaign, selection, grantSha256s });
+}
+
+export async function readMatchingCampaignRunNextPlan(input: {
+  readonly campaignSha256: string;
+  readonly expectedChildManifestSha256: string;
+  readonly approvedBy: string;
+  readonly root?: string;
+}) {
+  const root = input.root ?? findMonorepoRoot();
+  const status = await readMatchingCampaignResumeStatus({
+    campaignSha256: input.campaignSha256,
+    root,
+  });
+  const runtime = await readDeepAnalysisRuntimeAdmissionSnapshot(getCunoteDb());
+  return createMatchingCampaignRunNextPlan({
+    campaignSha256: input.campaignSha256,
+    expectedChildManifestSha256: input.expectedChildManifestSha256,
+    approvedBy: input.approvedBy,
+    campaign: status.campaign,
+    selection: status.selection,
+    existingGrantSha256s: status.grantSha256s,
+    runtime,
+  });
 }
 
 function defaultDependencies(): MatchingCampaignProductionDependencies {
@@ -553,11 +603,19 @@ async function readCampaignReceipts(
   return receipts;
 }
 
-async function readGrantSha256s(root: string, manifestSha256: string): Promise<readonly string[]> {
+async function readGrantSha256s(
+  root: string,
+  manifestSha256: string,
+  targetCount: number,
+): Promise<readonly string[]> {
   const grants: string[] = [];
   for (const sha256 of await artifactShas(root, "grants")) {
     const grant = normalizeAnalysisLaunchGrant(await readAnalysisLaunchArtifact("grants", sha256, root));
-    if (grant.manifestSha256 === manifestSha256) grants.push(sha256);
+    if (grant.manifestSha256 !== manifestSha256) continue;
+    if (grant.targetCount !== targetCount) {
+      throw new Error("campaign child grant targetCount가 manifest와 다릅니다.");
+    }
+    grants.push(sha256);
   }
   return Object.freeze(grants.sort());
 }

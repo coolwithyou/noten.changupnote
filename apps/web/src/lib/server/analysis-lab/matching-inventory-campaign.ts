@@ -12,7 +12,8 @@ import { writeImmutableBytesAtomic } from "./immutable-artifact-fs";
 
 export const MATCHING_INVENTORY_CLASSIFICATION_SCHEMA =
   "analysis-matching-inventory-classification-v1" as const;
-export const MATCHING_CAMPAIGN_INDEX_SCHEMA = "analysis-matching-campaign-index-v1" as const;
+const LEGACY_MATCHING_CAMPAIGN_INDEX_SCHEMA = "analysis-matching-campaign-index-v1" as const;
+export const MATCHING_CAMPAIGN_INDEX_SCHEMA = "analysis-matching-campaign-index-v2" as const;
 export const MATCHING_CAMPAIGN_MAX_CHILD_TARGETS = 100;
 
 const SHA = /^[a-f0-9]{64}$/u;
@@ -290,6 +291,7 @@ export interface MatchingCampaignIndex {
   readonly execution: {
     readonly strategy: "sequential_child_manifests";
     readonly concurrency: 2;
+    readonly childSize: number;
     readonly liveAuthority: "none";
     readonly requiredAuthority: "analysis-launch-grant-v1-per-child";
     readonly allowedStage: "prepare" | "grant" | "launch";
@@ -298,6 +300,7 @@ export interface MatchingCampaignIndex {
     readonly sequence: number;
     readonly manifestSha256: string;
     readonly inventorySha256: string;
+    readonly targetCount: number;
     readonly targetGrantIds: readonly string[];
     readonly classifications: readonly MatchingInventoryCategory[];
     readonly ancestry: {
@@ -324,8 +327,12 @@ export function createMatchingCampaignIndex(input: {
   readonly children: readonly MatchingCampaignChildInput[];
   readonly allowedStage: MatchingCampaignIndex["execution"]["allowedStage"];
   readonly now: Date;
+  readonly childSize?: number;
 }): MatchingCampaignIndex {
   const classification = normalizeClassification(input.classification);
+  const childSize = validateMatchingCampaignChildSize(
+    input.childSize ?? MATCHING_CAMPAIGN_MAX_CHILD_TARGETS,
+  );
   exactInstant(input.now.toISOString(), "preparedAt");
   if (input.children.length === 0) throw new Error("matching campaign child manifest가 없습니다.");
   const classificationById = new Map(classification.entries.map((item) => [item.grantId, item]));
@@ -338,8 +345,8 @@ export function createMatchingCampaignIndex(input: {
       || manifest.execution.analysisMode !== "matching_only"
       || manifest.execution.concurrency !== 2
       || manifest.targets.length < 1
-      || manifest.targets.length > MATCHING_CAMPAIGN_MAX_CHILD_TARGETS) {
-      throw new Error("campaign child는 동시성 2의 matching_only current inventory여야 합니다.");
+      || manifest.targets.length > childSize) {
+      throw new Error("campaign child는 선택한 child-size 이하인 동시성 2의 matching_only current inventory여야 합니다.");
     }
     const classifications = new Set<MatchingInventoryCategory>();
     for (const target of manifest.targets) {
@@ -368,6 +375,7 @@ export function createMatchingCampaignIndex(input: {
       sequence,
       manifestSha256: child.manifestSha256,
       inventorySha256: manifest.source.planArtifactSha256,
+      targetCount: manifest.targets.length,
       targetGrantIds: Object.freeze(manifest.targets.map((target) => target.grantId)),
       classifications: Object.freeze([...classifications].sort()),
       ancestry: Object.freeze({
@@ -401,6 +409,7 @@ export function createMatchingCampaignIndex(input: {
     execution: Object.freeze({
       strategy: "sequential_child_manifests",
       concurrency: 2,
+      childSize,
       liveAuthority: "none",
       requiredAuthority: "analysis-launch-grant-v1-per-child",
       allowedStage: input.allowedStage,
@@ -461,7 +470,7 @@ export async function storeMatchingCampaignIndex(root: string, value: MatchingCa
 export async function readMatchingCampaignIndex(root: string, digest: string): Promise<MatchingCampaignIndex> {
   const bytes = await readFile(matchingCampaignIndexPath(root, digest));
   if (sha(bytes) !== digest) throw new Error("campaign index content address가 다릅니다.");
-  const value = JSON.parse(bytes.toString("utf8")) as MatchingCampaignIndex;
+  const value = JSON.parse(bytes.toString("utf8")) as unknown;
   if (!bytes.equals(encodeCanonical(value))) throw new Error("campaign index canonical bytes가 다릅니다.");
   return validateCampaignIndexShape(value);
 }
@@ -494,6 +503,133 @@ export type MatchingCampaignResumeSelection =
       readonly completedGrantIds: readonly string[];
       readonly individualResultGrantIds: readonly string[];
     };
+
+export type MatchingCampaignRunNextPlan =
+  | {
+      readonly status: "command_plan";
+      readonly campaignSha256: string;
+      readonly childSequence: number;
+      readonly childManifestSha256: string;
+      readonly targetCount: number;
+      readonly runtimeGeneration: number;
+      readonly runtimeObservedAt: string;
+      readonly automaticExecution: false;
+      readonly userApprovalVerified: false;
+      readonly commandKind: "grant" | "launch";
+      readonly command: string;
+      readonly note: string;
+    }
+  | {
+      readonly status: "blocked";
+      readonly reason:
+        | "shared_stop"
+        | "multiple_grants"
+        | "campaign_stage_prepare"
+        | "campaign_stage_grant";
+      readonly campaignSha256: string;
+      readonly childManifestSha256: string;
+      readonly automaticExecution: false;
+      readonly userApprovalVerified: false;
+      readonly existingGrantSha256s: readonly string[];
+      readonly note: string;
+    }
+  | {
+      readonly status: "complete";
+      readonly campaignSha256: string;
+      readonly automaticExecution: false;
+      readonly userApprovalVerified: false;
+      readonly note: string;
+    };
+
+export function createMatchingCampaignRunNextPlan(input: {
+  readonly campaignSha256: string;
+  readonly expectedChildManifestSha256: string;
+  readonly approvedBy: string;
+  readonly campaign: MatchingCampaignIndex;
+  readonly selection: MatchingCampaignResumeSelection;
+  readonly existingGrantSha256s: readonly string[];
+  readonly runtime: {
+    readonly mode: string;
+    readonly generation: number;
+    readonly localOwnerId: string | null;
+    readonly localLeaseExpiresAt: string | null;
+    readonly databaseObservedAt: string;
+    readonly activeDeepLeases: number;
+    readonly activeApplicationLeases: number;
+  };
+}): MatchingCampaignRunNextPlan {
+  exactSha(input.campaignSha256, "campaign SHA");
+  exactSha(input.expectedChildManifestSha256, "expected child manifest SHA");
+  const campaign = validateCampaignIndexShape(input.campaign);
+  if (sha(encodeCanonical(campaign)) !== input.campaignSha256) {
+    throw new Error("run-next campaign SHA가 campaign index와 다릅니다.");
+  }
+  if (!input.approvedBy.trim()) throw new Error("run-next approved-by가 비어 있습니다.");
+  const grants = [...new Set(input.existingGrantSha256s.map((value) => exactSha(value, "grant SHA")))].sort();
+  if (grants.length !== input.existingGrantSha256s.length) {
+    throw new Error("run-next existing grant SHA가 중복됐습니다.");
+  }
+  if (input.selection.status === "complete") {
+    return Object.freeze({
+      status: "complete",
+      campaignSha256: input.campaignSha256,
+      automaticExecution: false,
+      userApprovalVerified: false,
+      note: "campaign terminal receipt 확인이 끝났습니다. grant 또는 launch를 실행하지 않습니다.",
+    });
+  }
+  if (input.selection.childManifestSha256 !== input.expectedChildManifestSha256) {
+    throw new Error("run-next expected child SHA가 현재 다음 child와 다릅니다.");
+  }
+  const child = campaign.children[input.selection.childSequence];
+  if (!child || child.manifestSha256 !== input.selection.childManifestSha256) {
+    throw new Error("run-next selection이 campaign child와 다릅니다.");
+  }
+  assertPausedMatchingCampaignRuntime(input.runtime);
+  const blocked = (
+    reason: Extract<MatchingCampaignRunNextPlan, { status: "blocked" }>["reason"],
+    note: string,
+  ): MatchingCampaignRunNextPlan => Object.freeze({
+    status: "blocked",
+    reason,
+    campaignSha256: input.campaignSha256,
+    childManifestSha256: child.manifestSha256,
+    automaticExecution: false,
+    userApprovalVerified: false,
+    existingGrantSha256s: Object.freeze(grants),
+    note,
+  });
+  if (input.selection.reason === "shared_stop") {
+    return blocked("shared_stop", "shared stop은 자동 재개하지 않습니다. 원인과 사용창을 확인한 뒤 같은 child를 별도로 재개해야 합니다.");
+  }
+  if (campaign.execution.allowedStage === "prepare") {
+    return blocked("campaign_stage_prepare", "campaign scope가 prepare까지만 허용되어 grant command를 만들지 않습니다.");
+  }
+  if (grants.length > 1) {
+    return blocked("multiple_grants", "같은 child에 grant가 둘 이상 있어 임의 선택하지 않습니다.");
+  }
+  if (grants.length === 1 && campaign.execution.allowedStage !== "launch") {
+    return blocked("campaign_stage_grant", "campaign scope가 grant까지만 허용되어 launch command를 만들지 않습니다.");
+  }
+  const commandKind = grants.length === 0 ? "grant" : "launch";
+  const command = commandKind === "grant"
+    ? `pnpm lab:launch:grant -- --manifest=${child.manifestSha256} --approved-by=${shellQuote(input.approvedBy)}`
+    : `pnpm lab:launch -- --grant=${grants[0]}`;
+  return Object.freeze({
+    status: "command_plan",
+    campaignSha256: input.campaignSha256,
+    childSequence: child.sequence,
+    childManifestSha256: child.manifestSha256,
+    targetCount: child.targetCount,
+    runtimeGeneration: input.runtime.generation,
+    runtimeObservedAt: input.runtime.databaseObservedAt,
+    automaticExecution: false,
+    userApprovalVerified: false,
+    commandKind,
+    command,
+    note: "외부의 사용자 승인 증거를 CLI가 추정하지 않는 command-plan입니다. 출력된 명령은 자동 실행되지 않습니다.",
+  });
+}
 
 export function selectMatchingCampaignResume(input: {
   readonly campaign: MatchingCampaignIndex;
@@ -596,29 +732,38 @@ function normalizeClassification(value: MatchingInventoryClassification): Matchi
   return value;
 }
 
-function validateCampaignIndexShape(value: MatchingCampaignIndex): MatchingCampaignIndex {
-  if (value.schema !== MATCHING_CAMPAIGN_INDEX_SCHEMA
-    || value.execution.strategy !== "sequential_child_manifests"
-    || value.execution.concurrency !== 2
-    || value.execution.liveAuthority !== "none"
-    || value.execution.requiredAuthority !== "analysis-launch-grant-v1-per-child"
-    || value.userScope.grantsStillRequired !== true
-    || value.userScope.allowedStage !== value.execution.allowedStage
-    || value.children.length === 0
-    || value.snapshot.targetCount !== value.snapshot.targetGrantIds.length) {
+function validateCampaignIndexShape(value: unknown): MatchingCampaignIndex {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new Error("matching campaign index 계약이 잘못됐습니다.");
   }
-  exactInstant(value.preparedAt, "preparedAt");
-  exactInstant(value.snapshot.observedAt, "snapshot.observedAt");
-  exactSha(value.snapshot.classificationSha256, "classificationSha256");
-  if (value.userScope.childManifestSha256s.length !== value.children.length) {
+  const raw = value as Record<string, unknown>;
+  const normalized = raw.schema === LEGACY_MATCHING_CAMPAIGN_INDEX_SCHEMA
+    ? upgradeLegacyMatchingCampaignIndex(raw)
+    : value as MatchingCampaignIndex;
+  if (normalized.schema !== MATCHING_CAMPAIGN_INDEX_SCHEMA
+    || normalized.execution.strategy !== "sequential_child_manifests"
+    || normalized.execution.concurrency !== 2
+    || validateMatchingCampaignChildSize(normalized.execution.childSize) !== normalized.execution.childSize
+    || normalized.execution.liveAuthority !== "none"
+    || normalized.execution.requiredAuthority !== "analysis-launch-grant-v1-per-child"
+    || normalized.userScope.grantsStillRequired !== true
+    || normalized.userScope.allowedStage !== normalized.execution.allowedStage
+    || normalized.children.length === 0
+    || normalized.snapshot.targetCount !== normalized.snapshot.targetGrantIds.length) {
+    throw new Error("matching campaign index 계약이 잘못됐습니다.");
+  }
+  exactInstant(normalized.preparedAt, "preparedAt");
+  exactInstant(normalized.snapshot.observedAt, "snapshot.observedAt");
+  exactSha(normalized.snapshot.classificationSha256, "classificationSha256");
+  if (normalized.userScope.childManifestSha256s.length !== normalized.children.length) {
     throw new Error("campaign user scope child 수가 다릅니다.");
   }
-  for (const [sequence, child] of value.children.entries()) {
+  for (const [sequence, child] of normalized.children.entries()) {
     if (child.sequence !== sequence
-      || child.manifestSha256 !== value.userScope.childManifestSha256s[sequence]
+      || child.manifestSha256 !== normalized.userScope.childManifestSha256s[sequence]
+      || child.targetCount !== child.targetGrantIds.length
       || child.targetGrantIds.length < 1
-      || child.targetGrantIds.length > MATCHING_CAMPAIGN_MAX_CHILD_TARGETS
+      || child.targetGrantIds.length > normalized.execution.childSize
       || child.material.analysisMode !== "matching_only") {
       throw new Error("campaign child index가 잘못됐습니다.");
     }
@@ -626,7 +771,60 @@ function validateCampaignIndexShape(value: MatchingCampaignIndex): MatchingCampa
     exactSha(child.inventorySha256, "child.inventorySha256");
     exactSha(child.material.packageRuntimeSha256, "child.packageRuntimeSha256");
   }
+  return normalized;
+}
+
+function upgradeLegacyMatchingCampaignIndex(value: Record<string, unknown>): MatchingCampaignIndex {
+  const execution = value.execution as MatchingCampaignIndex["execution"] | undefined;
+  const children = value.children as MatchingCampaignIndex["children"] | undefined;
+  if (!execution || !Array.isArray(children)) {
+    throw new Error("legacy matching campaign index 계약이 잘못됐습니다.");
+  }
+  return {
+    ...(value as unknown as Omit<MatchingCampaignIndex, "schema" | "execution" | "children">),
+    schema: MATCHING_CAMPAIGN_INDEX_SCHEMA,
+    execution: {
+      ...execution,
+      childSize: MATCHING_CAMPAIGN_MAX_CHILD_TARGETS,
+    },
+    children: children.map((child) => ({
+      ...child,
+      targetCount: child.targetGrantIds.length,
+    })),
+  };
+}
+
+function validateMatchingCampaignChildSize(value: number): number {
+  if (!Number.isInteger(value) || value < 1 || value > MATCHING_CAMPAIGN_MAX_CHILD_TARGETS) {
+    throw new Error("campaign child-size는 1~100 정수여야 합니다.");
+  }
   return value;
+}
+
+function assertPausedMatchingCampaignRuntime(runtime: {
+  readonly mode: string;
+  readonly generation: number;
+  readonly localOwnerId: string | null;
+  readonly localLeaseExpiresAt: string | null;
+  readonly databaseObservedAt: string;
+  readonly activeDeepLeases: number;
+  readonly activeApplicationLeases: number;
+}): void {
+  if (runtime.mode !== "paused"
+    || runtime.localOwnerId !== null
+    || runtime.localLeaseExpiresAt !== null
+    || runtime.activeDeepLeases !== 0
+    || runtime.activeApplicationLeases !== 0) {
+    throw new Error("run-next runtime은 paused/owner 없음/active lease 0이어야 합니다.");
+  }
+  if (!Number.isSafeInteger(runtime.generation) || runtime.generation < 0
+    || !Number.isFinite(Date.parse(runtime.databaseObservedAt))) {
+    throw new Error("run-next runtime snapshot이 잘못됐습니다.");
+  }
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replaceAll("'", `'"'"'`)}'`;
 }
 
 function exactUuid(value: string, label: string): string {
