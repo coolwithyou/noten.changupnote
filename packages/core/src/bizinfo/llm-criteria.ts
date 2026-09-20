@@ -34,7 +34,7 @@ export const DEFAULT_ANTHROPIC_MODEL = "claude-haiku-4-5-20251001";
  * source별 parser/prompt 버전과 분리해 정규화 구현 변경만 provenance에 결속한다.
  */
 export const LLM_CRITERIA_NORMALIZATION_CONTRACT_VERSION =
-  "grant-llm-criteria-normalization-v2" as const;
+  "grant-llm-criteria-normalization-v3" as const;
 
 interface AnthropicToolUseBlock {
   type: "tool_use";

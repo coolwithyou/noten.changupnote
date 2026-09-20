@@ -43,6 +43,9 @@ export function canonicalizeCriterionValue(
   kind: GrantCriterion["kind"] = "required",
 ): CriterionValue {
   const value = recordValue(input);
+  // text_only는 차원별 구조화 값이 아니라 원문 조건을 손실 없이 보존하는 placeholder다.
+  // tags/regions/numeric value로 재해석하면 note가 빈 구조로 소실된다.
+  if (operator === "text_only") return value;
   switch (dimension) {
     case "region":
       return canonicalRegion(value);

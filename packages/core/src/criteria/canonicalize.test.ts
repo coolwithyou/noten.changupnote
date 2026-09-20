@@ -51,6 +51,22 @@ assert.deepEqual(canonicalizeGrantCriterion(aliases[1]!).value, { targets: ["법
 assert.deepEqual(canonicalizeGrantCriterion(aliases[2]!).value, { traits: ["여성"] });
 assert.equal(matchGrantCriteria(aliases, company).eligibility, "eligible");
 
+for (const dimension of ["industry", "region", "employees"] as const) {
+  const value = {
+    note: `${dimension} 원문 조건`,
+    downgrade_reason: "structure_unresolved",
+  };
+  assert.deepEqual(
+    canonicalizeGrantCriterion(criterion({
+      dimension,
+      operator: "text_only",
+      value,
+    })).value,
+    value,
+    `${dimension}/text_only note를 차원별 빈 구조로 소실하지 않는다`,
+  );
+}
+
 assert.deepEqual(canonicalizeGrantCriterion(criterion({
   dimension: "target_type",
   operator: "in",

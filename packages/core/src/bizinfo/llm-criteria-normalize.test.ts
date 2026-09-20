@@ -35,8 +35,22 @@ function normalizeOne(row: Record<string, unknown>) {
 check("[provenance] 공용 LLM normalizer 계약은 source parser 버전과 독립이다", () => {
   assert.equal(
     LLM_CRITERIA_NORMALIZATION_CONTRACT_VERSION,
-    "grant-llm-criteria-normalization-v2",
+    "grant-llm-criteria-normalization-v3",
   );
+});
+
+check("[projection] text_only note는 차원 canonicalize 뒤에도 보존된다", () => {
+  const criterion = normalizeOne({
+    dimension: "industry",
+    operator: "text_only",
+    kind: "required",
+    value: { note: "법령에 따라 지원 제외 업종을 별도 확인" },
+    confidence: 0.8,
+    source_span: "법령에 따라 지원 제외 업종을 별도 확인",
+  });
+  assert.deepEqual(criterion.value, {
+    note: "법령에 따라 지원 제외 업종을 별도 확인",
+  });
 });
 
 const exactPremisesValue = {
