@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import {
+  assertPromotionBuildProvenanceMatches,
   readPromotionBuildProvenance,
   type PromotionGitReader,
 } from "./promotion-build-provenance";
@@ -10,6 +11,18 @@ function gitReader(outputs: Map<string, string>, calls: string[][]): PromotionGi
     return outputs.get(args.join("\u0000")) ?? "";
   };
 }
+
+assert.doesNotThrow(() => assertPromotionBuildProvenanceMatches(
+  { gitCommit: "a".repeat(40), buildDigest: "b".repeat(40) },
+  { gitCommit: "a".repeat(40), buildDigest: "b".repeat(40) },
+));
+assert.throws(
+  () => assertPromotionBuildProvenanceMatches(
+    { gitCommit: "a".repeat(40), buildDigest: "b".repeat(40) },
+    { gitCommit: "c".repeat(40), buildDigest: "d".repeat(40) },
+  ),
+  /build provenance.*새 release revision/,
+);
 
 {
   const calls: string[][] = [];

@@ -33,7 +33,10 @@ import {
 import { getCunoteDb } from "../db/client";
 import * as schema from "../db/schema";
 import { loadMonorepoEnv } from "../loadMonorepoEnv";
-import { readPromotionBuildProvenance } from "./promotion-build-provenance";
+import {
+  assertPromotionBuildProvenanceMatches,
+  readPromotionBuildProvenance,
+} from "./promotion-build-provenance";
 import { shadowConversionIsPromotionSafe } from "./shadow-convert";
 import { readManualConfirmationEvaluationSelectionSet } from "./manual-confirmation-evaluations";
 
@@ -608,8 +611,12 @@ async function approve(): Promise<number> {
   const actor = readArg("actor")?.trim();
   if (!releaseId) throw new Error("--release가 필요합니다.");
   if (!actor) throw new Error("--actor에 승인 담당자 식별자가 필요합니다.");
-  readPromotionBuildProvenance();
+  const currentBuild = readPromotionBuildProvenance();
   const manifest = await readPromotionReleaseManifest(releaseId);
+  assertPromotionBuildProvenanceMatches({
+    gitCommit: manifest.gitCommit,
+    buildDigest: manifest.buildDigest,
+  }, currentBuild);
   assertManifestConfirmation(manifest, readArg("confirm"));
   assertReceiptBackedPromotionMutationAdmitted(manifest);
   const aggregate = await readGate(

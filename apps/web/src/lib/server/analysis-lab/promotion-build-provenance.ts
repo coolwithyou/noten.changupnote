@@ -6,6 +6,20 @@ export interface PromotionBuildProvenance {
   buildDigest: string;
 }
 
+export function assertPromotionBuildProvenanceMatches(
+  expected: PromotionBuildProvenance,
+  current: PromotionBuildProvenance,
+): void {
+  if (
+    expected.gitCommit !== current.gitCommit
+    || expected.buildDigest !== current.buildDigest
+  ) {
+    throw new Error(
+      "release manifest와 현재 build provenance가 다릅니다. 현재 소스로 새 release revision을 준비해주세요.",
+    );
+  }
+}
+
 export type PromotionGitReader = (args: readonly string[]) => string;
 
 const RELEASE_CODE_PATHS = [
