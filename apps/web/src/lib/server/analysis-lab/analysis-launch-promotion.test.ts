@@ -186,6 +186,15 @@ try {
     policyVersion: "codex-only-v5",
     blocked: false,
   });
+  await writeReviewManifestOnly({
+    root,
+    receiptSha256: storedReceipt.sha256,
+    manifestSha256: storedManifest.sha256,
+    grantSha256: storedGrant.sha256,
+    runPath,
+    runArtifactSha256,
+    policyVersion: "codex-only-v4",
+  });
 
   const cohort = await loadAnalysisLaunchPromotionCohort({
     launchReceiptSha256s: [storedReceipt.sha256],
@@ -968,6 +977,21 @@ try {
     grantId,
     repositoryRoot: root,
   }), /run artifact SHA/, "blocked여도 run/packet/hash 손상은 fail-closed한다");
+  await writeReviewManifestOnly({
+    root,
+    receiptSha256: storedReceipt.sha256,
+    manifestSha256: storedManifest.sha256,
+    grantSha256: storedGrant.sha256,
+    runPath,
+    runArtifactSha256,
+    policyVersion: "codex-only-v7",
+  });
+  await assert.rejects(() => inspectAnalysisLaunchIndependentReview({
+    launchReceiptSha256: storedReceipt.sha256,
+    grantId,
+    repositoryRoot: root,
+  }), /independent review aggregate가 하나로 확정되지 않습니다/,
+  "선택된 최신 검수 manifest 자체가 미완료면 fail-closed한다");
 } finally {
   await rm(root, { recursive: true, force: true });
 }
@@ -1254,6 +1278,62 @@ async function writeReviewEvidence(input: {
   const aggregateDir = join(reviewRoot, "review-runs", reviewManifestSha256);
   await mkdir(aggregateDir, { recursive: true });
   await writeFile(join(aggregateDir, `${aggregateSha256}.aggregate.json`), aggregateBytes);
+  return reviewManifestSha256;
+}
+
+async function writeReviewManifestOnly(input: {
+  root: string;
+  receiptSha256: string;
+  manifestSha256: string;
+  grantSha256: string;
+  runPath: string;
+  runArtifactSha256: string;
+  policyVersion: string;
+}): Promise<string> {
+  const reviewRoot = join(
+    input.root,
+    "spike-out",
+    "analysis-lab",
+    "independent-review",
+    input.receiptSha256,
+  );
+  const packetBody = {
+    schema: "independent-ai-review-packet-v2",
+    launchReceiptSha256: input.receiptSha256,
+    sequence: 0,
+    grantId,
+    runId,
+    runArtifactPath: relative(input.root, input.runPath).split(sep).join("/"),
+    runArtifactSha256: input.runArtifactSha256,
+  };
+  const packetBytes = Buffer.from(JSON.stringify(packetBody));
+  const packetSha256 = sha256(packetBytes);
+  const packetPath = join(reviewRoot, "packets", `00-${packetSha256}.json`);
+  await mkdir(join(reviewRoot, "packets"), { recursive: true });
+  await writeFile(packetPath, packetBytes);
+  const manifestBytes = Buffer.from(JSON.stringify({
+    schema: "independent-ai-review-manifest-v2",
+    launchReceiptSha256: input.receiptSha256,
+    launchManifestSha256: input.manifestSha256,
+    launchGrantSha256: input.grantSha256,
+    reviewPolicyVersion: input.policyVersion,
+    reviewers: [{
+      reviewer: "codex",
+      model: "gpt-5.6-sol",
+      transport: "codex-cli",
+      auth: "chatgpt-subscription",
+    }],
+    packets: [{
+      sequence: 0,
+      grantId,
+      runId,
+      path: relative(input.root, packetPath).split(sep).join("/"),
+      sha256: packetSha256,
+    }],
+  }));
+  const reviewManifestSha256 = sha256(manifestBytes);
+  await writeFile(join(reviewRoot, `${reviewManifestSha256}.manifest.json`), manifestBytes);
+  await mkdir(join(reviewRoot, "review-runs", reviewManifestSha256), { recursive: true });
   return reviewManifestSha256;
 }
 

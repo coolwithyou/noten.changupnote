@@ -189,6 +189,13 @@ interface ReviewEvidence {
   heldSequences: Set<number>;
 }
 
+interface ReviewManifestCandidate {
+  manifestSha256: string;
+  reviewPolicyVersion: string;
+  reviewerModel: string;
+  packetBySequence: Map<number, ReviewManifestPacket>;
+}
+
 export interface ReviewRiskFinding {
   kind: "criterion" | "axis";
   key: number | string;
@@ -995,7 +1002,7 @@ async function loadReviewEvidence(
     throw new Error(`independent review manifest가 없습니다: ${receiptSha256}`);
   }
   const candidates = await Promise.all(manifestFiles.map((manifestFile) => (
-    loadReviewEvidenceManifest(root, receiptSha256, receipt, reviewRoot, manifestFile)
+    loadReviewManifestCandidate(receiptSha256, receipt, reviewRoot, manifestFile)
   )));
   const requestedSequences = new Set(receipt.targets
     .filter((target) => (
@@ -1022,16 +1029,15 @@ async function loadReviewEvidence(
       `동일 coverage와 정책 버전의 독립 검수 manifest가 둘 이상입니다: ${receiptSha256}`,
     );
   }
-  return selected[0]!.candidate;
+  return loadReviewEvidenceManifest(receiptSha256, reviewRoot, selected[0]!.candidate);
 }
 
-async function loadReviewEvidenceManifest(
-  root: string,
+async function loadReviewManifestCandidate(
   receiptSha256: string,
   receipt: AnalysisLaunchReceipt,
   reviewRoot: string,
   manifestFile: string,
-): Promise<ReviewEvidence> {
+): Promise<ReviewManifestCandidate> {
   const manifestSha256 = manifestFile.slice(0, 64);
   const manifestBytes = await readFile(join(reviewRoot, manifestFile));
   if (sha256(manifestBytes) !== manifestSha256) {
@@ -1074,8 +1080,22 @@ async function loadReviewEvidenceManifest(
     }
     packetBySequence.set(normalized.sequence, normalized);
   }
+  return {
+    manifestSha256,
+    reviewPolicyVersion: typeof manifest.reviewPolicyVersion === "string"
+      ? manifest.reviewPolicyVersion
+      : "codex-only-v0",
+    reviewerModel: reviewer.model,
+    packetBySequence,
+  };
+}
 
-  const aggregateDir = join(reviewRoot, "review-runs", manifestSha256);
+async function loadReviewEvidenceManifest(
+  receiptSha256: string,
+  reviewRoot: string,
+  candidate: ReviewManifestCandidate,
+): Promise<ReviewEvidence> {
+  const aggregateDir = join(reviewRoot, "review-runs", candidate.manifestSha256);
   const aggregateFiles = (await readdir(aggregateDir))
     .filter((name) => /^[a-f0-9]{64}\.aggregate\.json$/u.test(name))
     .sort();
@@ -1092,17 +1112,17 @@ async function loadReviewEvidenceManifest(
   const reviewMode = "codex-only" as const;
   if (
     aggregate.schema !== INDEPENDENT_REVIEW_AGGREGATE_SCHEMA
-    || aggregate.manifestSha256 !== manifestSha256
+    || aggregate.manifestSha256 !== candidate.manifestSha256
     || aggregate.launchReceiptSha256 !== receiptSha256
     || aggregate.reviewMode !== "codex-only"
-    || aggregate.reviewedTargets !== packetBySequence.size
+    || aggregate.reviewedTargets !== candidate.packetBySequence.size
     || !Array.isArray(aggregate.comparisons)
   ) {
     throw new Error(`independent review aggregate 결속이 다릅니다: ${receiptSha256}`);
   }
   const summaries = record(aggregate.reviewerSummaries, "reviewer summaries");
   const codex = record(summaries.codex, "codex summary");
-  if (codex.model !== reviewer.model || codex.transport !== "codex-cli") {
+  if (codex.model !== candidate.reviewerModel || codex.transport !== "codex-cli") {
     throw new Error(`independent review aggregate reviewer가 다릅니다: ${receiptSha256}`);
   }
   const comparisonBySequence = new Map<number, { criterionTotal: number; axisTotal: number }>();
@@ -1115,8 +1135,8 @@ async function loadReviewEvidenceManifest(
     });
   }
   if (
-    comparisonBySequence.size !== packetBySequence.size
-    || [...packetBySequence.keys()].some((sequence) => !comparisonBySequence.has(sequence))
+    comparisonBySequence.size !== candidate.packetBySequence.size
+    || [...candidate.packetBySequence.keys()].some((sequence) => !comparisonBySequence.has(sequence))
   ) {
     throw new Error(`independent review comparison coverage가 불완전합니다: ${receiptSha256}`);
   }
@@ -1128,7 +1148,7 @@ async function loadReviewEvidenceManifest(
   for (const value of [...consensus.defects, ...consensus.unresolved]) {
     const finding = record(value, "review finding");
     const sequence = integer(finding.sequence, "finding.sequence");
-    if (!packetBySequence.has(sequence)) {
+    if (!candidate.packetBySequence.has(sequence)) {
       throw new Error(`independent review finding sequence가 packet에 없습니다: ${sequence}`);
     }
     const kind = finding.kind;
@@ -1166,12 +1186,10 @@ async function loadReviewEvidenceManifest(
     }
   }
   return {
-    manifestSha256,
+    manifestSha256: candidate.manifestSha256,
     aggregateSha256,
-    reviewPolicyVersion: typeof manifest.reviewPolicyVersion === "string"
-      ? manifest.reviewPolicyVersion
-      : "codex-only-v0",
-    packetBySequence,
+    reviewPolicyVersion: candidate.reviewPolicyVersion,
+    packetBySequence: candidate.packetBySequence,
     comparisonBySequence,
     reviewMode,
     findingsBySequence,
