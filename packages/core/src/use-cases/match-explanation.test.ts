@@ -13,10 +13,29 @@ assert.equal(explainMatch(match).unknown, 2);
 assert.equal(explainMatch(match).action, "company_profile");
 assert.match(explainMatch(match).summary, /별도 공고 조건 확인/);
 assert.equal(explainCondition(source).requirement, "GBC 입주 또는 유럽 진출 희망");
+assert.equal(explainCondition(source).asksUser, true);
+assert.equal(explainCondition(source).statusLabel, "확인 필요");
 const answered = { ...match, ruleTrace: [{ ...input, result: "pass" as const }, source] };
 assert.equal(explainMatch(answered).passed, 1);
 assert.equal(explainMatch(answered).hasSourceBlocker, true);
 assert.equal(explainMatch(answered).action, "source");
+assert.equal(explainMatch(answered).summary, "이 조건만 확인하면 지원 가능 여부를 확정할 수 있어요.");
+assert.equal(
+  explainMatch({ ...answered, ruleTrace: [source, { ...source, criterionId: "route-2" }] }).summary,
+  "남은 조건 2개를 확인하면 지원 가능 여부를 확정할 수 있어요.",
+);
+assert.equal(
+  explainMatch({ ...answered, ruleTrace: [{ ...source, unresolvedReason: "criterion_needs_review" }] }).summary,
+  "공고에서 확인할 조건이 남아 있어요. 아래 근거를 확인해 주세요.",
+);
+assert.equal(
+  explainMatch({
+    ...answered,
+    confirmationQuestionCount: 1,
+    ruleTrace: [{ ...source, confirmationNextAction: "user_confirmation" }],
+  }).summary,
+  "이 질문에 답하면 지원 가능 여부를 확정할 수 있어요.",
+);
 assert.equal(explainMatch({ ...match, ruleTrace: [{ ...input, result: "pass" }], eligibility: "eligible" }).action, "source", "card-level gate survives all pass traces");
 assert.equal(explainMatch({ ...match, matchingEvidence: { level: "discovery", sourceRevisionSha256: null, reason: "unreviewed" } }).conditions.length, 0);
 assert.equal(explainMatch({ ...match, status: "closed" }).action, "details");

@@ -582,12 +582,21 @@ function ConditionRow({
           {condition.trace.kind === "exclusion" ? "제외 조건" : "필수 조건"}
         </span>
       </div>
+      {condition.asksUser ? (
+        <p className="mt-3 text-[15px] leading-6 font-bold text-ink">
+          귀사가 아래 공고 조건에 해당하나요?
+        </p>
+      ) : null}
       <dl className="mt-3 grid gap-3 text-[13px] leading-5 sm:grid-cols-2">
-        <ConditionFact label="공고 조건" value={condition.requirement} />
-        <ConditionFact label="회사 정보" value={condition.companyValue} />
-        <ConditionFact label="현재 판단" value={condition.reason} />
+        <ConditionFact label={condition.asksUser ? "확인할 조건" : "공고 조건"} value={condition.requirement} />
+        {!condition.pending || condition.hasCompanyValue || condition.action === "company_profile" ? (
+          <ConditionFact label="회사 정보" value={condition.companyValue} />
+        ) : null}
+        <ConditionFact label={condition.asksUser ? "확인하면" : "현재 판단"} value={condition.reason} />
         <div className="min-w-0">
-          <dt className="text-[11px] font-semibold text-text-tertiary">다음 행동</dt>
+          <dt className="text-[11px] font-semibold text-text-tertiary">
+            {condition.asksUser ? "확인 방법" : "다음 행동"}
+          </dt>
           <dd className="mt-0.5 break-words font-medium text-text-nav">
             {conditionActionText(condition, canConfirm)}
           </dd>
@@ -607,11 +616,11 @@ function ConditionRow({
               onClick={onOpenConfirmation}
               className="mt-1 h-auto px-0 text-[13px]"
             >
-              이 공고 질문에 답하기
+              이 조건에 답하기
             </Button>
           ) : condition.pending || condition.trace.result === "fail" ? (
             <a href={detailHref} className="mt-1 inline-block font-semibold text-brand hover:text-brand-hover">
-              원문 근거 보기
+              {condition.asksUser ? "공고에서 이 조건 확인하기" : "원문 근거 보기"}
             </a>
           ) : null}
         </div>
@@ -633,7 +642,8 @@ function conditionActionText(condition: ExplainedCondition, canConfirm: boolean)
   if (condition.trace.result === "pass") return "추가로 할 일이 없어요.";
   if (condition.trace.result === "fail") return "공고 원문에서 불일치 근거와 예외 조건을 확인해 주세요.";
   if (condition.action === "company_profile") return "이 조건과 비교할 회사 정보를 입력해 주세요.";
-  if (condition.action === "user_confirmation" && canConfirm) return "검수된 공고별 질문에 답해 주세요.";
+  if (condition.action === "user_confirmation" && canConfirm) return "아래 질문에 답해 주세요.";
   if (condition.action === "user_confirmation") return "현재 답할 수 있는 검수 질문이 없어 원문 근거를 확인해야 해요.";
+  if (condition.asksUser) return "공고 상세의 원문 근거에서 해당 여부를 확인해 주세요.";
   return "공고 상세에서 원문 근거를 확인해 주세요.";
 }

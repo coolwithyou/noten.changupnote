@@ -103,6 +103,45 @@ assert.ok(cardHtml.includes("공고 조건 검수 필요"), "trace가 있어도 
 assert.ok(cardHtml.includes("companyId=company-1"), "상세 이동에서 회사 문맥을 보존해야 함");
 assert.equal(cardHtml.includes("신청 준비 정보 확인하기"), false, "미확정 카드에 준비 CTA를 일괄 노출하면 안 됨");
 
+const userCheckMatch = {
+  ...mixedMatch,
+  eligibility: "conditional",
+  ruleTrace: [
+    mixedMatch.ruleTrace[3]!,
+    {
+      criterionId: "criterion-track",
+      dimension: "other",
+      kind: "required",
+      result: "text_only",
+      label: "신청 트랙",
+      sourceSpan: "1:1 밋업은 국내외 유망 스타트업, 디지털 전시는 FLY ASIA 현장 프로그램 참여 기업",
+      checklistSection: "needs_check",
+      unresolvedReason: "criterion_text_only",
+      confirmationNextAction: "admin_source_review",
+    },
+  ],
+  reviewReasons: [{ code: "other", label: "기타 원문 확인 필요" }],
+} as unknown as MatchCard;
+const userCheckHtml = renderToStaticMarkup(
+  <ExpandedProgramCard
+    match={userCheckMatch}
+    status="check_source"
+    supportSummary={{ kind: "fallback", text: "지원 내용은 공고문 참고", accessibleText: "지원 내용은 공고문 참고" }}
+    onClose={noop}
+    onOpenProfile={noop}
+    onPrepare={noop}
+    preparing={false}
+    onOpenConfirmation={noop}
+    virtualBizNo={null}
+    companyId="company-1"
+  />,
+);
+assert.ok(userCheckHtml.includes("이 조건만 확인하면 지원 가능 여부를 확정할 수 있어요."));
+assert.ok(userCheckHtml.includes("귀사가 아래 공고 조건에 해당하나요?"));
+assert.ok(userCheckHtml.includes("확인할 조건"));
+assert.ok(userCheckHtml.includes("공고에서 이 조건 확인하기"));
+assert.equal(userCheckHtml.includes("비교할 회사 정보가 표시되지 않았어요"), false);
+
 const allTracePassCoreReviewHtml = renderToStaticMarkup(
   <ExpandedProgramCard
     match={{
@@ -122,7 +161,7 @@ const allTracePassCoreReviewHtml = renderToStaticMarkup(
     companyId="company-1"
   />,
 );
-assert.ok(allTracePassCoreReviewHtml.includes("아직 판단하지 못한 공고 조건이 있어요"));
+assert.ok(allTracePassCoreReviewHtml.includes("공고에서 확인할 조건이 남아 있어요"));
 assert.ok(allTracePassCoreReviewHtml.includes("첨부 조건 분석이 완료되지 않음"));
 assert.equal(allTracePassCoreReviewHtml.includes("지원서 작성 시작"), false);
 
