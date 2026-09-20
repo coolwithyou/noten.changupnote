@@ -115,6 +115,8 @@ export interface AnalysisLaunchMatchingProjectionReviewCarryforward {
   mode: "runtime_only" | "lossless_text_only_restore";
   historicalSnapshotSha256: string;
   currentSnapshotSha256: string;
+  historicalNormalizerContractVersion: "grant-llm-criteria-normalization-v2";
+  currentNormalizerContractVersion: "grant-llm-criteria-normalization-v3";
   changedCriterionIndexes: number[];
 }
 
@@ -441,10 +443,12 @@ export function assertPromotionReviewedProjectionContinuationBinding(
         !== carryforward.historicalSnapshotSha256
       || currentLaunch.primaryMatchingProjectionSnapshotSha256
         !== carryforward.currentSnapshotSha256
-      || previousLaunch.primaryMatchingProjectionContractVersion
+      || carryforward.historicalNormalizerContractVersion
         !== "grant-llm-criteria-normalization-v2"
-      || currentLaunch.primaryMatchingProjectionContractVersion
+      || carryforward.currentNormalizerContractVersion
         !== "grant-llm-criteria-normalization-v3"
+      || previousLaunch.primaryMatchingProjectionContractVersion
+        !== currentLaunch.primaryMatchingProjectionContractVersion
     ) {
       changed.push(`${grantId}:carryforward_binding`);
       continue;
@@ -1250,6 +1254,10 @@ export function isVerifiedLocalLabSourceArtifact(
       && isSha256(carryforward.historicalSnapshotSha256)
       && isSha256(carryforward.currentSnapshotSha256)
       && carryforward.historicalSnapshotSha256 !== carryforward.currentSnapshotSha256
+      && carryforward.historicalNormalizerContractVersion
+        === "grant-llm-criteria-normalization-v2"
+      && carryforward.currentNormalizerContractVersion
+        === "grant-llm-criteria-normalization-v3"
       && carryforward.currentSnapshotSha256 === launch?.primaryMatchingProjectionSnapshotSha256
       && Array.isArray(carryforward.changedCriterionIndexes)
       && carryforward.changedCriterionIndexes.every(

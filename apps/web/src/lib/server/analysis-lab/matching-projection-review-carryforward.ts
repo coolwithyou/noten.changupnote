@@ -166,6 +166,8 @@ export function resolveReviewedMatchingProjectionForPromotion(input: {
       : "lossless_text_only_restore",
     historicalSnapshotSha256: primaryMatchingProjectionSnapshotSha256(historical),
     currentSnapshotSha256: binding.snapshotSha256,
+    historicalNormalizerContractVersion: HISTORICAL_NORMALIZER,
+    currentNormalizerContractVersion: CURRENT_NORMALIZER,
     changedCriterionIndexes,
   };
   if (carryforward.historicalSnapshotSha256 === carryforward.currentSnapshotSha256) {
