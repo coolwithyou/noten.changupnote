@@ -1,8 +1,15 @@
 "use client";
 
-import { createContext, useContext, useEffect, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDownIcon, ChevronUpIcon, MoreHorizontalIcon } from "lucide-react";
-import type { CriterionDimension, GrantConfirmationSubmitResult, MatchCard, ProductTeaserResult } from "@cunote/contracts";
+import type {
+  CriterionDimension,
+  GrantConfirmationSubmitResult,
+  MatchCard,
+  MatchingProfileAnswerRequest,
+  NextQuestionDto,
+  ProductTeaserResult,
+} from "@cunote/contracts";
 import { explainMatch } from "@cunote/core";
 import { NoticeCard, type NoticeCardStatus } from "@/components/app/notice-card";
 import { VerdictBadge, type VerdictStatus } from "@/components/app/verdict-badge";
@@ -23,6 +30,7 @@ import { createMatchJourneyRecorder } from "@/lib/client/matchJourney";
 import { observeProductCards } from "@/lib/client/productCardExposure";
 import { ConfirmationSheet } from "./ConfirmationSheet";
 import { InlineGrantConfirmation } from "./InlineGrantConfirmation";
+import { InlineProfileCondition } from "./InlineProfileCondition";
 import {
   formatDday,
   groupMatchesForDisplay,
@@ -38,11 +46,19 @@ import { buildSupportSummary, type SupportSummary } from "./support-summary";
 
 const DEFAULT_VISIBLE_OPEN = 5;
 const JourneyContext = createContext<ReturnType<typeof createMatchJourneyRecorder> | null>(null);
+const ProfileQuestionContext = createContext<{
+  question: NextQuestionDto | null;
+  onAnswer?: ((answer: MatchingProfileAnswerRequest) => Promise<void>) | undefined;
+  submitting: boolean;
+}>({ question: null, submitting: false });
 
 export function ProgramsExperience({
   teaser,
   onPrepare,
   onOpenProfile,
+  profileQuestion = null,
+  onProfileAnswer,
+  profileSubmitting = false,
   preparing,
   newGrantIds = new Set<string>(),
   onConfirmationSaved,
@@ -55,6 +71,9 @@ export function ProgramsExperience({
   teaser: ProductTeaserResult;
   onPrepare: (grantId?: string) => void;
   onOpenProfile: (dimension?: CriterionDimension) => void;
+  profileQuestion?: NextQuestionDto | null;
+  onProfileAnswer?: (answer: MatchingProfileAnswerRequest) => Promise<void>;
+  profileSubmitting?: boolean;
   preparing: boolean;
   newGrantIds?: ReadonlySet<string>;
   /** 확인 질문 저장 성공 시 재계산 카드를 상위 teaser 상태에 반영한다(4상태 버킷 이동). */
@@ -71,6 +90,11 @@ export function ProgramsExperience({
 }) {
   const [recordJourney] = useState(createMatchJourneyRecorder);
   useEffect(() => { recordJourney.begin(companyId); }, [companyId, recordJourney]);
+  const profileQuestionContextValue = useMemo(() => ({
+    question: profileQuestion,
+    ...(onProfileAnswer ? { onAnswer: onProfileAnswer } : {}),
+    submitting: profileSubmitting,
+  }), [onProfileAnswer, profileQuestion, profileSubmitting]);
   const groups = groupMatchesForDisplay(teaser.matches);
   const rootRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -113,6 +137,7 @@ export function ProgramsExperience({
   const unavailable = [...groups.preparable, ...groups.closed];
 
   return (
+    <ProfileQuestionContext.Provider value={profileQuestionContextValue}>
     <JourneyContext.Provider value={recordJourney}>
     <div ref={rootRef}>
       {visibleOpen.length > 0 ? (
@@ -236,6 +261,7 @@ export function ProgramsExperience({
       ) : null}
     </div>
     </JourneyContext.Provider>
+    </ProfileQuestionContext.Provider>
   );
 }
 
@@ -406,9 +432,12 @@ export function ExpandedProgramCard({
 }) {
   const criteria = matchCriterionPresentation(match);
   const explanation = explainMatch(match);
+  const profileQuestionContext = useContext(ProfileQuestionContext);
   const conditions = [...explanation.conditions].sort(
     (left, right) => conditionOrder(left) - conditionOrder(right),
   );
+  const pendingConditionCount = conditions.filter((condition) => condition.pending).length;
+  const resolvedConditionCount = conditions.length - pendingConditionCount;
   const primaryProfileInput = explanation.profile[0];
   const baseDetailHref = matchDetailHref(match, virtualBizNo);
   const detailHref = companyId ? withCompanyContext(baseDetailHref, companyId) : baseDetailHref;
@@ -493,7 +522,12 @@ export function ExpandedProgramCard({
       {conditions.length > 0 ? (
         <div className="mt-3 overflow-hidden rounded-xl border border-border-subtle bg-surface-soft/60">
           <div className="border-b border-border-subtle px-3.5 py-2.5 text-[12px] font-bold text-text-secondary">
-            필수·제외 조건 전체 {conditions.length}개
+            {pendingConditionCount > 0 ? (
+              <span className="text-brand">지금 확인할 조건 {pendingConditionCount}개</span>
+            ) : (
+              <span>지원 여부를 결정하는 조건 {conditions.length}개</span>
+            )}
+            {resolvedConditionCount > 0 ? <span> · 확인됨 {resolvedConditionCount}개</span> : null}
           </div>
           {conditions.map((condition, index) => (
             <ConditionRow
@@ -502,6 +536,18 @@ export function ExpandedProgramCard({
               detailHref={detailHref}
               onOpenProfile={onOpenProfile}
               onOpenConfirmation={() => onOpenConfirmation(match)}
+              questionId={match.confirmationQuestionBindings?.find((binding) => (
+                binding.criterionId === condition.trace.criterionId
+              ))?.questionId ?? null}
+              companyId={companyId}
+              grantId={match.grantId}
+              onConfirmationSaved={onConfirmationSaved}
+              onPrepare={(grantId) => onPrepare(grantId)}
+              profileQuestion={profileQuestionContext.question?.dimension === condition.trace.dimension
+                ? profileQuestionContext.question
+                : null}
+              onProfileAnswer={profileQuestionContext.onAnswer}
+              profileSubmitting={profileQuestionContext.submitting}
               canConfirm={showConfirmation && condition.trace.criterionId !== explanation.confirmationReadiness.representativeCriterionId}
               inlineAnswer={condition.trace.criterionId === explanation.confirmationReadiness.representativeCriterionId}
               bordered={index > 0}
@@ -538,7 +584,9 @@ export function ExpandedProgramCard({
         </div>
       ) : null}
 
-      {exactConfirmationQuestionId ? (
+      {exactConfirmationQuestionId && !match.confirmationQuestionBindings?.some((binding) => (
+        binding.questionId === exactConfirmationQuestionId
+      )) ? (
         companyId && onConfirmationSaved ? (
           <InlineGrantConfirmation
             companyId={companyId}
@@ -621,6 +669,14 @@ function ConditionRow({
   detailHref,
   onOpenProfile,
   onOpenConfirmation,
+  questionId,
+  companyId,
+  grantId,
+  onConfirmationSaved,
+  onPrepare,
+  profileQuestion,
+  onProfileAnswer,
+  profileSubmitting,
   canConfirm,
   inlineAnswer,
   bordered,
@@ -629,10 +685,22 @@ function ConditionRow({
   detailHref: string;
   onOpenProfile: (dimension?: CriterionDimension) => void;
   onOpenConfirmation: () => void;
+  questionId: string | null;
+  companyId: string | null;
+  grantId: string;
+  onConfirmationSaved?: ((result: GrantConfirmationSubmitResult) => void) | undefined;
+  onPrepare: (grantId: string) => void;
+  profileQuestion: NextQuestionDto | null;
+  onProfileAnswer?: ((answer: MatchingProfileAnswerRequest) => Promise<void>) | undefined;
+  profileSubmitting: boolean;
   canConfirm: boolean;
   inlineAnswer: boolean;
   bordered: boolean;
 }) {
+  const hasInlineProfile = condition.action === "company_profile"
+    && profileQuestion !== null
+    && onProfileAnswer !== undefined;
+  const hasInlineConfirmation = condition.action === "user_confirmation" && questionId !== null;
   return (
     <article className={cn("px-3.5 py-3.5", bordered && "border-t border-border-subtle")}>
       <div className="flex flex-wrap items-center gap-2">
@@ -666,9 +734,15 @@ function ConditionRow({
             {condition.asksUser ? "확인 방법" : "다음 행동"}
           </dt>
           <dd className="mt-0.5 break-words font-medium text-text-nav">
-            {conditionActionText(condition, canConfirm, inlineAnswer)}
+            {conditionActionText(
+              condition,
+              canConfirm,
+              inlineAnswer,
+              hasInlineProfile,
+              hasInlineConfirmation,
+            )}
           </dd>
-          {condition.action === "company_profile" ? (
+          {condition.action === "company_profile" && !hasInlineProfile ? (
             <Button
               type="button"
               variant="link"
@@ -677,7 +751,7 @@ function ConditionRow({
             >
               이 회사 정보 확인하기
             </Button>
-          ) : condition.action === "user_confirmation" && canConfirm ? (
+          ) : condition.action === "user_confirmation" && canConfirm && !hasInlineConfirmation ? (
             <Button
               type="button"
               variant="link"
@@ -693,6 +767,40 @@ function ConditionRow({
           ) : null}
         </div>
       </dl>
+      {condition.action === "company_profile" && profileQuestion && onProfileAnswer ? (
+        <InlineProfileCondition
+          question={profileQuestion}
+          requirement={condition.requirement}
+          onAnswer={onProfileAnswer}
+          submitting={profileSubmitting}
+        />
+      ) : null}
+      {condition.action === "user_confirmation" && questionId && companyId && onConfirmationSaved ? (
+        <InlineGrantConfirmation
+          companyId={companyId}
+          grantId={grantId}
+          questionId={questionId}
+          onSaved={onConfirmationSaved}
+          onPrepare={onPrepare}
+          onFallback={onOpenConfirmation}
+        />
+      ) : condition.action === "user_confirmation" && questionId ? (
+        <section className="mt-3 rounded-xl border border-brand-tint bg-surface-brand px-3.5 py-3.5 sm:px-4">
+          <p className="text-xs font-extrabold text-brand">이 공고에서 바로 확인</p>
+          <p className="mt-1.5 text-[15px] leading-6 font-extrabold text-ink">
+            이 조건에 답하면 지원 가능 여부를 다시 확인해요.
+          </p>
+          <Button type="button" size="sm" onClick={onOpenConfirmation} className="mt-3">
+            회사 정보를 저장하고 답하기
+          </Button>
+        </section>
+      ) : null}
+      {condition.action === "admin_source_review" && condition.pending ? (
+        <div className="mt-3 rounded-xl bg-surface-soft px-3.5 py-3 text-[13px] leading-5 text-text-nav">
+          <p className="font-bold text-ink">이 조건은 판단 기준을 확인하고 있어요.</p>
+          <p className="mt-1">회사 정보만으로 확정할 수 없어, 창업노트가 원문 기준을 검수한 뒤 답변 버튼을 열어요.</p>
+        </div>
+      ) : null}
     </article>
   );
 }
@@ -710,10 +818,14 @@ function conditionActionText(
   condition: ExplainedCondition,
   canConfirm: boolean,
   inlineAnswer: boolean,
+  hasInlineProfile: boolean,
+  hasInlineConfirmation: boolean,
 ): string {
   if (condition.trace.result === "pass") return "추가로 할 일이 없어요.";
   if (condition.trace.result === "fail") return "공고 원문에서 불일치 근거와 예외 조건을 확인해 주세요.";
+  if (condition.action === "company_profile" && hasInlineProfile) return "아래에서 해당하는 회사 정보를 선택해 주세요.";
   if (condition.action === "company_profile") return "이 조건과 비교할 회사 정보를 입력해 주세요.";
+  if (condition.action === "user_confirmation" && hasInlineConfirmation) return "아래 질문에 바로 답해 주세요.";
   if (condition.action === "user_confirmation" && inlineAnswer) return "아래 빠른 확인에서 바로 답해 주세요.";
   if (condition.action === "user_confirmation" && canConfirm) return "아래 질문에 답해 주세요.";
   if (condition.action === "user_confirmation") return "현재 답할 수 있는 검수 질문이 없어 원문 근거를 확인해야 해요.";

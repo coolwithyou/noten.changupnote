@@ -59,11 +59,18 @@ export function applyActionableConfirmationQuestions(
     if (grantAnchors.length === 0) return match;
     const actionableTraces = match.ruleTrace.filter(traceCanUseConfirmationQuestion);
     const matchedQuestionIds = new Set<string>();
+    const matchedQuestionBindings = new Map<string, { questionId: string; criterionId: string }>();
     const verifiedEligibilityQuestions = new Map<string, Set<string>>();
     for (const trace of actionableTraces) {
       const matched = grantAnchors.filter((anchor) => anchorMatchesTrace(anchor, trace));
       for (const anchor of matched) {
         matchedQuestionIds.add(anchor.questionId);
+        if (trace.criterionId) {
+          matchedQuestionBindings.set(`${trace.criterionId}:${anchor.questionId}`, {
+            questionId: anchor.questionId,
+            criterionId: trace.criterionId,
+          });
+        }
         if (anchor.currentV2BindingVerified && trace.criterionId) {
           verifiedEligibilityQuestions.set(trace.criterionId, new Set([
             ...(verifiedEligibilityQuestions.get(trace.criterionId) ?? []),
@@ -84,6 +91,10 @@ export function applyActionableConfirmationQuestions(
       for (const anchor of grantAnchors) matchedQuestionIds.add(anchor.questionId);
     }
     const confirmationQuestionIds = [...matchedQuestionIds].sort();
+    const confirmationQuestionBindings = [...matchedQuestionBindings.values()].sort(
+      (left, right) => left.criterionId.localeCompare(right.criterionId)
+        || left.questionId.localeCompare(right.questionId),
+    );
     // `confirmationEligibilityQuestionIds` is a stronger proof than the general
     // CTA ids above. Expose it only when one current-source v2 question is the
     // sole unresolved hard gate and applying its `satisfied` evaluation would
@@ -112,6 +123,7 @@ export function applyActionableConfirmationQuestions(
           ruleTrace: annotatedTrace,
           confirmationQuestionCount: confirmationQuestionIds.length,
           confirmationQuestionIds,
+          ...(confirmationQuestionBindings.length > 0 ? { confirmationQuestionBindings } : {}),
           ...(confirmationEligibilityQuestionIds.length > 0 ? { confirmationEligibilityQuestionIds } : {}),
         }
       : match;
@@ -124,6 +136,7 @@ function clearConfirmationQuestionAnnotations(matches: MatchCard[]): MatchCard[]
     const hadQuestionAnnotation =
       match.confirmationQuestionCount !== undefined
       || match.confirmationQuestionIds !== undefined
+      || match.confirmationQuestionBindings !== undefined
       || match.confirmationEligibilityQuestionIds !== undefined;
     let traceChanged = false;
     const ruleTrace = match.ruleTrace.map((trace) => {
@@ -145,6 +158,7 @@ function clearConfirmationQuestionAnnotations(matches: MatchCard[]): MatchCard[]
     const {
       confirmationQuestionCount: _count,
       confirmationQuestionIds: _ids,
+      confirmationQuestionBindings: _bindings,
       confirmationEligibilityQuestionIds: _eligibilityIds,
       ...withoutConfirmationQuestionAnnotations
     } = match;

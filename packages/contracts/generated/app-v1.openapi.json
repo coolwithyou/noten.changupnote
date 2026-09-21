@@ -2563,6 +2563,25 @@
               "type": "string"
             }
           },
+          "confirmationQuestionBindings": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "questionId",
+                "criterionId"
+              ],
+              "properties": {
+                "questionId": {
+                  "type": "string"
+                },
+                "criterionId": {
+                  "type": "string"
+                }
+              }
+            }
+          },
           "confirmationEligibilityQuestionIds": {
             "type": "array",
             "items": {

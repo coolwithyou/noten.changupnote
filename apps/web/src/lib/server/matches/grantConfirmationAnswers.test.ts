@@ -302,6 +302,10 @@ const anchors: ConfirmationQuestionAnchor[] = [
 const annotated = applyActionableConfirmationQuestions(cards, anchors);
 assert.equal(annotated[0]?.confirmationQuestionCount, 1, "모든 hard unknown을 해소하는 질문은 노출한다");
 assert.deepEqual(annotated[0]?.confirmationQuestionIds, ["q-actionable"]);
+assert.deepEqual(annotated[0]?.confirmationQuestionBindings, [{
+  criterionId: "criterion-q-actionable",
+  questionId: "q-actionable",
+}], "질문을 해당 조건 행에 exact 결속한다");
 assert.deepEqual(annotated[0]?.confirmationEligibilityQuestionIds, ["q-actionable"]);
 assert.equal(
   annotated[1]?.confirmationQuestionCount,
@@ -401,6 +405,7 @@ for (const unresolvedReason of ["source_dispute", "criterion_needs_review", "cri
 const cleared = applyActionableConfirmationQuestions(preferredAnnotated, []);
 assert.equal(cleared[0]?.confirmationQuestionCount, undefined, "질문 조회 결과가 비면 과거 주석 count를 제거한다");
 assert.equal(cleared[0]?.confirmationQuestionIds, undefined, "질문 id도 count와 함께 제거한다");
+assert.equal(cleared[0]?.confirmationQuestionBindings, undefined, "조건별 질문 결속도 함께 제거한다");
 assert.equal(cleared[0]?.confirmationEligibilityQuestionIds, undefined, "자격 질문 id도 함께 제거한다");
 assert.equal(cleared[0]?.ruleTrace[0]?.confirmationNextAction, "admin_source_review", "stale user CTA를 기본 원인으로 되돌린다");
 assert.equal(cleared[0]?.eligibility, "eligible");

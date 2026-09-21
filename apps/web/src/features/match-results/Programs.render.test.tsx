@@ -1,14 +1,16 @@
 import assert from "node:assert/strict";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import type { MatchCard, ProductTeaserResult } from "@cunote/contracts";
+import type { MatchCard, NextQuestionDto, ProductTeaserResult } from "@cunote/contracts";
 import { ExpandedProgramCard } from "./Programs";
+import { InlineProfileCondition, inlineProfileOptions } from "./InlineProfileCondition";
 import { ResultsHero } from "./ResultsHero";
 import { groupMatchesForDisplay } from "./logic";
 
 (globalThis as typeof globalThis & { React: typeof React }).React = React;
 
 const noop = () => undefined;
+const asyncNoop = async () => undefined;
 const mixedMatch = {
   grantId: "grant-mixed",
   source: "kstartup",
@@ -295,5 +297,34 @@ const savedOneQuestionHtml = renderToStaticMarkup(
 );
 assert.ok(savedOneQuestionHtml.includes("확인 질문을 불러오고 있어요"));
 assert.equal(savedOneQuestionHtml.includes("공고별 질문에 답하기"), false);
+
+const targetTypeQuestion: NextQuestionDto = {
+  dimension: "target_type",
+  definitionId: "profile.target_type.v1",
+  prompt: "신청 주체 유형을 선택해 주세요.",
+  inputType: "select",
+  options: ["대학생", "일반인", "대학", "연구기관", "일반기업", "1인 창조기업", "법인"],
+  preciseFollowUp: "never",
+  responseStage: "direct",
+  framing: "31개 공고의 미확인 조건을 줄일 수 있어요.",
+  affectedGrantCount: 31,
+};
+assert.deepEqual(
+  inlineProfileOptions(targetTypeQuestion, "대학생,일반인,대학,연구기관,일반기업,1인 창조기업"),
+  ["대학생", "일반인", "대학", "연구기관", "일반기업", "1인 창조기업"],
+  "공고에 적힌 신청 대상만 빠른 선택지로 좁힌다",
+);
+const inlineProfileHtml = renderToStaticMarkup(
+  <InlineProfileCondition
+    question={targetTypeQuestion}
+    requirement="대학생,일반인,대학,연구기관,일반기업,1인 창조기업"
+    onAnswer={asyncNoop}
+    submitting={false}
+  />,
+);
+assert.ok(inlineProfileHtml.includes("우리 회사에 해당하는 신청 대상을 선택해 주세요."));
+assert.ok(inlineProfileHtml.includes("31개 공고를 함께 다시 확인해요."));
+assert.ok(inlineProfileHtml.includes("일반기업"));
+assert.equal(inlineProfileHtml.includes(">법인<"), false, "공고 대상에 없는 일반 선택지는 빠른 답변에서 숨긴다");
 
 console.log("match results UI: candidate hero, full condition evidence, blockers and targeted actions passed");

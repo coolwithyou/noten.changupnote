@@ -459,6 +459,9 @@ export function MatchResultsExperience() {
                   virtualBizNo={bizNo && isVirtualCompanyBizNo(bizNo) ? bizNo : null}
                   onPrepare={saveAndContinue}
                   onOpenProfile={openProfile}
+                  profileQuestion={visibleNextQuestion}
+                  onProfileAnswer={applyAnswer}
+                  profileSubmitting={profileSubmitting}
                   preparing={continuing}
                   newGrantIds={new Set(answerImpact?.newlyOpenGrantIds ?? [])}
                   onConfirmationSaved={applyConfirmationResult}

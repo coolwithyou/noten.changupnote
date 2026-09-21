@@ -319,6 +319,14 @@ export interface MatchCard {
    */
   confirmationQuestionIds?: string[];
   /**
+   * 카드의 각 조건과 인증된 확인 질문을 잇는 결속. UI는 이 매핑이 있을 때만 해당 조건
+   * 바로 아래에 답변 컨트롤을 노출한다. questionId 배열의 순서나 dimension 추정에 의존하지 않는다.
+   */
+  confirmationQuestionBindings?: Array<{
+    questionId: string;
+    criterionId: string;
+  }>;
+  /**
    * 현재 serving/source에 결속된 검수 완료 v2 질문 중, `satisfied` 답변을 적용하면 다른 hard gate
    * 없이 eligible이 되는 단 하나의 질문 id. 일반·legacy 재확인 질문은 이 proof에 포함하지 않는다.
    */

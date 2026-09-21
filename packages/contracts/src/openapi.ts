@@ -1065,6 +1065,15 @@ export const appV1OpenApi = {
           detailUrl: nullable({ type: "string" }),
           confirmationQuestionCount: { type: "integer", minimum: 1 },
           confirmationQuestionIds: arrayOf({ type: "string" }),
+          confirmationQuestionBindings: arrayOf({
+            type: "object",
+            additionalProperties: false,
+            required: ["questionId", "criterionId"],
+            properties: {
+              questionId: { type: "string" },
+              criterionId: { type: "string" },
+            },
+          }),
           confirmationEligibilityQuestionIds: arrayOf({ type: "string" }),
         },
         additionalProperties: false,
