@@ -1,5 +1,6 @@
 import type { ActionResult, MatchEventResult } from "@cunote/contracts";
 import { NextResponse } from "next/server";
+import { requestCompanyScope } from "@/lib/server/auth/requestCompanyScope";
 import { requireCompanyAccess } from "@/lib/server/auth/companyGuard";
 import { webActionError } from "@/lib/server/auth/webActionError";
 import {
@@ -21,11 +22,15 @@ interface RouteContext {
 
 export async function POST(request: Request, context: RouteContext) {
   try {
-    const [{ grantId }, body, access] = await Promise.all([
+    const [{ grantId }, body] = await Promise.all([
       context.params,
       readMatchEventRequest(request),
-      requireCompanyAccess({ permission: "write" }),
     ]);
+    const scope = requestCompanyScope(body.companyId);
+    if (body.journey && !scope.companyId) return new NextResponse(null, { status: 400 });
+    const access = await requireCompanyAccess({ ...scope, permission: "write" });
+    // 마이그레이션·계측 인수 이후에만 활성화한다. 비활성은 저장 성공이 아니다.
+    if (body.journey && process.env.CUNOTE_MATCH_JOURNEY_ENABLED !== "true") return new NextResponse(null, { status: 204 });
     const decodedGrantId = decodeGrantIdSegment(grantId);
     const input = buildSaveMatchEventInput({
       companyId: access.companyId,

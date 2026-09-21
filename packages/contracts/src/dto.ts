@@ -692,7 +692,19 @@ export interface ActionQueueResult {
   actions: ActionQueueItem[];
 }
 
+/** 값·답변·사업자번호 없이 수집하는 로그인 매칭 여정. 클릭은 신청 완료가 아니다. */
+export interface MatchJourneyEvent {
+  version: 1;
+  sessionId: string;
+  action: "card_open" | "profile_start" | "confirmation_start" | "detail_open" | "preparation_start";
+  elapsedMs: number;
+  evidence: "verified" | "discovery" | "legacy";
+  eligibility: "eligible" | "conditional" | "ineligible";
+}
+
 export interface MatchEventRequest {
+  companyId?: string;
+  journey?: MatchJourneyEvent;
   event?: MatchEventKind;
   type?: MatchEventKind;
   rulesetVer?: string;
@@ -700,6 +712,7 @@ export interface MatchEventRequest {
 }
 
 export interface MatchEventReceipt {
+  persisted?: boolean;
   id: string;
   acceptedAt: string;
 }

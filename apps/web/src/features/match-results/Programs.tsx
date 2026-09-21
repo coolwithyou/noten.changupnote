@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { ChevronDownIcon, ChevronUpIcon, MoreHorizontalIcon } from "lucide-react";
 import type { CriterionDimension, GrantConfirmationSubmitResult, MatchCard, ProductTeaserResult } from "@cunote/contracts";
 import { explainMatch } from "@cunote/core";
@@ -19,6 +19,7 @@ import {
 import { MatchFeedbackControls } from "@/features/opportunity-map/MatchFeedbackControls";
 import { cn } from "@/lib/utils";
 import { withCompanyContext } from "@/lib/navigation/companyContext";
+import { createMatchJourneyRecorder } from "@/lib/client/matchJourney";
 import { observeProductCards } from "@/lib/client/productCardExposure";
 import { ConfirmationSheet } from "./ConfirmationSheet";
 import { InlineGrantConfirmation } from "./InlineGrantConfirmation";
@@ -36,6 +37,8 @@ import {
 import { buildSupportSummary, type SupportSummary } from "./support-summary";
 
 const DEFAULT_VISIBLE_OPEN = 5;
+const JourneyContext = createContext<ReturnType<typeof createMatchJourneyRecorder> | null>(null);
+
 export function ProgramsExperience({
   teaser,
   onPrepare,
@@ -66,6 +69,8 @@ export function ProgramsExperience({
   virtualBizNo?: string | null;
   companyId?: string | null;
 }) {
+  const [recordJourney] = useState(createMatchJourneyRecorder);
+  useEffect(() => { recordJourney.begin(companyId); }, [companyId, recordJourney]);
   const groups = groupMatchesForDisplay(teaser.matches);
   const rootRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -108,6 +113,7 @@ export function ProgramsExperience({
   const unavailable = [...groups.preparable, ...groups.closed];
 
   return (
+    <JourneyContext.Provider value={recordJourney}>
     <div ref={rootRef}>
       {visibleOpen.length > 0 ? (
       <section className="mt-10">
@@ -229,6 +235,7 @@ export function ProgramsExperience({
         />
       ) : null}
     </div>
+    </JourneyContext.Provider>
   );
 }
 
@@ -325,6 +332,7 @@ function ExpandableProgramCard({
   companyId?: string | null;
 }) {
   const [open, setOpen] = useState(defaultExpanded);
+  const recordJourney = useContext(JourneyContext);
   const cardStatus = status === "upcoming" ? status : matchVerdictStatus(match);
   const supportSummary = buildSupportSummary(match);
   const explanation = explainMatch(match);
@@ -338,7 +346,7 @@ function ExpandableProgramCard({
         status={status === "closed" ? "closed" : cardStatus}
         {...(isNew === undefined ? {} : { isNew })}
         note={note ?? explanation.summary}
-        onClick={() => setOpen(true)}
+        onClick={() => { recordJourney?.(companyId, match, "card_open"); setOpen(true); }}
         expanded={false}
         {...(className === undefined ? {} : { className })}
       />
@@ -353,11 +361,12 @@ function ExpandableProgramCard({
       status={status}
       supportSummary={supportSummary}
       onClose={() => setOpen(false)}
-      onOpenProfile={onOpenProfile}
-      onPrepare={onPrepare}
+      onOpenProfile={(dimension) => { recordJourney?.(companyId, match, "profile_start"); onOpenProfile(dimension); }}
+      onPrepare={(grantId) => { recordJourney?.(companyId, match, "preparation_start"); onPrepare(grantId); }}
       preparing={preparing}
-      onOpenConfirmation={onOpenConfirmation}
+      onOpenConfirmation={(target) => { recordJourney?.(companyId, match, "confirmation_start"); onOpenConfirmation(target); }}
       onConfirmationSaved={onConfirmationSaved}
+      onDetailOpen={() => recordJourney?.(companyId, match, "detail_open")}
       virtualBizNo={virtualBizNo}
       companyId={companyId}
       {...(className === undefined ? {} : { className })}
@@ -367,6 +376,7 @@ function ExpandableProgramCard({
 }
 
 export function ExpandedProgramCard({
+  onDetailOpen,
   match,
   status,
   supportSummary,
@@ -380,6 +390,7 @@ export function ExpandedProgramCard({
   companyId = null,
   className,
 }: {
+  onDetailOpen?: () => void;
   match: MatchCard;
   status: NoticeCardStatus;
   supportSummary: SupportSummary;
@@ -551,7 +562,7 @@ export function ExpandedProgramCard({
       ) : null}
 
       <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center">
-        <a href={detailHref} className="text-sm font-semibold text-brand no-underline hover:text-brand-hover">
+        <a href={detailHref} onClick={onDetailOpen} className="text-sm font-semibold text-brand no-underline hover:text-brand-hover">
           공고 상세 및 조건 근거 보기
         </a>
         {showReconfirm ? (

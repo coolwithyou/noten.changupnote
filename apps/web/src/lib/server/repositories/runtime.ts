@@ -275,6 +275,7 @@ class RuntimeMatchRepository<TPayload> implements MatchRepository<TPayload> {
   async saveMatchEvent(_input: SaveMatchEventInput): Promise<MatchEventReceipt> {
     return {
       id: `match-event:${crypto.randomUUID()}`,
+      persisted: false,
       acceptedAt: new Date().toISOString(),
     };
   }

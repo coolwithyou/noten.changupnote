@@ -165,9 +165,17 @@ export function grantOverviewCta(
   };
 }
 
-export function formatEligibilitySummary(satisfiedCount: number, needsCheckCount: number): string {
-  if (satisfiedCount === 0 && needsCheckCount === 0) return "매칭 확인 중";
-  return `충족 ${satisfiedCount.toLocaleString("ko-KR")} · 확인 ${needsCheckCount.toLocaleString("ko-KR")}`;
+export function formatEligibilitySummary(
+  satisfiedCount: number,
+  unknownCount: number,
+  failedCount = 0,
+): string {
+  if (satisfiedCount === 0 && unknownCount === 0 && failedCount === 0) return "매칭 확인 중";
+  return [
+    `충족 확인 ${satisfiedCount.toLocaleString("ko-KR")}`,
+    `미충족 ${failedCount.toLocaleString("ko-KR")}`,
+    `미확인 ${unknownCount.toLocaleString("ko-KR")}`,
+  ].join(" · ");
 }
 
 export function formatSupportAmount(amount: SupportAmount): string {

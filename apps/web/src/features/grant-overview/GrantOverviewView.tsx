@@ -67,6 +67,11 @@ export function GrantOverviewView({
   const cta = grantOverviewCta(sheet, previewAvailability);
   const discovery = sheet.matchingEvidence?.level === "discovery";
   const showConversionPoll = (previewAvailability?.pendingSurfaceCount ?? 0) > 0;
+  const hardConditions = [...sheet.satisfied, ...sheet.needsCheck]
+    .filter((trace) => trace.kind === "required" || trace.kind === "exclusion");
+  const satisfiedConditionCount = hardConditions.filter((trace) => trace.result === "pass").length;
+  const failedConditionCount = hardConditions.filter((trace) => trace.result === "fail").length;
+  const unknownConditionCount = hardConditions.length - satisfiedConditionCount - failedConditionCount;
   // 과금 접점 ①: 도우미 사용(초안 생성)이 시작되는 모드에서만 시작 고지 칩을 노출한다.
   const usageChipRemaining =
     typeof remainingUses === "number" && (cta.mode === "template_fill" || cta.mode === "ai_draft")
@@ -120,7 +125,11 @@ export function GrantOverviewView({
           <Separator orientation="vertical" />
           <GrantMetric
             label="지원 대상"
-            value={formatEligibilitySummary(sheet.satisfied.length, sheet.needsCheck.length)}
+            value={formatEligibilitySummary(
+              satisfiedConditionCount,
+              unknownConditionCount,
+              failedConditionCount,
+            )}
           />
         </dl>
       </section>
@@ -186,6 +195,9 @@ export function GrantOverviewView({
       <section className="mt-9 border-t border-border-subtle">
         <Accordion multiple>
           <EligibilityMatchAccordion
+            grantId={grantId}
+            companyId={companyId}
+            virtualBizNo={virtualCompanyBizNo}
             satisfied={sheet.satisfied}
             needsCheck={sheet.needsCheck}
             sourceUrl={sheet.deepLink}
