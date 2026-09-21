@@ -103,6 +103,7 @@ export function buildConfirmationQuestionDraftPacket(input: {
 export async function generateConfirmationQuestionDraftFromStoredRun(input: {
   grantId: string;
   runId: string;
+  sourceRevisionSha256?: string;
   outputDirectory?: string;
 }): Promise<StoredConfirmationQuestionDraftResult> {
   const located = await readLabRun(input.grantId, input.runId);
@@ -121,7 +122,7 @@ export async function generateConfirmationQuestionDraftFromStoredRun(input: {
     throw new Error("다시 읽은 run artifact 결속이 조회 결과와 일치하지 않습니다.");
   }
   const packet = buildConfirmationQuestionDraftPacket({
-    run,
+    run: bindMissingConfirmationSourceRevision(run, input.sourceRevisionSha256),
     review,
     runArtifactSha256: sha256(runBytes),
     reviewArtifactSha256: sha256(reviewBytes),
@@ -157,9 +158,11 @@ export function validateBoundManualConfirmationInput(input: {
   raw: unknown;
   runArtifactBytes: Uint8Array;
   reviewArtifactBytes: Uint8Array;
+  sourceRevisionSha256?: string;
 }): ValidatedBoundManualConfirmationInput {
   const envelope = parseConfirmationQuestionManualInputEnvelope(input.raw);
-  const run = JSON.parse(Buffer.from(input.runArtifactBytes).toString("utf8")) as LabRun;
+  const rawRun = JSON.parse(Buffer.from(input.runArtifactBytes).toString("utf8")) as LabRun;
+  const run = bindMissingConfirmationSourceRevision(rawRun, input.sourceRevisionSha256);
   const review = JSON.parse(Buffer.from(input.reviewArtifactBytes).toString("utf8")) as LabReview;
   const packet = buildConfirmationQuestionDraftPacket({
     run,
@@ -178,6 +181,26 @@ export function validateBoundManualConfirmationInput(input: {
     review,
     manualInput: envelope.manualInput,
   };
+}
+
+/**
+ * source revision 필드 도입 전 launch run은 immutable raw artifact를 수정하지 않고,
+ * 호출자가 제공한 current revision을 오프라인 질문 artifact에만 결속한다.
+ */
+export function bindMissingConfirmationSourceRevision(
+  run: LabRun,
+  sourceRevisionSha256?: string,
+): LabRun {
+  if (run.sourceRevisionSha256) {
+    if (sourceRevisionSha256 && sourceRevisionSha256 !== run.sourceRevisionSha256) {
+      throw new Error("지정한 source revision이 run에 기록된 revision과 다릅니다.");
+    }
+    return run;
+  }
+  if (!sourceRevisionSha256 || !isSha256(sourceRevisionSha256)) {
+    throw new Error("legacy run 확인질문에는 --source-revision-sha256 결속이 필요합니다.");
+  }
+  return { ...run, sourceRevisionSha256 };
 }
 
 function buildDraftItem(

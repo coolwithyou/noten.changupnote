@@ -160,3 +160,67 @@ test("기존 manual CLI loader가 bound export를 raw artifact에 재결속하�
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test("legacy run manual CLI는 명시한 current source revision으로 sidecar를 만든다", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "cunote-bound-legacy-manual-cli-"));
+  const previousCwd = process.cwd();
+  const sourceRevisionSha256 = "f".repeat(64);
+  const { sourceRevisionSha256: _sourceRevisionSha256, ...runWithoutSourceRevision } = run;
+  const legacyRun: LabRun = {
+    ...runWithoutSourceRevision,
+    runId: "run-2026-09-09T030000.000Z-acde12",
+    grantId: "00000000-0000-4000-8000-0000000002d2",
+    sourceId: "bound-cli-legacy-v1",
+  } as LabRun;
+  const legacyReview: LabReview = {
+    ...review,
+    runId: legacyRun.runId,
+    grantId: legacyRun.grantId,
+  };
+  try {
+    await writeFile(join(directory, "pnpm-workspace.yaml"), "packages: []\n", "utf8");
+    process.chdir(directory);
+    const runPath = await saveLabRun(legacyRun);
+    await saveLabReview(legacyReview);
+    const reviewPath = labReviewFilePath(legacyRun.source, legacyRun.sourceId, legacyRun.runId);
+    const [runBytes, reviewBytes] = await Promise.all([readFile(runPath), readFile(reviewPath)]);
+    const packet = buildConfirmationQuestionDraftPacket({
+      run: { ...legacyRun, sourceRevisionSha256 },
+      review: legacyReview,
+      runArtifactSha256: createHash("sha256").update(runBytes).digest("hex"),
+      reviewArtifactSha256: createHash("sha256").update(reviewBytes).digest("hex"),
+    });
+    const inputPath = join(directory, "bound-legacy-input.json");
+    await writeFile(inputPath, JSON.stringify({
+      schema: CONFIRMATION_QUESTION_MANUAL_INPUT_SCHEMA,
+      draftPacket: packet,
+      manualInput: {
+        questionAuthorEmail: "author@example.invalid",
+        items: [{
+          criterionIndex: 0,
+          resolutionScope: "per_notice",
+          prompt: packet.items[0]!.prompt,
+          options: packet.items[0]!.options,
+        }],
+      },
+    }));
+
+    await assert.rejects(runManualConfirmationEvaluationsCli([
+      `--grantId=${legacyRun.grantId}`,
+      `--runId=${legacyRun.runId}`,
+      `--input=${inputPath}`,
+    ]), /source-revision-sha256/);
+    const result = await runManualConfirmationEvaluationsCli([
+      `--grantId=${legacyRun.grantId}`,
+      `--runId=${legacyRun.runId}`,
+      `--input=${inputPath}`,
+      `--source-revision-sha256=${sourceRevisionSha256}`,
+    ]);
+    const artifact = JSON.parse(await readFile(result.path, "utf8"));
+    assert.equal(artifact.sourceRevisionSha256, sourceRevisionSha256);
+    assert.equal(result.itemCount, 1);
+  } finally {
+    process.chdir(previousCwd);
+    await rm(directory, { recursive: true, force: true });
+  }
+});

@@ -6,10 +6,12 @@ test("CLI는 exact 옵션만 파싱한다", () => {
   assert.deepEqual(parseConfirmationQuestionDraftCliArgs([
     "--grantId=grant-1",
     "--runId=run-2026-09-09T000000.000Z-acde12",
+    `--source-revision-sha256=${"a".repeat(64)}`,
     "--output-dir=/tmp/drafts",
   ]), {
     grantId: "grant-1",
     runId: "run-2026-09-09T000000.000Z-acde12",
+    sourceRevisionSha256: "a".repeat(64),
     outputDirectory: "/tmp/drafts",
   });
 });

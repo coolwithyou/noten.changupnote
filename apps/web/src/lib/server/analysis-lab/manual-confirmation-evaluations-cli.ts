@@ -15,7 +15,10 @@ import {
   saveManualConfirmationEvaluations,
   saveManualConfirmationEvaluationsRevision,
 } from "./manual-confirmation-evaluations";
-import { validateBoundManualConfirmationInput } from "./confirmation-question-draft";
+import {
+  bindMissingConfirmationSourceRevision,
+  validateBoundManualConfirmationInput,
+} from "./confirmation-question-draft";
 import { labReviewFilePath, readLabReview } from "./review-store";
 import { labRunFilePath, readLabRun } from "./run-store";
 
@@ -41,6 +44,7 @@ export async function loadManualConfirmationCliInput(input: {
   grantId: string;
   runId: string;
   inputPath: string;
+  sourceRevisionSha256?: string;
 }): Promise<LoadedManualConfirmationCliInput> {
   const [locatedRun, locatedReview, draft] = await Promise.all([
     readLabRun(input.grantId, input.runId),
@@ -51,11 +55,15 @@ export async function loadManualConfirmationCliInput(input: {
   if (!draft || typeof draft !== "object" || Array.isArray(draft)) {
     throw new Error("manual JSON은 객체여야 합니다.");
   }
+  const boundRun = bindMissingConfirmationSourceRevision(
+    locatedRun,
+    input.sourceRevisionSha256,
+  );
   const hasEnvelopeMarker = Object.hasOwn(draft, "schema")
     || Object.hasOwn(draft, "draftPacket")
     || Object.hasOwn(draft, "manualInput");
   if (!hasEnvelopeMarker) {
-    return { run: locatedRun, review: locatedReview, manualInput: draft };
+    return { run: boundRun, review: locatedReview, manualInput: draft };
   }
   if (draft.schema !== CONFIRMATION_QUESTION_MANUAL_INPUT_SCHEMA) {
     throw new Error("bound manual input marker에는 정확한 envelope schema가 필요합니다.");
@@ -68,6 +76,9 @@ export async function loadManualConfirmationCliInput(input: {
     raw: draft,
     runArtifactBytes,
     reviewArtifactBytes,
+    ...(input.sourceRevisionSha256 ? {
+      sourceRevisionSha256: input.sourceRevisionSha256,
+    } : {}),
   });
   if (validated.run.grantId !== input.grantId || validated.run.runId !== input.runId) {
     throw new Error("bound manual input이 CLI의 exact grantId/runId와 일치하지 않습니다.");
@@ -85,6 +96,7 @@ export async function runManualConfirmationEvaluationsCli(
   const grantId = arg(argv, "grantId");
   const runId = arg(argv, "runId");
   const input = arg(argv, "input");
+  const sourceRevisionSha256 = arg(argv, "source-revision-sha256");
   if (!grantId || !runId || !input) {
     throw new Error("--grantId, --runId, --input=<manual-json>이 필요합니다.");
   }
@@ -92,6 +104,7 @@ export async function runManualConfirmationEvaluationsCli(
     grantId,
     runId,
     inputPath: input,
+    ...(sourceRevisionSha256 ? { sourceRevisionSha256 } : {}),
   });
   if (typeof manualInput?.questionAuthorEmail !== "string") {
     throw new Error("manual JSON의 questionAuthorEmail이 필요합니다.");

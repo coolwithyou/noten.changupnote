@@ -6,16 +6,17 @@ import { generateConfirmationQuestionDraftFromStoredRun } from "./confirmation-q
 export interface ConfirmationQuestionDraftCliArgs {
   grantId: string;
   runId: string;
+  sourceRevisionSha256?: string;
   outputDirectory?: string;
 }
 
 export function parseConfirmationQuestionDraftCliArgs(
   argv: readonly string[],
 ): ConfirmationQuestionDraftCliArgs {
-  const allowed = new Set(["grantId", "runId", "output-dir"]);
+  const allowed = new Set(["grantId", "runId", "source-revision-sha256", "output-dir"]);
   const parsed = new Map<string, string>();
   for (const argument of argv) {
-    const match = /^--([A-Za-z][A-Za-z-]*)=(.+)$/u.exec(argument);
+    const match = /^--([A-Za-z][A-Za-z0-9-]*)=(.+)$/u.exec(argument);
     if (!match) throw new Error(`옵션은 --name=value 형식이어야 합니다: ${argument}`);
     const [, name, value] = match;
     if (!allowed.has(name!)) throw new Error(`알 수 없는 옵션입니다: --${name}`);
@@ -26,7 +27,13 @@ export function parseConfirmationQuestionDraftCliArgs(
   const runId = parsed.get("runId");
   if (!grantId || !runId) throw new Error("--grantId와 --runId가 필요합니다.");
   const outputDirectory = parsed.get("output-dir");
-  return { grantId, runId, ...(outputDirectory ? { outputDirectory } : {}) };
+  const sourceRevisionSha256 = parsed.get("source-revision-sha256");
+  return {
+    grantId,
+    runId,
+    ...(sourceRevisionSha256 ? { sourceRevisionSha256 } : {}),
+    ...(outputDirectory ? { outputDirectory } : {}),
+  };
 }
 
 export async function runConfirmationQuestionDraftCli(

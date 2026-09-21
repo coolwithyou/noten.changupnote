@@ -12,6 +12,7 @@ import {
 } from "@cunote/contracts/confirmation-question-draft";
 import type { LabCriterion, LabReview, LabRun } from "./lab-contract";
 import {
+  bindMissingConfirmationSourceRevision,
   buildConfirmationQuestionDraftPacket,
   generateConfirmationQuestionDraftFromStoredRun,
   validateBoundManualConfirmationInput,
@@ -239,5 +240,54 @@ test("bound manual input은 raw run/review와 packet criterion을 재결속하�
     raw,
     runArtifactBytes,
     reviewArtifactBytes: driftedReviewBytes,
+  }), /raw run\/review와 일치하지/);
+});
+
+test("legacy run은 raw artifact를 바꾸지 않고 명시한 current source revision에 결속한다", () => {
+  const sourceRevisionSha256 = "f".repeat(64);
+  const { sourceRevisionSha256: _sourceRevisionSha256, ...legacyRun } = run;
+  const runArtifactBytes = Buffer.from(`${JSON.stringify(legacyRun, null, 2)}\n`);
+  const reviewArtifactBytes = Buffer.from(`${JSON.stringify(review, null, 2)}\n`);
+  const boundRun = bindMissingConfirmationSourceRevision(
+    legacyRun as LabRun,
+    sourceRevisionSha256,
+  );
+  const packet = buildConfirmationQuestionDraftPacket({
+    run: boundRun,
+    review,
+    runArtifactSha256: createHash("sha256").update(runArtifactBytes).digest("hex"),
+    reviewArtifactSha256: createHash("sha256").update(reviewArtifactBytes).digest("hex"),
+  });
+  const raw = {
+    schema: CONFIRMATION_QUESTION_MANUAL_INPUT_SCHEMA,
+    draftPacket: packet,
+    manualInput: {
+      questionAuthorEmail: "author@example.invalid",
+      items: [{
+        criterionIndex: packet.items[0]!.criterionIndex,
+        resolutionScope: "per_notice",
+        prompt: packet.items[0]!.prompt,
+        options: packet.items[0]!.options,
+      }],
+    },
+  };
+
+  assert.throws(() => validateBoundManualConfirmationInput({
+    raw,
+    runArtifactBytes,
+    reviewArtifactBytes,
+  }), /source-revision-sha256/);
+  const validated = validateBoundManualConfirmationInput({
+    raw,
+    runArtifactBytes,
+    reviewArtifactBytes,
+    sourceRevisionSha256,
+  });
+  assert.equal(validated.run.sourceRevisionSha256, sourceRevisionSha256);
+  assert.throws(() => validateBoundManualConfirmationInput({
+    raw,
+    runArtifactBytes,
+    reviewArtifactBytes,
+    sourceRevisionSha256: "e".repeat(64),
   }), /raw run\/review와 일치하지/);
 });
