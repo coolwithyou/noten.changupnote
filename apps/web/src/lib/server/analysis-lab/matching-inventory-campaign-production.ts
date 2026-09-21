@@ -106,10 +106,22 @@ export async function inspectMatchingHistoryReview(input: {
     const projectionBindingErrors = [
       `launch matching projection exact binding이 다릅니다: ${input.grantId}`,
       `launch matching projection 한쪽 결속이 없습니다: ${input.grantId}`,
+      `matching projection 변환 보고서가 달라 승계할 수 없습니다: ${input.grantId}`,
+      `matching projection criterion 수가 달라 승계할 수 없습니다: ${input.grantId}`,
+      `matching projection output 결속이 중복됐습니다: ${input.grantId}`,
+      `matching projection criterion 위치가 비었습니다: ${input.grantId}`,
+      `matching projection criterion 승계가 중복됐습니다: ${input.grantId}`,
+      `matching projection 승계 snapshot이 구분되지 않습니다: ${input.grantId}`,
+      `허용되지 않은 matching projection runtime 전환입니다: ${input.grantId}`,
+      `matching projection이 launch receipt 결속과 다릅니다: ${input.grantId}`,
+      `independent review packet matching projection 결속이 다릅니다: ${input.grantId}`,
     ];
     // 과거 한 target의 projection 결속 오류는 그 target의 검수 결과를 신뢰할 수 없다는 뜻이다.
     // current inventory 전체 준비를 중단하지 않고 blocked/quality_held로 격리한다.
-    if (error instanceof Error && projectionBindingErrors.includes(error.message)) return "blocked";
+    if (error instanceof Error && (
+      projectionBindingErrors.includes(error.message)
+      || error.message.startsWith(`검수 범위를 벗어난 matching projection 변경입니다: ${input.grantId}:`)
+    )) return "blocked";
     throw error;
   }
 }

@@ -141,6 +141,9 @@ test("다른 target만 검수된 receipt는 현재 target을 pending으로 격�
   assert.equal(await inspectMatchingHistoryReview(input, async () => {
     throw new Error(`launch matching projection 한쪽 결속이 없습니다: ${input.grantId}`);
   }), "blocked");
+  assert.equal(await inspectMatchingHistoryReview(input, async () => {
+    throw new Error(`검수 범위를 벗어난 matching projection 변경입니다: ${input.grantId}:4`);
+  }), "blocked");
   await assert.rejects(
     () => inspectMatchingHistoryReview(input, async () => { throw new Error("run artifact SHA가 다릅니다"); }),
     /run artifact SHA/,
