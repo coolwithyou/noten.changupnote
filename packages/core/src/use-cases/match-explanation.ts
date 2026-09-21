@@ -168,7 +168,7 @@ export function explainCondition(trace: RuleTraceChip) {
   const action = pending ? trace.confirmationNextAction ?? "admin_source_review" : null;
   const asksUser = pending
     && trace.unresolvedReason === "criterion_text_only"
-    && (action === "user_confirmation" || action === "admin_source_review");
+    && action === "user_confirmation";
   const reason = !pending ? trace.result === "pass" ? "확인된 조건에 맞아요." : "현재 회사 정보와 조건이 맞지 않아요."
     : trace.unresolvedReason === "source_dispute" ? "회사 공식 정보의 정정 확인이 필요해요."
       : action === "company_profile" ? "이 조건과 비교할 회사 정보가 더 필요해요."

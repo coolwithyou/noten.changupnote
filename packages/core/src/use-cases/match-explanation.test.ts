@@ -18,16 +18,16 @@ assert.equal(explainMatch(match).unknown, 2);
 assert.equal(explainMatch(match).action, "company_profile");
 assert.match(explainMatch(match).summary, /별도 공고 조건 확인/);
 assert.equal(explainCondition(source).requirement, "GBC 입주 또는 유럽 진출 희망");
-assert.equal(explainCondition(source).asksUser, true);
+assert.equal(explainCondition(source).asksUser, false);
 assert.equal(explainCondition(source).statusLabel, "확인 필요");
 const answered = { ...match, ruleTrace: [{ ...input, result: "pass" as const }, source] };
 assert.equal(explainMatch(answered).passed, 1);
 assert.equal(explainMatch(answered).hasSourceBlocker, true);
 assert.equal(explainMatch(answered).action, "source");
-assert.equal(explainMatch(answered).summary, "공고 원문에서 직접 확인할 조건이 1개 있어요.");
+assert.equal(explainMatch(answered).summary, "공고에서 확인할 조건이 남아 있어요. 아래 근거를 확인해 주세요.");
 assert.equal(
   explainMatch({ ...answered, ruleTrace: [source, { ...source, criterionId: "route-2" }] }).summary,
-  "공고 원문에서 직접 확인할 조건이 2개 있어요.",
+  "공고에서 확인할 조건이 남아 있어요. 아래 근거를 확인해 주세요.",
 );
 assert.equal(
   explainMatch({ ...answered, ruleTrace: [{ ...source, unresolvedReason: "criterion_needs_review" }] }).summary,

@@ -445,13 +445,17 @@ export async function loadAnalysisLaunchPromotionCohort(input: {
   const candidates: AnalysisLaunchPromotionCandidate[] = [];
   for (const loaded of selected) {
     const current = await loadCurrent(loaded.run);
+    const currentBoundRun: LabRun = {
+      ...loaded.run,
+      sourceRevisionSha256: current.sourceRevisionSha256,
+    };
     const manualSelector = manualSelectionByGrantId.get(loaded.run.grantId);
     if (manualSelector && manualSelector.runId !== loaded.run.runId) {
       throw new Error(`manual confirmation selector runId 불일치: ${loaded.run.grantId}`);
     }
     const selectedManual = input.dependencies?.resolveManualConfirmationEvaluations
-      ? await input.dependencies.resolveManualConfirmationEvaluations(loaded.run)
-      : await resolveManualConfirmationEvaluationsForPreparation(loaded.run, manualSelector);
+      ? await input.dependencies.resolveManualConfirmationEvaluations(currentBoundRun)
+      : await resolveManualConfirmationEvaluationsForPreparation(currentBoundRun, manualSelector);
     if (manualSelector && (
       !selectedManual
       || selectedManual.selection.revision !== manualSelector.revision
@@ -465,10 +469,7 @@ export async function loadAnalysisLaunchPromotionCohort(input: {
     let promotionPlan: GrantPromotionPlan | null = null;
     if (readiness.disposition === "ready" || readiness.disposition === "conditional") {
       promotionPlan = planGrantPromotion({
-        run: {
-          ...loaded.run,
-          sourceRevisionSha256: current.sourceRevisionSha256,
-        },
+        run: currentBoundRun,
         origin: "analysis_launch",
         analysisLaunchReceiptSha256: loaded.launch.receiptSha256,
         reviewRisk: loaded.reviewRisk!,

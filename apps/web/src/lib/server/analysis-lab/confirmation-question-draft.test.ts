@@ -30,6 +30,12 @@ const criterion = (kind: "required" | "preferred" | "exclusion", sourceSpan: str
   note: null,
 });
 
+const industryCriterion: LabCriterion = {
+  ...criterion("required", "서울 소재 선물용품·가정용품 분야 중소기업"),
+  dimension: "industry",
+  value: { note: "신청기업의 취급 제품 분야를 한정한다." },
+};
+
 const run: LabRun = {
   runId: "run-2026-09-09T000000.000Z-acde12",
   grantId: "00000000-0000-4000-8000-0000000002d0",
@@ -53,6 +59,7 @@ const run: LabRun = {
     criterion("required", "대표자는 공고일 기준 만 39세 이하여야 한다."),
     criterion("preferred", "수출 실적 보유 기업을 우대한다."),
     criterion("exclusion", "휴업 또는 폐업 중인 기업은 신청할 수 없다."),
+    industryCriterion,
     { ...criterion("required", "이미 질문이 있는 조건"), confirmation: {
       prompt: "기존 질문",
       options: [],
@@ -91,13 +98,19 @@ test("사람이 correct로 확정한 미질문 조건만 중립 문구와 명시
     runArtifactSha256: "d".repeat(64),
     reviewArtifactSha256: "e".repeat(64),
   });
-  assert.equal(packet.items.length, 3);
+  assert.equal(packet.items.length, 4);
   assert.match(packet.items[0]!.prompt, /필수 조건을 충족하나요/);
   assert.match(packet.items[0]!.prompt, /대표자는 공고일 기준/);
   assert.deepEqual(packet.items[2]!.options.map((option) => option.evaluation), [
     "unsatisfied",
     "satisfied",
     "unknown",
+  ]);
+  assert.match(packet.items[3]!.prompt, /귀사의 취급 제품·서비스/);
+  assert.deepEqual(packet.items[3]!.options.map((option) => option.label), [
+    "해당해요",
+    "해당하지 않아요",
+    "확인할 수 없어요",
   ]);
   assert.equal(packet.authority.currentServiceStateVerified, false);
   assert.equal(packet.authority.liveQuestionWriteAuthorized, false);

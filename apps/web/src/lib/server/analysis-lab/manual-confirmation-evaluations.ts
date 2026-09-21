@@ -592,7 +592,7 @@ export function mergeManualConfirmationEvaluations(
   return changed ? { ...run, criteria } : run;
 }
 
-/** 첫 단위는 근거가 검증된 text_only 조건의 공고별 수동 확인만 지원한다. */
+/** 근거가 검증된 text_only 조건 중 사용자가 공고별로 직접 판정할 수 있는 범위만 지원한다. */
 export function classifyManualConfirmationCriterion(
   criterion: LabCriterion,
 ): "user_confirmation" | "company_profile" | "admin_source_review" {
@@ -603,10 +603,16 @@ export function classifyManualConfirmationCriterion(
     : {};
   const reason = typeof value.downgrade_reason === "string" ? value.downgrade_reason : null;
   if (reason && ADMIN_ONLY_DOWNGRADE_REASONS.has(reason)) return "admin_source_review";
-  if (typeof value.original_dimension === "string" || criterion.dimension !== "other") {
+  if (typeof value.original_dimension === "string") {
     return "admin_source_review";
   }
-  return "user_confirmation";
+  // industry/text_only는 KSIC나 닫힌 태그로 자동 판정할 수 없지만, 검수된 원문이
+  // 신청기업의 취급 제품·서비스 분야를 직접 한정하면 사용자가 해당 여부를 공고별로
+  // 확인할 수 있다. 답변은 company profile로 승격하지 않고 per_notice로만 저장한다.
+  if (criterion.dimension === "other" || criterion.dimension === "industry") {
+    return "user_confirmation";
+  }
+  return "admin_source_review";
 }
 
 const ADMIN_ONLY_DOWNGRADE_REASONS = new Set([

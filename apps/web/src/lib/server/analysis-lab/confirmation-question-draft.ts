@@ -187,6 +187,7 @@ function buildDraftItem(
   const sourceSpan = criterion.sourceSpan!;
   const exclusion = criterion.kind === "exclusion";
   const kindLabel = criterion.kind === "preferred" ? "우대" : exclusion ? "제외" : "필수";
+  const industry = criterion.dimension === "industry";
   return {
     criterionIndex,
     criterionKind: criterion.kind,
@@ -195,8 +196,16 @@ function buildDraftItem(
     sourceSpan,
     resolutionScope: "per_notice",
     answerType: "single",
-    prompt: `다음 ${kindLabel} 조건${exclusion ? "에 해당하나요" : "을 충족하나요"}?\n\n“${sourceSpan}”`,
-    options: exclusion
+    prompt: industry
+      ? `귀사의 취급 제품·서비스가 다음 공고 분야에 해당하나요?\n\n“${sourceSpan}”`
+      : `다음 ${kindLabel} 조건${exclusion ? "에 해당하나요" : "을 충족하나요"}?\n\n“${sourceSpan}”`,
+    options: industry
+      ? [
+        { value: "yes", label: "해당해요", evaluation: "satisfied" },
+        { value: "no", label: "해당하지 않아요", evaluation: "unsatisfied" },
+        { value: "unknown", label: "확인할 수 없어요", evaluation: "unknown" },
+      ]
+      : exclusion
       ? [
         { value: "yes", label: "해당해요", evaluation: "unsatisfied" },
         { value: "no", label: "해당하지 않아요", evaluation: "satisfied" },

@@ -139,7 +139,8 @@ try {
   };
   const runPath = join(root, "spike-out", "analysis-lab", "test", "run.json");
   await mkdir(join(root, "spike-out", "analysis-lab", "test"), { recursive: true });
-  const runBody = Buffer.from(JSON.stringify(run));
+  const { sourceRevisionSha256: _runSourceRevisionSha256, ...launchRunWithoutSourceRevision } = run;
+  const runBody = Buffer.from(JSON.stringify(launchRunWithoutSourceRevision));
   await writeFile(runPath, runBody);
   const runArtifactSha256 = sha256(runBody);
   const receipt: AnalysisLaunchReceipt = {
@@ -207,7 +208,14 @@ try {
     }],
     dependencies: {
       repositoryRoot: root,
-      resolveManualConfirmationEvaluations: async () => selectedManual,
+      resolveManualConfirmationEvaluations: async (currentBoundRun) => {
+        assert.equal(
+          currentBoundRun.sourceRevisionSha256,
+          sourceRevisionSha256,
+          "launch run에 revision 필드가 없어도 current source 결속 후 manual 질문을 읽는다",
+        );
+        return selectedManual;
+      },
       loadCurrentGrantEvidence: async () => ({
         sourceRevisionSha256,
         sourceRawSha256: "9".repeat(64),

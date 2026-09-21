@@ -1171,6 +1171,51 @@ check("current 3상태 사람검수 질문이 결속된 required text_only만 �
   assert.equal(result.rule_trace[0]?.unresolved_reason, "criterion_text_only");
 });
 
+check("검수된 업종 text_only는 공고별 답변으로 지원 가능 여부를 즉시 확정한다", () => {
+  const criterion: GrantCriterion = {
+    id: "criterion-industry-manual-required",
+    dimension: "industry",
+    operator: "text_only",
+    kind: "required",
+    confidence: 0.9,
+    needs_review: false,
+    source_span: "선물용품·가정용품 분야 중소기업",
+    value: { tags: [] },
+  };
+  const confirmationQuestionBindings = [{
+    criterionId: criterion.id!,
+    contractVersion: "confirmation-evaluation-v2" as const,
+    evaluationKind: "three_state_single" as const,
+    resolutionScope: "per_notice" as const,
+    reviewState: "analysis_launch_independent_review" as const,
+    runId: "run-industry-current",
+    currentSourceBindingVerified: true as const,
+  }];
+
+  const unanswered = matchGrantCriteria([criterion], company, { confirmationQuestionBindings });
+  assert.equal(unanswered.eligibility, "conditional");
+  assert.equal(unanswered.review_gate?.tier, "needs_profile_input");
+  assert.equal(unanswered.rule_trace[0]?.unresolved_reason, "criterion_text_only");
+
+  const satisfied = matchGrantCriteria([criterion], company, {
+    confirmationQuestionBindings,
+    confirmations: [{ criterion_id: criterion.id!, evaluation: "satisfied" }],
+  });
+  assert.equal(satisfied.eligibility, "eligible");
+  assert.equal(satisfied.review_gate?.tier, "recommendable");
+  assert.equal(satisfied.rule_trace[0]?.result, "pass");
+  assert.equal(satisfied.rule_trace[0]?.resolution, "confirmed_by_user");
+
+  const unsatisfied = matchGrantCriteria([criterion], company, {
+    confirmationQuestionBindings,
+    confirmations: [{ criterion_id: criterion.id!, evaluation: "unsatisfied" }],
+  });
+  assert.equal(unsatisfied.eligibility, "ineligible");
+  assert.equal(unsatisfied.review_gate?.tier, "not_recommended");
+  assert.equal(unsatisfied.rule_trace[0]?.result, "fail");
+  assert.equal(unsatisfied.rule_trace[0]?.resolution, "confirmed_by_user");
+});
+
 check("질문 결속이 있어도 원천분쟁·미검수·고위험 text_only는 core review를 우회하지 않는다", () => {
   const binding = [{
     criterionId: "criterion-protected",

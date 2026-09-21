@@ -145,8 +145,11 @@ assert.equal(
   "원문 검수 조건을 사용자 한 질문으로 과장하면 안 됨",
 );
 assert.ok(userCheckHtml.includes("1:1 밋업은 국내외 유망 스타트업"));
-assert.ok(userCheckHtml.includes("확인할 조건"));
-assert.ok(userCheckHtml.includes("공고에서 이 조건 확인하기"));
+assert.ok(userCheckHtml.includes("공고 조건"));
+assert.ok(userCheckHtml.includes("원문 근거 보기"));
+assert.ok(userCheckHtml.includes("이 조건은 아직 바로 답할 수 없어요."));
+assert.ok(userCheckHtml.includes("회사 정보와 안전하게 비교할 질문이 아직 준비되지 않았어요."));
+assert.equal(userCheckHtml.includes("귀사가 아래 공고 조건에 해당하나요?"), false);
 assert.equal(userCheckHtml.includes("비교할 회사 정보가 표시되지 않았어요"), false);
 
 const allTracePassCoreReviewHtml = renderToStaticMarkup(

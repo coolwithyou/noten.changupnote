@@ -701,6 +701,9 @@ function ConditionRow({
     && profileQuestion !== null
     && onProfileAnswer !== undefined;
   const hasInlineConfirmation = condition.action === "user_confirmation" && questionId !== null;
+  const pendingAdminCopy = condition.action === "admin_source_review" && condition.pending
+    ? adminReviewCopy(condition)
+    : null;
   return (
     <article className={cn("px-3.5 py-3.5", bordered && "border-t border-border-subtle")}>
       <div className="flex flex-wrap items-center gap-2">
@@ -795,14 +798,27 @@ function ConditionRow({
           </Button>
         </section>
       ) : null}
-      {condition.action === "admin_source_review" && condition.pending ? (
+      {pendingAdminCopy ? (
         <div className="mt-3 rounded-xl bg-surface-soft px-3.5 py-3 text-[13px] leading-5 text-text-nav">
-          <p className="font-bold text-ink">이 조건은 판단 기준을 확인하고 있어요.</p>
-          <p className="mt-1">회사 정보만으로 확정할 수 없어, 창업노트가 원문 기준을 검수한 뒤 답변 버튼을 열어요.</p>
+          <p className="font-bold text-ink">{pendingAdminCopy.title}</p>
+          <p className="mt-1">{pendingAdminCopy.description}</p>
         </div>
       ) : null}
     </article>
   );
+}
+
+function adminReviewCopy(condition: ExplainedCondition): { title: string; description: string } {
+  if (condition.trace.unresolvedReason === "criterion_text_only") {
+    return {
+      title: "이 조건은 아직 바로 답할 수 없어요.",
+      description: "공고 원문은 확인됐지만 회사 정보와 안전하게 비교할 질문이 아직 준비되지 않았어요.",
+    };
+  }
+  return {
+    title: "이 조건은 판단 기준을 확인하고 있어요.",
+    description: "회사 정보만으로 확정할 수 없어, 창업노트가 원문 기준을 검수한 뒤 답변 버튼을 열어요.",
+  };
 }
 
 function ConditionFact({ label, value }: { label: string; value: string }) {

@@ -121,6 +121,26 @@ assert.equal(plan.questions[0]?.sourceRawSha256, "c".repeat(64));
 assert.equal(plan.questions[0]?.criterionIndex, 0);
 assert.equal(plan.questions[0]?.resolutionState, "confirmed_correct");
 
+const industryCriterion: LabCriterion = {
+  ...criterion,
+  dimension: "industry",
+  value: { note: "신청기업의 취급 제품 분야를 한정한다." },
+  sourceSpan: "서울 소재 선물용품·가정용품 분야 중소기업",
+};
+assert.equal(
+  classifyManualConfirmationCriterion(industryCriterion),
+  "user_confirmation",
+  "검수된 industry/text_only는 공고별 사용자 확인 질문을 만들 수 있다",
+);
+assert.equal(
+  classifyManualConfirmationCriterion({
+    ...criterion,
+    dimension: "premises",
+  }),
+  "admin_source_review",
+  "전용 의미 계약이 필요한 다른 축은 관리자 검수로 보존한다",
+);
+
 const { primaryMatchingProjection: _projection, ...legacyWithoutProjection } = run;
 const inlineV2 = mergeManualConfirmationEvaluations(legacyWithoutProjection as LabRun, artifact);
 assert.throws(() => planGrantPromotion({
