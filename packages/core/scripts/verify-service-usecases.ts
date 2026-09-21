@@ -505,7 +505,8 @@ const industryQuestionDashboard = buildDashboard({
 assert.equal(industryQuestionDashboard.counts.needsProfileInput, 0);
 assert.equal(industryQuestionDashboard.counts.needsCoreReview, 1);
 assert.equal(industryQuestionDashboard.matches.length, 1);
-assert.equal(industryQuestionDashboard.nextQuestion, undefined);
+assert.equal(industryQuestionDashboard.nextQuestion?.dimension, "industry");
+assert.equal(industryQuestionDashboard.nextQuestion?.sourceReviewRemainingGrantCount, 1, "기업 답변을 받더라도 원문 검토 gate는 남는다");
 
 const balancedReviewTeaser = buildTeaser({
   company: { ...company, industries: [] },

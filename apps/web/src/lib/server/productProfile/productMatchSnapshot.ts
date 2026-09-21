@@ -6,13 +6,37 @@ import type {
   ProductTeaserResult,
   OwnedCompanyMatchingResult,
 } from "@cunote/contracts";
-import { activeUnknownQuestionDimensions, buildDashboard, buildTeaser } from "@cunote/core";
+import {
+  activeUnknownQuestionDimensions,
+  buildDashboard,
+  buildTeaser,
+  selectTeaserDisplay,
+} from "@cunote/core";
 import type { MatchingConfirmationCriterionBinding } from "@cunote/core";
 import type { ResolvedProductCompanyProfile } from "./resolveProductCompanyProfile";
 import { matchingProfileRevision } from "../repositories/companyProfileConcurrency";
 
 export interface ProductDashboardResult extends DashboardResult {
   profileView: MatchingProfileView;
+}
+
+/**
+ * Apply the final teaser page only after server annotations have established
+ * the exact active-question proof. `matches` must be the complete candidate
+ * pool, not an already paginated teaser response.
+ */
+export function selectProductTeaserDisplay<T extends ProductTeaserResult>(
+  teaser: T,
+  options: { limit?: number } = {},
+): T {
+  const selection = selectTeaserDisplay(teaser.matches, options);
+  return {
+    ...teaser,
+    counts: { ...teaser.counts, oneQuestionAway: selection.oneQuestionAwayCount },
+    matches: selection.matches,
+    recommendableMatches: selection.recommendableMatches,
+    reviewNeededMatches: selection.reviewNeededMatches,
+  };
 }
 
 export function buildProductTeaserSnapshot<TPayload>(input: {
@@ -41,6 +65,7 @@ export function buildOwnedCompanyMatchingSnapshot<TPayload>(input: {
   resolution: Pick<ResolvedProductCompanyProfile, "profile" | "view">;
   grants: Array<NormalizedGrant<TPayload>>;
   asOf: Date;
+  limit?: number;
   confirmationsByGrantId?: ReadonlyMap<string, CriterionConfirmation[]>;
   confirmationQuestionBindingsByGrantId?: ReadonlyMap<string, MatchingConfirmationCriterionBinding[]>;
 }): OwnedCompanyMatchingResult {

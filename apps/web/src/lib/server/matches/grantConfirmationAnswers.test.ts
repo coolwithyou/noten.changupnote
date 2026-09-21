@@ -258,6 +258,7 @@ const actionableGrantId = "11111111-1111-1111-8111-111111111111";
 const blockedGrantId = "22222222-2222-1222-8222-222222222222";
 const cards = [
   card(actionableGrantId, [{
+    criterionId: "criterion-q-actionable",
     dimension: "prior_award",
     kind: "exclusion",
     result: "unknown",
@@ -300,17 +301,45 @@ const anchors: ConfirmationQuestionAnchor[] = [
 ];
 const annotated = applyActionableConfirmationQuestions(cards, anchors);
 assert.equal(annotated[0]?.confirmationQuestionCount, 1, "모든 hard unknown을 해소하는 질문은 노출한다");
+assert.deepEqual(annotated[0]?.confirmationQuestionIds, ["q-actionable"]);
+assert.deepEqual(annotated[0]?.confirmationEligibilityQuestionIds, ["q-actionable"]);
 assert.equal(
   annotated[1]?.confirmationQuestionCount,
   1,
   "다른 blocker가 남아도 답할 수 있는 일부 사실부터 확인한다",
 );
+assert.deepEqual(annotated[1]?.confirmationQuestionIds, ["q-low-value"]);
+assert.equal(
+  annotated[1]?.confirmationEligibilityQuestionIds,
+  undefined,
+  "다른 hard blocker가 남으면 답할 수 있는 질문이어도 마지막 자격 질문 proof로 내보내지 않는다",
+);
 assert.equal(annotated[1]?.ruleTrace[0]?.confirmationNextAction, "user_confirmation");
+
+const { currentV2BindingVerified: _verified, ...legacyAnchor } = anchors[0]!;
+const legacyActionable = applyActionableConfirmationQuestions([cards[0]!], [legacyAnchor]);
+assert.deepEqual(legacyActionable[0]?.confirmationQuestionIds, ["q-actionable"]);
+assert.equal(
+  legacyActionable[0]?.confirmationEligibilityQuestionIds,
+  undefined,
+  "legacy 질문은 수정 CTA를 유지해도 마지막 질문 eligibility proof가 될 수 없다",
+);
+const duplicateCurrentQuestion = applyActionableConfirmationQuestions([cards[0]!], [
+  anchors[0]!,
+  { ...anchors[0]!, questionId: "q-actionable-duplicate" },
+]);
+assert.equal(
+  duplicateCurrentQuestion[0]?.confirmationEligibilityQuestionIds,
+  undefined,
+  "같은 criterion에 current 질문이 둘이면 대표 질문을 임의 선택하지 않는다",
+);
 
 const reconfirm = applyActionableConfirmationQuestions([
   { ...cards[0]!, userConfirmedCount: 1, ruleTrace: [] },
 ], anchors);
 assert.equal(reconfirm[0]?.confirmationQuestionCount, 1, "기존 답변이 있으면 재확인 진입을 유지한다");
+assert.deepEqual(reconfirm[0]?.confirmationQuestionIds, ["q-actionable"]);
+assert.equal(reconfirm[0]?.confirmationEligibilityQuestionIds, undefined, "trace 없는 재확인은 자격 질문으로 추정하지 않는다");
 
 const preferredGrantId = "33333333-3333-1333-8333-333333333333";
 const preferredCriterionId = "criterion-preferred-confirmation";
@@ -338,6 +367,8 @@ const preferredAnnotated = applyActionableConfirmationQuestions([preferredCard],
 }]);
 assert.equal(preferredAnnotated[0]?.eligibility, "eligible", "우대 질문은 eligibility를 바꾸지 않는다");
 assert.equal(preferredAnnotated[0]?.confirmationQuestionCount, 1);
+assert.deepEqual(preferredAnnotated[0]?.confirmationQuestionIds, ["q-preferred"]);
+assert.equal(preferredAnnotated[0]?.confirmationEligibilityQuestionIds, undefined);
 assert.equal(preferredAnnotated[0]?.ruleTrace[0]?.confirmationNextAction, "user_confirmation");
 
 const protectedGrantId = "44444444-4444-1444-8444-444444444444";
@@ -369,6 +400,8 @@ for (const unresolvedReason of ["source_dispute", "criterion_needs_review", "cri
 
 const cleared = applyActionableConfirmationQuestions(preferredAnnotated, []);
 assert.equal(cleared[0]?.confirmationQuestionCount, undefined, "질문 조회 결과가 비면 과거 주석 count를 제거한다");
+assert.equal(cleared[0]?.confirmationQuestionIds, undefined, "질문 id도 count와 함께 제거한다");
+assert.equal(cleared[0]?.confirmationEligibilityQuestionIds, undefined, "자격 질문 id도 함께 제거한다");
 assert.equal(cleared[0]?.ruleTrace[0]?.confirmationNextAction, "admin_source_review", "stale user CTA를 기본 원인으로 되돌린다");
 assert.equal(cleared[0]?.eligibility, "eligible");
 
@@ -436,6 +469,16 @@ const mixedAnnotated = applyActionableConfirmationQuestions([mixedCard], [
   },
 ]);
 assert.equal(mixedAnnotated[0]?.confirmationQuestionCount, 2, "기존 답변이 있어도 다른 미답변 질문을 함께 보존한다");
+assert.deepEqual(
+  mixedAnnotated[0]?.confirmationQuestionIds,
+  ["q-already-confirmed", "q-unanswered-preferred"],
+  "active question ids are deterministic and preserve both exact anchors",
+);
+assert.equal(
+  mixedAnnotated[0]?.confirmationEligibilityQuestionIds,
+  undefined,
+  "이미 답한 hard 질문은 마지막 자격 질문으로 다시 내보내지 않는다",
+);
 assert.equal(mixedAnnotated[0]?.ruleTrace[1]?.confirmationNextAction, "user_confirmation");
 
 /* ── v2 명시 3상태: 단일 선택·정확한 binding·revision, 문구 추론 없음 ── */
@@ -523,5 +566,6 @@ function anchor(
     kind: "exclusion",
     operator: dimension === "prior_award" ? "exists" : "text_only",
     sourceSpan,
+    currentV2BindingVerified: true,
   };
 }

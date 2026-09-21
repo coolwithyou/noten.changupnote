@@ -26,7 +26,7 @@ export function NextQuestionCard({
           className="rounded-[20px] border-[1.5px] border-border-card-hover bg-landing-question px-5 py-5 shadow-[var(--shadow-landing-question)] sm:px-7 sm:py-7"
         >
           <Badge className="h-auto rounded-full bg-grad-cta px-[13px] py-[5px] text-xs font-extrabold text-primary-foreground shadow-[var(--shadow-chip-brand)]">
-            이것만 답하면 돼요
+            이 조건부터 확인해 보세요
           </Badge>
           <h2 className="mt-3 text-lg leading-[1.45] font-extrabold tracking-[-0.3px] text-ink-strong sm:text-2xl sm:tracking-[-0.5px]">
             {question.prompt}
@@ -36,6 +36,12 @@ export function NextQuestionCard({
               답하면 공고 {question.affectedGrantCount.toLocaleString("ko-KR")}건의 판정을 다시 확인해요
             </p>
           ) : null}
+          <p className="mt-2 text-sm leading-6 text-text-secondary">
+            답변에 따라 조건 충족 여부가 달라져요.
+            {(question.sourceReviewRemainingGrantCount ?? 0) > 0
+              ? ` 이 중 ${question.sourceReviewRemainingGrantCount}건은 답변 후에도 별도 공고 조건 확인이 남아요.`
+              : ""}
+          </p>
           <div className="mt-5">
             <TeaserQuestionForm
               question={question}
@@ -68,7 +74,9 @@ function AnswerImpactCard({ impact }: { impact: AnswerImpactSummary }) {
       </div>
       <p className="mt-1.5 text-sm leading-6 text-text-nav">
         {impact.changed === 0
-          ? "이 답변으로 바뀐 공고는 없어요."
+          ? (impact.resolvedConditions ?? 0) > 0
+            ? `현재 비교한 공고에서 미확인 조건 ${impact.resolvedConditions}개를 확인했어요. 공고 전체 판정은 아직 같아요.`
+            : "현재 비교한 공고의 전체 판정은 그대로예요. 답변은 기록했으며 다른 미확인 조건이 남아 있을 수 있어요."
           : movementParts.join(" · ")}
         {coverageCopy ? ` ${impact.changed === 0 ? "" : "· "}${coverageCopy}` : ""}
       </p>

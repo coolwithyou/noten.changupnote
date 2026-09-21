@@ -213,6 +213,8 @@ export interface TeaserResult {
     needsProfileInput?: number;
     /** 사용자가 답할 수 있는 미확인 축이 정확히 하나인 공고 수. */
     oneAnswer?: number;
+    /** 현재 source v2 질문 하나가 마지막 hard gate임을 증명한 전체 후보 수. */
+    oneQuestionAway?: number;
     /** 내부 호환 필드. 사용자 티저에서는 OPS 검수 대기 공고를 숨기므로 0이다. */
     needsCoreReview?: number;
     /** 취득·준비 조건을 갖추면 다시 판정할 수 있는 공고 수. */
@@ -311,6 +313,16 @@ export interface MatchCard {
    * UI 는 이 값이 있을 때만 "확인하기" CTA 를 노출한다.
    */
   confirmationQuestionCount?: number;
+  /**
+   * 현재 활성 행 중 이 카드의 trace에 실제로 연결된 질문 id. legacy 재확인 질문도 포함할 수 있으므로
+   * 마지막 자격 질문의 증거로 단독 사용하지 않는다. prompt/options/binding은 기존 인증 GET에서 다시 읽는다.
+   */
+  confirmationQuestionIds?: string[];
+  /**
+   * 현재 serving/source에 결속된 검수 완료 v2 질문 중, `satisfied` 답변을 적용하면 다른 hard gate
+   * 없이 eligible이 되는 단 하나의 질문 id. 일반·legacy 재확인 질문은 이 proof에 포함하지 않는다.
+   */
+  confirmationEligibilityQuestionIds?: string[];
   /**
    * 사용자 자가신고 확인으로 판정이 해소·확정된 rule_trace entry 수(확인 루프 Phase B 결정 3).
    * core toMatchCard 가 resolution === "confirmed_by_user" 를 세어 싣고, 0이면 필드 자체를 싣지 않는다.
@@ -593,6 +605,8 @@ export interface NextQuestionDto {
   rangeOptions?: QuestionRangeOptionDto[];
   framing: string;
   affectedGrantCount: number;
+  /** 이 답변 뒤에도 별도 공고 근거 검토가 남는 영향 공고 수. affectedGrantCount의 부분집합. */
+  sourceReviewRemainingGrantCount?: number;
   /** prior_award는 같은 dimension 안에서도 self/program/program_type 문항을 독립 known 게이트로 묻는다. */
   priorAwardContext?: PriorAwardQuestionContextDto;
 }
@@ -823,7 +837,7 @@ export interface GrantConfirmationSubmitRequest {
 
 /**
  * PUT 응답 — 저장 답변과 (company, grant) 스코프 재계산 결과 카드.
- * UI 는 match 로 목록 카드를 치환해 4상태 버킷 이동을 즉시 반영한다(결격 답변의 closed 이동 포함).
+ * UI 는 같은 카드에서 저장·재판정 결과를 먼저 보여준 뒤 사용자의 다음 행동에서 목록에 반영한다.
  */
 export interface GrantConfirmationSubmitResult {
   grantId: string;

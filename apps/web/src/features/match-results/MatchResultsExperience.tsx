@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import type {
   ActionResult,
   GrantConfirmationSubmitResult,
+  CriterionDimension,
   MatchingProfileAnswerRequest,
   OwnedCompanyMatchingResult,
   ProductTeaserResult,
@@ -28,6 +29,7 @@ import { AnalysisScopeCard } from "./AnalysisScopeCard";
 import { confirmationResultAction } from "./confirmationRequestScope";
 import {
   TEASER_FALLBACK_MESSAGE,
+  PROFILE_DIMENSION_LABELS,
   TeaserError,
   confirmationResumePath,
   groupMatchesForDisplay,
@@ -92,14 +94,30 @@ export function MatchResultsExperience() {
     open: false,
     enteredCompanyIds: new Set<string>(),
   }));
+  const [profileTarget, setProfileTarget] = useState<CriterionDimension | null>(null);
+  function openProfile(dimension?: CriterionDimension) {
+    setProfileTarget(dimension ?? null);
+    dispatchProfileDrawer({ type: "set_open", open: true });
+  }
   const [answerImpact, setAnswerImpact] = useState<AnswerImpactSummary | null>(null);
   const [answeredQuestionIdentities, setAnsweredQuestionIdentities] = useState<Set<string>>(
     () => new Set(),
   );
   const [resumeConfirmationGrantId, setResumeConfirmationGrantId] = useState<string | null>(null);
+  const [resumeConfirmationQuestionId, setResumeConfirmationQuestionId] = useState<string | null>(null);
   const requestSeqRef = useRef(0);
   const answerPendingRef = useRef(false);
   const [draftNotice, setDraftNotice] = useState("입력한 정보는 회사 저장 전까지 이 탭에서만 임시 보관됩니다.");
+
+  const resumedProfileRef = useRef(false);
+  useEffect(() => {
+    if (status !== "ready" || resumedProfileRef.current) return;
+    const field = new URLSearchParams(window.location.search).get("profile");
+    if (!field || !Object.hasOwn(PROFILE_DIMENSION_LABELS, field)) return;
+    resumedProfileRef.current = true;
+    setProfileTarget(field as CriterionDimension);
+    dispatchProfileDrawer({ type: "set_open", open: true });
+  }, [status]);
 
   const acceptOwnedMatching = useCallback((result: OwnedCompanyMatchingResult) => {
     setCompanyId(result.companyId);
@@ -113,9 +131,12 @@ export function MatchResultsExperience() {
     setStatus("ready");
   }, []);
 
-  const loadCompanyMatching = useCallback(async (id?: string) => {
+  const loadCompanyMatching = useCallback(async (
+    id?: string,
+    options: { preserveReady?: boolean } = {},
+  ) => {
     const seq = ++requestSeqRef.current;
-    setStatus("loading");
+    if (!options.preserveReady) setStatus("loading");
     setError(null);
     try {
       const result = await loadOwnedMatching(id);
@@ -132,7 +153,11 @@ export function MatchResultsExperience() {
       });
     } catch (caught) {
       if (seq !== requestSeqRef.current) return;
-      setError(caught instanceof TeaserError ? caught : new TeaserError("저장된 정보를 불러오지 못했어요. 다시 시도해주세요.", null));
+      const nextError = caught instanceof TeaserError
+        ? caught
+        : new TeaserError("저장된 정보를 불러오지 못했어요. 다시 시도해주세요.", null);
+      if (options.preserveReady) throw nextError;
+      setError(nextError);
       setStatus("error");
     }
   }, [acceptOwnedMatching]);
@@ -226,18 +251,29 @@ export function MatchResultsExperience() {
     [answers, bizNo, companyId, profileWriteAllowed, acceptOwnedMatching, loadTeaser, teaser],
   );
 
-  // 저장 회사는 확인 답변을 포함해 건수·질문까지 재조회한다. 익명 복귀의 카드 치환은 호환 유지.
+  // 저장 성공 뒤 현재 결과 화면을 유지한 채 새 판정을 반영한다. 전체 재조회는 건수·질문을
+  // 동기화하되 loading 화면으로 되돌리지 않으며, 실패해도 저장된 답변과 현재 카드를 보존한다.
   const applyConfirmationResult = useCallback((result: GrantConfirmationSubmitResult) => {
     const action = confirmationResultAction({
       hasCompany: Boolean(companyId),
       hasMatch: Boolean(result.match),
       ...(result.refresh.status ? { refreshStatus: result.refresh.status } : {}),
     });
+    if (result.match) {
+      setTeaser((current) => current ? {
+        ...current,
+        matches: current.matches.map((match) => (
+          match.grantId === result.match?.grantId ? result.match : match
+        )),
+      } : current);
+    }
     if (action === "reload" || action === "reload_with_notice") {
-      if (action === "reload_with_notice") {
-        toast.info("답변은 저장됐고 판정을 다시 불러오는 중이에요.");
-      }
-      void loadCompanyMatching(companyId!);
+      toast.info(action === "reload_with_notice"
+        ? "답변은 저장됐어요. 최신 판정을 다시 확인하고 있어요."
+        : "답변을 반영해 최신 판정을 확인하고 있어요.");
+      void loadCompanyMatching(companyId!, { preserveReady: true }).catch(() => {
+        toast.error("답변은 저장됐지만 최신 판정을 불러오지 못했어요. 페이지에서 다시 시도해 주세요.");
+      });
       return;
     }
     const updated = result.match;
@@ -258,6 +294,7 @@ export function MatchResultsExperience() {
     const params = new URLSearchParams(window.location.search);
     const digits = (params.get("biz") ?? "").replace(/\D/g, "").slice(0, 10);
     setResumeConfirmationGrantId(params.get("confirm"));
+    setResumeConfirmationQuestionId(params.get("confirmQuestion"));
     if (params.has("companyId") || !params.has("biz")) {
       const id = params.get("companyId") ?? undefined;
       ownedRequestRef.current = id;
@@ -400,11 +437,10 @@ export function MatchResultsExperience() {
               questionsExhausted={teaser.nextQuestion === null}
               answeredCurrentQuestion={answeredCurrentQuestion}
             />
-            <AnalysisScopeCard context={teaser.searchContext} />
             {noMatchingGrants ? (
               <NoMatchingGrantsState
                 onSubscribe={() => void saveAndContinue()}
-                onOpenProfile={() => dispatchProfileDrawer({ type: "set_open", open: true })}
+                onOpenProfile={openProfile}
                 saving={continuing}
               />
             ) : (
@@ -422,17 +458,24 @@ export function MatchResultsExperience() {
                   companyId={companyId}
                   virtualBizNo={bizNo && isVirtualCompanyBizNo(bizNo) ? bizNo : null}
                   onPrepare={saveAndContinue}
-                  onOpenProfile={() => dispatchProfileDrawer({ type: "set_open", open: true })}
+                  onOpenProfile={openProfile}
                   preparing={continuing}
                   newGrantIds={new Set(answerImpact?.newlyOpenGrantIds ?? [])}
                   onConfirmationSaved={applyConfirmationResult}
                   autoOpenConfirmationGrantId={resumeConfirmationGrantId}
+                  autoOpenConfirmationQuestionId={resumeConfirmationQuestionId}
                   {...(!resumeConfirmationGrantId && bizNo
                     ? {
-                        onRequestConfirmation: (match: { grantId: string }) =>
+                        onRequestConfirmation: (match: { grantId: string; confirmationEligibilityQuestionIds?: string[] }) =>
                           void saveAndContinue(
                             undefined,
-                            confirmationResumePath(bizNo, match.grantId),
+                            confirmationResumePath(
+                              bizNo,
+                              match.grantId,
+                              match.confirmationEligibilityQuestionIds?.length === 1
+                                ? match.confirmationEligibilityQuestionIds[0]
+                                : null,
+                            ),
                           ),
                       }
                     : {})}
@@ -450,7 +493,12 @@ export function MatchResultsExperience() {
                 ) : null}
               </>
             )}
+            <details className="mt-8 rounded-2xl border border-border-subtle p-5">
+              <summary className="cursor-pointer text-sm font-semibold text-text-secondary">분석 범위와 기업정보 확인 현황</summary>
+              <AnalysisScopeCard context={teaser.searchContext} />
+            </details>
             <ProfileSection
+              initialField={profileTarget}
               teaser={teaser}
               onAnswer={applyAnswer}
               submitting={profileSubmitting || continuing}
@@ -476,6 +524,7 @@ export function hasDisplayableMatchResults(teaser: ProductTeaserResult): boolean
   const groups = groupMatchesForDisplay(teaser.matches);
   return (
     (teaser.counts.openNow ?? groups.open.length) > 0
+    || groups.oneQuestionAway.length > 0
     || (teaser.counts.oneAnswer ?? groups.oneAnswer.length) > 0
     || (teaser.counts.preparable ?? groups.preparable.length) > 0
     || groups.checkSource.length > 0

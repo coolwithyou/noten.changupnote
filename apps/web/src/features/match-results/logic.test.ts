@@ -367,6 +367,34 @@ assert.equal(grouped.preparable.length, 2);
 assert.equal(grouped.checkSource.length, 3);
 assert.equal(grouped.closed.length, 1, "hard fail은 legacy preparable bucket이어도 준비 목록에서 제외");
 
+const exactQuestionTemplate = {
+  ...answerMatch,
+  matchingEvidence: { level: "verified", sourceRevisionSha256: "current", reason: "reviewed" },
+  criteriaExtracted: true,
+  confirmationQuestionCount: 1,
+  confirmationQuestionIds: ["q-exact"],
+  confirmationEligibilityQuestionIds: ["q-exact"],
+  ruleTrace: [{
+    criterionId: "criterion-exact",
+    dimension: "other",
+    kind: "required",
+    result: "text_only",
+    label: "입주 의사",
+    checklistSection: "needs_check",
+    unresolvedReason: "criterion_text_only",
+    confirmationNextAction: "user_confirmation",
+  }],
+} as MatchCard;
+const deadlineOrdered = groupMatchesForDisplay([
+  { ...exactQuestionTemplate, grantId: "grant-later", dDay: 7 },
+  { ...exactQuestionTemplate, grantId: "grant-soon", dDay: 1 },
+]);
+assert.deepEqual(
+  deadlineOrdered.oneQuestionAway.map((match) => match.grantId),
+  ["grant-soon", "grant-later"],
+  "같은 그룹에서는 마감이 가까운 공고를 먼저 보여준다",
+);
+
 assert.equal(profileSheetValueState({
   value: "벤처기업확인서",
   available: true,
@@ -382,6 +410,10 @@ assert.equal(profileSheetValueState({
 assert.equal(
   confirmationResumePath("123-45-67890", "grant/confirmation"),
   "/matches?biz=1234567890&confirm=grant%2Fconfirmation",
+);
+assert.equal(
+  confirmationResumePath("123-45-67890", "grant/confirmation", "question exact/1"),
+  "/matches?biz=1234567890&confirm=grant%2Fconfirmation&confirmQuestion=question+exact%2F1",
 );
 assert.equal(
   matchDetailHref({ ...openMatch, detailUrl: "/grants/grant-open" }, "000-00-00001"),
@@ -435,7 +467,22 @@ assert.deepEqual(summarizeAnswerImpact(beforeImpact, afterImpact), {
   previousKnown: 0,
   nextKnown: 1,
   coverageDelta: 1,
+  resolvedConditions: 0,
+  remainingSourceConditions: 0,
 });
+
+const partialBefore: MatchCard = { ...answerMatch,
+  matchingEvidence: { level: "verified", sourceRevisionSha256: "same-source" },
+  recommendationTier: "needs_core_review",
+  ruleTrace: [{ ...answerMatch.ruleTrace[0]!, criterionId: "profile-condition", label: "기업 유형", result: "unknown" }],
+};
+const partialAfter: MatchCard = { ...partialBefore,
+  ruleTrace: [{ ...partialBefore.ruleTrace[0]!, result: "pass" }],
+};
+assert.equal(summarizeAnswerImpact(teaserFixture([partialBefore], 0), teaserFixture([partialAfter], 1)).resolvedConditions, 1);
+assert.equal(summarizeAnswerImpact(teaserFixture([partialBefore], 0), teaserFixture([{ ...partialAfter,
+  matchingEvidence: { level: "verified", sourceRevisionSha256: "changed-source" },
+}], 1)).resolvedConditions, 0, "원문이 바뀐 조건을 답변의 해소 성과로 집계하지 않는다");
 
 const criterionPresentation = matchCriterionPresentation({
   ...openMatch,

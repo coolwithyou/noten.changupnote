@@ -89,6 +89,7 @@ import {
   buildProductDashboardSnapshot,
   buildOwnedCompanyMatchingSnapshot,
   buildProductTeaserSnapshot,
+  selectProductTeaserDisplay,
   type ProductDashboardResult,
 } from "./productProfile/productMatchSnapshot";
 import {
@@ -1467,6 +1468,7 @@ export async function loadOwnedCompanyMatching(input: {
   ]);
   const result = buildOwnedCompanyMatchingSnapshot({
     ...input, resolution, grants, asOf,
+    limit: grants.length,
     ...(confirmationsByGrantId ? { confirmationsByGrantId } : {}),
     confirmationQuestionBindingsByGrantId: questionContext.bindingsByGrantId,
   });
@@ -1475,9 +1477,7 @@ export async function loadOwnedCompanyMatching(input: {
   // 관측 장애가 기본 매칭을 막지 않는다. 활성화·마이그레이션은 별도 운영 단계다.
   const { annotateProductExposure } = await import("./productReadiness/exposure");
   result.teaser.matches = await annotateProductExposure(result.teaser.matches, { ...input, grants });
-  const byId = new Map(result.teaser.matches.map((match) => [match.grantId, match]));
-  result.teaser.recommendableMatches = result.teaser.recommendableMatches?.map((match) => byId.get(match.grantId) ?? match) ?? [];
-  result.teaser.reviewNeededMatches = result.teaser.reviewNeededMatches?.map((match) => byId.get(match.grantId) ?? match) ?? [];
+  result.teaser = selectProductTeaserDisplay(result.teaser);
   return result;
 }
 
@@ -1495,19 +1495,18 @@ export async function loadProductTeaser(
     resolution,
     grants,
     asOf,
+    limit: grants.length,
     confirmationQuestionBindingsByGrantId: questionContext.bindingsByGrantId,
   });
   result.matches = await annotateMatchCardWriteSupport(result.matches);
   // 자가신고 확인 질문이 발행된 공고에 질문 수를 주석 — "확인하기" CTA 게이트(확인 루프 Phase B).
   result.matches = await annotateMatchCardConfirmationQuestions(result.matches, questionContext);
-  result.recommendableMatches = result.matches.filter((match) =>
-    recommendationTierForMatch(match) === "recommendable" && match.status === "open");
-  result.reviewNeededMatches = result.matches.filter(isReviewNeededMatchCard);
+  const selectedResult = selectProductTeaserDisplay(result);
   if (!virtualScenarioForRequest(body, asOf)) {
     try {
       await recordLandingMatchObservation({
         creditsSystem: resolveServiceRepositories().creditsSystem,
-        result,
+        result: selectedResult,
         observedAt: asOf,
       });
     } catch (error) {
@@ -1518,7 +1517,7 @@ export async function loadProductTeaser(
       );
     }
   }
-  return result;
+  return selectedResult;
 }
 
 function persistedGrantIds<TPayload>(grants: Array<NormalizedGrant<TPayload>>): string[] {

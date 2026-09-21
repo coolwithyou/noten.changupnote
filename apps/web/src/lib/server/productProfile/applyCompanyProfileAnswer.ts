@@ -29,7 +29,7 @@ import {
   loadServiceGrantUniverse,
   resolveProductCompanyProfile,
 } from "@/lib/server/serviceData";
-import { buildOwnedCompanyMatchingSnapshot } from "./productMatchSnapshot";
+import { buildOwnedCompanyMatchingSnapshot, selectProductTeaserDisplay } from "./productMatchSnapshot";
 import {
   annotateMatchCardConfirmationQuestions,
   loadMatchingConfirmationQuestionContextOrEmpty,
@@ -128,7 +128,7 @@ export async function applyCompanyProfileAnswer(
   const profileView = after.view;
   const matching = buildOwnedCompanyMatchingSnapshot({
     ...matchContext, companyId: input.companyId,
-    resolution: after, grants,
+    resolution: after, grants, limit: grants.length,
   });
 
   const impact = evaluateProfileUpdateImpact({
@@ -172,9 +172,7 @@ export async function applyCompanyProfileAnswer(
       questionContext,
     ));
   matching.teaser.matches = await annotateProductExposure(matching.teaser.matches, { ...input, grants });
-  const byId = new Map(matching.teaser.matches.map((match) => [match.grantId, match]));
-  matching.teaser.recommendableMatches = matching.teaser.recommendableMatches?.map((match) => byId.get(match.grantId) ?? match) ?? [];
-  matching.teaser.reviewNeededMatches = matching.teaser.reviewNeededMatches?.map((match) => byId.get(match.grantId) ?? match) ?? [];
+  matching.teaser = selectProductTeaserDisplay(matching.teaser);
 
   return {
     profile: effectiveProfile,

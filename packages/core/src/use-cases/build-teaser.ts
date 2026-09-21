@@ -21,6 +21,7 @@ import {
   hasUnanswerableHardUnknown,
   isPreparableMatchCard,
 } from "./select-match-cards.js";
+import { projectMatchConfirmationReadiness } from "./match-explanation.js";
 
 export interface BuildTeaserOptions<TPayload = unknown> {
   company: CompanyProfile;
@@ -34,6 +35,24 @@ export interface BuildTeaserOptions<TPayload = unknown> {
   companyEvidence?: CompanyEvidence | null;
   confirmationsByGrantId?: ReadonlyMap<string, CriterionConfirmation[]>;
   confirmationQuestionBindingsByGrantId?: ReadonlyMap<string, MatchingConfirmationCriterionBinding[]>;
+}
+
+/**
+ * The final teaser page is selected after the product server has attached its
+ * current-source question annotation. Keeping this separate from matching lets
+ * the server inspect the whole evaluated candidate pool before pagination.
+ */
+export interface TeaserDisplaySelectionOptions {
+  limit?: number;
+  recommendableLimit?: number;
+  reviewNeededLimit?: number;
+}
+
+export interface TeaserDisplaySelection {
+  matches: MatchCard[];
+  recommendableMatches: MatchCard[];
+  reviewNeededMatches: MatchCard[];
+  oneQuestionAwayCount: number;
 }
 
 export function buildTeaser<TPayload>({
@@ -64,7 +83,8 @@ export function buildTeaser<TPayload>({
   }));
   const sorted = sortMatchedGrants(matched);
   const profileQuestionCandidates = sorted.filter((entry) =>
-    recommendationTierForMatch(entry.match) === "needs_profile_input"
+    entry.match.eligibility === "conditional"
+    && entry.item.matching_evidence?.level !== "discovery"
   );
   const nextQuestion = planProfileQuestions(profileQuestionCandidates, {
     asOf,
@@ -74,11 +94,7 @@ export function buildTeaser<TPayload>({
   const cards = sorted.map((entry) => toMatchCard(entry, { asOf }));
   const allRecommendableCards = cards.filter(isRecommendableCard);
   const openRecommendableCards = allRecommendableCards.filter((card) => card.status === "open");
-  const visibleRecommendableCards = allRecommendableCards.filter(
-    (card) => card.status === "open" || card.status === "upcoming",
-  );
   const reviewNeededCards = cards.filter(isReviewNeededCard);
-  const balancedReviewNeededCards = balanceReviewNeededCards(reviewNeededCards);
   const needsProfileInputCount = cards.filter(
     (card) => recommendationTierForCard(card) === "needs_profile_input",
   ).length;
@@ -87,15 +103,11 @@ export function buildTeaser<TPayload>({
   ).length;
   const oneAnswerCount = cards.filter(isOneAnswerCard).length;
   const notRecommendedCards = cards.filter(isNotRecommendedCard);
-  const {
-    recommendable: recommendableMatches,
-    reviewNeeded: reviewNeededMatches,
-  } = selectVisibleTeaserBuckets(visibleRecommendableCards, balancedReviewNeededCards, {
+  const display = selectTeaserDisplay(cards, {
     limit,
     ...(recommendableLimit === undefined ? {} : { recommendableLimit }),
     ...(reviewNeededLimit === undefined ? {} : { reviewNeededLimit }),
   });
-  const visibleMatches = [...recommendableMatches, ...reviewNeededMatches];
   const counts = countByEligibility(sorted.map((entry) => entry.match));
   const deadlineSoon = sorted.filter((entry) => {
     const dDay = daysUntil(entry.item.grant.apply_end ?? null, asOf);
@@ -114,14 +126,15 @@ export function buildTeaser<TPayload>({
       reviewNeeded: reviewNeededCards.length,
       needsProfileInput: needsProfileInputCount,
       oneAnswer: oneAnswerCount,
+      oneQuestionAway: display.oneQuestionAwayCount,
       needsCoreReview: needsCoreReviewCount,
       preparable: cards.filter(isPreparableMatchCard).length,
       notRecommended: notRecommendedCards.length,
     },
-    matches: visibleMatches,
+    matches: display.matches,
     nextQuestion,
-    recommendableMatches,
-    reviewNeededMatches,
+    recommendableMatches: display.recommendableMatches,
+    reviewNeededMatches: display.reviewNeededMatches,
     searchContext: {
       asOf: asOf.toISOString(),
       evaluatedGrantCount: grants.length,
@@ -131,6 +144,38 @@ export function buildTeaser<TPayload>({
   };
   if (companyEvidence !== undefined) result.companyEvidence = companyEvidence;
   return result;
+}
+
+/**
+ * Select a page from an already annotated pool. Only
+ * `projectMatchConfirmationReadiness` may put a card in the one-question
+ * priority; dimensions and generic question counts are deliberately ignored.
+ */
+export function selectTeaserDisplay(
+  cards: readonly MatchCard[],
+  options: TeaserDisplaySelectionOptions = {},
+): TeaserDisplaySelection {
+  const allRecommendableCards = cards.filter(isRecommendableCard);
+  const visibleRecommendableCards = allRecommendableCards.filter(
+    (card) => card.status === "open" || card.status === "upcoming",
+  );
+  const reviewNeededCards = cards.filter(isReviewNeededCard);
+  const balancedReviewNeededCards = balanceReviewNeededCards(reviewNeededCards);
+  const { recommendable, reviewNeeded } = selectVisibleTeaserBuckets(
+    visibleRecommendableCards,
+    balancedReviewNeededCards,
+    {
+      limit: options.limit ?? 8,
+      ...(options.recommendableLimit === undefined ? {} : { recommendableLimit: options.recommendableLimit }),
+      ...(options.reviewNeededLimit === undefined ? {} : { reviewNeededLimit: options.reviewNeededLimit }),
+    },
+  );
+  return {
+    matches: [...recommendable, ...reviewNeeded],
+    recommendableMatches: recommendable,
+    reviewNeededMatches: reviewNeeded,
+    oneQuestionAwayCount: cards.filter(isOneQuestionAwayCard).length,
+  };
 }
 
 function selectVisibleTeaserBuckets(
@@ -173,14 +218,20 @@ function selectVisibleTeaserBuckets(
 
 /** 각 검토 사유의 대표 카드가 제한된 익명 결과에 최소 한 번씩 나타나게 섞는다. */
 function balanceReviewNeededCards(cards: MatchCard[]): MatchCard[] {
+  const oneQuestionAway = cards.filter(isOneQuestionAwayCard);
   const buckets = [
-    cards.filter(isOneAnswerCard),
+    cards.filter((card) => isOneAnswerCard(card) && !isOneQuestionAwayCard(card)),
     cards.filter((card) =>
-      recommendationTierForCard(card) === "needs_profile_input" && !isOneAnswerCard(card)
+      recommendationTierForCard(card) === "needs_profile_input"
+      && !isOneQuestionAwayCard(card)
+      && !isOneAnswerCard(card)
     ),
     cards.filter((card) => recommendationTierForCard(card) === "needs_core_review"),
   ];
-  const result: MatchCard[] = [];
+  // A card with one exact current-source v2 question is the shortest path to a
+  // definitive answer. Keep every such card ahead of generic review buckets so
+  // a later exact candidate cannot be displaced by round-robin balancing.
+  const result: MatchCard[] = [...oneQuestionAway];
   for (let index = 0; result.length < cards.length; index += 1) {
     let appended = false;
     for (const bucket of buckets) {
@@ -192,6 +243,10 @@ function balanceReviewNeededCards(cards: MatchCard[]): MatchCard[] {
     if (!appended) break;
   }
   return result;
+}
+
+function isOneQuestionAwayCard(card: MatchCard): boolean {
+  return projectMatchConfirmationReadiness(card).status === "one_question_away";
 }
 
 function nonNegativeInteger(value: number): number {

@@ -59,9 +59,18 @@ export function applyActionableConfirmationQuestions(
     if (grantAnchors.length === 0) return match;
     const actionableTraces = match.ruleTrace.filter(traceCanUseConfirmationQuestion);
     const matchedQuestionIds = new Set<string>();
+    const verifiedEligibilityQuestions = new Map<string, Set<string>>();
     for (const trace of actionableTraces) {
       const matched = grantAnchors.filter((anchor) => anchorMatchesTrace(anchor, trace));
-      for (const anchor of matched) matchedQuestionIds.add(anchor.questionId);
+      for (const anchor of matched) {
+        matchedQuestionIds.add(anchor.questionId);
+        if (anchor.currentV2BindingVerified && trace.criterionId) {
+          verifiedEligibilityQuestions.set(trace.criterionId, new Set([
+            ...(verifiedEligibilityQuestions.get(trace.criterionId) ?? []),
+            anchor.questionId,
+          ]));
+        }
+      }
     }
     const annotatedTrace = match.ruleTrace.map((trace) => {
       if (!traceCanUseConfirmationQuestion(trace) || trace.resolution === "confirmed_by_user") return trace;
@@ -74,11 +83,36 @@ export function applyActionableConfirmationQuestions(
     if (matchedQuestionIds.size === 0 && (match.userConfirmedCount ?? 0) > 0 && match.ruleTrace.length === 0) {
       for (const anchor of grantAnchors) matchedQuestionIds.add(anchor.questionId);
     }
-    return matchedQuestionIds.size > 0
+    const confirmationQuestionIds = [...matchedQuestionIds].sort();
+    // `confirmationEligibilityQuestionIds` is a stronger proof than the general
+    // CTA ids above. Expose it only when one current-source v2 question is the
+    // sole unresolved hard gate and applying its `satisfied` evaluation would
+    // make the flat production matcher eligible. Legacy/stale questions remain
+    // reachable for correction, but can never power the "one question" promise.
+    const unresolvedHard = annotatedTrace.filter((trace) => (
+      (trace.kind === "required" || trace.kind === "exclusion")
+      && (trace.result === "unknown" || trace.result === "text_only")
+    ));
+    const hasHardFail = annotatedTrace.some((trace) => (
+      (trace.kind === "required" || trace.kind === "exclusion")
+      && trace.result === "fail"
+    ));
+    const soleHard = unresolvedHard.length === 1 ? unresolvedHard[0] : undefined;
+    const verifiedQuestionIds = soleHard?.criterionId
+      ? [...(verifiedEligibilityQuestions.get(soleHard.criterionId) ?? [])]
+      : [];
+    const confirmationEligibilityQuestionIds = !hasHardFail
+      && soleHard?.confirmationNextAction === "user_confirmation"
+      && verifiedQuestionIds.length === 1
+      ? verifiedQuestionIds
+      : [];
+    return confirmationQuestionIds.length > 0
       ? {
           ...match,
           ruleTrace: annotatedTrace,
-          confirmationQuestionCount: matchedQuestionIds.size,
+          confirmationQuestionCount: confirmationQuestionIds.length,
+          confirmationQuestionIds,
+          ...(confirmationEligibilityQuestionIds.length > 0 ? { confirmationEligibilityQuestionIds } : {}),
         }
       : match;
   });
@@ -87,7 +121,10 @@ export function applyActionableConfirmationQuestions(
 function clearConfirmationQuestionAnnotations(matches: MatchCard[]): MatchCard[] {
   let changed = false;
   const cleared = matches.map((match) => {
-    const hadCount = match.confirmationQuestionCount !== undefined;
+    const hadQuestionAnnotation =
+      match.confirmationQuestionCount !== undefined
+      || match.confirmationQuestionIds !== undefined
+      || match.confirmationEligibilityQuestionIds !== undefined;
     let traceChanged = false;
     const ruleTrace = match.ruleTrace.map((trace) => {
       if (trace.confirmationNextAction !== "user_confirmation") return trace;
@@ -103,10 +140,15 @@ function clearConfirmationQuestionAnnotations(matches: MatchCard[]): MatchCard[]
           : "admin_source_review" as const,
       };
     });
-    if (!hadCount && !traceChanged) return match;
+    if (!hadQuestionAnnotation && !traceChanged) return match;
     changed = true;
-    const { confirmationQuestionCount: _count, ...withoutCount } = match;
-    return { ...withoutCount, ruleTrace };
+    const {
+      confirmationQuestionCount: _count,
+      confirmationQuestionIds: _ids,
+      confirmationEligibilityQuestionIds: _eligibilityIds,
+      ...withoutConfirmationQuestionAnnotations
+    } = match;
+    return { ...withoutConfirmationQuestionAnnotations, ruleTrace };
   });
   return changed ? cleared : matches;
 }
@@ -126,6 +168,8 @@ export interface ConfirmationQuestionAnchor {
   kind: CriterionKind;
   operator: string;
   sourceSpan: string | null;
+  /** Current serving run + current source + reviewed v2 three-state binding. */
+  currentV2BindingVerified?: true;
 }
 
 export interface MatchingConfirmationQuestionContext {
@@ -240,6 +284,7 @@ export async function loadMatchingConfirmationQuestionContext(
       kind: row.kind,
       operator: row.operator,
       sourceSpan: row.sourceSpan,
+      ...(binding ? { currentV2BindingVerified: true as const } : {}),
     });
     if (binding) {
       bindingsByGrantId.set(row.grantId, [

@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { CheckIcon, ChevronDownIcon, ChevronUpIcon, HelpCircleIcon, MoreHorizontalIcon } from "lucide-react";
-import type { GrantConfirmationSubmitResult, MatchCard, ProductTeaserResult } from "@cunote/contracts";
+import { ChevronDownIcon, ChevronUpIcon, MoreHorizontalIcon } from "lucide-react";
+import type { CriterionDimension, GrantConfirmationSubmitResult, MatchCard, ProductTeaserResult } from "@cunote/contracts";
+import { explainMatch } from "@cunote/core";
 import { NoticeCard, type NoticeCardStatus } from "@/components/app/notice-card";
 import { VerdictBadge, type VerdictStatus } from "@/components/app/verdict-badge";
 import { Badge } from "@/components/ui/badge";
@@ -20,14 +21,12 @@ import { cn } from "@/lib/utils";
 import { withCompanyContext } from "@/lib/navigation/companyContext";
 import { observeProductCards } from "@/lib/client/productCardExposure";
 import { ConfirmationSheet } from "./ConfirmationSheet";
+import { InlineGrantConfirmation } from "./InlineGrantConfirmation";
 import {
-  criterionEvidencePresentation,
-  criterionSubjectLabel,
   formatDday,
   groupMatchesForDisplay,
   isUrgentDday,
   matchCriterionPresentation,
-  matchCardNextActions,
   matchConfirmationCtaState,
   matchDetailHref,
   matchVerdictStatus,
@@ -37,7 +36,6 @@ import {
 import { buildSupportSummary, type SupportSummary } from "./support-summary";
 
 const DEFAULT_VISIBLE_OPEN = 5;
-
 export function ProgramsExperience({
   teaser,
   onPrepare,
@@ -47,20 +45,23 @@ export function ProgramsExperience({
   onConfirmationSaved,
   onRequestConfirmation,
   autoOpenConfirmationGrantId,
+  autoOpenConfirmationQuestionId,
   virtualBizNo = null,
   companyId = null,
 }: {
   teaser: ProductTeaserResult;
   onPrepare: (grantId?: string) => void;
-  onOpenProfile: () => void;
+  onOpenProfile: (dimension?: CriterionDimension) => void;
   preparing: boolean;
   newGrantIds?: ReadonlySet<string>;
   /** 확인 질문 저장 성공 시 재계산 카드를 상위 teaser 상태에 반영한다(4상태 버킷 이동). */
-  onConfirmationSaved?: (result: GrantConfirmationSubmitResult) => void;
+  onConfirmationSaved?: ((result: GrantConfirmationSubmitResult) => void) | undefined;
   /** 익명 결과에서는 회사 저장·로그인 후 같은 질문으로 복귀시키는 경계. */
   onRequestConfirmation?: (match: MatchCard) => void;
   /** 저장·로그인 복귀 후 자동으로 열 확인 질문 대상. */
   autoOpenConfirmationGrantId?: string | null;
+  /** 익명 handoff가 보존한 exact 질문. 현재 proof와 같을 때만 inline 복귀를 인정한다. */
+  autoOpenConfirmationQuestionId?: string | null;
   /** 등록된 개발용 가상 기업만 공고 상세의 읽기 전용 맥락으로 전달한다. */
   virtualBizNo?: string | null;
   companyId?: string | null;
@@ -93,111 +94,128 @@ export function ProgramsExperience({
     ) return;
     const match = teaser.matches.find((item) => item.grantId === autoOpenConfirmationGrantId);
     if (!match) return;
+    if (autoOpenConfirmationQuestionId) {
+      const currentQuestionId = explainMatch(match).confirmationReadiness.representativeQuestionId;
+      if (currentQuestionId !== autoOpenConfirmationQuestionId) return;
+      autoOpenedGrantIdRef.current = autoOpenConfirmationGrantId;
+      return;
+    }
     autoOpenedGrantIdRef.current = autoOpenConfirmationGrantId;
     setConfirmTarget(match);
     setConfirmOpen(true);
-  }, [autoOpenConfirmationGrantId, teaser.matches]);
+  }, [autoOpenConfirmationGrantId, autoOpenConfirmationQuestionId, teaser.matches]);
   const visibleOpen = showAllOpen ? groups.open : groups.open.slice(0, DEFAULT_VISIBLE_OPEN);
-  const totalOpen = Math.max(teaser.counts.openNow ?? 0, groups.open.length);
-  const totalOneAnswer = Math.max(teaser.counts.oneAnswer ?? 0, groups.oneAnswer.length);
-  const totalPreparable = Math.max(teaser.counts.preparable ?? 0, groups.preparable.length);
+  const unavailable = [...groups.preparable, ...groups.closed];
 
   return (
     <div ref={rootRef}>
+      {visibleOpen.length > 0 ? (
       <section className="mt-10">
         <h2 className="mb-3 text-[15px] font-extrabold text-ink">
-          지금 신청 가능 <span className="text-brand-mint-ink">{totalOpen}</span>
+          살펴볼 공고 <span className="text-text-secondary">표시 중 {visibleOpen.length}건</span>
         </h2>
-        {visibleOpen.length > 0 || groups.upcoming.length > 0 ? (
-          <div className="flex flex-col gap-2.5">
-            {visibleOpen.map((match) => (
-              <ExpandableProgramCard
-                key={match.grantId}
-                match={match}
-                status="open"
-                isNew={newGrantIds.has(match.grantId)}
-                onOpenProfile={onOpenProfile}
-                onPrepare={onPrepare}
-                preparing={preparing}
-                onOpenConfirmation={openConfirmation}
-                virtualBizNo={virtualBizNo}
-                companyId={companyId}
-              />
-            ))}
-            {groups.upcoming.slice(0, 1).map((match) => (
-              <ExpandableProgramCard
-                key={match.grantId}
-                match={match}
-                status="upcoming"
-                className="opacity-55"
-                onOpenProfile={onOpenProfile}
-                onPrepare={onPrepare}
-                preparing={preparing}
-                onOpenConfirmation={openConfirmation}
-                virtualBizNo={virtualBizNo}
-                companyId={companyId}
-              />
-            ))}
-          </div>
-        ) : (
-          <p className="rounded-2xl bg-surface-soft px-5 py-6 text-sm leading-6 text-text-secondary">
-            현재 정보로 바로 신청할 수 있다고 확인된 공고는 아직 없어요.
-          </p>
-        )}
+        <div className="flex flex-col gap-2.5">
+          {visibleOpen.map((match) => (
+            <ExpandableProgramCard
+              key={match.grantId}
+              match={match}
+              status="open"
+              isNew={newGrantIds.has(match.grantId)}
+              onOpenProfile={onOpenProfile}
+              onPrepare={onPrepare}
+              preparing={preparing}
+              onOpenConfirmation={openConfirmation}
+              onConfirmationSaved={onConfirmationSaved}
+              virtualBizNo={virtualBizNo}
+              companyId={companyId}
+            />
+          ))}
+        </div>
         {!showAllOpen && groups.open.length > DEFAULT_VISIBLE_OPEN ? (
           <Button type="button" variant="ghost" onClick={() => setShowAllOpen(true)} className="mt-2 w-full text-brand">
             {groups.open.length - DEFAULT_VISIBLE_OPEN}건 더 보기
           </Button>
         ) : null}
-        {totalOpen > groups.open.length ? (
-          <Button type="button" variant="link" onClick={() => onPrepare()} disabled={preparing} className="mt-2 w-full">
-            {totalOpen.toLocaleString("ko-KR")}건 전체 결과 저장하고 보기
-          </Button>
-        ) : null}
       </section>
+      ) : null}
 
       <div className="mt-8 border-t border-border-subtle">
+        {groups.oneQuestionAway.length > 0 ? (
+          <ResultBucket
+            label="질문 하나로 지원 여부 확인"
+            countClassName="text-brand"
+            matches={groups.oneQuestionAway}
+            status="one_answer"
+            defaultOpen
+            defaultExpanded
+            onOpenProfile={onOpenProfile}
+            onPrepare={onPrepare}
+            preparing={preparing}
+            onOpenConfirmation={openConfirmation}
+            onConfirmationSaved={onConfirmationSaved}
+            virtualBizNo={virtualBizNo}
+            companyId={companyId}
+          />
+        ) : null}
+        {groups.oneAnswer.length > 0 ? (
         <ResultBucket
-          label="답하면 확정"
-          count={totalOneAnswer}
+          label="회사 정보 추가 확인"
           countClassName="text-brand"
           matches={groups.oneAnswer}
           status="one_answer"
-          emptyCopy="답변으로 바로 확정할 수 있는 공고는 현재 목록에 없어요."
           onOpenProfile={onOpenProfile}
           onPrepare={onPrepare}
           preparing={preparing}
           onOpenConfirmation={openConfirmation}
+          onConfirmationSaved={onConfirmationSaved}
           virtualBizNo={virtualBizNo}
           companyId={companyId}
         />
+        ) : null}
+        {groups.checkSource.length > 0 ? (
         <ResultBucket
-          label="원문 확인 필요"
-          count={groups.checkSource.length}
+          label="공고 조건 확인"
           matches={groups.checkSource}
           status="check_source"
           defaultOpen
-          emptyCopy="원문이나 공식 정보 확인이 필요한 공고는 현재 목록에 없어요."
           onOpenProfile={onOpenProfile}
           onPrepare={onPrepare}
           preparing={preparing}
           onOpenConfirmation={openConfirmation}
+          onConfirmationSaved={onConfirmationSaved}
           virtualBizNo={virtualBizNo}
           companyId={companyId}
         />
+        ) : null}
+        {unavailable.length > 0 ? (
         <ResultBucket
-          label="준비하면 열려요"
-          count={totalPreparable}
-          matches={groups.preparable}
+          label="현재 신청 어려움"
+          matches={unavailable}
           status="closed"
-          emptyCopy="결과를 저장하면 필요한 준비 조건을 이어서 확인할 수 있어요."
           onOpenProfile={onOpenProfile}
           onPrepare={onPrepare}
           preparing={preparing}
           onOpenConfirmation={openConfirmation}
+          onConfirmationSaved={onConfirmationSaved}
           virtualBizNo={virtualBizNo}
           companyId={companyId}
         />
+        ) : null}
+        {groups.upcoming.length > 0 ? (
+        <ResultBucket
+          label="접수 예정"
+          matches={groups.upcoming}
+          status="closed"
+          onOpenProfile={onOpenProfile}
+          onPrepare={onPrepare}
+          preparing={preparing}
+          onOpenConfirmation={openConfirmation}
+          onConfirmationSaved={onConfirmationSaved}
+          virtualBizNo={virtualBizNo}
+          companyId={companyId}
+          upcoming
+        />
+        ) : null}
       </div>
 
       {confirmTarget ? (
@@ -216,74 +234,61 @@ export function ProgramsExperience({
 
 function ResultBucket({
   label,
-  count,
   countClassName,
   defaultOpen = false,
+  defaultExpanded = false,
   matches,
   status,
-  emptyCopy,
   onOpenProfile,
   onPrepare,
   preparing,
   onOpenConfirmation,
+  onConfirmationSaved,
   virtualBizNo = null,
   companyId = null,
+  upcoming = false,
 }: {
   label: string;
-  count: number;
   countClassName?: string;
   defaultOpen?: boolean;
+  defaultExpanded?: boolean;
   matches: MatchCard[];
   status: VerdictStatus;
-  emptyCopy: string;
-  onOpenProfile: () => void;
+  onOpenProfile: (dimension?: CriterionDimension) => void;
   onPrepare: (grantId?: string) => void;
   preparing: boolean;
   onOpenConfirmation: (match: MatchCard) => void;
+  onConfirmationSaved?: ((result: GrantConfirmationSubmitResult) => void) | undefined;
   virtualBizNo?: string | null;
   companyId?: string | null;
+  upcoming?: boolean;
 }) {
   const [open, setOpen] = useState(defaultOpen);
   return (
     <Collapsible open={open} onOpenChange={setOpen} className="border-b border-border-subtle">
       <CollapsibleTrigger className="flex w-full cursor-pointer items-center justify-between px-1 py-[17px] text-left outline-none focus-visible:ring-3 focus-visible:ring-ring/20">
         <span className="text-[15px] font-bold text-ink">
-          {label} <span className={cn("text-text-secondary tabular-nums", countClassName)}>{count}건</span>
+          {label} <span className={cn("text-text-secondary tabular-nums", countClassName)}>표시 중 {matches.length}건</span>
         </span>
         <ChevronDownIcon className={cn("size-4 text-text-quaternary transition-transform", open && "rotate-180")} />
       </CollapsibleTrigger>
       <CollapsibleContent>
         <div className="flex flex-col gap-2.5 pb-4">
-          {matches.length > 0 ? (
-            matches.map((match) => (
+          {matches.map((match) => (
               <ExpandableProgramCard
                 key={match.grantId}
                 match={match}
-                status={status}
-                {...(status === "closed" ? { note: preparableNote(match) } : {})}
+                status={upcoming ? "upcoming" : status}
                 onOpenProfile={onOpenProfile}
                 onPrepare={onPrepare}
                 preparing={preparing}
                 onOpenConfirmation={onOpenConfirmation}
+                onConfirmationSaved={onConfirmationSaved}
+                defaultExpanded={defaultExpanded}
                 virtualBizNo={virtualBizNo}
                 companyId={companyId}
               />
-            ))
-          ) : (
-            <p className="rounded-xl bg-surface-soft px-4 py-3 text-sm leading-6 text-text-secondary">{emptyCopy}</p>
-          )}
-          {count > matches.length ? (
-            <div className="flex flex-col items-center gap-1">
-              {matches.length > 0 ? (
-                <p className="px-1 text-xs text-text-tertiary">
-                  우선순위가 높은 {matches.length}건을 먼저 보여드려요.
-                </p>
-              ) : null}
-              <Button type="button" variant="link" onClick={() => onPrepare()} disabled={preparing}>
-                {count.toLocaleString("ko-KR")}건 전체 결과 저장하고 보기
-              </Button>
-            </div>
-          ) : null}
+            ))}
         </div>
       </CollapsibleContent>
     </Collapsible>
@@ -300,6 +305,8 @@ function ExpandableProgramCard({
   onPrepare,
   preparing,
   onOpenConfirmation,
+  onConfirmationSaved,
+  defaultExpanded = false,
   virtualBizNo = null,
   companyId = null,
 }: {
@@ -308,16 +315,19 @@ function ExpandableProgramCard({
   isNew?: boolean;
   note?: string;
   className?: string;
-  onOpenProfile: () => void;
+  onOpenProfile: (dimension?: CriterionDimension) => void;
   onPrepare: (grantId?: string) => void;
   preparing: boolean;
   onOpenConfirmation: (match: MatchCard) => void;
+  onConfirmationSaved?: ((result: GrantConfirmationSubmitResult) => void) | undefined;
+  defaultExpanded?: boolean;
   virtualBizNo?: string | null;
   companyId?: string | null;
 }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(defaultExpanded);
   const cardStatus = status === "upcoming" ? status : matchVerdictStatus(match);
   const supportSummary = buildSupportSummary(match);
+  const explanation = explainMatch(match);
   if (!open) {
     return (
       <div data-product-grant={match.grantId}>
@@ -327,7 +337,7 @@ function ExpandableProgramCard({
         supportSummary={supportSummary}
         status={status === "closed" ? "closed" : cardStatus}
         {...(isNew === undefined ? {} : { isNew })}
-        {...(note === undefined ? {} : { note })}
+        note={note ?? explanation.summary}
         onClick={() => setOpen(true)}
         expanded={false}
         {...(className === undefined ? {} : { className })}
@@ -347,6 +357,7 @@ function ExpandableProgramCard({
       onPrepare={onPrepare}
       preparing={preparing}
       onOpenConfirmation={onOpenConfirmation}
+      onConfirmationSaved={onConfirmationSaved}
       virtualBizNo={virtualBizNo}
       companyId={companyId}
       {...(className === undefined ? {} : { className })}
@@ -355,7 +366,7 @@ function ExpandableProgramCard({
   );
 }
 
-function ExpandedProgramCard({
+export function ExpandedProgramCard({
   match,
   status,
   supportSummary,
@@ -364,6 +375,7 @@ function ExpandedProgramCard({
   onPrepare,
   preparing,
   onOpenConfirmation,
+  onConfirmationSaved,
   virtualBizNo,
   companyId = null,
   className,
@@ -372,31 +384,35 @@ function ExpandedProgramCard({
   status: NoticeCardStatus;
   supportSummary: SupportSummary;
   onClose: () => void;
-  onOpenProfile: () => void;
+  onOpenProfile: (dimension?: CriterionDimension) => void;
   onPrepare: (grantId?: string) => void;
   preparing: boolean;
   onOpenConfirmation: (match: MatchCard) => void;
+  onConfirmationSaved?: ((result: GrantConfirmationSubmitResult) => void) | undefined;
   virtualBizNo?: string | null;
   companyId?: string | null;
   className?: string;
 }) {
   const criteria = matchCriterionPresentation(match);
-  const hardTotal = criteria.hardPassed.length + criteria.hardFailed.length + criteria.hardNeedsCheck.length;
-  const nextActions = matchCardNextActions(match);
-  const primaryProfileInput = nextActions.companyProfile[0];
-  const primaryAdminReview = nextActions.adminSourceReview[0];
+  const explanation = explainMatch(match);
+  const conditions = [...explanation.conditions].sort(
+    (left, right) => conditionOrder(left) - conditionOrder(right),
+  );
+  const primaryProfileInput = explanation.profile[0];
   const baseDetailHref = matchDetailHref(match, virtualBizNo);
   const detailHref = companyId ? withCompanyContext(baseDetailHref, companyId) : baseDetailHref;
   // 확인하기 CTA — exact 질문 주석이 user_confirmation으로 분류한 경우에만 연다. preferred-only
   // eligible 카드도 우대 확인을 보완할 수 있으며, 이 CTA 자체는 eligibility/verdict를 바꾸지 않는다.
   const confirmationCta = matchConfirmationCtaState(match);
-  const confirmationCount = confirmationCta.count;
   const showConfirmation = confirmationCta.showConfirmation;
   // 자가신고 확인이 판정에 반영된 카드(결정 3) — open 승격이든 결격 확정이든 동일하게 정직 표기.
   const userConfirmedCount = match.userConfirmedCount ?? 0;
   // 재확인(답변 수정) 진입점 — verdict 로는 가리지 않는다. 확인하기 CTA 가 이미 보이는 카드는
   // 같은 시트를 여는 중복 진입점이 되므로 그때만 생략(시트가 GET 으로 기존 답변을 복원).
   const showReconfirm = confirmationCta.showReconfirm;
+  const exactConfirmationQuestionId = explanation.confirmationReadiness.status === "one_question_away"
+    ? explanation.confirmationReadiness.representativeQuestionId
+    : null;
 
   return (
     <Card className={cn("gap-0 rounded-2xl border-border-card px-[22px] py-5 shadow-[var(--shadow-notice-hover)] ring-0", className)}>
@@ -454,59 +470,36 @@ function ExpandedProgramCard({
         </Button>
       </div>
 
-      <div className="mt-4 border-t border-border-subtle pt-4 text-[15px] text-ink">
-        {match.matchingEvidence?.level === "discovery" ? (
-          <span>지원 조건과 모집 일정을 공고문에서 확인해 주세요.</span>
-        ) : (
-          <>
-            필수 자격 <strong>{criteria.hardPassed.length}/{hardTotal}</strong> 충족
-            {criteria.hardNeedsCheck.length === 0 && criteria.hardFailed.length === 0 ? (
-              <CheckIcon className="ml-1 inline size-4 text-brand-mint-ink" strokeWidth={3} />
-            ) : null}
-            {criteria.hardNeedsCheck.length > 0 ? (
-              <>
-                <span className="mx-2 text-text-quaternary">·</span>
-                자격 확인 필요 <strong className="text-brand">{criteria.hardNeedsCheck.length}건</strong>
-              </>
-            ) : null}
-          </>
-        )}
+      <div className="mt-4 border-t border-border-subtle pt-4">
+        <p className="text-[15px] leading-6 font-semibold text-ink">{explanation.summary}</p>
+        {!explanation.discovery ? (
+          <p className="mt-1 text-[13px] leading-5 text-text-secondary">
+            충족 확인 {explanation.passed} · 미충족 {explanation.failed} · 미확인 {explanation.unknown}
+          </p>
+        ) : null}
       </div>
 
-      {criteria.hardPassed.length > 0 ? (
+      {conditions.length > 0 ? (
         <div className="mt-3 overflow-hidden rounded-xl border border-border-subtle bg-surface-soft/60">
           <div className="border-b border-border-subtle px-3.5 py-2.5 text-[12px] font-bold text-text-secondary">
-            필수자격 충족 근거
+            필수·제외 조건 전체 {conditions.length}개
           </div>
-          {criteria.hardPassed.map((trace, index) => {
-            const evidence = criterionEvidencePresentation(trace);
-            return (
-              <div
-                key={`${trace.dimension}-${trace.kind}-${index}`}
-                className={cn(
-                  "flex items-start gap-2.5 px-3.5 py-3",
-                  index > 0 && "border-t border-border-subtle",
-                )}
-              >
-                <span className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-brand-mint-soft text-brand-mint-ink">
-                  <CheckIcon className="size-3.5" aria-hidden="true" strokeWidth={3} />
-                </span>
-                <div className="min-w-0 flex-1">
-                  <div className="text-[13px] font-bold text-ink">{evidence.dimensionLabel}</div>
-                  <dl className="mt-1.5 grid gap-x-5 gap-y-1.5 text-[13px] leading-5 sm:grid-cols-2">
-                    <div className="min-w-0">
-                      <dt className="text-[11px] font-semibold text-text-tertiary">공고 조건</dt>
-                      <dd className="break-words font-medium text-text-nav">{evidence.requirement}</dd>
-                    </div>
-                    <div className="min-w-0">
-                      <dt className="text-[11px] font-semibold text-brand-mint-ink">확인된 기업 정보</dt>
-                      <dd className="break-words font-medium text-text-nav">{evidence.companyValue}</dd>
-                    </div>
-                  </dl>
-                </div>
-              </div>
-            );
-          })}
+          {conditions.map((condition, index) => (
+            <ConditionRow
+              key={`${condition.trace.criterionId ?? condition.trace.dimension}-${condition.trace.kind}-${index}`}
+              condition={condition}
+              detailHref={detailHref}
+              onOpenProfile={onOpenProfile}
+              onOpenConfirmation={() => onOpenConfirmation(match)}
+              canConfirm={showConfirmation && condition.trace.criterionId !== explanation.confirmationReadiness.representativeCriterionId}
+              inlineAnswer={condition.trace.criterionId === explanation.confirmationReadiness.representativeCriterionId}
+              bordered={index > 0}
+            />
+          ))}
+        </div>
+      ) : explanation.discovery ? (
+        <div className="mt-3 rounded-xl bg-surface-soft px-3.5 py-3 text-sm leading-6 text-text-nav">
+          맞춤 자격 판단 전 단계예요. 공고 원문에서 모집 대상과 제외 조건을 확인해 주세요.
         </div>
       ) : null}
 
@@ -522,50 +515,10 @@ function ExpandedProgramCard({
         </div>
       ) : null}
 
-      {primaryAdminReview ? (
-        <div className="mt-3 flex items-start gap-2 rounded-xl bg-surface-soft px-3.5 py-3 text-sm leading-6 text-text-nav">
-          <HelpCircleIcon className="mt-1 size-4 shrink-0 text-brand" />
-          <span className="min-w-0 flex-1">
-            {primaryAdminReview.unresolvedReason === "source_dispute"
-              ? "회사 공식 정보 정정 검토가 필요한 조건이에요. "
-              : "공고 원문·분석 확인이 필요한 조건이에요. "}
-            {criterionSubjectLabel(primaryAdminReview.label)}
-          </span>
-        </div>
-      ) : null}
-
-      {primaryProfileInput ? (
-        <div className="mt-3 flex items-start gap-2 rounded-xl bg-surface-soft px-3.5 py-3 text-sm leading-6 text-text-nav">
-          <HelpCircleIcon className="mt-1 size-4 shrink-0 text-brand" />
-          <span className="min-w-0 flex-1">
-            {primaryProfileInput.kind === "preferred"
-              ? "우대점수 확인에 활용할 회사 정보예요. "
-              : "회사 정보를 채우면 신청 자격을 다시 판정해요. "}
-            {criterionSubjectLabel(primaryProfileInput.label)}
-          </span>
-          <Button type="button" variant="link" onClick={onOpenProfile} className="h-auto shrink-0 px-0 text-[13px]">
-            {primaryProfileInput.kind === "preferred" ? "우대정보 채우기" : "자격정보 채우기"}
-          </Button>
-        </div>
-      ) : null}
-
-      {showConfirmation ? (
-        <div className="mt-3 flex items-center gap-2 rounded-xl bg-surface-soft px-3.5 py-3 text-sm leading-6 text-text-nav">
-          <span className="min-w-0 flex-1">
-            이 공고의 확인 질문 {confirmationCount}개 — {nextActions.adminSourceReview.length > 0
-              ? "답한 항목만 반영되며, 원문 확인 조건은 별도로 남아요"
-              : "답한 내용은 해당 조건 판정에 반영돼요"}
-          </span>
-          <Button
-            type="button"
-            variant="brand-soft"
-            size="sm"
-            className="shrink-0"
-            onClick={() => onOpenConfirmation(match)}
-          >
-            확인하기
-          </Button>
-        </div>
+      {explanation.reviewNotes.length > 0 ? (
+        <p className="mt-3 rounded-xl bg-surface-soft px-3.5 py-3 text-sm leading-6 text-text-nav">
+          {explanation.reviewNotes.join(" · ")}
+        </p>
       ) : null}
 
       {match.ranking?.reasons.length ? (
@@ -574,15 +527,33 @@ function ExpandedProgramCard({
         </div>
       ) : null}
 
+      {exactConfirmationQuestionId ? (
+        companyId && onConfirmationSaved ? (
+          <InlineGrantConfirmation
+            companyId={companyId}
+            grantId={match.grantId}
+            questionId={exactConfirmationQuestionId}
+            onSaved={onConfirmationSaved}
+            onPrepare={onPrepare}
+            onFallback={() => onOpenConfirmation(match)}
+          />
+        ) : (
+          <div className="mt-4 rounded-2xl border border-brand-tint bg-surface-brand px-4 py-4 sm:px-5">
+            <p className="text-xs font-extrabold text-brand">이 조건 하나만 확인하면 돼요</p>
+            <p className="mt-2 text-sm leading-6 font-semibold text-ink">
+              {explanation.confirmation[0]?.requirement ?? "공고별 확인 질문"}
+            </p>
+            <Button type="button" onClick={() => onOpenConfirmation(match)} className="mt-3 w-full sm:w-auto">
+              회사 정보를 저장하고 답하기
+            </Button>
+          </div>
+        )
+      ) : null}
+
       <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center">
         <a href={detailHref} className="text-sm font-semibold text-brand no-underline hover:text-brand-hover">
-          조건 전체 보기
+          공고 상세 및 조건 근거 보기
         </a>
-        {match.detailUrl ? (
-          <a href={detailHref} className="text-sm font-semibold text-brand no-underline hover:text-brand-hover">
-            공고 상세
-          </a>
-        ) : null}
         {showReconfirm ? (
           <Button
             type="button"
@@ -593,27 +564,148 @@ function ExpandedProgramCard({
             확인 내용 수정
           </Button>
         ) : null}
-        {match.writeSupport === "manual_form" ? (
+        {explanation.action === "preparation" && match.writeSupport === "manual_form" ? (
           <span className="text-sm leading-6 text-text-muted">
             {writeSupportNote(match.writeSupport)}
           </span>
         ) : null}
-        <Button
-          type="button"
-          onClick={() => onPrepare(match.grantId)}
-          disabled={preparing}
-          className="sm:ml-auto"
-        >
-          {preparing ? "준비 중…" : writeSupportCta(match.writeSupport)}
-        </Button>
+        {explanation.action === "company_profile" && primaryProfileInput ? (
+          <Button
+            type="button"
+            onClick={() => onOpenProfile(primaryProfileInput.trace.dimension)}
+            className="sm:ml-auto"
+          >
+            회사 정보 확인하기
+          </Button>
+        ) : explanation.action === "user_confirmation" && showConfirmation && !exactConfirmationQuestionId ? (
+          <Button type="button" onClick={() => onOpenConfirmation(match)} className="sm:ml-auto">
+            공고별 질문에 답하기
+          </Button>
+        ) : explanation.action === "preparation" ? (
+          <Button
+            type="button"
+            onClick={() => onPrepare(match.grantId)}
+            disabled={preparing}
+            className="sm:ml-auto"
+          >
+            {preparing ? "준비 중…" : writeSupportCta(match.writeSupport)}
+          </Button>
+        ) : null}
       </div>
     </Card>
   );
 }
 
-function preparableNote(match: MatchCard): string {
-  const condition = match.ruleTrace.find(
-    (criterion) => criterion.result === "fail" || criterion.result === "unknown",
+type ExplainedCondition = ReturnType<typeof explainMatch>["conditions"][number];
+
+function conditionOrder(condition: ExplainedCondition): number {
+  if (condition.trace.result === "fail") return 0;
+  if (condition.action === "company_profile" || condition.action === "user_confirmation") return 1;
+  if (condition.pending) return 2;
+  return 3;
+}
+
+function ConditionRow({
+  condition,
+  detailHref,
+  onOpenProfile,
+  onOpenConfirmation,
+  canConfirm,
+  inlineAnswer,
+  bordered,
+}: {
+  condition: ExplainedCondition;
+  detailHref: string;
+  onOpenProfile: (dimension?: CriterionDimension) => void;
+  onOpenConfirmation: () => void;
+  canConfirm: boolean;
+  inlineAnswer: boolean;
+  bordered: boolean;
+}) {
+  return (
+    <article className={cn("px-3.5 py-3.5", bordered && "border-t border-border-subtle")}>
+      <div className="flex flex-wrap items-center gap-2">
+        <Badge
+          variant="outline"
+          className={cn(
+            "shrink-0",
+            condition.trace.result === "pass" && "border-brand-mint-soft bg-brand-mint-soft text-brand-mint-ink",
+            condition.trace.result === "fail" && "border-danger/20 bg-danger/5 text-danger",
+          )}
+        >
+          {condition.statusLabel}
+        </Badge>
+        <span className="text-xs font-semibold text-text-secondary">
+          {condition.trace.kind === "exclusion" ? "제외 조건" : "필수 조건"}
+        </span>
+      </div>
+      {condition.asksUser ? (
+        <p className="mt-3 text-[15px] leading-6 font-bold text-ink">
+          귀사가 아래 공고 조건에 해당하나요?
+        </p>
+      ) : null}
+      <dl className="mt-3 grid gap-3 text-[13px] leading-5 sm:grid-cols-2">
+        <ConditionFact label={condition.asksUser ? "확인할 조건" : "공고 조건"} value={condition.requirement} />
+        {!condition.pending || condition.hasCompanyValue || condition.action === "company_profile" ? (
+          <ConditionFact label="회사 정보" value={condition.companyValue} />
+        ) : null}
+        <ConditionFact label={condition.asksUser ? "확인하면" : "현재 판단"} value={condition.reason} />
+        <div className="min-w-0">
+          <dt className="text-[11px] font-semibold text-text-tertiary">
+            {condition.asksUser ? "확인 방법" : "다음 행동"}
+          </dt>
+          <dd className="mt-0.5 break-words font-medium text-text-nav">
+            {conditionActionText(condition, canConfirm, inlineAnswer)}
+          </dd>
+          {condition.action === "company_profile" ? (
+            <Button
+              type="button"
+              variant="link"
+              onClick={() => onOpenProfile(condition.trace.dimension)}
+              className="mt-1 h-auto px-0 text-[13px]"
+            >
+              이 회사 정보 확인하기
+            </Button>
+          ) : condition.action === "user_confirmation" && canConfirm ? (
+            <Button
+              type="button"
+              variant="link"
+              onClick={onOpenConfirmation}
+              className="mt-1 h-auto px-0 text-[13px]"
+            >
+              이 조건에 답하기
+            </Button>
+          ) : condition.pending || condition.trace.result === "fail" ? (
+            <a href={detailHref} className="mt-1 inline-block font-semibold text-brand hover:text-brand-hover">
+              {condition.asksUser ? "공고에서 이 조건 확인하기" : "원문 근거 보기"}
+            </a>
+          ) : null}
+        </div>
+      </dl>
+    </article>
   );
-  return condition ? `${condition.label}을 확인·준비하면 다시 판정해요` : "필요한 조건을 준비하면 다시 판정해요";
+}
+
+function ConditionFact({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="min-w-0">
+      <dt className="text-[11px] font-semibold text-text-tertiary">{label}</dt>
+      <dd className="mt-0.5 break-words font-medium text-text-nav">{value}</dd>
+    </div>
+  );
+}
+
+function conditionActionText(
+  condition: ExplainedCondition,
+  canConfirm: boolean,
+  inlineAnswer: boolean,
+): string {
+  if (condition.trace.result === "pass") return "추가로 할 일이 없어요.";
+  if (condition.trace.result === "fail") return "공고 원문에서 불일치 근거와 예외 조건을 확인해 주세요.";
+  if (condition.action === "company_profile") return "이 조건과 비교할 회사 정보를 입력해 주세요.";
+  if (condition.action === "user_confirmation" && inlineAnswer) return "아래 빠른 확인에서 바로 답해 주세요.";
+  if (condition.action === "user_confirmation" && canConfirm) return "아래 질문에 답해 주세요.";
+  if (condition.action === "user_confirmation") return "현재 답할 수 있는 검수 질문이 없어 원문 근거를 확인해야 해요.";
+  if (condition.asksUser) return "공고 상세의 원문 근거에서 해당 여부를 확인해 주세요.";
+  return "공고 상세에서 원문 근거를 확인해 주세요.";
 }

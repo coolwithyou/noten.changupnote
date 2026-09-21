@@ -24,6 +24,36 @@ assert.equal(
   false,
 );
 
+const oneQuestionAwayTeaser = {
+  ...discoveryOnlyTeaser,
+  matches: [{
+    grantId: "one-question",
+    status: "open",
+    eligibility: "conditional",
+    recommendationTier: "needs_profile_input",
+    matchingEvidence: { level: "verified", sourceRevisionSha256: "current" },
+    criteriaExtracted: true,
+    confirmationQuestionCount: 1,
+    confirmationQuestionIds: ["question-last"],
+    confirmationEligibilityQuestionIds: ["question-last"],
+    ruleTrace: [{
+      criterionId: "criterion-last",
+      dimension: "other",
+      kind: "required",
+      result: "text_only",
+      label: "마지막 확인 조건",
+      checklistSection: "needs_check",
+      unresolvedReason: "criterion_text_only",
+      confirmationNextAction: "user_confirmation",
+    }],
+  }],
+} as unknown as ProductTeaserResult;
+assert.equal(
+  hasDisplayableMatchResults(oneQuestionAwayTeaser),
+  true,
+  "마지막 질문 공고만 있어도 빈 결과로 보내면 안 됩니다.",
+);
+
 const initialState = (): ProfileDrawerState => ({
   open: false,
   enteredCompanyIds: new Set(),
@@ -131,7 +161,8 @@ assert.equal(
 );
 
 const analysisScopeSource = readFileSync(new URL("./AnalysisScopeCard.tsx", import.meta.url), "utf8");
-assert.ok(analysisScopeSource.includes("공개 공고 후보"));
+assert.ok(analysisScopeSource.includes("공개 공고"));
+assert.ok(analysisScopeSource.includes("위에 표시된 후보 수와 같지 않을 수 있어요"));
 assert.ok(analysisScopeSource.includes("미확정 조건은 원문 확인 대상으로 남겨요"));
 assert.equal(analysisScopeSource.includes("모집 공고"), false);
 

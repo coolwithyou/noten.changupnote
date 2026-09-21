@@ -1,25 +1,14 @@
 "use client";
 
 import type { ProductTeaserResult } from "@cunote/contracts";
-import { PrecisionGauge } from "@/components/app/precision-gauge";
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
-import {
-  groupMatchesForDisplay,
-  matchingProfileCoverage,
-  profileCoverageLabel,
-  resultsCoverageCaption,
-  teaserComparisonLabel,
-} from "./logic";
+import { isOneQuestionAwayMatch, teaserComparisonLabel } from "./logic";
 
 export function ResultsHero({
   teaser,
   onSave,
   saving,
-  coverageDelta,
   empty = false,
-  questionsExhausted = false,
-  answeredCurrentQuestion = false,
   savedCompany = false,
   companyName = null,
 }: {
@@ -35,12 +24,18 @@ export function ResultsHero({
   savedCompany?: boolean;
   companyName?: string | null;
 }) {
-  const groups = groupMatchesForDisplay(teaser.matches);
-  const coverage = matchingProfileCoverage(teaser);
   const comparisonLabel = teaserComparisonLabel(teaser);
-  const openCount = teaser.counts.openNow ?? groups.open.length;
-  const oneAnswerCount = teaser.counts.oneAnswer ?? groups.oneAnswer.length;
-  const hasActionableMatches = openCount + oneAnswerCount > 0;
+  const hasCandidates = teaser.matches.length > 0;
+  const hasVerifiedCandidates = teaser.matches.some(
+    (match) => match.matchingEvidence?.level !== "discovery",
+  );
+  const hasExplicitRelevance = teaser.matches.some(
+    (match) => match.matchingEvidence?.level !== "discovery"
+      && typeof match.ranking?.relevanceScore === "number"
+      && match.ranking.relevanceScore > 0,
+  );
+  const oneQuestionAwayCount = teaser.counts.oneQuestionAway
+    ?? teaser.matches.filter(isOneQuestionAwayMatch).length;
 
   return (
     <section>
@@ -52,19 +47,22 @@ export function ResultsHero({
       {empty ? null : (
         <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
           <div>
-            <h1 className="text-[32px] leading-[1.28] font-extrabold tracking-[-0.9px] text-ink-strong sm:text-[38px] sm:tracking-[-1px]">
-              {hasActionableMatches ? (
-                <>
-                  지금 신청 가능 <span className="text-brand-mint-ink">{openCount}건</span>
-                  <span className="hidden sm:inline"> · </span>
-                  <span className="block sm:inline">
-                    답하면 확정 <span className="text-brand">{oneAnswerCount}건</span>
-                  </span>
-                </>
-              ) : (
-                <>지금 정보로 확정된 공고가 없어요</>
-              )}
+            <h1 className="max-w-[720px] text-[32px] leading-[1.28] font-extrabold tracking-[-0.9px] text-ink-strong sm:text-[38px] sm:tracking-[-1px]">
+              {hasExplicitRelevance
+                ? "우리 회사와 관련된 공고를 확인해 보세요"
+                : hasVerifiedCandidates
+                  ? "살펴볼 공고를 찾았어요"
+                  : hasCandidates
+                  ? "모집 중인 공고를 살펴보세요"
+                  : "조건에 맞는 공고를 찾지 못했어요"}
             </h1>
+            {hasCandidates ? (
+              <p className="mt-2.5 text-sm leading-6 text-text-secondary">
+                {oneQuestionAwayCount > 0
+                  ? `질문 하나로 지원 여부를 확인할 공고 ${oneQuestionAwayCount}건이 있어요.`
+                  : "각 공고에서 확인된 조건과 아직 확인할 내용을 함께 안내해요."}
+              </p>
+            ) : null}
             {comparisonLabel ? <p className="mt-2.5 text-sm text-text-tertiary">{comparisonLabel}</p> : null}
           </div>
           <Button
@@ -79,19 +77,6 @@ export function ResultsHero({
         </div>
       )}
 
-      <div className={cn("rounded-2xl border border-brand-tint bg-landing-step-blue px-5 py-[18px] shadow-[var(--shadow-landing-step)]", !empty && "mt-8")}>
-        <PrecisionGauge
-          pct={coverage.pct}
-          {...(coverageDelta && coverageDelta > 0 ? { delta: `+${coverageDelta}개` } : {})}
-          label={profileCoverageLabel(coverage)}
-          caption={resultsCoverageCaption({
-            questionsExhausted,
-            hasActionableMatches,
-            answeredCurrentQuestion,
-          })}
-          meta={`전체 기업정보 ${coverage.total}개 중 ${coverage.known}개 확인`}
-        />
-      </div>
     </section>
   );
 }

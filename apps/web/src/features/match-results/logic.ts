@@ -19,6 +19,7 @@ import {
   answerableHardUnknownDimensions,
   hasUnanswerableHardUnknown,
   isPreparableMatchCard,
+  explainMatch,
 } from "@cunote/core";
 import { URGENT_MAX_DDAY } from "@/components/app/notice-card";
 import type { VerdictStatus } from "@/components/app/verdict-badge";
@@ -149,12 +150,13 @@ export class TeaserError extends Error {
 }
 
 /** 익명 결과의 확인 CTA가 회사 저장·로그인 뒤 같은 공고 질문으로 돌아올 내부 경로. */
-export function confirmationResumePath(bizNo: string, grantId: string): string {
+export function confirmationResumePath(bizNo: string, grantId: string, questionId?: string | null): string {
   const digits = bizNo.replace(/\D/g, "").slice(0, 10);
   const params = new URLSearchParams({
     biz: digits,
     confirm: grantId,
   });
+  if (questionId?.trim()) params.set("confirmQuestion", questionId.trim());
   return `/matches?${params.toString()}`;
 }
 
@@ -639,6 +641,7 @@ export function isReviewNeededMatch(match: MatchCard): boolean {
 
 export interface MatchDisplayGroups {
   open: MatchCard[];
+  oneQuestionAway: MatchCard[];
   oneAnswer: MatchCard[];
   preparable: MatchCard[];
   checkSource: MatchCard[];
@@ -696,6 +699,12 @@ export function isMultiAnswerMatch(match: MatchCard): boolean {
   return answerableHardUnknownDimensions(match).size > 1;
 }
 
+/** 완전한 카드 계약이 없는 이전 fixture/복구 응답은 마지막 질문 약속으로 승격하지 않는다. */
+export function isOneQuestionAwayMatch(match: MatchCard): boolean {
+  return Array.isArray(match.ruleTrace)
+    && explainMatch(match).confirmationReadiness.status === "one_question_away";
+}
+
 /** 서버 판정·추천 tier를 화면의 고정 4상태 어휘로만 투영한다. */
 export function matchVerdictStatus(match: MatchCard): VerdictStatus {
   if (match.status === "unknown") return "check_source";
@@ -722,6 +731,7 @@ export function matchVerdictStatus(match: MatchCard): VerdictStatus {
 export function groupMatchesForDisplay(matches: readonly MatchCard[]): MatchDisplayGroups {
   const groups: MatchDisplayGroups = {
     open: [],
+    oneQuestionAway: [],
     oneAnswer: [],
     preparable: [],
     checkSource: [],
@@ -746,6 +756,10 @@ export function groupMatchesForDisplay(matches: readonly MatchCard[]): MatchDisp
       groups.preparable.push(match);
       continue;
     }
+    if (isOneQuestionAwayMatch(match)) {
+      groups.oneQuestionAway.push(match);
+      continue;
+    }
     const status = matchVerdictStatus(match);
     if (status === "open") groups.open.push(match);
     else if (status === "one_answer") groups.oneAnswer.push(match);
@@ -753,7 +767,26 @@ export function groupMatchesForDisplay(matches: readonly MatchCard[]): MatchDisp
     else groups.closed.push(match);
   }
 
+  // 각 그룹 안에서는 마감이 가까운 공고를 먼저 보여 주고, 같은 마감일은
+  // 서버의 기존 relevance 순서를 그대로 보존한다(Array#sort는 stable).
+  const orderedGroups: MatchCard[][] = [
+    groups.open,
+    groups.oneQuestionAway,
+    groups.oneAnswer,
+    groups.preparable,
+    groups.checkSource,
+    groups.closed,
+    groups.upcoming,
+  ];
+  for (const group of orderedGroups) {
+    group.sort((left, right) => activeDeadlineRank(left.dDay) - activeDeadlineRank(right.dDay));
+  }
+
   return groups;
+}
+
+function activeDeadlineRank(dDay: number | null | undefined): number {
+  return typeof dDay === "number" && dDay >= 0 ? dDay : Number.POSITIVE_INFINITY;
 }
 
 export interface MatchingProfileCoverageSummary {
@@ -852,6 +885,8 @@ export interface AnswerImpactSummary {
   previousKnown: number;
   nextKnown: number;
   coverageDelta: number;
+  resolvedConditions?: number;
+  remainingSourceConditions?: number;
 }
 
 /** 동일 공고 id의 전후 판정만 비교한다. 선정 가능성이나 확률로 해석하지 않는다. */
@@ -877,6 +912,21 @@ export function summarizeAnswerImpact(
     if (next === "closed") newlyClosed += 1;
   }
 
+  const beforeCards = new Map(before.matches.map((match) => [match.grantId, match]));
+  let resolvedConditions = 0;
+  let remainingSourceConditions = 0;
+  for (const match of after.matches) {
+    const prior = beforeCards.get(match.grantId);
+    if (!prior || !prior.matchingEvidence || !match.matchingEvidence
+      || prior.matchingEvidence.sourceRevisionSha256 !== match.matchingEvidence.sourceRevisionSha256
+      || prior.matchingEvidence.level !== "verified" || match.matchingEvidence.level !== "verified") continue;
+    const previousConditions = new Map(prior.ruleTrace.filter((trace) => trace.criterionId).map((trace) => [trace.criterionId, trace]));
+    for (const condition of explainMatch(match).conditions) {
+      const previous = condition.trace.criterionId ? previousConditions.get(condition.trace.criterionId) : undefined;
+      if (previous && (previous.result === "unknown" || previous.result === "text_only") && !condition.pending) resolvedConditions += 1;
+    }
+    remainingSourceConditions += explainMatch(match).source.length;
+  }
   const previousKnown = matchingProfileCoverage(before).known;
   const nextKnown = matchingProfileCoverage(after).known;
   return {
@@ -887,6 +937,8 @@ export function summarizeAnswerImpact(
     previousKnown,
     nextKnown,
     coverageDelta: nextKnown - previousKnown,
+    resolvedConditions,
+    remainingSourceConditions,
   };
 }
 

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import type { NormalizedGrant } from "@cunote/contracts";
-import { buildProductTeaserSnapshot } from "./productMatchSnapshot";
+import type { MatchCard, NormalizedGrant } from "@cunote/contracts";
+import { buildProductTeaserSnapshot, selectProductTeaserDisplay } from "./productMatchSnapshot";
 import { normalizeProductProfileAnswers } from "./normalizeProductProfileAnswers";
 import {
   resolveProductCompanyProfile,
@@ -66,6 +66,42 @@ assert.equal(answered.nextQuestion, null);
 assert.equal(answered.searchContext?.asOf, asOf);
 assert.equal(answered.profileView.asOf, asOf);
 assert.equal(Object.hasOwn(answered, "profile"), false, "product response must not serialize raw CompanyProfile");
+
+const earlierCards = Array.from({ length: 8 }, (_, index) => ({
+  grantId: `earlier-${index}`,
+  status: "open" as const,
+  eligibility: "conditional" as const,
+  recommendationTier: "needs_profile_input" as const,
+  ruleTrace: [],
+}) as unknown as MatchCard);
+const exactLaterCard = {
+  grantId: "exact-later",
+  status: "open" as const,
+  eligibility: "conditional" as const,
+  recommendationTier: "needs_profile_input" as const,
+  matchingEvidence: { level: "verified" as const, sourceRevisionSha256: "current", reason: "reviewed" },
+  criteriaExtracted: true,
+  confirmationQuestionCount: 1,
+  confirmationQuestionIds: ["q-last"],
+  confirmationEligibilityQuestionIds: ["q-last"],
+  ruleTrace: [{
+    criterionId: "last-hard",
+    dimension: "other" as const,
+    kind: "required" as const,
+    result: "text_only" as const,
+    label: "협약 이행 가능 여부",
+    checklistSection: "needs_check" as const,
+    unresolvedReason: "criterion_text_only" as const,
+    confirmationNextAction: "user_confirmation" as const,
+    sourceSpan: "협약 이행 가능 여부",
+  }],
+} as unknown as MatchCard;
+const finalized = selectProductTeaserDisplay({
+  ...initial,
+  matches: [...earlierCards, exactLaterCard],
+}, { limit: 3 });
+assert.equal(finalized.counts.oneQuestionAway, 1);
+assert.equal(finalized.matches[0]?.grantId, "exact-later");
 
 console.log("productProfile/productMatchSnapshot.test.ts: all assertions passed");
 

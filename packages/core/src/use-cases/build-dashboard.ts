@@ -73,7 +73,8 @@ export function buildDashboard<TPayload>({
   const sortedMatched = rankedMatched.slice(0, limit);
   const matches = sortedMatched.map((entry) => toMatchCard(entry, { asOf }));
   const profileQuestionCandidates = rankedMatched.filter((entry) =>
-    recommendationTierForMatch(entry.match) === "needs_profile_input"
+    entry.match.eligibility === "conditional"
+    && entry.item.matching_evidence?.level !== "discovery"
   );
   const nextQuestion = planProfileQuestions(profileQuestionCandidates, {
     asOf,

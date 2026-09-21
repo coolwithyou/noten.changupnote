@@ -19,8 +19,6 @@ const ANALYSIS_AXIS_GROUPS = [
   },
 ] as const;
 
-const ANALYSIS_AXIS_COUNT = 22;
-
 export function AnalysisScopeCard({
   context,
 }: {
@@ -35,14 +33,14 @@ export function AnalysisScopeCard({
     >
       <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
         <h2 id="matching-analysis-scope-title" className="text-sm font-extrabold text-ink">
-          분석 범위
+          이번 결과의 분석 범위
         </h2>
         <p className="text-sm font-bold text-brand">
-          공개 공고 후보 {context.evaluatedGrantCount.toLocaleString("ko-KR")}건 · 확인 조건 {ANALYSIS_AXIS_COUNT}개
+          공개 공고 {context.evaluatedGrantCount.toLocaleString("ko-KR")}건 대조
         </p>
       </div>
       <p className="mt-2 text-[13px] leading-6 text-text-secondary">
-        확인된 조건은 회사 정보와 비교하고, 미확정 조건은 원문 확인 대상으로 남겨요.
+        이 수는 이번 조회에서 대조한 공고 수예요. 위에 표시된 후보 수와 같지 않을 수 있어요.
       </p>
       <div className="mt-3 grid gap-2 sm:grid-cols-2">
         {ANALYSIS_AXIS_GROUPS.map((group) => (
@@ -53,7 +51,7 @@ export function AnalysisScopeCard({
         ))}
       </div>
       <p className="mt-3 text-xs leading-5 text-text-tertiary">
-        아래에는 현재 매칭에 사용할 수 있는 공고를 보여드려요. 매칭 조건 확인과 신청서 편집·저장 준비는 별개예요.
+        확인된 조건은 회사 정보와 비교하고, 미확정 조건은 원문 확인 대상으로 남겨요. 자격 확인과 신청서 작성 준비는 별개예요.
       </p>
     </section>
   );

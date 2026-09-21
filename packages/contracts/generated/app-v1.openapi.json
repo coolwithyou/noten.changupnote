@@ -2203,6 +2203,10 @@
             "type": "integer",
             "minimum": 0
           },
+          "oneQuestionAway": {
+            "type": "integer",
+            "minimum": 0
+          },
           "needsCoreReview": {
             "type": "integer",
             "minimum": 0
@@ -2548,6 +2552,22 @@
                 "type": "null"
               }
             ]
+          },
+          "confirmationQuestionCount": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "confirmationQuestionIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "confirmationEligibilityQuestionIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         },
         "additionalProperties": false
@@ -3064,6 +3084,10 @@
             "type": "string"
           },
           "affectedGrantCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "sourceReviewRemainingGrantCount": {
             "type": "integer",
             "minimum": 0
           },
