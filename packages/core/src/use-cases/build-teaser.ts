@@ -242,6 +242,16 @@ function balanceReviewNeededCards(cards: MatchCard[]): MatchCard[] {
     }
     if (!appended) break;
   }
+  // verified 검토 후보가 먼저 정렬된 것만으로 제한 페이지를 채우면
+  // discovery를 universe에 포함해도 사용자에게는 하나도 보이지 않는다. exact 확인
+  // 질문은 그대로 우선하고, 남은 범용 검토 자리의 첫 카드만 discovery로 보장한다.
+  const firstGenericDiscovery = result.findIndex((card, index) =>
+    index >= oneQuestionAway.length && card.matchingEvidence?.level === "discovery"
+  );
+  if (firstGenericDiscovery > oneQuestionAway.length) {
+    const [discovery] = result.splice(firstGenericDiscovery, 1);
+    if (discovery) result.splice(oneQuestionAway.length, 0, discovery);
+  }
   return result;
 }
 

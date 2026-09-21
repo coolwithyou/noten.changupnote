@@ -201,4 +201,25 @@ assert.equal(
   0,
   "missing current-source v2 proof must fail closed even when the generic question shape matches",
 );
+
+const verifiedCoreReviewCards = Array.from({ length: 8 }, (_, index) => ({
+  ...earlierReviewCards[index]!,
+  grantId: `verified-core-${index}`,
+  recommendationTier: "needs_core_review" as const,
+  matchingEvidence: { level: "verified" as const, sourceRevisionSha256: `verified-${index}` },
+}));
+const discoveryCoreReview = {
+  ...verifiedCoreReviewCards[0]!,
+  grantId: "discovery-core",
+  matchingEvidence: { level: "discovery" as const, sourceRevisionSha256: null, reason: "unreviewed" as const },
+};
+const mixedEvidenceDisplay = selectTeaserDisplay(
+  [...verifiedCoreReviewCards, discoveryCoreReview],
+  { limit: 3, recommendableLimit: 0, reviewNeededLimit: 3 },
+);
+assert.equal(
+  mixedEvidenceDisplay.matches.filter((card) => card.matchingEvidence?.level === "discovery").length,
+  1,
+  "discovery inventory must receive one generic review slot instead of being starved by verified cards",
+);
 console.log("match explanation tests passed");
