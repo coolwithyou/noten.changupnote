@@ -103,6 +103,13 @@ export async function inspectMatchingHistoryReview(input: {
   } catch (error) {
     const expected = `exact 대상을 검수한 independent review manifest가 없습니다: ${input.launchReceiptSha256}`;
     if (error instanceof Error && error.message === expected) return null;
+    const projectionBindingErrors = [
+      `launch matching projection exact binding이 다릅니다: ${input.grantId}`,
+      `launch matching projection 한쪽 결속이 없습니다: ${input.grantId}`,
+    ];
+    // 과거 한 target의 projection 결속 오류는 그 target의 검수 결과를 신뢰할 수 없다는 뜻이다.
+    // current inventory 전체 준비를 중단하지 않고 blocked/quality_held로 격리한다.
+    if (error instanceof Error && projectionBindingErrors.includes(error.message)) return "blocked";
     throw error;
   }
 }
