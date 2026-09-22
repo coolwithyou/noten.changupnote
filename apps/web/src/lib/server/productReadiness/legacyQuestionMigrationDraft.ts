@@ -121,8 +121,8 @@ export function buildLegacyQuestionMigrationDraftSet(input: {
   readonly decisions: LegacyQuestionMigrationReviewDecisionSet;
   readonly current: LegacyQuestionMigrationReviewBundleInput;
 }): LegacyQuestionMigrationDraftSet {
-  const review = validateBundle(input.review, "review");
-  const current = validateBundle(input.current, "current");
+  const review = validateLegacyQuestionMigrationReviewBundle(input.review, "review");
+  const current = validateLegacyQuestionMigrationReviewBundle(input.current, "current");
   const decisions = validateDecisionSet(input.decisions);
   if (
     decisions.manifestContentSha256 !== review.manifest.contentSha256
@@ -255,14 +255,21 @@ export function buildLegacyQuestionMigrationDraftSet(input: {
 export function serializeLegacyQuestionMigrationDraftSet(
   draftSet: LegacyQuestionMigrationDraftSet,
 ): Buffer {
+  validateLegacyQuestionMigrationDraftSet(draftSet);
+  return Buffer.from(`${JSON.stringify(draftSet, null, 2)}\n`, "utf8");
+}
+
+export function validateLegacyQuestionMigrationDraftSet(
+  draftSet: LegacyQuestionMigrationDraftSet,
+): LegacyQuestionMigrationDraftSet {
   const { contentSha256, ...body } = draftSet;
   if (contentSha256 !== sha256(canonical(body))) {
     throw new Error("이관 draft set content SHA가 내용과 일치하지 않습니다.");
   }
-  return Buffer.from(`${JSON.stringify(draftSet, null, 2)}\n`, "utf8");
+  return draftSet;
 }
 
-function validateBundle(
+export function validateLegacyQuestionMigrationReviewBundle(
   input: LegacyQuestionMigrationReviewBundleInput,
   label: string,
 ): LegacyQuestionMigrationReviewBundleInput {

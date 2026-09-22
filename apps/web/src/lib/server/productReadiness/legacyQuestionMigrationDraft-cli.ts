@@ -19,6 +19,10 @@ import {
   type LegacyQuestionMigrationReviewBundleInput,
 } from "./legacyQuestionMigrationDraft";
 import { loadLegacyQuestionMigrationReviewBundle } from "./legacyQuestionMigrationReviewPacket";
+import {
+  buildLegacyQuestionMigrationReleasePlan,
+  serializeLegacyQuestionMigrationReleasePlan,
+} from "./legacyQuestionMigrationReleasePlan";
 
 export interface LegacyQuestionMigrationDraftCliOptions {
   readonly manifestPath: string;
@@ -94,12 +98,21 @@ export async function runLegacyQuestionMigrationDraftCli(
       { isolationLevel: "repeatable read", accessMode: "read only" },
     );
     const draftSet = buildLegacyQuestionMigrationDraftSet({ review, decisions, current });
+    const releasePlan = buildLegacyQuestionMigrationReleasePlan({ draftSet, current });
     const outputDirectory = options.outputDirectory
       ?? join(findMonorepoRoot(), "spike-out", "product-readiness", "legacy-question-migration-drafts");
     const outputPath = join(outputDirectory, `${draftSet.contentSha256}.migration-draft.json`);
+    const releasePlanPath = join(
+      outputDirectory,
+      `${releasePlan.contentSha256}.migration-release-plan.json`,
+    );
     await writeImmutableBytesAtomic(
       outputPath,
       serializeLegacyQuestionMigrationDraftSet(draftSet),
+    );
+    await writeImmutableBytesAtomic(
+      releasePlanPath,
+      serializeLegacyQuestionMigrationReleasePlan(releasePlan),
     );
     console.log(JSON.stringify({
       ok: true,
@@ -107,9 +120,13 @@ export async function runLegacyQuestionMigrationDraftCli(
       draftCount: draftSet.drafts.length,
       nextWorkCount: draftSet.nextWork.length,
       nextWorkByAction: countBy(draftSet.nextWork.map((item) => item.action)),
+      releaseOperationCount: releasePlan.operations.length,
+      releaseHoldCount: releasePlan.holds.length,
       currentShadowSnapshotSha256: current.shadowReport.snapshotSha256,
       outputPath,
+      releasePlanPath,
       authority: draftSet.authority,
+      releaseAuthority: releasePlan.authority,
     }, null, 2));
   } finally {
     await client.end({ timeout: 5 });

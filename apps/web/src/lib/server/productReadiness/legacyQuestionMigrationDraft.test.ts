@@ -18,6 +18,10 @@ import {
   buildLegacyQuestionMigrationDraftSet,
   serializeLegacyQuestionMigrationDraftSet,
 } from "./legacyQuestionMigrationDraft";
+import {
+  buildLegacyQuestionMigrationReleasePlan,
+  serializeLegacyQuestionMigrationReleasePlan,
+} from "./legacyQuestionMigrationReleasePlan";
 
 const reviewedAt = "2026-09-22T09:00:00.000Z";
 
@@ -138,6 +142,54 @@ test("공유 artifact 변조·다른 묶음·잘못된 극성·메모 없는 수
       note: null,
     })]),
   }), /후속 작업 메모/);
+});
+
+test("답변 없는 승인 초안만 제한된 v2 이관 operation으로 계획한다", () => {
+  const item = fixture({ suffix: "1", answerCount: 0 });
+  const review = { manifest: item.manifest, packets: [item.packet] };
+  const draftSet = buildLegacyQuestionMigrationDraftSet({
+    review,
+    decisions: decisionSet(item.manifest, [decision(item.packet, {
+      verdict: "approve_for_v2_draft",
+      confirmedPolarity: "exclusion_membership",
+      resolutionScope: "per_notice",
+    })]),
+    current: review,
+  });
+  const plan = buildLegacyQuestionMigrationReleasePlan({ draftSet, current: review });
+  assert.equal(plan.authority.status, "offline_write_plan_only");
+  assert.equal(plan.authority.serviceDatabaseWritesMade, 0);
+  assert.equal(plan.authority.releaseAuthorized, false);
+  assert.equal(plan.operations.length, 1);
+  assert.equal(plan.holds.length, 0);
+  assert.equal(plan.operations[0]?.question.supersedesQuestionId, item.packet.legacyQuestion.id);
+  assert.equal(plan.operations[0]?.question.minimumVersion, 2);
+  assert.equal(plan.operations[0]?.question.provenance.schema, "legacy-question-migration-provenance-v1");
+  assert.equal("runId" in (plan.operations[0]?.question.provenance ?? {}), false);
+  assert.doesNotThrow(() => serializeLegacyQuestionMigrationReleasePlan(plan));
+});
+
+test("기존 답변이 있는 질문은 자동 이관하지 않고 답변 보존 검수로 보낸다", () => {
+  const item = fixture({ suffix: "1", answerCount: 3 });
+  const review = { manifest: item.manifest, packets: [item.packet] };
+  const draftSet = buildLegacyQuestionMigrationDraftSet({
+    review,
+    decisions: decisionSet(item.manifest, [decision(item.packet, {
+      verdict: "approve_for_v2_draft",
+      confirmedPolarity: "exclusion_membership",
+      resolutionScope: "per_notice",
+    })]),
+    current: review,
+  });
+  const plan = buildLegacyQuestionMigrationReleasePlan({ draftSet, current: review });
+  assert.equal(plan.operations.length, 0);
+  assert.equal(plan.holds[0]?.reason, "answer_preservation_review_required");
+  assert.equal(plan.holds[0]?.answerCount, 3);
+  const other = fixture({ suffix: "2" });
+  assert.throws(() => buildLegacyQuestionMigrationReleasePlan({
+    draftSet,
+    current: { manifest: other.manifest, packets: [other.packet] },
+  }), /exact binding/);
 });
 
 function fixture(input: {
