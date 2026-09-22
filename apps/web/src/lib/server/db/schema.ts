@@ -1858,6 +1858,56 @@ export const analysisLabApplicationFieldRepairs = pgTable("analysis_lab_applicat
 }));
 
 /**
+ * 사람 검수를 통과한 legacy confirmation 질문을 v2 질문 한 건으로 제한 이관하는 원장.
+ * 일반 promotion item과 분리해 criteria/다른 질문/사용자 답변을 rollback 범위에 넣지 않는다.
+ */
+export const analysisLabLegacyQuestionMigrationItems = pgTable(
+  "analysis_lab_legacy_question_migration_items",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    releaseDbId: uuid("release_db_id").notNull()
+      .references(() => analysisLabPromotionReleases.id, { onDelete: "restrict" }),
+    grantId: uuid("grant_id").notNull().references(() => grants.id, { onDelete: "restrict" }),
+    criterionId: uuid("criterion_id").notNull()
+      .references(() => grantCriteria.id, { onDelete: "restrict" }),
+    legacyQuestionId: uuid("legacy_question_id").notNull()
+      .references(() => grantConfirmationQuestions.id, { onDelete: "restrict" }),
+    migratedQuestionId: uuid("migrated_question_id")
+      .references(() => grantConfirmationQuestions.id, { onDelete: "restrict" }),
+    planSha256: text("plan_sha256").notNull(),
+    operationSha256: text("operation_sha256").notNull(),
+    beforeSnapshot: jsonb("before_snapshot").$type<Record<string, unknown>>().notNull(),
+    beforeSha256: text("before_sha256").notNull(),
+    afterSnapshot: jsonb("after_snapshot").$type<Record<string, unknown>>(),
+    afterSha256: text("after_sha256"),
+    status: text("status").default("prepared").notNull(),
+    error: text("error"),
+    appliedAt: timestamp("applied_at", { withTimezone: true }),
+    rolledBackAt: timestamp("rolled_back_at", { withTimezone: true }),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    releaseQuestionIdx: uniqueIndex("analysis_lab_legacy_question_migration_release_question_idx")
+      .on(table.releaseDbId, table.legacyQuestionId),
+    activeLegacyQuestionIdx: uniqueIndex("analysis_lab_legacy_question_migration_active_legacy_idx")
+      .on(table.legacyQuestionId)
+      .where(sql`${table.status} IN ('prepared', 'applying', 'applied', 'rolling_back')`),
+    releaseStatusIdx: index("analysis_lab_legacy_question_migration_release_status_idx")
+      .on(table.releaseDbId, table.status),
+    grantIdx: index("analysis_lab_legacy_question_migration_grant_idx").on(table.grantId),
+    criterionIdx: index("analysis_lab_legacy_question_migration_criterion_idx")
+      .on(table.criterionId),
+    migratedQuestionIdx: index("analysis_lab_legacy_question_migration_migrated_question_idx")
+      .on(table.migratedQuestionId),
+    statusCheck: check("analysis_lab_legacy_question_migration_status_check", sql`
+      ${table.status} IN (
+        'prepared', 'applying', 'applied', 'failed', 'rolling_back', 'rolled_back'
+      )
+    `),
+  }),
+);
+
+/**
  * 사람 검수 주간 배치 — 파일 기반 감사 프로토콜과 ops 검수 워크스페이스 사이의
  * 재현 가능한 배분 원장. 판정 이력 테이블은 어떤 운영 경로에서도 삭제하지 않는다.
  */

@@ -14,6 +14,7 @@ import { verifyPromotionServingSnapshotPostgres } from "./promotionServingSnapsh
 import { verifyPremisesPostgres } from "./premisesPostgres.integration";
 import { verifyServingMonitorPostgres } from "../deep-analysis/servingMonitorPostgres.integration";
 import { verifyApplicationFieldRepairPostgres } from "../analysis-lab/applicationFieldRepairPostgres.integration";
+import { verifyLegacyQuestionMigrationReleasePostgres } from "../productReadiness/legacyQuestionMigrationReleasePostgres.integration";
 
 const socket = process.env.CUNOTE_PRODUCT_TEST_SOCKET ?? "";
 assert.match(socket, /^\/tmp\/cunote-product-pg-[a-zA-Z0-9]+$/);
@@ -135,6 +136,12 @@ try {
     socket,
     companyId: creationId,
     userId,
+  });
+  await verifyLegacyQuestionMigrationReleasePostgres({
+    admin,
+    client,
+    socket,
+    companyId: creationId,
   });
   await admin`delete from user_company where user_id=${userId} and company_id=${creationId}`;
   await assert.rejects(() => repo.createCompany({ userId, creationId, profile }));

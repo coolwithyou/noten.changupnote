@@ -617,6 +617,13 @@
       "when": 1790035200000,
       "tag": "0087_grant_source_change_impact",
       "breakpoints": true
+    },
+    {
+      "idx": 88,
+      "version": "7",
+      "when": 1790121600000,
+      "tag": "0088_legacy_question_migration_release",
+      "breakpoints": true
     }
   ]
 }
