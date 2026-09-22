@@ -41,6 +41,8 @@ export interface GrantReadinessInput {
     readonly collectedAt?: string | null;
     readonly revisionSha256: string | null;
     readonly rawSha256: string | null;
+    /** raw 관측값을 제외한 공고·첨부 projection. source rebind admission에서만 사용한다. */
+    readonly materialRevisionSha256?: string | null;
     readonly attachmentStatus: "not_required" | "complete" | "missing";
     readonly attachmentManifestSha256: string | null;
   };

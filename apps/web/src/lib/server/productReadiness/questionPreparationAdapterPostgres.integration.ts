@@ -78,7 +78,7 @@ export async function verifyQuestionPreparationAdapterPostgres(input: {
   assert.ok(source);
   assert.equal(source.sourceRawSha256, rawSha256);
 
-  const baselinePlan = buildPlan({
+  const baselinePlan = buildQuestionPreparationFixturePlan({
     grantId,
     runId,
     stableKey,
@@ -86,7 +86,7 @@ export async function verifyQuestionPreparationAdapterPostgres(input: {
     sourceRawSha256: rawSha256,
     includeQuestion: false,
   });
-  const baselineManifest = buildManifest({
+  const baselineManifest = buildQuestionPreparationFixtureManifest({
     grantId,
     plan: baselinePlan,
     sourceRevisionSha256: source.sourceRevisionSha256,
@@ -95,7 +95,7 @@ export async function verifyQuestionPreparationAdapterPostgres(input: {
     includeQuestion: false,
   });
   const baselineSnapshot = await loadPromotionGrantSnapshot(db, grantId);
-  await seedAppliedRelease({
+  await seedQuestionPreparationFixtureAppliedRelease({
     admin: input.admin,
     manifest: baselineManifest,
     snapshot: baselineSnapshot,
@@ -122,7 +122,7 @@ export async function verifyQuestionPreparationAdapterPostgres(input: {
   assert.equal(before.readiness.eligibleQuestionCoveredCount, 0);
 
   const beforePromotionSnapshot = await loadPromotionGrantSnapshot(db, grantId);
-  const releasePlan = buildPlan({
+  const releasePlan = buildQuestionPreparationFixturePlan({
     grantId,
     runId,
     stableKey,
@@ -131,7 +131,7 @@ export async function verifyQuestionPreparationAdapterPostgres(input: {
     includeQuestion: true,
   });
   const releaseId = `question-preparation-release-${grantId}`;
-  const releaseManifest = buildManifest({
+  const releaseManifest = buildQuestionPreparationFixtureManifest({
     grantId,
     plan: releasePlan,
     sourceRevisionSha256: source.sourceRevisionSha256,
@@ -250,7 +250,7 @@ export async function verifyQuestionPreparationAdapterPostgres(input: {
   console.log("PASS: reviewed question preparation canary advances isolated readiness B to A with zero model calls");
 }
 
-function buildPlan(input: {
+export function buildQuestionPreparationFixturePlan(input: {
   grantId: string;
   runId: string;
   stableKey: string;
@@ -342,7 +342,7 @@ function buildPlan(input: {
   };
 }
 
-function buildManifest(input: {
+export function buildQuestionPreparationFixtureManifest(input: {
   grantId: string;
   plan: GrantPromotionPlan;
   sourceRevisionSha256: string;
@@ -447,7 +447,7 @@ function buildManifest(input: {
   });
 }
 
-async function seedAppliedRelease(input: {
+export async function seedQuestionPreparationFixtureAppliedRelease(input: {
   admin: postgres.Sql;
   manifest: PromotionReleaseManifest;
   snapshot: Awaited<ReturnType<typeof loadPromotionGrantSnapshot>>;

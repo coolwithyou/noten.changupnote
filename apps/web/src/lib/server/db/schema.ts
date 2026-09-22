@@ -1914,6 +1914,48 @@ export const analysisLabLegacyQuestionMigrationItems = pgTable(
 );
 
 /**
+ * 조건·첨부·모집 의미가 바뀌지 않은 source evidence refresh를 기존 promotion의 successor로
+ * 기록한다. 기존 promotion manifest를 고치지 않고 질문/답변의 source 결속만 원자적으로
+ * 전진시키며, current serving hash가 receipt와 일치할 때만 reader가 새 source를 채택한다.
+ */
+export const analysisLabSourceRebindItems = pgTable("analysis_lab_source_rebind_items", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  releaseDbId: uuid("release_db_id").notNull()
+    .references(() => analysisLabPromotionReleases.id, { onDelete: "restrict" }),
+  grantId: uuid("grant_id").notNull().references(() => grants.id, { onDelete: "restrict" }),
+  parentPromotionItemId: uuid("parent_promotion_item_id").notNull()
+    .references(() => analysisLabPromotionItems.id, { onDelete: "restrict" }),
+  impactSha256: text("impact_sha256").notNull(),
+  previousSourceRevisionSha256: text("previous_source_revision_sha256").notNull(),
+  previousSourceRawSha256: text("previous_source_raw_sha256").notNull(),
+  currentSourceRevisionSha256: text("current_source_revision_sha256").notNull(),
+  currentSourceRawSha256: text("current_source_raw_sha256").notNull(),
+  currentMaterialSourceRevisionSha256: text("current_material_source_revision_sha256").notNull(),
+  beforeSnapshot: jsonb("before_snapshot").$type<Record<string, unknown>>().notNull(),
+  beforeSha256: text("before_sha256").notNull(),
+  beforeServingSha256: text("before_serving_sha256").notNull(),
+  afterSnapshot: jsonb("after_snapshot").$type<Record<string, unknown>>(),
+  afterSha256: text("after_sha256"),
+  servingStateSha256: text("serving_state_sha256"),
+  reboundQuestionCount: integer("rebound_question_count"),
+  reboundAnswerCount: integer("rebound_answer_count"),
+  status: text("status").default("prepared").notNull(),
+  error: text("error"),
+  appliedAt: timestamp("applied_at", { withTimezone: true }),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  releaseIdx: uniqueIndex("analysis_lab_source_rebind_release_idx").on(table.releaseDbId),
+  parentPreviousIdx: uniqueIndex("analysis_lab_source_rebind_parent_previous_idx")
+    .on(table.parentPromotionItemId, table.previousSourceRevisionSha256)
+    .where(sql`${table.status} IN ('prepared', 'applying', 'applied')`),
+  parentIdx: index("analysis_lab_source_rebind_parent_idx").on(table.parentPromotionItemId),
+  grantIdx: index("analysis_lab_source_rebind_grant_idx").on(table.grantId),
+  statusCheck: check("analysis_lab_source_rebind_status_check", sql`
+    ${table.status} IN ('prepared', 'applying', 'applied', 'failed')
+  `),
+}));
+
+/**
  * 사람 검수 주간 배치 — 파일 기반 감사 프로토콜과 ops 검수 워크스페이스 사이의
  * 재현 가능한 배분 원장. 판정 이력 테이블은 어떤 운영 경로에서도 삭제하지 않는다.
  */

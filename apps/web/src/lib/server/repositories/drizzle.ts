@@ -103,6 +103,11 @@ import {
   type PromotionServingRequestSnapshot,
 } from "@/lib/server/analysis-serving/promotionServing";
 import { projectMatchingCandidates } from "@/lib/server/analysis-serving/matchingCandidateProjection";
+import { loadPromotionStateShaByGrant } from "@/lib/server/productReadiness/grantReadinessLoader";
+import {
+  loadSourceRebindServingStates,
+  sourceRebindMatchesCurrent,
+} from "@/lib/server/productReadiness/sourceRebindServing";
 import {
   applyApplicationRepairAuthoringOverlays,
   resolveApplicationRepairAuthoringOverlays,
@@ -206,8 +211,9 @@ export async function loadPromotionServingRequestSnapshot(
         inArray(schema.analysisLabPromotionReleases.status, ["active", "canary_passed"]),
       ));
   const snapshot = buildPromotionServingRequestSnapshot({ items: itemRows, releases: releaseRows });
-  const promotionItemIds = uniqueStrings(snapshot.items.map(({ item }) => item.promotionItemId));
-  if (promotionItemIds.length === 0) return snapshot;
+  const matchingSnapshot = await applySourceRebindMatchingOverlays(session, snapshot);
+  const promotionItemIds = uniqueStrings(matchingSnapshot.items.map(({ item }) => item.promotionItemId));
+  if (promotionItemIds.length === 0) return matchingSnapshot;
 
   // Parent item 전체를 한 번에 읽고 status/release/receipt/current drift는 pure resolver가 닫는다.
   // prepared/failed/rolled_back 행을 SQL에서 숨기면 fallback 회귀를 검증할 수 없으므로 필터하지 않는다.
@@ -243,7 +249,7 @@ export async function loadPromotionServingRequestSnapshot(
       schema.analysisLabApplicationFieldRepairs.parentPromotionItemId,
       promotionItemIds,
     ));
-  if (repairRows.length === 0) return snapshot;
+  if (repairRows.length === 0) return matchingSnapshot;
   const currentSnapshots = await loadApplicationFieldRepairSnapshots(
     session,
     uniqueStrings(repairRows.map((row) => row.grantId)),
@@ -254,7 +260,50 @@ export async function loadPromotionServingRequestSnapshot(
       ? applicationFieldRepairServingStateSha256(currentSnapshots.get(row.grantId)!)
       : null,
   })));
-  return applyApplicationRepairAuthoringOverlays(snapshot, overlays);
+  return applyApplicationRepairAuthoringOverlays(matchingSnapshot, overlays);
+}
+
+/**
+ * immutable parent evidence는 그대로 두고, exact source-rebind successor가 현재 source/state와
+ * 모두 일치할 때만 매칭 projection이 소비하는 outer source revision을 전진시킨다.
+ */
+async function applySourceRebindMatchingOverlays(
+  session: CunoteDbSession,
+  snapshot: PromotionServingRequestSnapshot<PromotionServingHydrationItem>,
+): Promise<PromotionServingRequestSnapshot<PromotionServingHydrationItem>> {
+  const parentIds = uniqueStrings(snapshot.items.map(({ item }) => item.promotionItemId));
+  const states = await loadSourceRebindServingStates(session, parentIds);
+  if (states.size === 0) return snapshot;
+  const candidates = snapshot.items.filter(({ item }) => states.has(item.promotionItemId));
+  const grantIds = uniqueStrings(candidates.map(({ item }) => item.grantId));
+  const currentSources = await loadDeepAnalysisSourceBindings({ db: session, grantIds });
+  const currentStateByGrant = await loadPromotionStateShaByGrant(session, grantIds);
+  return {
+    ...snapshot,
+    items: snapshot.items.map(({ item, evidence }) => {
+      const state = states.get(item.promotionItemId);
+      const source = currentSources.get(item.grantId);
+      const currentStateSha256 = currentStateByGrant.get(item.grantId);
+      if (
+        !state
+        || !source
+        || !currentStateSha256
+        || evidence.sourceRevisionSha256 !== state.rootSourceRevisionSha256
+        || !sourceRebindMatchesCurrent({
+          state,
+          grantId: item.grantId,
+          currentStateSha256,
+          currentSourceRevisionSha256: source.sourceRevisionSha256,
+          currentSourceRawSha256: source.sourceRawSha256,
+          currentMaterialSourceRevisionSha256: source.materialSourceRevisionSha256,
+        })
+      ) return { item, evidence };
+      return {
+        item,
+        evidence: { ...evidence, sourceRevisionSha256: state.currentSourceRevisionSha256 },
+      };
+    }),
+  };
 }
 
 export interface PromotionServingHydrationItem extends PromotionServingItemBinding {

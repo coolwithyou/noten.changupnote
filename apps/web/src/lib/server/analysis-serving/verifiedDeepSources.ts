@@ -18,6 +18,11 @@ import {
   loadLegacyQuestionMigrationServingStates,
   promotionStateMatchesParentOrMigration,
 } from "../productReadiness/legacyQuestionMigrationServing";
+import {
+  loadSourceRebindServingStates,
+  sourceRebindMatchesCurrent,
+} from "../productReadiness/sourceRebindServing";
+import { loadDeepAnalysisSourceBinding } from "../deep-analysis/prepareInput";
 
 export type DocumentAgentEvidenceKind =
   | "current_document"
@@ -134,11 +139,23 @@ export async function loadVerifiedDeepSources(grantId: string): Promise<{
   }
   const snapshot = await loadPromotionGrantSnapshot(db, grantId);
   const currentSha256 = promotionGrantSnapshotStateSha256(snapshot);
-  const migrationStates = await loadLegacyQuestionMigrationServingStates(
-    db,
-    [newest.promotionItemId],
-  );
-  if (!promotionStateMatchesParentOrMigration({
+  const [migrationStates, sourceRebindStates, currentSource] = await Promise.all([
+    loadLegacyQuestionMigrationServingStates(db, [newest.promotionItemId]),
+    loadSourceRebindServingStates(db, [newest.promotionItemId]),
+    loadDeepAnalysisSourceBinding({ db, grantId }),
+  ]);
+  const sourceRebind = sourceRebindStates.get(newest.promotionItemId);
+  const sourceRebindCurrent = Boolean(currentSource)
+    && sourceRebind?.rootSourceRevisionSha256 === sourceRevisionSha256
+    && sourceRebindMatchesCurrent({
+      state: sourceRebind,
+      grantId,
+      currentStateSha256: currentSha256,
+      currentSourceRevisionSha256: currentSource!.sourceRevisionSha256,
+      currentSourceRawSha256: currentSource!.sourceRawSha256,
+      currentMaterialSourceRevisionSha256: currentSource!.materialSourceRevisionSha256,
+    });
+  if (!sourceRebindCurrent && !promotionStateMatchesParentOrMigration({
     currentStateSha256: currentSha256,
     parentAfterSha256: newest.afterSha256,
     successor: migrationStates.get(newest.promotionItemId),
@@ -187,7 +204,9 @@ export async function loadVerifiedDeepSources(grantId: string): Promise<{
       guide,
       runId: newest.runId,
       inputSha256: expectedInputSha256,
-      sourceRevisionSha256,
+      sourceRevisionSha256: sourceRebindCurrent
+        ? currentSource!.sourceRevisionSha256
+        : sourceRevisionSha256,
       attachmentManifestSha256: expectedAttachmentManifestSha256,
     });
     if (guideBound) {

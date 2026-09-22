@@ -37,6 +37,10 @@ import {
   loadVerifiedLegacyQuestionMigrationBindings,
   promotionStateMatchesParentOrMigration,
 } from "./legacyQuestionMigrationServing";
+import {
+  loadSourceRebindServingStates,
+  sourceRebindFrontierMatchesServingState,
+} from "./sourceRebindServing";
 
 const KST_TIME_ZONE = "Asia/Seoul";
 const DEFAULT_INVENTORY_LIMIT = 20_000;
@@ -67,6 +71,7 @@ export interface GrantReadinessEvidenceRow {
     readonly attachmentStatus?: "not_required" | "complete" | "missing";
     readonly attachmentManifestSha256?: string | null;
     readonly sourceRevisionSha256: string | null;
+    readonly materialSourceRevisionSha256?: string | null;
     readonly changeImpact?: GrantSourceChangeImpact | null;
   };
   readonly criteria: readonly {
@@ -196,6 +201,7 @@ export function normalizeGrantReadinessEvidence(row: GrantReadinessEvidenceRow):
       collectedAt: row.source.collectedAt?.toISOString() ?? null,
       revisionSha256: currentRevision,
       rawSha256: row.source.rawSha256,
+      materialRevisionSha256: row.source.materialSourceRevisionSha256 ?? null,
       attachmentStatus,
       attachmentManifestSha256: sourceAttachmentManifestSha256,
     },
@@ -363,7 +369,7 @@ export async function loadCurrentGrantReadiness(input: {
   }));
   const archiveSourceKeys = new Set(archiveRows.map((archive) => sourceKey(archive.source, archive.sourceId)));
   const criteriaByGrant = groupBy(criteria, (criterion) => criterion.grantId);
-  const promotionByGrant = await loadCurrentValidPromotions(input.db, promotionRows);
+  const promotionByGrant = await loadCurrentValidPromotions(input.db, promotionRows, sourceBindings);
   const servingRunIdsByGrant = new Map([...promotionByGrant].map(([grantId, promotion]) => [
     grantId,
     new Set([promotion.runId]),
@@ -410,6 +416,7 @@ export async function loadCurrentGrantReadiness(input: {
         attachmentStatus: !hasAttachments ? "not_required" : hasArchivedAttachments ? "complete" : "missing",
         attachmentManifestSha256: null,
         sourceRevisionSha256: binding?.sourceRevisionSha256 ?? null,
+        materialSourceRevisionSha256: binding?.materialSourceRevisionSha256 ?? null,
         changeImpact: raw?.rawHash
           ? impactBySourceRevision.get(sourceRevisionKey(grant.source, grant.sourceId, raw.rawHash)) ?? null
           : null,
@@ -547,6 +554,11 @@ export function selectUniqueLatestPromotionRows<T extends { grantId: string; app
 async function loadCurrentValidPromotions(
   db: CunoteDbSession,
   rows: readonly GrantReadinessPromotionRow[],
+  currentSourceByGrant: ReadonlyMap<string, {
+    sourceRevisionSha256: string;
+    sourceRawSha256: string;
+    materialSourceRevisionSha256: string;
+  }>,
 ): Promise<Map<string, NonNullable<GrantReadinessEvidenceRow["promotion"]>>> {
   const latest = selectUniqueLatestPromotionRows(rows);
   const candidates = [...latest.entries()].flatMap(([grantId, row]) => {
@@ -559,25 +571,37 @@ async function loadCurrentValidPromotions(
     db,
     candidates.map((candidate) => candidate.grantId),
   );
-  const migrationStates = await loadLegacyQuestionMigrationServingStates(
-    db,
-    candidates.map((candidate) => candidate.row.promotionItemId),
-  );
-  return new Map(candidates.flatMap(({ grantId, row, evidence }) => (
-    currentStateShaByGrant.has(grantId)
-      && promotionStateMatchesParentOrMigration({
-        currentStateSha256: currentStateShaByGrant.get(grantId)!,
-        parentAfterSha256: row.afterSha256!,
-        successor: migrationStates.get(row.promotionItemId),
-        grantId,
-      })
-      ? [[grantId, evidence] as const]
-      : []
-  )));
+  const parentIds = candidates.map((candidate) => candidate.row.promotionItemId);
+  const [migrationStates, sourceRebindStates] = await Promise.all([
+    loadLegacyQuestionMigrationServingStates(db, parentIds),
+    loadSourceRebindServingStates(db, parentIds),
+  ]);
+  return new Map(candidates.flatMap(({ grantId, row, evidence }) => {
+    const currentStateSha256 = currentStateShaByGrant.get(grantId);
+    const currentSource = currentSourceByGrant.get(grantId);
+    if (!currentStateSha256 || !currentSource) return [];
+    const rebind = sourceRebindStates.get(row.promotionItemId);
+    const rebindCurrent = sourceRebindFrontierMatchesServingState({
+      state: rebind,
+      grantId,
+      currentStateSha256,
+    }) && rebind?.rootSourceRevisionSha256 === evidence.sourceRevisionSha256;
+    const stateCurrent = rebindCurrent || promotionStateMatchesParentOrMigration({
+      currentStateSha256,
+      parentAfterSha256: row.afterSha256!,
+      successor: migrationStates.get(row.promotionItemId),
+      grantId,
+    });
+    if (!stateCurrent) return [];
+    return [[grantId, rebindCurrent ? {
+      ...evidence,
+      sourceRevisionSha256: rebind!.currentSourceRevisionSha256,
+    } : evidence] as const];
+  }));
 }
 
 /** current-state hash에 필요한 행을 전체 공고 배치로 읽는다. 답변 내용/식별자는 hash 계약에 포함되지 않는다. */
-async function loadPromotionStateShaByGrant(
+export async function loadPromotionStateShaByGrant(
   db: CunoteDbSession,
   grantIds: readonly string[],
 ): Promise<Map<string, string>> {
