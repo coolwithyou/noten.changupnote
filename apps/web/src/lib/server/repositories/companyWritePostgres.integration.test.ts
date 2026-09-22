@@ -142,6 +142,7 @@ try {
     client,
     socket,
     companyId: creationId,
+    userId,
   });
   await admin`delete from user_company where user_id=${userId} and company_id=${creationId}`;
   await assert.rejects(() => repo.createCompany({ userId, creationId, profile }));

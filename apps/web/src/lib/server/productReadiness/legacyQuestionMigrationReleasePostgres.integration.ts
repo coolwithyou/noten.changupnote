@@ -10,6 +10,11 @@ import * as schema from "../db/schema";
 import { loadDeepAnalysisSourceBinding } from "../deep-analysis/prepareInput";
 import { questionDefinitionSha256, sourceSpanHash } from "../analysis-lab/promote";
 import {
+  listGrantConfirmations,
+  submitGrantConfirmations,
+  withdrawGrantConfirmation,
+} from "../matches/grantConfirmations";
+import {
   applyLegacyQuestionMigrationRelease,
   approveLegacyQuestionMigrationRelease,
   prepareLegacyQuestionMigrationReleaseLedger,
@@ -34,6 +39,7 @@ export async function verifyLegacyQuestionMigrationReleasePostgres(input: {
   client: postgres.Sql;
   socket: string;
   companyId: string;
+  userId: string;
 }): Promise<void> {
   assert.equal(input.socket, process.env.CUNOTE_PRODUCT_TEST_SOCKET);
   assert.match(input.socket, /^\/tmp\/cunote-product-pg-[a-zA-Z0-9]+$/u);
@@ -137,12 +143,80 @@ export async function verifyLegacyQuestionMigrationReleasePostgres(input: {
   assert.equal((await input.admin`select id from grant_criteria where id=${fixture.criterionId}`).length, 1);
   assert.equal((await input.admin`select id from grant_confirmation_questions where id=${fixture.otherQuestionId} and invalidated_at is null`).length, 1);
 
-  await input.admin`insert into company_grant_confirmations
-    (company_id,grant_id,question_id,answer,disqualified,evaluation,evaluation_criterion_id,
-     source_revision_sha256,source_raw_sha256,question_definition_sha256,question_version,answer_revision)
-    values (${input.companyId},${fixture.grantId},${migratedQuestionId},'{"values":["yes"]}',false,
-      'satisfied',${fixture.criterionId},${fixture.sourceRevisionSha256},${fixture.sourceRawSha256},
-      ${fixture.definitionSha256},2,1)`;
+  const initialLedger = await listGrantConfirmations({
+    companyId: input.companyId,
+    grantId: fixture.grantId,
+  }, db);
+  const migratedQuestion = initialLedger.questions.find((question) => question.id === migratedQuestionId);
+  assert.ok(migratedQuestion?.binding);
+  assert.equal(initialLedger.answers.length, 0);
+  let recalculatedGrantIds: string[] = [];
+  const firstSave = await submitGrantConfirmations({
+    companyId: input.companyId,
+    userId: input.userId,
+    grantId: fixture.grantId,
+    answers: [{
+      questionId: migratedQuestionId,
+      values: ["yes"],
+      binding: migratedQuestion.binding,
+      expectedAnswerRevision: 0,
+      expectedCompanyFactRevision: null,
+    }],
+    asOf: new Date("2026-09-22T03:00:00.000Z"),
+  }, {
+    db,
+    recalculate: async (recalculateInput) => {
+      recalculatedGrantIds = [...(recalculateInput.relatedGrantIds ?? [])].sort();
+      return {
+        match: null,
+        refresh: { plannedCount: recalculateInput.relatedGrantIds?.length ?? 0, savedCount: 0 },
+      };
+    },
+  });
+  assert.equal(firstSave.saved[0]?.evaluation, "satisfied");
+  assert.ok(firstSave.saved[0]?.companyFactRevision);
+  assert.deepEqual(recalculatedGrantIds, [fixture.grantId, ...fixture.related.map((item) => item.grantId)].sort());
+  for (const related of fixture.related) {
+    const ledger = await listGrantConfirmations({
+      companyId: input.companyId,
+      grantId: related.grantId,
+    }, db);
+    assert.equal(ledger.answers[0]?.evaluation, "satisfied");
+    assert.equal(ledger.answers[0]?.reusedFromCompanyFact, true);
+  }
+  const changed = await submitGrantConfirmations({
+    companyId: input.companyId,
+    userId: input.userId,
+    grantId: fixture.grantId,
+    answers: [{
+      questionId: migratedQuestionId,
+      values: ["no"],
+      binding: migratedQuestion.binding,
+      expectedAnswerRevision: firstSave.saved[0]!.answerRevision!,
+      expectedCompanyFactRevision: firstSave.saved[0]!.companyFactRevision!,
+    }],
+    asOf: new Date("2026-09-22T04:00:00.000Z"),
+  }, { db, recalculate: async () => ({ match: null, refresh: { plannedCount: 4, savedCount: 0 } }) });
+  assert.equal(changed.saved[0]?.evaluation, "unsatisfied");
+  for (const related of fixture.related) {
+    const ledger = await listGrantConfirmations({ companyId: input.companyId, grantId: related.grantId }, db);
+    assert.equal(ledger.answers[0]?.evaluation, "unsatisfied");
+  }
+  const withdrawn = await withdrawGrantConfirmation({
+    companyId: input.companyId,
+    userId: input.userId,
+    grantId: fixture.grantId,
+    questionId: migratedQuestionId,
+    binding: migratedQuestion.binding,
+    expectedAnswerRevision: changed.saved[0]!.answerRevision!,
+    expectedCompanyFactRevision: changed.saved[0]!.companyFactRevision!,
+    asOf: new Date("2026-09-22T05:00:00.000Z"),
+  }, { db, recalculate: async () => ({ match: null, refresh: { plannedCount: 4, savedCount: 0 } }) });
+  assert.equal(withdrawn.saved.length, 0);
+  for (const related of fixture.related) {
+    const ledger = await listGrantConfirmations({ companyId: input.companyId, grantId: related.grantId }, db);
+    assert.equal(ledger.answers.length, 0, "철회된 회사 사실은 관련 공고에 남지 않는다");
+  }
   assert.equal((await applyLegacyQuestionMigrationRelease({
     db,
     plan,
@@ -156,27 +230,54 @@ export async function verifyLegacyQuestionMigrationReleasePostgres(input: {
     executedBy: "migration-rollback",
   }), /post_migration_answers_present/u);
   assert.equal((await input.admin`select status from analysis_lab_promotion_releases where id=${prepared.releaseDbId}`)[0]?.status, "active");
-  await input.admin`delete from company_grant_confirmations where question_id=${migratedQuestionId}`;
+
+  const rollbackFixture = await createFixture(input.admin, db, "rollback");
+  const rollbackPlan = createPlan(rollbackFixture);
+  const rollbackReleaseId = `legacy-migration-${rollbackFixture.grantId}`;
+  const rollbackPrepared = await prepareLegacyQuestionMigrationReleaseLedger({
+    db,
+    plan: rollbackPlan,
+    releaseId: rollbackReleaseId,
+    createdBy: "migration-preparer",
+    gitCommit: "isolated-test-commit",
+    buildDigest: "isolated-test-build",
+  });
+  await approveLegacyQuestionMigrationRelease({
+    db,
+    plan: rollbackPlan,
+    releaseId: rollbackReleaseId,
+    approvedBy: "migration-approver",
+    approvalArtifactSha256: "c".repeat(64),
+  });
+  await applyLegacyQuestionMigrationRelease({
+    db,
+    plan: rollbackPlan,
+    releaseId: rollbackReleaseId,
+    executedBy: "migration-executor",
+  });
+  const [rollbackItem] = await input.admin<{ migrated_question_id: string }[]>`
+    select migrated_question_id from analysis_lab_legacy_question_migration_items
+    where release_db_id=${rollbackPrepared.releaseDbId}`;
   const rolledBack = await rollbackLegacyQuestionMigrationRelease({
     db,
-    plan,
-    releaseId,
+    plan: rollbackPlan,
+    releaseId: rollbackReleaseId,
     executedBy: "migration-rollback",
   });
   assert.equal(rolledBack.replayed, false);
   const rolledBackReplay = await rollbackLegacyQuestionMigrationRelease({
     db,
-    plan,
-    releaseId,
+    plan: rollbackPlan,
+    releaseId: rollbackReleaseId,
     executedBy: "migration-rollback",
   });
   assert.equal(rolledBackReplay.replayed, true);
   const [restored] = await input.admin<{ grant_criteria_id: string; invalidated_at: Date | null }[]>`
-    select grant_criteria_id,invalidated_at from grant_confirmation_questions where id=${fixture.legacyQuestionId}`;
-  assert.equal(restored?.grant_criteria_id, fixture.criterionId);
+    select grant_criteria_id,invalidated_at from grant_confirmation_questions where id=${rollbackFixture.legacyQuestionId}`;
+  assert.equal(restored?.grant_criteria_id, rollbackFixture.criterionId);
   assert.equal(restored?.invalidated_at, null);
   const [retiredSuccessor] = await input.admin<{ invalidation_reason: string }[]>`
-    select invalidation_reason from grant_confirmation_questions where id=${migratedQuestionId}`;
+    select invalidation_reason from grant_confirmation_questions where id=${rollbackItem!.migrated_question_id}`;
   assert.equal(retiredSuccessor?.invalidation_reason, "legacy_question_migration_rolled_back");
 
   const driftFixture = await createFixture(input.admin, db, "drift");
@@ -221,7 +322,7 @@ export async function verifyLegacyQuestionMigrationReleasePostgres(input: {
   await input.client.begin(async (tx) => {
     assert.equal((await tx`select id from analysis_lab_legacy_question_migration_items`).length, 0);
   });
-  console.log("PASS: limited legacy question migration is exact, atomic, answer-preserving and reversible");
+  console.log("PASS: migrated v2 question roundtrip updates four related grants and limited migration stays exact, atomic, answer-preserving and reversible");
 }
 
 interface Fixture {
@@ -233,6 +334,11 @@ interface Fixture {
   sourceRevisionSha256: string;
   sourceRawSha256: string;
   definitionSha256: string;
+  related: Array<{
+    grantId: string;
+    criterionId: string;
+    questionId: string;
+  }>;
 }
 
 async function createFixture(admin: postgres.Sql, db: CunoteDb, suffix: string): Promise<Fixture> {
@@ -275,6 +381,44 @@ async function createFixture(admin: postgres.Sql, db: CunoteDb, suffix: string):
     sourceRevisionSha256: source.sourceRevisionSha256,
     sourceRawSha256: source.sourceRawSha256,
   });
+  const related: Fixture["related"] = [];
+  for (let index = 0; index < 3; index += 1) {
+    const relatedGrantId = crypto.randomUUID();
+    const relatedCriterionId = crypto.randomUUID();
+    const relatedQuestionId = crypto.randomUUID();
+    const relatedSourceId = `legacy-migration-related-${suffix}-${index}-${grantId}`;
+    const relatedRawSha256 = ["a", "b", "c"][index]!.repeat(64);
+    await admin`insert into grants(id,source,source_id,title,status,overall_confidence)
+      values (${relatedGrantId},'bizinfo',${relatedSourceId},${`이관 ${suffix} 관련 공고 ${index + 1}`},'open',1)`;
+    await admin`insert into grant_raw(source,source_id,payload,attachments,raw_hash,status)
+      values ('bizinfo',${relatedSourceId},'{}','[]',${relatedRawSha256},'normalized')`;
+    await admin`insert into grant_criteria
+      (id,grant_id,dimension,operator,value,kind,confidence,source_span,stable_key,needs_review)
+      values (${relatedCriterionId},${relatedGrantId},'region','text_only','{"note":"시흥 소재 여부"}',
+        'required',.9,'시흥시에 소재한 기업','siheung-location',false)`;
+    const relatedSource = await loadDeepAnalysisSourceBinding({ db, grantId: relatedGrantId });
+    assert.ok(relatedSource);
+    const relatedDefinitionSha256 = questionDefinitionSha256({
+      prompt: "현재 시흥시에 등록된 사업장이 있나요?",
+      options: [...OPTIONS],
+      answerType: "single",
+      reusable: "company_fact",
+      conditionKey: "siheung_registered_business_location",
+      evaluationContractVersion: "confirmation-evaluation-v2",
+      sourceRevisionSha256: relatedSource.sourceRevisionSha256,
+      sourceRawSha256: relatedSource.sourceRawSha256,
+    });
+    await admin`insert into grant_confirmation_questions
+      (id,grant_id,evaluation_criterion_id,evaluation_contract_version,source_revision_sha256,
+       source_raw_sha256,criterion_stable_key,definition_sha256,version,prompt,options,answer_type,
+       reusable,condition_key,prompt_ver,provenance)
+      values (${relatedQuestionId},${relatedGrantId},${relatedCriterionId},'confirmation-evaluation-v2',
+        ${relatedSource.sourceRevisionSha256},${relatedSource.sourceRawSha256},'siheung-location',
+        ${relatedDefinitionSha256},1,'현재 시흥시에 등록된 사업장이 있나요?',
+        ${JSON.stringify(OPTIONS)}::jsonb,'single','company_fact','siheung_registered_business_location',
+        'fixture-v1','{}')`;
+    related.push({ grantId: relatedGrantId, criterionId: relatedCriterionId, questionId: relatedQuestionId });
+  }
   return {
     grantId,
     memberGrantId,
@@ -284,6 +428,7 @@ async function createFixture(admin: postgres.Sql, db: CunoteDb, suffix: string):
     sourceRevisionSha256: source.sourceRevisionSha256,
     sourceRawSha256: source.sourceRawSha256,
     definitionSha256,
+    related,
   };
 }
 

@@ -59,8 +59,8 @@ try {
     if (window.inlineGrantAudit.savedResults.length !== 0) {
       throw new Error('결과를 읽기 전에 부모 목록을 재정렬하면 안 된다');
     }
-    if (!document.body.textContent.includes('이 공고의 신청 방법과 준비 항목을 바로 확인할 수 있어요.')) {
-      throw new Error('지원 가능 판정 뒤 다음 행동 설명이 보여야 한다');
+    if (!document.body.textContent.includes('같은 회사 정보를 쓰는 공고 4건도 함께 다시 확인했어요.')) {
+      throw new Error('한 답변이 갱신한 관련 공고 수를 같은 카드에서 알려야 한다');
     }
     const put = window.inlineGrantAudit.requests.find(request => request.method === 'PUT');
     if (put?.body?.answers?.[0]?.questionId !== 'question-location') {
@@ -78,7 +78,7 @@ try {
     return JSON.stringify({
       ok: true,
       suite: 'inline-grant-confirmation-browser',
-      checks: ['exact_question_submit', 'same_card_outcome', 'result_focus', 'deferred_reorder', 'direct_prepare'],
+      checks: ['exact_question_submit', 'same_card_outcome', 'related_grant_count', 'result_focus', 'deferred_reorder', 'direct_prepare'],
       putCount: window.inlineGrantAudit.requests.filter(request => request.method === 'PUT').length,
       externalWrites: 0,
     });

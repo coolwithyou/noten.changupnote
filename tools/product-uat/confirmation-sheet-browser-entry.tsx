@@ -14,10 +14,18 @@ type PutMode = "success" | "forbidden" | "pending_forbidden";
 const fixtures = new Map<string, GetFixture>([
   ["a", { canSubmit: false, delayMs: 0, persistedValue: "yes" }],
 ]);
-const requests: Array<{ method: string; companyId: string }> = [];
+const requests: Array<{ method: string; companyId: string; body: unknown }> = [];
 const pendingPuts: Array<() => void> = [];
 const pendingGets: Array<() => void> = [];
 let putMode: PutMode = "success";
+const binding = {
+  contractVersion: "confirmation-evaluation-v2" as const,
+  criterionId: "criterion-location",
+  sourceRevisionSha256: "a".repeat(64),
+  sourceRawSha256: "b".repeat(64),
+  definitionSha256: "c".repeat(64),
+  questionVersion: 2,
+};
 
 function confirmationData(companyId: string, fixture: GetFixture) {
   return {
@@ -34,12 +42,14 @@ function confirmationData(companyId: string, fixture: GetFixture) {
           { value: "no", label: "아니오" },
           { value: "unknown", label: "확인할 수 없음", isUnknown: true },
         ],
+        binding,
       }],
       answers: [{
         questionId: `question-${companyId}`,
         values: [fixture.persistedValue],
         answerRevision: 1,
         answeredAt: "2026-09-08T00:00:00.000Z",
+        companyFactRevision: "d".repeat(64),
       }],
     },
   };
@@ -62,7 +72,11 @@ window.fetch = async (input, init) => {
   if (url.origin !== "https://local.test") throw new Error(`unexpected browser fixture origin: ${url.origin}`);
   const companyId = url.searchParams.get("companyId") ?? "none";
   const method = init?.method ?? "GET";
-  requests.push({ method, companyId });
+  requests.push({
+    method,
+    companyId,
+    body: typeof init?.body === "string" ? JSON.parse(init.body) : null,
+  });
   if (method === "PUT") {
     if (putMode === "forbidden") return forbiddenResponse();
     if (putMode === "pending_forbidden") {
@@ -77,6 +91,17 @@ window.fetch = async (input, init) => {
         saved: [],
         match: null,
         refresh: { plannedCount: 0, savedCount: 0, status: "not_persisted_user_scope" },
+      },
+    }), { headers: { "content-type": "application/json" } });
+  }
+  if (method === "DELETE") {
+    return new Response(JSON.stringify({
+      ok: true,
+      data: {
+        grantId: "audit-grant",
+        saved: [],
+        match: null,
+        refresh: { plannedCount: 4, savedCount: 4, status: "succeeded" },
       },
     }), { headers: { "content-type": "application/json" } });
   }
