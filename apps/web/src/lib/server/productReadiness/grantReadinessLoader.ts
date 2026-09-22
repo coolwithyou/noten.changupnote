@@ -12,7 +12,12 @@ import {
   toPromotionQuestionSnapshot,
 } from "../analysis-serving/promotionSnapshot";
 import { matchingQuestionBinding } from "../matches/annotateConfirmationQuestions";
-import { isNonMatchingApplicationCriterion } from "@cunote/core";
+import type { CriterionDimension, CriterionKind, CriterionOperator, GrantCriterion } from "@cunote/contracts";
+import {
+  classifyCriterionResolution,
+  isNonMatchingApplicationCriterion,
+  isProfileResolvableCriterion,
+} from "@cunote/core";
 import { expandConfirmedGrantComponentIds } from "../ingestion/grantRevisionInvalidation";
 import {
   CONFIRMATION_EVALUATION_V2,
@@ -22,6 +27,7 @@ import {
   type GrantReadinessInput,
   type GrantReadinessSummary,
 } from "./grantReadiness";
+import { planGrantNextWork, type GrantNextWork, type GrantNextWorkAction } from "./grantNextWork";
 
 const KST_TIME_ZONE = "Asia/Seoul";
 const DEFAULT_INVENTORY_LIMIT = 20_000;
@@ -49,9 +55,19 @@ export interface GrantReadinessEvidenceRow {
     readonly rawSha256: string | null;
     readonly collectedAt: Date | null;
     readonly hasAttachments: boolean;
+    readonly attachmentStatus?: "not_required" | "complete" | "missing";
+    readonly attachmentManifestSha256?: string | null;
     readonly sourceRevisionSha256: string | null;
   };
-  readonly criteria: readonly { readonly stableKey: string | null; readonly needsReview: boolean }[];
+  readonly criteria: readonly {
+    readonly stableKey: string | null;
+    readonly dimension: CriterionDimension;
+    readonly kind: CriterionKind;
+    readonly operator: CriterionOperator;
+    readonly value: unknown;
+    readonly sourceSpan: string | null;
+    readonly needsReview: boolean;
+  }[];
   readonly questions: readonly {
     readonly criterionStableKey: string | null;
     readonly evaluationContractVersion: string | null;
@@ -76,6 +92,7 @@ export interface LoadedGrantReadiness {
   readonly grantId: string;
   readonly input: GrantReadinessInput;
   readonly readiness: GrantReadiness;
+  readonly nextWork: GrantNextWork;
 }
 
 export interface GrantReadinessReport {
@@ -84,6 +101,7 @@ export interface GrantReadinessReport {
   readonly kstDate: string;
   readonly inventoryCount: number;
   readonly summary: GrantReadinessSummary;
+  readonly nextWorkCounts: Readonly<Record<GrantNextWorkAction, number>>;
   /** 식별자만 담은 bounded sample. 제목·prompt·원문·회사/사용자 데이터는 반환하지 않는다. */
   readonly blockerSamples: Readonly<Partial<Record<string, readonly string[]>>>;
 }
@@ -124,9 +142,42 @@ export function normalizeGrantReadinessEvidence(row: GrantReadinessEvidenceRow):
   const expectedCriteria = promotion?.plannedCriterionStableKeys ?? [];
   const stableCriteriaMatch = sameUniqueNonEmptyValues(criteriaKeys, expectedCriteria);
   const reviewApproved = Boolean(promotion && ACCEPTED_REVIEW_STATES.has(promotion.reviewState));
-  const attachmentStatus = !row.source.hasAttachments
-    ? "not_required" as const
-    : promotion?.attachmentManifestSha256 ? "complete" as const : "missing" as const;
+  const criteriaReviewVerified = promotionMatchesCurrent && stableCriteriaMatch && reviewApproved;
+  const criterionResolutions = row.criteria.map((criterion) => {
+    if (isNonMatchingApplicationCriterion({
+      dimension: criterion.dimension,
+      kind: criterion.kind,
+      operator: criterion.operator,
+      source_span: criterion.sourceSpan,
+    })) return null;
+    return classifyCriterionResolution({
+      dimension: criterion.dimension,
+      kind: criterion.kind,
+      operator: criterion.operator,
+      value: criterion.value,
+      sourceSpan: criterion.sourceSpan,
+      sourceVerified: criteriaReviewVerified,
+      companyProfileResolvable: isProfileResolvableCriterion({
+        dimension: criterion.dimension,
+        kind: criterion.kind,
+        operator: criterion.operator,
+        value: criterion.value as GrantCriterion["value"],
+        confidence: 1,
+        source_span: criterion.sourceSpan ?? "",
+        needs_review: criterion.needsReview,
+      }),
+      needsReview: criterion.needsReview,
+    });
+  });
+  const eligibleQuestionCriterionStableKeys = row.criteria.flatMap((criterion, index) =>
+    criterionResolutions[index]?.requiresEligibilityQuestion ? [criterion.stableKey ?? ""] : []);
+  const resolutionReviewComplete = criterionResolutions.every((resolution) =>
+    resolution === null || resolution.action !== "admin_source_review");
+  const attachmentStatus = row.source.attachmentStatus
+    ?? (!row.source.hasAttachments ? "not_required" as const : "missing" as const);
+  const sourceAttachmentManifestSha256 = attachmentStatus === "complete"
+    ? row.source.attachmentManifestSha256 ?? promotion?.attachmentManifestSha256 ?? null
+    : null;
 
   return {
     grantId: row.grant.id,
@@ -136,25 +187,24 @@ export function normalizeGrantReadinessEvidence(row: GrantReadinessEvidenceRow):
       revisionSha256: currentRevision,
       rawSha256: row.source.rawSha256,
       attachmentStatus,
-      attachmentManifestSha256: attachmentStatus === "complete"
-        ? promotion?.attachmentManifestSha256 ?? null
-        : null,
+      attachmentManifestSha256: sourceAttachmentManifestSha256,
     },
     analysis: {
-      status: promotion ? "present" : "missing",
+      // 서비스 반영 증거가 없어도 현재 DB에 조건이 있으면 분석 산출물은 존재한다.
+      status: promotion || row.criteria.length > 0 ? "present" : "missing",
       sourceRevisionSha256: promotion?.sourceRevisionSha256 ?? null,
       // grant_deep_analysis_runs does not retain raw hash separately. A matching
       // current source revision cryptographically commits this raw hash; when it
       // differs, revision drift remains the primary fail-closed evidence.
       sourceRawSha256: row.source.rawSha256,
-      attachmentManifestSha256: attachmentStatus === "complete"
-        ? promotion?.attachmentManifestSha256 ?? null
-        : null,
+      attachmentManifestSha256: promotion?.attachmentManifestSha256 ?? null,
       structure: promotionMatchesCurrent && stableCriteriaMatch ? "complete" : "incomplete",
-      criteriaReview: promotionMatchesCurrent && stableCriteriaMatch && reviewApproved
+      criteriaReview: criteriaReviewVerified
+        && resolutionReviewComplete
         && row.criteria.every((criterion) => !criterion.needsReview)
         ? "reviewed" : "incomplete",
-      eligibleQuestionCriterionStableKeys: promotion?.plannedV2QuestionStableKeys ?? [],
+      // 질문 계획에서 역산하지 않는다. 검수된 조건의 해소 방식이 질문 수요의 정본이다.
+      eligibleQuestionCriterionStableKeys,
     },
     questions: row.questions.map((question) => ({
       criterionStableKey: question.criterionStableKey,
@@ -221,6 +271,11 @@ export async function loadCurrentGrantReadiness(input: {
     input.db.select({
       grantId: schema.grantCriteria.grantId,
       stableKey: schema.grantCriteria.stableKey,
+      dimension: schema.grantCriteria.dimension,
+      kind: schema.grantCriteria.kind,
+      operator: schema.grantCriteria.operator,
+      value: schema.grantCriteria.value,
+      sourceSpan: schema.grantCriteria.sourceSpan,
       needsReview: schema.grantCriteria.needsReview,
     }).from(schema.grantCriteria).where(inArray(schema.grantCriteria.grantId, grantIds)),
     input.db.select({
@@ -304,13 +359,18 @@ export async function loadCurrentGrantReadiness(input: {
   return inventory.map((grant) => {
     const raw = rawBySource.get(sourceKey(grant.source, grant.sourceId));
     const binding = sourceBindings.get(grant.id);
+    const hasAttachments = hasDeclaredAttachments(raw?.attachments)
+      || archiveSourceKeys.has(sourceKey(grant.source, grant.sourceId));
+    const hasArchivedAttachments = archiveSourceKeys.has(sourceKey(grant.source, grant.sourceId));
     const evidence: GrantReadinessEvidenceRow = {
       grant,
       source: {
         rawRowPresent: Boolean(raw),
         rawSha256: raw?.rawHash ?? null,
         collectedAt: raw?.collectedAt ?? null,
-        hasAttachments: hasDeclaredAttachments(raw?.attachments) || archiveSourceKeys.has(sourceKey(grant.source, grant.sourceId)),
+        hasAttachments,
+        attachmentStatus: !hasAttachments ? "not_required" : hasArchivedAttachments ? "complete" : "missing",
+        attachmentManifestSha256: null,
         sourceRevisionSha256: binding?.sourceRevisionSha256 ?? null,
       },
       criteria: criteriaByGrant.get(grant.id) ?? [],
@@ -325,7 +385,8 @@ export async function loadCurrentGrantReadiness(input: {
       promotion: promotionByGrant.get(grant.id) ?? null,
     };
     const readinessInput = normalizeGrantReadinessEvidence(evidence);
-    return Object.freeze({ grantId: grant.id, input: readinessInput, readiness: classifyGrantReadiness(readinessInput) });
+    const readiness = classifyGrantReadiness(readinessInput);
+    return Object.freeze({ grantId: grant.id, input: readinessInput, readiness, nextWork: planGrantNextWork(readiness) });
   });
 }
 
@@ -339,7 +400,16 @@ export function buildGrantReadinessReport(input: {
     throw new Error("보고서 기준일 또는 sampleLimit을 확인해주세요.");
   }
   const samples = new Map<string, string[]>();
+  const nextWorkCounts: Record<GrantNextWorkAction, number> = {
+    source_recovery: 0,
+    source_change_review: 0,
+    condition_analysis: 0,
+    condition_review: 0,
+    question_preparation: 0,
+    reuse_ready: 0,
+  };
   for (const row of input.rows) {
+    nextWorkCounts[row.nextWork.action] += 1;
     for (const blocker of row.readiness.blockerCodes) {
       const values = samples.get(blocker) ?? [];
       if (values.length < sampleLimit) values.push(row.grantId);
@@ -352,6 +422,7 @@ export function buildGrantReadinessReport(input: {
     kstDate: kstDate(input.asOf),
     inventoryCount: input.rows.length,
     summary: summarizeGrantReadiness(input.rows.map((row) => row.input)),
+    nextWorkCounts: Object.freeze(nextWorkCounts),
     blockerSamples: Object.freeze(Object.fromEntries(
       [...samples.entries()].sort(([left], [right]) => left.localeCompare(right))
         .map(([blocker, ids]) => [blocker, Object.freeze([...ids])]),

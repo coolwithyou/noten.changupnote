@@ -4,9 +4,12 @@ import { createHash } from "node:crypto";
 import { readdir, readFile, writeFile } from "node:fs/promises";
 import { basename, dirname } from "node:path";
 import type {
+  CriterionOperator,
   DeepAnalysisCriterionConfirmation,
+  GrantCriterion,
   GrantConfirmationEvaluation,
 } from "@cunote/contracts";
+import { classifyCriterionResolution, isProfileResolvableCriterion } from "@cunote/core";
 import type { LabCriterion, LabReview, LabRun } from "./lab-contract";
 import { validateReviewerEmail } from "./review-store";
 import { labRunFilePath } from "./run-store";
@@ -596,31 +599,25 @@ export function mergeManualConfirmationEvaluations(
 export function classifyManualConfirmationCriterion(
   criterion: LabCriterion,
 ): "user_confirmation" | "company_profile" | "admin_source_review" {
-  if (!criterion.spanVerified || !criterion.sourceSpan) return "admin_source_review";
-  if (criterion.operator !== "text_only") return "company_profile";
-  const value = criterion.value && typeof criterion.value === "object"
-    ? criterion.value as Record<string, unknown>
-    : {};
-  const reason = typeof value.downgrade_reason === "string" ? value.downgrade_reason : null;
-  if (reason && ADMIN_ONLY_DOWNGRADE_REASONS.has(reason)) return "admin_source_review";
-  if (typeof value.original_dimension === "string") {
-    return "admin_source_review";
-  }
-  // industry/text_only는 KSIC나 닫힌 태그로 자동 판정할 수 없지만, 검수된 원문이
-  // 신청기업의 취급 제품·서비스 분야를 직접 한정하면 사용자가 해당 여부를 공고별로
-  // 확인할 수 있다. 답변은 company profile로 승격하지 않고 per_notice로만 저장한다.
-  if (criterion.dimension === "other" || criterion.dimension === "industry") {
-    return "user_confirmation";
-  }
-  return "admin_source_review";
+  const action = classifyCriterionResolution({
+    dimension: criterion.dimension,
+    kind: criterion.kind,
+    operator: criterion.operator,
+    value: criterion.value,
+    sourceSpan: criterion.sourceSpan,
+    sourceVerified: criterion.spanVerified,
+    companyProfileResolvable: isProfileResolvableCriterion({
+      dimension: criterion.dimension,
+      kind: criterion.kind,
+      operator: criterion.operator as CriterionOperator,
+      value: criterion.value as GrantCriterion["value"],
+      confidence: criterion.confidence,
+      source_span: criterion.sourceSpan ?? "",
+      needs_review: false,
+    }),
+  }).action;
+  return action === "code_comparison" ? "company_profile" : action;
 }
-
-const ADMIN_ONLY_DOWNGRADE_REASONS = new Set([
-  "contract_validation_failed",
-  "exclusive_upper_bound_mismatch",
-  "sanction_cause_state_flattening",
-  "source_semantic_contradiction",
-]);
 
 function parseManualItems(
   raw: unknown,

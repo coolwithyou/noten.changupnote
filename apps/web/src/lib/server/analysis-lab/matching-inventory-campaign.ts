@@ -9,6 +9,7 @@ import {
   type AnalysisLaunchReceipt,
 } from "./launch-batch-artifacts";
 import { writeImmutableBytesAtomic } from "./immutable-artifact-fs";
+import type { GrantNextWorkAction } from "../productReadiness/grantNextWork";
 
 export const MATCHING_INVENTORY_CLASSIFICATION_SCHEMA =
   "analysis-matching-inventory-classification-v1" as const;
@@ -73,6 +74,8 @@ export interface MatchingInventorySnapshotTarget {
         readonly reason: MatchingInventoryExclusionReason;
         readonly duplicateOfGrantId?: string;
       };
+  /** 부재는 역사 artifact/test 호환. 신규 production snapshot은 모든 대상에 반드시 결속한다. */
+  readonly readinessNextWork?: GrantNextWorkAction;
   readonly history: MatchingInventoryHistory;
 }
 
@@ -90,6 +93,10 @@ export interface MatchingInventoryClassificationEntry {
     | "prepare_matching_only"
     | "prepare_terminal_recovery"
     | "prepare_changed_source"
+    | "review_current_conditions"
+    | "prepare_confirmation_questions"
+    | "recover_source"
+    | "review_source_change"
     | "resolve_quality_hold"
     | "none";
   readonly sourceManifestSha256: string | null;
@@ -157,11 +164,37 @@ function classifyTarget(target: MatchingInventorySnapshotTarget): MatchingInvent
     return entry(target, "excluded", false, `excluded:${target.eligibility.reason}`, "none");
   }
   validateHistory(target.history);
-  if (target.history.kind === "legacy") {
-    return entry(target, "quality_held", false, "legacy_history_requires_manual_review", "resolve_quality_hold");
-  }
   if (target.history.kind === "prepared" && target.history.ownership === "active_elsewhere") {
     return entry(target, "prepared_not_started", false, "active_owner_preserved", "wait_for_active_owner", target.history.manifestSha256);
+  }
+  if (target.readinessNextWork && target.readinessNextWork !== "condition_analysis") {
+    switch (target.readinessNextWork) {
+      case "reuse_ready":
+        return entry(target, "reusable", false, "readiness:reuse_ready", "reuse");
+      case "condition_review":
+        return entry(
+          target,
+          "primary_review_required",
+          false,
+          "readiness:condition_review",
+          "review_current_conditions",
+        );
+      case "question_preparation":
+        return entry(
+          target,
+          "primary_review_required",
+          false,
+          "readiness:question_preparation",
+          "prepare_confirmation_questions",
+        );
+      case "source_recovery":
+        return entry(target, "quality_held", false, "readiness:source_recovery", "recover_source");
+      case "source_change_review":
+        return entry(target, "source_changed", false, "readiness:source_change_review", "review_source_change");
+    }
+  }
+  if (target.history.kind === "legacy") {
+    return entry(target, "quality_held", false, "legacy_history_requires_manual_review", "resolve_quality_hold");
   }
   if (target.history.kind !== "none") {
     const changed: string[] = [];

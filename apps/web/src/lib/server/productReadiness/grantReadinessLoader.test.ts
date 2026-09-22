@@ -8,6 +8,7 @@ import {
   type GrantReadinessEvidenceRow,
 } from "./grantReadinessLoader";
 import { classifyGrantReadiness } from "./grantReadiness";
+import { planGrantNextWork } from "./grantNextWork";
 
 const revision = "a".repeat(64);
 const raw = "b".repeat(64);
@@ -27,10 +28,20 @@ function fixture(overrides: Partial<GrantReadinessEvidenceRow> = {}): GrantReadi
     rawSha256: raw,
     collectedAt: new Date("2026-09-21T08:00:00Z"),
     hasAttachments: true,
+    attachmentStatus: "complete" as const,
+    attachmentManifestSha256: attachments,
     sourceRevisionSha256: revision,
     ...overrides.source,
   };
-  const criteria = overrides.criteria ?? [{ stableKey: "criterion:location", needsReview: false }];
+  const criteria = overrides.criteria ?? [{
+    stableKey: "criterion:location",
+    dimension: "other",
+    kind: "required",
+    operator: "text_only",
+    value: { note: "시흥시 소재 기업" },
+    sourceSpan: "시흥시 관내 기업",
+    needsReview: false,
+  }];
   const questions = overrides.questions ?? [{
     criterionStableKey: "criterion:location",
     evaluationContractVersion: "confirmation-evaluation-v2",
@@ -50,28 +61,70 @@ function fixture(overrides: Partial<GrantReadinessEvidenceRow> = {}): GrantReadi
   return { grant, source, criteria, questions, promotion };
 }
 
-test("actual evidence adapter maps an active reviewed promotion to A without reading prompts or raw payload", () => {
+test("검수 조건에서 질문 수요를 도출하고 current reviewed v2 질문이 있으면 A다", () => {
   const input = normalizeGrantReadinessEvidence(fixture());
   assert.equal(classifyGrantReadiness(input).category, "A");
   assert.deepEqual(input.analysis.eligibleQuestionCriterionStableKeys, ["criterion:location"]);
 });
 
-test("new ingestion without a promotion is D, and reviewed source/criteria with a missing planned v2 question is B", () => {
-  assert.equal(classifyGrantReadiness(normalizeGrantReadinessEvidence(fixture({ promotion: null }))).category, "D");
+test("DB 조건이 있으면 발행 전에도 분석 존재로 보며, 조건도 없을 때만 분석 없음이다", () => {
+  const unpublished = classifyGrantReadiness(normalizeGrantReadinessEvidence(fixture({ promotion: null })));
+  assert.equal(unpublished.category, "C");
+  assert.ok(unpublished.blockerCodes.includes("analysis_source_binding_missing"));
+  const unanalysed = classifyGrantReadiness(normalizeGrantReadinessEvidence(fixture({ promotion: null, criteria: [] })));
+  assert.equal(unanalysed.category, "D");
+  assert.ok(unanalysed.blockerCodes.includes("analysis_missing"));
   const missingQuestion = normalizeGrantReadinessEvidence(fixture({ questions: [] }));
   assert.deepEqual(classifyGrantReadiness(missingQuestion).blockerCodes, ["eligible_question_missing"]);
 });
 
-test("unreviewed criteria and invalid release binding fail closed before question completeness", () => {
+test("검수 전 조건은 질문 수요를 추정하지 않고 원문 검수 단계에서 닫는다", () => {
   const incomplete = normalizeGrantReadinessEvidence(fixture({
-    criteria: [{ stableKey: "criterion:location", needsReview: true }],
+    criteria: [{ ...fixture().criteria[0]!, needsReview: true }],
     promotion: { ...fixture().promotion!, reviewState: "ai_audit_concur" },
     questions: [],
   }));
   const readiness = classifyGrantReadiness(incomplete);
   assert.equal(readiness.category, "C");
   assert.ok(readiness.blockerCodes.includes("criteria_review_incomplete"));
-  assert.ok(readiness.blockerCodes.includes("eligible_question_missing"));
+  assert.ok(!readiness.blockerCodes.includes("eligible_question_missing"));
+});
+
+test("promotion 질문 계획이 비어 있어도 검수된 필수 text_only에서 누락 질문을 찾는다", () => {
+  const input = normalizeGrantReadinessEvidence(fixture({
+    promotion: { ...fixture().promotion!, plannedV2QuestionStableKeys: [] },
+    questions: [],
+  }));
+  assert.deepEqual(input.analysis.eligibleQuestionCriterionStableKeys, ["criterion:location"]);
+  assert.deepEqual(classifyGrantReadiness(input).blockerCodes, ["eligible_question_missing"]);
+});
+
+test("구조화 회사 비교와 우대 text_only는 자격 질문 artifact를 요구하지 않는다", () => {
+  const criteria = [
+    {
+      ...fixture().criteria[0]!,
+      stableKey: "criterion:region",
+      dimension: "region" as const,
+      operator: "in" as const,
+      value: { regions: ["41"] },
+    },
+    {
+      ...fixture().criteria[0]!,
+      stableKey: "criterion:preferred",
+      kind: "preferred" as const,
+    },
+  ];
+  const input = normalizeGrantReadinessEvidence(fixture({
+    criteria,
+    questions: [],
+    promotion: {
+      ...fixture().promotion!,
+      plannedCriterionStableKeys: criteria.map((criterion) => criterion.stableKey),
+      plannedV2QuestionStableKeys: [],
+    },
+  }));
+  assert.deepEqual(input.analysis.eligibleQuestionCriterionStableKeys, []);
+  assert.equal(classifyGrantReadiness(input).category, "A");
 });
 
 test("runtime에서 답할 수 없는 v2 질문은 version과 source hash가 맞아도 A가 아니다", () => {
@@ -109,10 +162,13 @@ test("report has primary A/B/C/D counts and bounded ID-only blocker samples", ()
   const rows = [fixture(), fixture({ grant: { ...fixture().grant, id: "grant-b" }, questions: [] })]
     .map((evidence) => {
       const input = normalizeGrantReadinessEvidence(evidence);
-      return { grantId: input.grantId!, input, readiness: classifyGrantReadiness(input) };
+      const readiness = classifyGrantReadiness(input);
+      return { grantId: input.grantId!, input, readiness, nextWork: planGrantNextWork(readiness) };
     });
   const report = buildGrantReadinessReport({ asOf: new Date("2026-09-21T00:00:00Z"), rows, sampleLimit: 1 });
   assert.deepEqual(report.summary.categories, { A: 1, B: 1, C: 0, D: 0 });
+  assert.equal(report.nextWorkCounts.reuse_ready, 1);
+  assert.equal(report.nextWorkCounts.question_preparation, 1);
   assert.deepEqual(report.blockerSamples.eligible_question_missing, ["grant-b"]);
   assert.equal("title" in report, false);
 });

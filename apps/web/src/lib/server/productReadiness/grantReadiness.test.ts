@@ -53,6 +53,22 @@ test("C: source와 analysis가 있어도 structure/review가 미완료면 질문
   assert.deepEqual(actual.blockerCodes, ["criteria_review_incomplete", "criteria_structure_incomplete", "eligible_question_missing"]);
 });
 
+test("분석 산출물은 있으나 현행 원천 결속을 증명하지 못하면 분석 없음이 아니라 C다", () => {
+  const actual = classifyGrantReadiness(fixture({
+    analysis: {
+      ...fixture().analysis,
+      sourceRevisionSha256: null,
+      structure: "incomplete",
+      criteriaReview: "incomplete",
+      eligibleQuestionCriterionStableKeys: [],
+    },
+    questions: [],
+  }));
+  assert.equal(actual.category, "C");
+  assert.ok(actual.blockerCodes.includes("analysis_source_binding_missing"));
+  assert.ok(!actual.blockerCodes.includes("analysis_missing"));
+});
+
 test("D: 원문/첨부/분석의 결속 문제는 C/B blocker가 함께 있어도 우선한다", () => {
   const actual = classifyGrantReadiness(fixture({
     source: { ...fixture().source, attachmentStatus: "missing" },

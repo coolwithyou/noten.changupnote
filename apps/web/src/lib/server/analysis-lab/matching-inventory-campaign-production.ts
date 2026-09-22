@@ -46,6 +46,8 @@ import {
   type MatchingInventoryHistory,
 } from "./matching-inventory-campaign";
 import { findMonorepoRoot } from "./run-store";
+import { loadCurrentGrantReadiness } from "../productReadiness/grantReadinessLoader";
+import type { GrantNextWorkAction } from "../productReadiness/grantNextWork";
 
 const SHA_FILE = /^([a-f0-9]{64})\.json$/u;
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/u;
@@ -64,6 +66,10 @@ export interface MatchingCampaignProductionDependencies {
   readonly readHistory: (
     current: readonly CurrentEligibleMatchingTarget[],
   ) => Promise<ReadonlyMap<string, MatchingCampaignHistoryRecord>>;
+  readonly readNextWork?: (
+    current: readonly CurrentEligibleMatchingTarget[],
+    asOf: Date,
+  ) => Promise<ReadonlyMap<string, GrantNextWorkAction>>;
   readonly prepareCurrent: (
     grantIds: readonly string[],
     classification: MatchingInventoryClassification,
@@ -279,12 +285,23 @@ export async function prepareMatchingInventoryCampaign(input: {
   partitionMatchingCampaignGrantIds([], childSize);
   const current = await dependencies.readCurrentTargets(input.asOf);
   if (current.length === 0) throw new Error("현행 지원 가능 matching campaign 모집단이 없습니다.");
-  const history = await dependencies.readHistory(current);
+  const [history, readinessNextWork] = await Promise.all([
+    dependencies.readHistory(current),
+    dependencies.readNextWork
+      ? dependencies.readNextWork(current, input.asOf)
+      : Promise.resolve(new Map(current.map((target) => [target.grantId, "condition_analysis" as const]))),
+  ]);
+  for (const target of current) {
+    if (!readinessNextWork.has(target.grantId)) {
+      throw new Error(`matching campaign 다음 작업이 없습니다: ${target.grantId}`);
+    }
+  }
   const classification = classifyMatchingInventorySnapshot({
     observedAt: input.asOf.toISOString(),
     targets: current.map((target) => ({
       ...target,
       eligibility: { eligible: true as const },
+      readinessNextWork: readinessNextWork.get(target.grantId)!,
       history: history.get(target.grantId)?.history ?? { kind: "none" as const },
     })),
   });
@@ -431,6 +448,7 @@ function defaultDependencies(): MatchingCampaignProductionDependencies {
   return {
     root,
     readCurrentTargets: readCurrentEligibleMatchingTargets,
+    readNextWork: readCurrentMatchingNextWork,
     readHistory: (current) => readVerifiedCurrentLaunchHistory(root, current),
     prepareCurrent: async (grantIds, classification) => {
       const prepared = await prepareMatchingCampaignLaunch({
@@ -453,6 +471,21 @@ function defaultDependencies(): MatchingCampaignProductionDependencies {
     storeClassification: (value) => storeMatchingInventoryClassification(root, value),
     storeIndex: (value) => storeMatchingCampaignIndex(root, value),
   };
+}
+
+async function readCurrentMatchingNextWork(
+  current: readonly CurrentEligibleMatchingTarget[],
+  asOf: Date,
+): Promise<ReadonlyMap<string, GrantNextWorkAction>> {
+  const ids = new Set(current.map((target) => target.grantId));
+  const db = getCunoteDb();
+  const rows = await db.transaction(
+    (tx) => loadCurrentGrantReadiness({ db: tx, asOf }),
+    { isolationLevel: "repeatable read", accessMode: "read only" },
+  );
+  return new Map(rows
+    .filter((row) => ids.has(row.grantId))
+    .map((row) => [row.grantId, row.nextWork.action]));
 }
 
 /** 현행 current-inventory artifact만 자동 판정하고 나머지 과거 이력은 fail-safe held로 둔다. */

@@ -130,6 +130,58 @@ const completeIndustry = evaluateProfileUpdateImpact({
 assert.equal(completeIndustry.dimensionResolvedGrantCount, 1);
 assert.equal(completeIndustry.conditionalToIneligibleCount, 1, "소진적 목록에서만 비일치를 확정한다");
 
+const sharedPremisesGrants = [
+  "siheung-a",
+  "siheung-b",
+  "siheung-c",
+  "siheung-d",
+].map((sourceId) => grant(sourceId, [premisesCriterion(sourceId, "2026-09-09", "headquarters")]));
+const differentlyScopedPremisesGrants = [
+  grant("siheung-factory", [premisesCriterion("siheung-factory", "2026-09-09", "factory")]),
+  grant("siheung-future", [premisesCriterion("siheung-future", "2026-10-01", "headquarters")]),
+];
+const premisesImpact = evaluateProfileUpdateImpact({
+  grants: [...sharedPremisesGrants, ...differentlyScopedPremisesGrants],
+  beforeProfile: { id: "premises-company" },
+  afterProfile: {
+    id: "premises-company",
+    premises: {
+      schemaVersion: "premises-v1",
+      locations: [{
+        locationId: "00000000-0000-4000-8000-000000000001",
+        facilityType: "headquarters",
+        sidoCode: "41",
+        validFrom: "2026-01-01",
+        validTo: null,
+      }],
+      coverage: {
+        facilityTypes: ["headquarters"],
+        validFrom: "2026-01-01",
+        validTo: "2026-09-09",
+        asOf: "2026-09-08T15:30:00.000Z",
+        completeness: "complete",
+      },
+    },
+    profile_evidence: {
+      premises: {
+        sourceKind: "self_declared",
+        provider: "cunote_profile_question",
+        asOf: "2026-09-08T15:30:00.000Z",
+        axisCompleteness: "complete",
+        confidence: 0.6,
+        scope: "user",
+        persistenceClass: "portable_user_answer",
+      },
+    },
+  },
+  dimension: "premises",
+  asOf: new Date("2026-09-08T15:30:00.000Z"),
+});
+assert.equal(premisesImpact.targetedConditionalCount, 6);
+assert.equal(premisesImpact.dimensionResolvedGrantCount, 4, "같은 범위와 기준일의 네 공고가 한 답변으로 함께 해소된다");
+assert.equal(premisesImpact.conditionalToEligibleCount, 4);
+assert.equal(premisesImpact.remainingConditionalCount, 2, "시설 범위나 기준일이 다른 공고에는 답변을 확정 전파하지 않는다");
+
 console.log("evaluate-profile-update-impact: ok");
 
 function requiredMax(dimension: "revenue", max: number): GrantCriterion {
@@ -141,6 +193,30 @@ function requiredMax(dimension: "revenue", max: number): GrantCriterion {
     confidence: 1,
     source_field: "target",
     source_span: `매출 ${max}원 이하`,
+  };
+}
+
+function premisesCriterion(
+  id: string,
+  basisDate: string,
+  facilityType: "headquarters" | "factory",
+): GrantCriterion {
+  return {
+    id: `criterion-${id}`,
+    dimension: "premises",
+    kind: "required",
+    operator: "exists",
+    value: {
+      schemaVersion: "premises-v1",
+      state: "registered_current_site",
+      sidoCodes: ["41"],
+      facilityTypes: [facilityType],
+      facilitySemantics: "any",
+      basisDate,
+    },
+    confidence: 1,
+    needs_review: false,
+    source_span: `${basisDate} 현재 경기도에 등록된 ${facilityType === "headquarters" ? "본사" : "공장"}를 둔 기업`,
   };
 }
 

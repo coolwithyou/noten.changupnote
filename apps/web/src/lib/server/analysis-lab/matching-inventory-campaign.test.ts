@@ -86,6 +86,36 @@ test("snapshot의 고유 ID를 8개 상태로 수량 보존 분류한다", () =>
   assert.equal(classification.entries[0]!.closesToday, true);
 });
 
+test("공통 next-work는 모델 분석이 필요한 대상만 campaign 후보로 남긴다", () => {
+  const actions = [
+    "condition_analysis",
+    "condition_review",
+    "question_preparation",
+    "source_recovery",
+    "source_change_review",
+    "reuse_ready",
+  ] as const;
+  const classification = classifyMatchingInventorySnapshot({
+    observedAt: "2026-09-22T00:00:00.000Z",
+    targets: actions.map((readinessNextWork, index) => ({
+      ...target(index + 20, { kind: "none" }),
+      readinessNextWork,
+    })),
+  });
+  assert.deepEqual(classification.entries.map((entry) => ({
+    reason: entry.reason,
+    eligible: entry.campaignEligible,
+    nextAction: entry.nextAction,
+  })), [
+    { reason: "no_execution_history", eligible: true, nextAction: "prepare_matching_only" },
+    { reason: "readiness:condition_review", eligible: false, nextAction: "review_current_conditions" },
+    { reason: "readiness:question_preparation", eligible: false, nextAction: "prepare_confirmation_questions" },
+    { reason: "readiness:source_recovery", eligible: false, nextAction: "recover_source" },
+    { reason: "readiness:source_change_review", eligible: false, nextAction: "review_source_change" },
+    { reason: "readiness:reuse_ready", eligible: false, nextAction: "reuse" },
+  ]);
+});
+
 test("101개 exact ID를 기존 상한 100과 1로만 나눈다", () => {
   const partitions = partitionMatchingCampaignGrantIds(Array.from({ length: 101 }, (_, index) => id(index)));
   assert.deepEqual(partitions.map((items) => items.length), [100, 1]);
@@ -101,14 +131,17 @@ test("101개 exact ID를 기존 상한 100과 1로만 나눈다", () => {
 test("active owner는 drift보다 먼저 보류하고 KST 저장 달력일로 당일 마감을 표시한다", () => {
   const classified = classifyMatchingInventorySnapshot({
     observedAt: "2026-09-18T00:00:00.000Z",
-    targets: [target(0, {
-      kind: "prepared",
-      inputSha256: hex("f"),
-      attachmentManifestSha256: hex("e"),
-      contractCompatible: false,
-      manifestSha256: hex("d"),
-      ownership: "active_elsewhere",
-    })],
+    targets: [{
+      ...target(0, {
+        kind: "prepared",
+        inputSha256: hex("f"),
+        attachmentManifestSha256: hex("e"),
+        contractCompatible: false,
+        manifestSha256: hex("d"),
+        ownership: "active_elsewhere",
+      }),
+      readinessNextWork: "condition_review",
+    }],
   });
   assert.equal(classified.entries[0]!.category, "prepared_not_started");
   assert.equal(classified.entries[0]!.campaignEligible, false);
