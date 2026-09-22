@@ -97,7 +97,12 @@ export function InlineGrantConfirmation({
     };
   }, [endpoint, questionId, reloadKey]);
 
-  async function submit(question: GrantConfirmationQuestionDto, answerRevision: number, value: string) {
+  async function submit(
+    question: GrantConfirmationQuestionDto,
+    answerRevision: number,
+    companyFactRevision: string | null,
+    value: string,
+  ) {
     if (submittingValue) return;
     const requestScope = { ...scopeRef.current };
     setSubmittingValue(value);
@@ -112,6 +117,7 @@ export function InlineGrantConfirmation({
             values: [value],
             binding: question.binding,
             expectedAnswerRevision: answerRevision,
+            expectedCompanyFactRevision: companyFactRevision,
           }],
         }),
         signal: AbortSignal.timeout(20_000),
@@ -180,7 +186,12 @@ export function InlineGrantConfirmation({
                 type="button"
                 variant={option.isUnknown ? "outline" : "default"}
                 disabled={submittingValue !== null}
-                onClick={() => void submit(selected.question, selected.answerRevision, option.value)}
+                onClick={() => void submit(
+                  selected.question,
+                  selected.answerRevision,
+                  selected.companyFactRevision,
+                  option.value,
+                )}
                 className="min-h-11 whitespace-normal sm:min-w-28"
               >
                 {submittingValue === option.value ? "확인 중…" : option.label}

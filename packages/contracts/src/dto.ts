@@ -829,6 +829,10 @@ export interface GrantConfirmationAnswerDto {
   questionId: string;
   values: string[];
   evaluation?: GrantConfirmationEvaluation;
+  /** 같은 의미의 company_fact 전체에서 최신 답변을 가리키는 optimistic-CAS revision. */
+  companyFactRevision?: string;
+  /** 현재 공고가 아닌 같은 의미의 다른 질문 답변을 투영한 경우. */
+  reusedFromCompanyFact?: boolean;
   /** @deprecated 역사 exclusion 답변 호환 필드. */
   disqualified?: boolean;
   answerRevision?: number;
@@ -853,6 +857,8 @@ export interface GrantConfirmationSubmitRequest {
     binding?: NonNullable<GrantConfirmationQuestionDto["binding"]>;
     /** 같은 질문을 동시에 수정할 때 마지막 읽은 answer revision. 최초 저장은 0. */
     expectedAnswerRevision?: number;
+    /** company_fact 수정 시 GET에서 받은 revision. 아직 답변이 없으면 null. */
+    expectedCompanyFactRevision?: string | null;
   }>;
 }
 

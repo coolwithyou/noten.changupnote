@@ -44,6 +44,7 @@ export interface ConfirmationAnswerInput {
   values: string[];
   binding?: ConfirmationQuestionBinding;
   expectedAnswerRevision?: number;
+  expectedCompanyFactRevision?: string | null;
 }
 
 export interface ValidatedConfirmationAnswer {
@@ -53,6 +54,7 @@ export interface ValidatedConfirmationAnswer {
   evaluation?: GrantConfirmationEvaluation;
   binding?: ConfirmationQuestionBinding;
   expectedAnswerRevision?: number;
+  expectedCompanyFactRevision?: string | null;
   /** legacy reader용 스냅샷. v2 anchor는 구 reader에서 보이지 않는다. */
   disqualified: boolean;
 }
@@ -214,6 +216,9 @@ export function validateConfirmationAnswers(input: {
         evaluation: selected.evaluation,
         binding: question.binding,
         expectedAnswerRevision: answer.expectedAnswerRevision!,
+        ...(answer.expectedCompanyFactRevision !== undefined
+          ? { expectedCompanyFactRevision: answer.expectedCompanyFactRevision }
+          : {}),
         // 구 reader는 v2 질문 anchor를 읽지 않는다. 필드는 스키마 호환만 위해 기록한다.
         disqualified: selected.evaluation === "unsatisfied",
       });

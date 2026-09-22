@@ -52,6 +52,17 @@ import {
   type CompanyProfileFieldUpdate,
 } from "@cunote/core";
 import { loadDeepAnalysisSourceBindings } from "../deep-analysis/prepareInput";
+import {
+  normalizeConfirmationAnswerType,
+  normalizeConfirmationOptions,
+  isConfirmationEvaluation,
+} from "../matches/grantConfirmationAnswers";
+import {
+  buildCompanyFactReuseIdentity,
+  isCompanyFactWithdrawal,
+  resolveCompanyFactAnswer,
+  type CompanyFactAnswerCandidate,
+} from "../matches/companyFactReuse";
 import type {
   CompanyRecord,
   CompanyRepository,
@@ -1114,8 +1125,15 @@ class DrizzleMatchRepository<TPayload> implements MatchRepository<TPayload> {
         questionSourceRawSha256: schema.grantConfirmationQuestions.sourceRawSha256,
         questionDefinitionSha256: schema.grantConfirmationQuestions.definitionSha256,
         questionVersion: schema.grantConfirmationQuestions.version,
+        questionReusable: schema.grantConfirmationQuestions.reusable,
+        questionConditionKey: schema.grantConfirmationQuestions.conditionKey,
+        questionAnswerType: schema.grantConfirmationQuestions.answerType,
+        questionOptions: schema.grantConfirmationQuestions.options,
         criterionGrantId: schema.grantCriteria.grantId,
+        criterionDimension: schema.grantCriteria.dimension,
         criterionKind: schema.grantCriteria.kind,
+        criterionOperator: schema.grantCriteria.operator,
+        criterionValue: schema.grantCriteria.value,
         disqualified: schema.companyGrantConfirmations.disqualified,
         evaluation: schema.companyGrantConfirmations.evaluation,
         answerCriterionId: schema.companyGrantConfirmations.evaluationCriterionId,
@@ -1158,6 +1176,7 @@ class DrizzleMatchRepository<TPayload> implements MatchRepository<TPayload> {
       ) continue;
       const list = byGrant.get(row.grantId) ?? [];
       if (isV2) {
+        if (row.questionReusable === "company_fact") continue;
         if (
           (row.evaluation !== "satisfied"
             && row.evaluation !== "unsatisfied"
@@ -1177,6 +1196,158 @@ class DrizzleMatchRepository<TPayload> implements MatchRepository<TPayload> {
         list.push({ criterion_id: criterionId, disqualified: row.disqualified });
       }
       byGrant.set(row.grantId, list);
+    }
+
+    const reusableTargets = await this.db.client
+      .select({
+        questionId: schema.grantConfirmationQuestions.id,
+        grantId: schema.grantConfirmationQuestions.grantId,
+        criterionId: schema.grantConfirmationQuestions.evaluationCriterionId,
+        evaluationContractVersion: schema.grantConfirmationQuestions.evaluationContractVersion,
+        questionSourceRevisionSha256: schema.grantConfirmationQuestions.sourceRevisionSha256,
+        questionSourceRawSha256: schema.grantConfirmationQuestions.sourceRawSha256,
+        reusable: schema.grantConfirmationQuestions.reusable,
+        conditionKey: schema.grantConfirmationQuestions.conditionKey,
+        answerType: schema.grantConfirmationQuestions.answerType,
+        options: schema.grantConfirmationQuestions.options,
+        criterionGrantId: schema.grantCriteria.grantId,
+        criterionDimension: schema.grantCriteria.dimension,
+        criterionKind: schema.grantCriteria.kind,
+        criterionOperator: schema.grantCriteria.operator,
+        criterionValue: schema.grantCriteria.value,
+      })
+      .from(schema.grantConfirmationQuestions)
+      .innerJoin(
+        schema.grantCriteria,
+        eq(schema.grantCriteria.id, schema.grantConfirmationQuestions.evaluationCriterionId),
+      )
+      .where(and(
+        inArray(schema.grantConfirmationQuestions.grantId, input.grantIds),
+        eq(schema.grantConfirmationQuestions.reusable, "company_fact"),
+        eq(schema.grantConfirmationQuestions.evaluationContractVersion, "confirmation-evaluation-v2"),
+        isNull(schema.grantConfirmationQuestions.invalidatedAt),
+      ));
+    if (reusableTargets.length === 0) return byGrant;
+
+    const reusableAnswerRows = await this.db.client
+      .select({
+        questionId: schema.grantConfirmationQuestions.id,
+        grantId: schema.grantConfirmationQuestions.grantId,
+        criterionId: schema.grantConfirmationQuestions.evaluationCriterionId,
+        evaluationContractVersion: schema.grantConfirmationQuestions.evaluationContractVersion,
+        questionSourceRevisionSha256: schema.grantConfirmationQuestions.sourceRevisionSha256,
+        questionSourceRawSha256: schema.grantConfirmationQuestions.sourceRawSha256,
+        questionDefinitionSha256: schema.grantConfirmationQuestions.definitionSha256,
+        questionVersion: schema.grantConfirmationQuestions.version,
+        reusable: schema.grantConfirmationQuestions.reusable,
+        conditionKey: schema.grantConfirmationQuestions.conditionKey,
+        answerType: schema.grantConfirmationQuestions.answerType,
+        options: schema.grantConfirmationQuestions.options,
+        criterionGrantId: schema.grantCriteria.grantId,
+        criterionDimension: schema.grantCriteria.dimension,
+        criterionKind: schema.grantCriteria.kind,
+        criterionOperator: schema.grantCriteria.operator,
+        criterionValue: schema.grantCriteria.value,
+        evaluation: schema.companyGrantConfirmations.evaluation,
+        answer: schema.companyGrantConfirmations.answer,
+        answerCriterionId: schema.companyGrantConfirmations.evaluationCriterionId,
+        answerSourceRevisionSha256: schema.companyGrantConfirmations.sourceRevisionSha256,
+        answerSourceRawSha256: schema.companyGrantConfirmations.sourceRawSha256,
+        answerDefinitionSha256: schema.companyGrantConfirmations.questionDefinitionSha256,
+        answerQuestionVersion: schema.companyGrantConfirmations.questionVersion,
+        answerRevision: schema.companyGrantConfirmations.answerRevision,
+        answeredAt: schema.companyGrantConfirmations.answeredAt,
+      })
+      .from(schema.companyGrantConfirmations)
+      .innerJoin(
+        schema.grantConfirmationQuestions,
+        eq(schema.companyGrantConfirmations.questionId, schema.grantConfirmationQuestions.id),
+      )
+      .innerJoin(
+        schema.grantCriteria,
+        eq(schema.grantCriteria.id, schema.grantConfirmationQuestions.evaluationCriterionId),
+      )
+      .where(and(
+        eq(schema.companyGrantConfirmations.companyId, input.companyId),
+        eq(schema.grantConfirmationQuestions.reusable, "company_fact"),
+        eq(schema.grantConfirmationQuestions.evaluationContractVersion, "confirmation-evaluation-v2"),
+        isNull(schema.grantConfirmationQuestions.invalidatedAt),
+      ));
+    const reusableSourceByGrant = await loadDeepAnalysisSourceBindings({
+      db: this.db.client,
+      grantIds: [...new Set([
+        ...reusableTargets.map((row) => row.grantId),
+        ...reusableAnswerRows.map((row) => row.grantId),
+      ])],
+    });
+    const candidates = reusableAnswerRows.flatMap((row): CompanyFactAnswerCandidate[] => {
+      const currentSource = reusableSourceByGrant.get(row.grantId);
+      const evaluation = isCompanyFactWithdrawal(row.answer) ? "withdrawn" : row.evaluation;
+      if (
+        (evaluation !== "withdrawn" && !isConfirmationEvaluation(evaluation))
+        || !row.criterionId
+        || row.criterionGrantId !== row.grantId
+        || row.answerCriterionId !== row.criterionId
+        || row.answerSourceRevisionSha256 !== row.questionSourceRevisionSha256
+        || row.answerSourceRawSha256 !== row.questionSourceRawSha256
+        || row.answerDefinitionSha256 !== row.questionDefinitionSha256
+        || row.answerQuestionVersion !== row.questionVersion
+        || row.questionSourceRawSha256 !== currentSource?.sourceRawSha256
+        || row.questionSourceRevisionSha256 !== currentSource?.sourceRevisionSha256
+      ) return [];
+      const identity = buildCompanyFactReuseIdentity({
+        questionId: row.questionId,
+        grantId: row.grantId,
+        reusable: row.reusable,
+        conditionKey: row.conditionKey,
+        evaluationContractVersion: row.evaluationContractVersion,
+        answerType: normalizeConfirmationAnswerType(row.answerType),
+        options: normalizeConfirmationOptions(row.options, row.evaluationContractVersion),
+        criterion: {
+          dimension: row.criterionDimension,
+          kind: row.criterionKind,
+          operator: row.criterionOperator,
+          value: row.criterionValue,
+        },
+      });
+      if (!identity) return [];
+      return [{
+        questionId: row.questionId,
+        grantId: row.grantId,
+        identity,
+        evaluation,
+        answerRevision: row.answerRevision,
+        answeredAt: row.answeredAt,
+      }];
+    });
+    for (const target of reusableTargets) {
+      if (
+        !target.criterionId
+        || target.criterionGrantId !== target.grantId
+        || target.questionSourceRawSha256 !== reusableSourceByGrant.get(target.grantId)?.sourceRawSha256
+        || target.questionSourceRevisionSha256 !== reusableSourceByGrant.get(target.grantId)?.sourceRevisionSha256
+      ) continue;
+      const identity = buildCompanyFactReuseIdentity({
+        questionId: target.questionId,
+        grantId: target.grantId,
+        reusable: target.reusable,
+        conditionKey: target.conditionKey,
+        evaluationContractVersion: target.evaluationContractVersion,
+        answerType: normalizeConfirmationAnswerType(target.answerType),
+        options: normalizeConfirmationOptions(target.options, target.evaluationContractVersion),
+        criterion: {
+          dimension: target.criterionDimension,
+          kind: target.criterionKind,
+          operator: target.criterionOperator,
+          value: target.criterionValue,
+        },
+      });
+      if (!identity) continue;
+      const resolved = resolveCompanyFactAnswer({ identity, candidates });
+      if (!resolved) continue;
+      const list = byGrant.get(target.grantId) ?? [];
+      list.push({ criterion_id: target.criterionId, evaluation: resolved.evaluation });
+      byGrant.set(target.grantId, list);
     }
     return byGrant;
   }

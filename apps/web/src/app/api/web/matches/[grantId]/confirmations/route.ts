@@ -12,6 +12,7 @@ import {
   ConfirmationRequestError,
   listGrantConfirmations,
   submitGrantConfirmations,
+  withdrawGrantConfirmation,
 } from "@/lib/server/matches/grantConfirmations";
 import type { ConfirmationAnswerInput } from "@/lib/server/matches/grantConfirmationAnswers";
 import { decodeGrantIdSegment } from "@/lib/server/matches/matchFeedback";
@@ -73,6 +74,29 @@ export async function PUT(request: Request, context: RouteContext) {
   }
 }
 
+export async function DELETE(request: Request, context: RouteContext) {
+  try {
+    const [{ grantId }, body, access] = await Promise.all([
+      context.params,
+      readWithdrawal(request),
+      requireCompanyAccess({ permission: "write", ...requestCompanyScope(new URL(request.url).searchParams.get("companyId") ?? undefined) }),
+    ]);
+    const data = await withdrawGrantConfirmation({
+      companyId: access.companyId,
+      userId: access.userId,
+      grantId: decodeGrantIdSegment(grantId),
+      ...body,
+      asOf: new Date(),
+    });
+    return NextResponse.json<ActionResult<GrantConfirmationSubmitResult>>({ ok: true, data });
+  } catch (error) {
+    return webActionError<GrantConfirmationSubmitResult>(error, {
+      code: "grant_confirmation_withdraw_failed",
+      message: "확인 답변을 철회하지 못했습니다.",
+    });
+  }
+}
+
 /** 본문 {answers:[{questionId, values}]} 의 구조만 여기서 거른다 — 의미 검증은 순수 로직이 담당. */
 async function readAnswers(request: Request): Promise<ConfirmationAnswerInput[]> {
   let parsed: unknown;
@@ -114,6 +138,10 @@ async function readAnswers(request: Request): Promise<ConfirmationAnswerInput[]>
       ...(typeof candidate.expectedAnswerRevision === "number"
         ? { expectedAnswerRevision: candidate.expectedAnswerRevision }
         : {}),
+      ...(candidate.expectedCompanyFactRevision === null
+        || typeof candidate.expectedCompanyFactRevision === "string"
+        ? { expectedCompanyFactRevision: candidate.expectedCompanyFactRevision }
+        : {}),
     };
   });
 }
@@ -136,5 +164,40 @@ function readBinding(value: unknown): ConfirmationAnswerInput["binding"] | null 
     sourceRawSha256: binding.sourceRawSha256,
     definitionSha256: binding.definitionSha256,
     questionVersion: binding.questionVersion,
+  };
+}
+
+async function readWithdrawal(request: Request): Promise<{
+  questionId: string;
+  binding?: NonNullable<ConfirmationAnswerInput["binding"]>;
+  expectedAnswerRevision: number;
+  expectedCompanyFactRevision?: string | null;
+}> {
+  let parsed: unknown;
+  try {
+    parsed = await request.json();
+  } catch {
+    parsed = null;
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new ConfirmationRequestError("invalid_confirmation_withdrawal", "철회할 답변이 필요합니다.", 400, "questionId");
+  }
+  const candidate = parsed as Record<string, unknown>;
+  if (
+    typeof candidate.questionId !== "string"
+    || !Number.isInteger(candidate.expectedAnswerRevision)
+    || Number(candidate.expectedAnswerRevision) < 0
+  ) {
+    throw new ConfirmationRequestError("invalid_confirmation_withdrawal", "철회할 답변이 올바르지 않습니다.", 400, "questionId");
+  }
+  const binding = readBinding(candidate.binding);
+  return {
+    questionId: candidate.questionId,
+    expectedAnswerRevision: Number(candidate.expectedAnswerRevision),
+    ...(binding ? { binding } : {}),
+    ...(candidate.expectedCompanyFactRevision === null
+      || typeof candidate.expectedCompanyFactRevision === "string"
+      ? { expectedCompanyFactRevision: candidate.expectedCompanyFactRevision }
+      : {}),
   };
 }

@@ -24,6 +24,7 @@ import {
 import {
   listGrantConfirmations,
   submitGrantConfirmations,
+  withdrawGrantConfirmation,
 } from "./grantConfirmations";
 import { refreshMatchStates } from "./matchStateRefresh";
 import {
@@ -353,6 +354,13 @@ export async function verifyConfirmationEvaluationsPostgres(input: {
   assert.equal(detached!.evaluation_criterion_id, null);
   assert.ok(detached!.invalidated_at);
 
+  await assertCompanyFactReuseRoundTrip({
+    admin: input.admin,
+    db,
+    companyId: input.companyId,
+    userId: input.userId,
+  });
+
   console.log("PASS: confirmation v2 migration, publication/rollback, repository→matcher/card roundtrip, RLS, CAS, source/attachment drift and lock races");
 }
 
@@ -612,6 +620,198 @@ async function assertEvaluationRoundTrip(input: {
   assert.equal(card.ruleTrace[0]?.criterionId, input.criterionId);
   assert.equal(card.ruleTrace[0]?.result, input.evaluation === "unknown" ? "text_only" : expectedResult);
   assert.equal(card.ruleTrace[0]?.resolution, input.evaluation === "unknown" ? undefined : "confirmed_by_user");
+}
+
+async function assertCompanyFactReuseRoundTrip(input: {
+  admin: postgres.Sql;
+  db: CunoteDb;
+  companyId: string;
+  userId: string;
+}) {
+  const options = [
+    { value: "yes", label: "해당해요", evaluation: "satisfied" },
+    { value: "no", label: "해당하지 않아요", evaluation: "unsatisfied" },
+    { value: "unknown", label: "확인할 수 없어요", evaluation: "unknown" },
+  ];
+  const fixtures: Array<{
+    grantId: string;
+    criterionId: string;
+    questionId: string;
+    sourceId: string;
+    binding: {
+      contractVersion: "confirmation-evaluation-v2";
+      criterionId: string;
+      sourceRevisionSha256: string;
+      sourceRawSha256: string;
+      definitionSha256: string;
+      questionVersion: number;
+    };
+  }> = [];
+  for (let index = 0; index < 6; index += 1) {
+    const grantId = crypto.randomUUID();
+    const criterionId = crypto.randomUUID();
+    const questionId = crypto.randomUUID();
+    const sourceId = `company-fact-${grantId}`;
+    const sourceRawSha256 = "abcdef"[index]!.repeat(64);
+    const definitionSha256 = String(index + 3).repeat(64);
+    const criterionValue = index === 4
+      ? { codes: ["41390"], facility_scope: ["headquarters"], basis_date: "2026-09-22" }
+      : index === 5
+        ? { codes: ["41390"], facility_scope: ["headquarters", "branch", "factory"], basis_date: "2026-10-01" }
+        : { codes: ["41390"], facility_scope: ["headquarters", "branch", "factory"], basis_date: "2026-09-22" };
+    await input.admin`insert into grants(id,source,source_id,title,status,overall_confidence)
+      values (${grantId},'bizinfo',${sourceId},${`공통 사실 ${index + 1}`},'open',1)`;
+    await input.admin`insert into grant_raw(source,source_id,payload,attachments,raw_hash,status)
+      values ('bizinfo',${sourceId},'{}','[]',${sourceRawSha256},'normalized')`;
+    await input.admin`insert into grant_criteria
+      (id,grant_id,dimension,operator,value,kind,confidence,source_span,stable_key,needs_review)
+      values (${criterionId},${grantId},'region','in',${JSON.stringify(criterionValue)}::jsonb,'required',.9,
+        '시흥시에 등록된 사업장','siheung-location',false)`;
+    const source = await loadDeepAnalysisSourceBinding({ db: input.db, grantId });
+    assert.ok(source);
+    await input.admin`insert into grant_confirmation_questions
+      (id,grant_id,grant_criteria_id,evaluation_criterion_id,evaluation_contract_version,
+       source_revision_sha256,source_raw_sha256,criterion_stable_key,definition_sha256,version,
+       prompt,options,answer_type,reusable,condition_key,prompt_ver,provenance)
+      values (${questionId},${grantId},null,${criterionId},'confirmation-evaluation-v2',
+        ${source.sourceRevisionSha256},${source.sourceRawSha256},'siheung-location',${definitionSha256},1,
+        '현재 시흥시에 등록된 사업장이 있나요?',${JSON.stringify(options)}::jsonb,'single','company_fact',
+        'siheung_registered_business_location','manual-v1','{}')`;
+    fixtures.push({
+      grantId,
+      criterionId,
+      questionId,
+      sourceId,
+      binding: {
+        contractVersion: "confirmation-evaluation-v2",
+        criterionId,
+        sourceRevisionSha256: source.sourceRevisionSha256,
+        sourceRawSha256: source.sourceRawSha256,
+        definitionSha256,
+        questionVersion: 1,
+      },
+    });
+  }
+
+  const first = fixtures[0]!;
+  const firstSave = await submitGrantConfirmations({
+    companyId: input.companyId,
+    userId: input.userId,
+    grantId: first.grantId,
+    answers: [{
+      questionId: first.questionId,
+      values: ["yes"],
+      binding: first.binding,
+      expectedAnswerRevision: 0,
+      expectedCompanyFactRevision: null,
+    }],
+    asOf: new Date("2026-09-22T03:00:00.000Z"),
+  }, { db: input.db, recalculate: noopRecalculate });
+  assert.match(firstSave.saved[0]?.companyFactRevision ?? "", /^[0-9a-f]{64}$/);
+
+  const second = fixtures[1]!;
+  const secondLedger = await listGrantConfirmations({
+    companyId: input.companyId,
+    grantId: second.grantId,
+  }, input.db);
+  const projected = secondLedger.answers[0]!;
+  assert.equal(projected.evaluation, "satisfied");
+  assert.equal(projected.reusedFromCompanyFact, true);
+  assert.equal(projected.answerRevision, 0);
+  assert.equal(projected.companyFactRevision, firstSave.saved[0]?.companyFactRevision);
+  const projectedFactRevision = projected.companyFactRevision;
+  assert.ok(projectedFactRevision);
+
+  const secondSave = await submitGrantConfirmations({
+    companyId: input.companyId,
+    userId: input.userId,
+    grantId: second.grantId,
+    answers: [{
+      questionId: second.questionId,
+      values: ["no"],
+      binding: second.binding,
+      expectedAnswerRevision: 0,
+      expectedCompanyFactRevision: projectedFactRevision,
+    }],
+    asOf: new Date("2026-09-22T04:00:00.000Z"),
+  }, { db: input.db, recalculate: noopRecalculate });
+  assert.notEqual(secondSave.saved[0]?.companyFactRevision, projectedFactRevision);
+
+  const repositories = createDrizzleRepositories({ dialect: "drizzle", client: input.db });
+  const confirmations = await repositories.matches.listCriterionConfirmations!({
+    companyId: input.companyId,
+    grantIds: fixtures.map((fixture) => fixture.grantId),
+  });
+  for (const fixture of fixtures.slice(0, 4)) {
+    assert.equal(confirmations.get(fixture.grantId)?.[0]?.evaluation, "unsatisfied");
+  }
+  assert.equal(confirmations.has(fixtures[4]!.grantId), false, "본사 한정 조건에는 공유하지 않는다");
+  assert.equal(confirmations.has(fixtures[5]!.grantId), false, "기준일이 다른 조건에는 공유하지 않는다");
+
+  const third = fixtures[2]!;
+  await assert.rejects(() => submitGrantConfirmations({
+    companyId: input.companyId,
+    userId: input.userId,
+    grantId: third.grantId,
+    answers: [{
+      questionId: third.questionId,
+      values: ["yes"],
+      binding: third.binding,
+      expectedAnswerRevision: 0,
+      expectedCompanyFactRevision: projectedFactRevision,
+    }],
+  }, { db: input.db, recalculate: noopRecalculate }), { code: "confirmation_company_fact_conflict" });
+
+  const latestSecond = await listGrantConfirmations({
+    companyId: input.companyId,
+    grantId: second.grantId,
+  }, input.db);
+  const latestAnswer = latestSecond.answers[0]!;
+  assert.ok(latestAnswer.companyFactRevision);
+  assert.equal(latestAnswer.answerRevision, 1);
+  await withdrawGrantConfirmation({
+    companyId: input.companyId,
+    userId: input.userId,
+    grantId: second.grantId,
+    questionId: second.questionId,
+    binding: second.binding,
+    expectedAnswerRevision: latestAnswer.answerRevision,
+    expectedCompanyFactRevision: latestAnswer.companyFactRevision,
+  }, { db: input.db, recalculate: noopRecalculate });
+  const afterWithdrawal = await repositories.matches.listCriterionConfirmations!({
+    companyId: input.companyId,
+    grantIds: fixtures.slice(0, 4).map((fixture) => fixture.grantId),
+  });
+  assert.equal(afterWithdrawal.size, 0, "company_fact 철회는 같은 의미의 네 공고를 모두 미확인으로 되돌린다");
+  const withdrawnSource = await listGrantConfirmations({
+    companyId: input.companyId,
+    grantId: second.grantId,
+  }, input.db);
+  assert.deepEqual(withdrawnSource.answers[0]?.values, []);
+  assert.equal(withdrawnSource.answers[0]?.answerRevision, 2, "철회 tombstone 뒤 같은 질문도 다시 답할 수 있다");
+  assert.equal((await listGrantConfirmations({
+    companyId: input.companyId,
+    grantId: third.grantId,
+  }, input.db)).answers.length, 0);
+  await submitGrantConfirmations({
+    companyId: input.companyId,
+    userId: input.userId,
+    grantId: third.grantId,
+    answers: [{
+      questionId: third.questionId,
+      values: ["yes"],
+      binding: third.binding,
+      expectedAnswerRevision: 0,
+      expectedCompanyFactRevision: null,
+    }],
+  }, { db: input.db, recalculate: noopRecalculate });
+  const afterReanswer = await repositories.matches.listCriterionConfirmations!({
+    companyId: input.companyId,
+    grantIds: fixtures.slice(0, 4).map((fixture) => fixture.grantId),
+  });
+  for (const fixture of fixtures.slice(0, 4)) {
+    assert.equal(afterReanswer.get(fixture.grantId)?.[0]?.evaluation, "satisfied");
+  }
 }
 
 function deferred<T>() {

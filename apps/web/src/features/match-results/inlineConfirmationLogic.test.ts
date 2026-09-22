@@ -70,11 +70,15 @@ assert.equal(
   "/api/web/matches/grant%2F%ED%95%9C%EA%B8%80/confirmations?companyId=company+id",
 );
 
-const submitted = (match: MatchCard | null, status: GrantConfirmationSubmitResult["refresh"]["status"] = "succeeded") => ({
+const submitted = (
+  match: MatchCard | null,
+  status: GrantConfirmationSubmitResult["refresh"]["status"] = "succeeded",
+  plannedCount = 1,
+) => ({
   grantId: "grant-1",
   saved: [],
   match,
-  refresh: { plannedCount: 1, savedCount: status === "failed" ? 0 : 1, status },
+  refresh: { plannedCount, savedCount: status === "failed" ? 0 : plannedCount, status },
 }) satisfies GrantConfirmationSubmitResult;
 const eligibleMatch = {
   grantId: "grant-1",
@@ -82,6 +86,7 @@ const eligibleMatch = {
   recommendationTier: "recommendable",
 } as MatchCard;
 assert.match(inlineConfirmationOutcome(submitted(eligibleMatch)).title, /지원 조건에 맞아요/);
+assert.match(inlineConfirmationOutcome(submitted(eligibleMatch, "succeeded", 4)).detail, /공고 4건/);
 assert.deepEqual(
   {
     action: inlineConfirmationOutcome(submitted(eligibleMatch)).action,
