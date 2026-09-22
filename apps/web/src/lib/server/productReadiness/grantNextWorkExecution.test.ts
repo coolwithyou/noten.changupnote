@@ -80,6 +80,26 @@ test("exact snapshot이 바뀌면 adapter를 호출하지 않는다", async () =
   assert.equal(calls, 0);
 });
 
+test("snapshot 내부 readiness 입력이 hash 생성 뒤 바뀌면 adapter 전에 거부한다", async () => {
+  const current = snapshot();
+  const tampered = {
+    ...current,
+    readinessInput: {
+      ...current.readinessInput,
+      analysis: {
+        ...current.readinessInput.analysis,
+        eligibleQuestionCriterionStableKeys: ["criterion:tampered"],
+      },
+    },
+  };
+  await assert.rejects(() => executeGrantNextWork({
+    grantId: GRANT_ID,
+    expectedEvidenceSha256: current.evidenceSha256,
+    loadSnapshot: async () => tampered,
+    adapters: new Map(),
+  }), /grant_next_work_snapshot_integrity_invalid/u);
+});
+
 test("다른 raw revision의 변경 영향 영수증으로 실행 snapshot을 만들지 않는다", () => {
   assert.throws(() => createGrantNextWorkSnapshot({
     grantId: GRANT_ID,

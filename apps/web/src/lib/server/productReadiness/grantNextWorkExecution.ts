@@ -17,6 +17,9 @@ export const GRANT_NEXT_WORK_EXECUTION_SCHEMA = "grant-next-work-execution-v1" a
 export interface GrantNextWorkSnapshot {
   readonly schema: typeof GRANT_NEXT_WORK_SNAPSHOT_SCHEMA;
   readonly grantId: string;
+  /** adapter가 source/question stable key를 exact evidence hash와 같은 입력에서 검증한다. */
+  readonly readinessInput: GrantReadinessInput;
+  readonly sourceChangeImpact: GrantSourceChangeImpact | null;
   readonly evidenceSha256: string;
   readonly readiness: GrantReadiness;
   readonly nextWork: GrantNextWork;
@@ -80,6 +83,8 @@ export function createGrantNextWorkSnapshot(input: {
   return Object.freeze({
     schema: GRANT_NEXT_WORK_SNAPSHOT_SCHEMA,
     grantId,
+    readinessInput: input.readinessInput,
+    sourceChangeImpact: input.sourceChangeImpact ?? null,
     evidenceSha256,
     readiness,
     nextWork,
@@ -211,6 +216,31 @@ function assertSnapshot(snapshot: GrantNextWorkSnapshot, grantId: string): void 
     throw new Error("grant_next_work_snapshot_invalid");
   }
   exactSha256(snapshot.evidenceSha256, "snapshot evidence");
+  if (snapshot.readinessInput.grantId && snapshot.readinessInput.grantId !== grantId) {
+    throw new Error("grant_next_work_snapshot_input_grant_mismatch");
+  }
+  if (
+    snapshot.sourceChangeImpact
+    && snapshot.sourceChangeImpact.currentRawSha256 !== snapshot.readinessInput.source.rawSha256
+  ) {
+    throw new Error("grant_next_work_snapshot_source_impact_drift");
+  }
+  const readiness = classifyGrantReadiness(snapshot.readinessInput);
+  const nextWork = planGrantNextWork(readiness, snapshot.sourceChangeImpact);
+  const expectedEvidenceSha256 = sha256Canonical({
+    grantId,
+    readinessInput: snapshot.readinessInput,
+    sourceChangeImpact: snapshot.sourceChangeImpact,
+    readiness,
+    nextWork,
+  });
+  if (
+    snapshot.evidenceSha256 !== expectedEvidenceSha256
+    || sha256Canonical(snapshot.readiness) !== sha256Canonical(readiness)
+    || sha256Canonical(snapshot.nextWork) !== sha256Canonical(nextWork)
+  ) {
+    throw new Error("grant_next_work_snapshot_integrity_invalid");
+  }
 }
 
 function assertReceipt(receipt: GrantNextWorkAdapterReceipt, action: GrantNextWorkAction): void {
