@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import {
   AlertTriangleIcon,
   ArrowLeftIcon,
@@ -32,6 +32,9 @@ import {
   buildLegacyQuestionMigrationReviewDecisionSet,
   importLegacyQuestionMigrationReviewFiles,
   legacyQuestionMigrationDecisionSetFilename,
+  legacyQuestionMigrationReviewProgressStorageKey,
+  restoreLegacyQuestionMigrationReviewProgress,
+  serializeLegacyQuestionMigrationReviewProgress,
   type EditableLegacyQuestionMigrationReviewItem,
   type ImportedLegacyQuestionMigrationReview,
   type LegacyQuestionMigrationEditorVerdict,
@@ -68,9 +71,25 @@ export function LegacyQuestionMigrationReviewEditor({ actorEmail }: { actorEmail
       })))
       const imported = await importLegacyQuestionMigrationReviewFiles(files)
       if (!generation.isLatest()) return
-      setReview(imported)
-      setReviewerEmail("")
-      setActiveIndex(0)
+      const storageKey = legacyQuestionMigrationReviewProgressStorageKey(imported.manifest)
+      const saved = window.localStorage.getItem(storageKey)
+      if (saved) {
+        try {
+          const restored = restoreLegacyQuestionMigrationReviewProgress({ review: imported, raw: saved })
+          setReview(restored.review)
+          setReviewerEmail(restored.reviewerEmail)
+          setActiveIndex(restored.activeIndex)
+        } catch {
+          window.localStorage.removeItem(storageKey)
+          setReview(imported)
+          setReviewerEmail("")
+          setActiveIndex(0)
+        }
+      } else {
+        setReview(imported)
+        setReviewerEmail("")
+        setActiveIndex(0)
+      }
     } catch (cause) {
       if (!generation.isLatest()) return
       setReview(null)
@@ -79,6 +98,14 @@ export function LegacyQuestionMigrationReviewEditor({ actorEmail }: { actorEmail
       if (generation.isLatest()) setIsImporting(false)
     }
   }
+
+  useEffect(() => {
+    if (!review || isImporting) return
+    window.localStorage.setItem(
+      legacyQuestionMigrationReviewProgressStorageKey(review.manifest),
+      serializeLegacyQuestionMigrationReviewProgress({ review, reviewerEmail, activeIndex }),
+    )
+  }, [activeIndex, isImporting, review, reviewerEmail])
 
   function updateActive(
     update: (item: EditableLegacyQuestionMigrationReviewItem) => EditableLegacyQuestionMigrationReviewItem,
@@ -90,7 +117,7 @@ export function LegacyQuestionMigrationReviewEditor({ actorEmail }: { actorEmail
   }
 
   async function downloadDecisionSet() {
-    if (!review) return
+    if (!review || isImporting) return
     setError(null)
     try {
       const decisionSet = await buildLegacyQuestionMigrationReviewDecisionSet({
@@ -200,7 +227,7 @@ export function LegacyQuestionMigrationReviewEditor({ actorEmail }: { actorEmail
             <CardHeader>
               <CardTitle>3. 결속된 결정 세트 내보내기</CardTitle>
               <CardDescription>
-                22건 모두를 판정해야 합니다. 승인에는 평가 극성과 재사용 범위를 각각 명시해야 합니다.
+                {review.items.length}건 모두를 판정해야 합니다. 진행 상태는 이 브라우저에 manifest별로 자동 저장됩니다.
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -224,7 +251,7 @@ export function LegacyQuestionMigrationReviewEditor({ actorEmail }: { actorEmail
               </FieldGroup>
             </CardContent>
             <CardFooter className="justify-end">
-              <Button type="button" onClick={() => void downloadDecisionSet()} disabled={reviewedCount !== review.items.length}>
+              <Button type="button" onClick={() => void downloadDecisionSet()} disabled={isImporting || reviewedCount !== review.items.length}>
                 <DownloadIcon data-icon="inline-start" />
                 쓰기 권한 없는 결정 파일 내려받기
               </Button>

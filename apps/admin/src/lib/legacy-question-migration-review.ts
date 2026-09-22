@@ -44,6 +44,131 @@ export interface LegacyQuestionMigrationReviewTextFile {
   readonly text: string
 }
 
+export const LEGACY_QUESTION_MIGRATION_REVIEW_PROGRESS_SCHEMA =
+  "legacy-question-migration-review-progress-v1" as const
+
+export interface LegacyQuestionMigrationReviewProgress {
+  readonly schema: typeof LEGACY_QUESTION_MIGRATION_REVIEW_PROGRESS_SCHEMA
+  readonly manifestContentSha256: string
+  readonly shadowSnapshotSha256: string
+  readonly reviewerEmail: string
+  readonly activeQuestionId: string | null
+  readonly items: readonly {
+    readonly questionId: string
+    readonly packetContentSha256: string
+    readonly verdict: LegacyQuestionMigrationEditorVerdict
+    readonly polarityConfirmed: boolean
+    readonly resolutionScope: LegacyQuestionMigrationResolutionScope | null
+    readonly note: string
+  }[]
+}
+
+export function legacyQuestionMigrationReviewProgressStorageKey(
+  manifest: LegacyQuestionMigrationReviewManifest,
+): string {
+  return `cunote:legacy-question-migration-review:${manifest.contentSha256}`
+}
+
+export function serializeLegacyQuestionMigrationReviewProgress(input: {
+  readonly review: ImportedLegacyQuestionMigrationReview
+  readonly reviewerEmail: string
+  readonly activeIndex: number
+}): string {
+  const body: LegacyQuestionMigrationReviewProgress = {
+    schema: LEGACY_QUESTION_MIGRATION_REVIEW_PROGRESS_SCHEMA,
+    manifestContentSha256: input.review.manifest.contentSha256,
+    shadowSnapshotSha256: input.review.manifest.shadow.snapshotSha256,
+    reviewerEmail: input.reviewerEmail,
+    activeQuestionId: input.review.items[input.activeIndex]?.packet.legacyQuestion.id ?? null,
+    items: input.review.items.map((item) => ({
+      questionId: item.packet.legacyQuestion.id,
+      packetContentSha256: item.packet.contentSha256,
+      verdict: item.verdict,
+      polarityConfirmed: item.polarityConfirmed,
+      resolutionScope: item.resolutionScope,
+      note: item.note,
+    })),
+  }
+  return JSON.stringify(body)
+}
+
+export function restoreLegacyQuestionMigrationReviewProgress(input: {
+  readonly review: ImportedLegacyQuestionMigrationReview
+  readonly raw: string
+}): {
+  readonly review: ImportedLegacyQuestionMigrationReview
+  readonly reviewerEmail: string
+  readonly activeIndex: number
+} {
+  let raw: unknown
+  try {
+    raw = JSON.parse(input.raw) as unknown
+  } catch {
+    throw new Error("저장된 이관 검수 진행 상태를 읽을 수 없습니다.")
+  }
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    throw new Error("저장된 이관 검수 진행 상태 형식이 올바르지 않습니다.")
+  }
+  const value = raw as Record<string, unknown>
+  if (
+    value.schema !== LEGACY_QUESTION_MIGRATION_REVIEW_PROGRESS_SCHEMA
+    || value.manifestContentSha256 !== input.review.manifest.contentSha256
+    || value.shadowSnapshotSha256 !== input.review.manifest.shadow.snapshotSha256
+    || typeof value.reviewerEmail !== "string"
+    || !Array.isArray(value.items)
+    || value.items.length !== input.review.items.length
+  ) {
+    throw new Error("저장된 진행 상태가 현재 manifest와 다릅니다.")
+  }
+  const progressByQuestion = new Map<string, LegacyQuestionMigrationReviewProgress["items"][number]>()
+  for (const rawItem of value.items) {
+    if (!rawItem || typeof rawItem !== "object" || Array.isArray(rawItem)) {
+      throw new Error("저장된 검수 항목 형식이 올바르지 않습니다.")
+    }
+    const item = rawItem as Record<string, unknown>
+    if (
+      typeof item.questionId !== "string"
+      || typeof item.packetContentSha256 !== "string"
+      || !isEditorVerdict(item.verdict)
+      || typeof item.polarityConfirmed !== "boolean"
+      || !isResolutionScope(item.resolutionScope)
+      || typeof item.note !== "string"
+      || item.note.length > 4_000
+      || progressByQuestion.has(item.questionId)
+    ) {
+      throw new Error("저장된 검수 항목 결속이 올바르지 않습니다.")
+    }
+    if (item.verdict !== "approve_for_v2_draft" && (
+      item.polarityConfirmed || item.resolutionScope !== null
+    )) {
+      throw new Error("저장된 수리·폐기 항목에 승인 전용 값이 있습니다.")
+    }
+    progressByQuestion.set(item.questionId, item as unknown as LegacyQuestionMigrationReviewProgress["items"][number])
+  }
+  const items = input.review.items.map((item) => {
+    const progress = progressByQuestion.get(item.packet.legacyQuestion.id)
+    if (!progress || progress.packetContentSha256 !== item.packet.contentSha256) {
+      throw new Error("저장된 검수 항목이 현재 packet과 다릅니다.")
+    }
+    return {
+      ...item,
+      verdict: progress.verdict,
+      polarityConfirmed: progress.polarityConfirmed,
+      resolutionScope: progress.resolutionScope,
+      note: progress.note,
+    }
+  })
+  const activeQuestionId = value.activeQuestionId === null || typeof value.activeQuestionId === "string"
+    ? value.activeQuestionId
+    : null
+  const restoredIndex = items.findIndex((item) => item.packet.legacyQuestion.id === activeQuestionId)
+  return {
+    review: { ...input.review, items },
+    reviewerEmail: value.reviewerEmail,
+    activeIndex: restoredIndex >= 0 ? restoredIndex : 0,
+  }
+}
+
 export function beginLegacyQuestionMigrationReviewImport(
   generation: LegacyQuestionMigrationReviewImportGeneration,
 ): { value: number; isLatest: () => boolean } {
@@ -259,4 +384,15 @@ function validateHumanReviewerEmail(value: string): string {
     throw new Error("사람 검수자의 이메일을 입력해주세요.")
   }
   return email
+}
+
+function isEditorVerdict(value: unknown): value is LegacyQuestionMigrationEditorVerdict {
+  return value === "pending"
+    || value === "approve_for_v2_draft"
+    || value === "repair_criterion"
+    || value === "retire_legacy_question"
+}
+
+function isResolutionScope(value: unknown): value is LegacyQuestionMigrationResolutionScope | null {
+  return value === null || value === "per_notice" || value === "company_fact"
 }

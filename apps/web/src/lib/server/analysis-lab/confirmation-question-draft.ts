@@ -222,21 +222,15 @@ function buildDraftItem(
     prompt: industry
       ? `귀사의 취급 제품·서비스가 다음 공고 분야에 해당하나요?\n\n“${sourceSpan}”`
       : `다음 ${kindLabel} 조건${exclusion ? "에 해당하나요" : "을 충족하나요"}?\n\n“${sourceSpan}”`,
-    options: industry
-      ? [
-        { value: "yes", label: "해당해요", evaluation: "satisfied" },
-        { value: "no", label: "해당하지 않아요", evaluation: "unsatisfied" },
-        { value: "unknown", label: "확인할 수 없어요", evaluation: "unknown" },
-      ]
-      : exclusion
+    options: exclusion
       ? [
         { value: "yes", label: "해당해요", evaluation: "unsatisfied" },
         { value: "no", label: "해당하지 않아요", evaluation: "satisfied" },
         { value: "unknown", label: "확인할 수 없어요", evaluation: "unknown" },
       ]
       : [
-        { value: "yes", label: "충족해요", evaluation: "satisfied" },
-        { value: "no", label: "충족하지 않아요", evaluation: "unsatisfied" },
+        { value: "yes", label: industry ? "해당해요" : "충족해요", evaluation: "satisfied" },
+        { value: "no", label: industry ? "해당하지 않아요" : "충족하지 않아요", evaluation: "unsatisfied" },
         { value: "unknown", label: "확인할 수 없어요", evaluation: "unknown" },
       ],
   };

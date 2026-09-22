@@ -14,6 +14,8 @@ import {
   beginLegacyQuestionMigrationReviewImport,
   buildLegacyQuestionMigrationReviewDecisionSet,
   importLegacyQuestionMigrationReviewFiles,
+  restoreLegacyQuestionMigrationReviewProgress,
+  serializeLegacyQuestionMigrationReviewProgress,
 } from "./legacy-question-migration-review"
 
 function sha256(value: string): string {
@@ -226,4 +228,35 @@ test("import generation은 이전 대량 파일 읽기가 최신 선택을 덮�
   const latest = beginLegacyQuestionMigrationReviewImport(generation)
   assert.equal(slow.isLatest(), false)
   assert.equal(latest.isLatest(), true)
+})
+
+test("같은 manifest의 검수 진행만 로컬 저장에서 복원한다", async () => {
+  const { manifest, packet, packetFileName } = fixture()
+  const imported = await importLegacyQuestionMigrationReviewFiles([
+    { name: "review.manifest.json", text: JSON.stringify(manifest) },
+    { name: packetFileName, text: JSON.stringify(packet) },
+  ])
+  const review = {
+    ...imported,
+    items: [{
+      ...imported.items[0]!,
+      verdict: "approve_for_v2_draft" as const,
+      polarityConfirmed: true,
+      resolutionScope: "company_fact" as const,
+      note: "검수 중 메모",
+    }],
+  }
+  const raw = serializeLegacyQuestionMigrationReviewProgress({
+    review,
+    reviewerEmail: "human@example.com",
+    activeIndex: 0,
+  })
+  const restored = restoreLegacyQuestionMigrationReviewProgress({ review: imported, raw })
+  assert.equal(restored.reviewerEmail, "human@example.com")
+  assert.equal(restored.review.items[0]?.verdict, "approve_for_v2_draft")
+  assert.equal(restored.review.items[0]?.note, "검수 중 메모")
+  assert.throws(() => restoreLegacyQuestionMigrationReviewProgress({
+    review: imported,
+    raw: raw.replace(manifest.contentSha256, "0".repeat(64)),
+  }), /현재 manifest와 다릅니다/)
 })

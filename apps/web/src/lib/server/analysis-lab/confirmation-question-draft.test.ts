@@ -135,6 +135,23 @@ test("문구가 exclusion처럼 보여도 kind가 required이면 극성을 뒤�
   assert.equal(packet.items[0]!.options[0]!.evaluation, "satisfied");
 });
 
+test("industry 문구도 exclusion kind의 평가 극성을 보존한다", () => {
+  const exclusionIndustryRun = {
+    ...run,
+    criteria: [{ ...industryCriterion, kind: "exclusion" as const }],
+  };
+  const packet = buildConfirmationQuestionDraftPacket({
+    run: exclusionIndustryRun,
+    review: { ...review, criterionReviews: [{ criterionIndex: 0, verdict: "correct", note: null }] },
+    runArtifactSha256: "d".repeat(64),
+    reviewArtifactSha256: "e".repeat(64),
+  });
+  assert.match(packet.items[0]!.prompt, /귀사의 취급 제품·서비스/);
+  assert.deepEqual(packet.items[0]!.options.map((option) => option.evaluation), [
+    "unsatisfied", "satisfied", "unknown",
+  ]);
+});
+
 test("검수 결속/중복/AI 작성자와 후보 없음은 fail-closed한다", () => {
   const hashes = { runArtifactSha256: "d".repeat(64), reviewArtifactSha256: "e".repeat(64) };
   assert.throws(() => buildConfirmationQuestionDraftPacket({
