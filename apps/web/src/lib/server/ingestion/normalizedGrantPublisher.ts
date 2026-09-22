@@ -26,6 +26,10 @@ import {
   type PublishedGrantRevisionSnapshot,
 } from "./grantRevisionInvalidation";
 import { runGrantRevisionScopedRefresh } from "../matches/grantRevisionScopedRefreshCore";
+import {
+  classifyGrantSourceChangeImpact,
+  type GrantSourceChangeProjectionInput,
+} from "./grantSourceChangeImpact";
 
 export interface NormalizedGrantPublishPlan {
   source: GrantSource;
@@ -126,6 +130,7 @@ export async function publishNormalizedGrants<TPayload>(
             grant: schema.grants,
             grantId: schema.grants.id,
             rawHash: schema.grantRaw.rawHash,
+            rawPayload: schema.grantRaw.payload,
             attachments: schema.grantRaw.attachments,
             parserVersion: schema.grants.parserVersion,
             modelVer: schema.grants.modelVer,
@@ -164,6 +169,10 @@ export async function publishNormalizedGrants<TPayload>(
         promotionProtected,
       });
       const revisionKind = classifyPublishedGrantRevision(stored, incoming);
+      const changeImpact = classifyGrantSourceChangeImpact({
+        previous: previous ? storedChangeProjection(previous, previousCriteria, promotionProtected) : null,
+        current: incomingChangeProjection(entry, promotionProtected),
+      });
       revisionCounts[revisionKind] += 1;
 
       await tx
@@ -196,6 +205,7 @@ export async function publishNormalizedGrants<TPayload>(
             sourceId: entry.raw.source_id,
             rawHash: nextRawHash,
             revisionKind,
+            changeImpact: changeImpact as unknown as Record<string, unknown>,
             collectedAt,
           })
           .onConflictDoNothing({
@@ -425,10 +435,118 @@ export function warnPromotionProtectedSkip(grantRef: string): void {
 interface StoredGrantRevisionRow {
   grant: typeof schema.grants.$inferSelect;
   rawHash: string | null;
+  rawPayload?: Record<string, unknown> | null;
   attachments: unknown;
   parserVersion: string | null;
   modelVer: string | null;
   promptVer: string | null;
+}
+
+function storedChangeProjection(
+  previous: StoredGrantRevisionRow,
+  criteria: Array<typeof schema.grantCriteria.$inferSelect>,
+  promotionProtected: boolean,
+): GrantSourceChangeProjectionInput {
+  return {
+    source: previous.grant.source,
+    rawPayload: previous.rawPayload ?? {},
+    recruitment: recruitmentProjection({
+      applyStart: previous.grant.applyStart,
+      applyEnd: previous.grant.applyEnd,
+      status: previous.grant.status,
+    }),
+    eligibility: eligibilityProjection(
+      pickStoredGrantProjectionFields(previous.grant),
+      promotionProtected ? [] : criteria.map((criterion) => ({
+        dimension: criterion.dimension,
+        operator: criterion.operator,
+        value: criterion.value,
+        kind: criterion.kind,
+        weight: criterion.weight,
+        confidence: criterion.confidence,
+        sourceSpan: criterion.sourceSpan,
+        rawText: criterion.rawText,
+        sourceField: criterion.sourceField,
+        needsReview: criterion.needsReview,
+        parserVersion: criterion.parserVersion,
+      })),
+    ),
+    attachments: matchingAttachmentRevisionProjection(previous.attachments),
+    extractorContract: {
+      parserVersion: previous.parserVersion,
+      modelVer: previous.modelVer,
+      promptVer: previous.promptVer,
+    },
+  };
+}
+
+function incomingChangeProjection<TPayload>(
+  entry: NormalizedGrant<TPayload>,
+  promotionProtected: boolean,
+): GrantSourceChangeProjectionInput {
+  return {
+    source: entry.raw.source,
+    rawPayload: entry.raw.payload,
+    recruitment: recruitmentProjection({
+      applyStart: dateValue(entry.grant.apply_start),
+      applyEnd: dateValue(entry.grant.apply_end),
+      status: entry.grant.status,
+    }),
+    eligibility: eligibilityProjection(
+      incomingGrantProjectionInput(entry),
+      promotionProtected ? [] : entry.criteria.map((criterion) => ({
+        dimension: criterion.dimension,
+        operator: criterion.operator,
+        value: criterion.value,
+        kind: criterion.kind,
+        weight: criterion.weight ?? null,
+        confidence: criterion.confidence,
+        sourceSpan: criterion.source_span ?? null,
+        rawText: criterion.raw_text ?? null,
+        sourceField: criterion.source_field ?? null,
+        needsReview: criterion.needs_review ?? false,
+        parserVersion: criterion.parser_version ?? null,
+      })),
+    ),
+    attachments: matchingAttachmentRevisionProjection(rawAttachments(entry.raw.attachments)),
+    extractorContract: {
+      parserVersion: entry.grant.parser_version ?? null,
+      modelVer: entry.grant.model_ver ?? null,
+      promptVer: entry.grant.prompt_ver ?? null,
+    },
+  };
+}
+
+function recruitmentProjection(input: {
+  applyStart: Date | null;
+  applyEnd: Date | null;
+  status: string;
+}): Record<string, unknown> {
+  return {
+    applyStart: input.applyStart?.toISOString() ?? null,
+    applyEnd: input.applyEnd?.toISOString() ?? null,
+    status: input.status,
+  };
+}
+
+function eligibilityProjection(
+  grant: Parameters<typeof normalizedGrantProjection>[0],
+  criteria: Array<Record<string, unknown>>,
+): Record<string, unknown> {
+  return {
+    filters: {
+      fRegions: [...grant.fRegions].sort(),
+      fIndustries: [...grant.fIndustries].sort(),
+      fBizAgeMinMonths: grant.fBizAgeMinMonths,
+      fBizAgeMaxMonths: grant.fBizAgeMaxMonths,
+      fSizes: [...grant.fSizes].sort(),
+      fFounderTraits: [...grant.fFounderTraits].sort(),
+      fRequiredCerts: [...grant.fRequiredCerts].sort(),
+      fApplyMethods: [...grant.fApplyMethods].sort(),
+      fAuthoringMode: grant.fAuthoringMode,
+    },
+    criteria: normalizedCriteriaProjection(criteria),
+  };
 }
 
 /**

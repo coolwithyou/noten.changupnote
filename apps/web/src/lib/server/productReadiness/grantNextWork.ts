@@ -1,10 +1,14 @@
 import type { GrantReadiness } from "./grantReadiness";
+import type { GrantSourceChangeImpact } from "../ingestion/grantSourceChangeImpact";
 
 export const GRANT_NEXT_WORK_SCHEMA = "grant-next-work-v1" as const;
 
 export type GrantNextWorkAction =
   | "source_recovery"
   | "source_change_review"
+  | "source_rebind"
+  | "recruitment_refresh"
+  | "coverage_review"
   | "condition_analysis"
   | "condition_review"
   | "question_preparation"
@@ -38,13 +42,27 @@ const CONDITION_REVIEW = new Set([
 ]);
 
 /** 준비도 원인을 모델 실행과 혼동하지 않고 다음 최소 작업으로 축소한다. */
-export function planGrantNextWork(readiness: GrantReadiness): GrantNextWork {
+export function planGrantNextWork(
+  readiness: GrantReadiness,
+  sourceChangeImpact: GrantSourceChangeImpact | null = null,
+): GrantNextWork {
   const blockers = readiness.blockerCodes;
   if (blockers.some((blocker) => SOURCE_RECOVERY.has(blocker))) {
     return work("source_recovery", false, blockers);
   }
   if (blockers.some((blocker) => SOURCE_CHANGE.has(blocker))) {
-    return work("source_change_review", false, blockers);
+    switch (sourceChangeImpact?.classification) {
+      case "evidence_refresh":
+        return work("source_rebind", false, blockers);
+      case "recruitment_only":
+        return work("recruitment_refresh", false, blockers);
+      case "coverage_review_required":
+        return work("coverage_review", false, blockers);
+      case "condition_review_required":
+        return work("condition_review", false, blockers);
+      default:
+        return work("source_change_review", false, blockers);
+    }
   }
   if (blockers.includes("analysis_missing")) {
     return work("condition_analysis", true, blockers);

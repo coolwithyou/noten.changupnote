@@ -97,6 +97,9 @@ export interface MatchingInventoryClassificationEntry {
     | "prepare_confirmation_questions"
     | "recover_source"
     | "review_source_change"
+    | "refresh_source_evidence"
+    | "refresh_recruitment_status"
+    | "review_source_coverage"
     | "resolve_quality_hold"
     | "none";
   readonly sourceManifestSha256: string | null;
@@ -191,6 +194,12 @@ function classifyTarget(target: MatchingInventorySnapshotTarget): MatchingInvent
         return entry(target, "quality_held", false, "readiness:source_recovery", "recover_source");
       case "source_change_review":
         return entry(target, "source_changed", false, "readiness:source_change_review", "review_source_change");
+      case "source_rebind":
+        return entry(target, "source_changed", false, "readiness:source_rebind", "refresh_source_evidence");
+      case "recruitment_refresh":
+        return entry(target, "source_changed", false, "readiness:recruitment_refresh", "refresh_recruitment_status");
+      case "coverage_review":
+        return entry(target, "source_changed", false, "readiness:coverage_review", "review_source_coverage");
     }
   }
   if (target.history.kind === "legacy") {

@@ -93,6 +93,9 @@ test("공통 next-work는 모델 분석이 필요한 대상만 campaign 후보�
     "question_preparation",
     "source_recovery",
     "source_change_review",
+    "source_rebind",
+    "recruitment_refresh",
+    "coverage_review",
     "reuse_ready",
   ] as const;
   const classification = classifyMatchingInventorySnapshot({
@@ -112,6 +115,9 @@ test("공통 next-work는 모델 분석이 필요한 대상만 campaign 후보�
     { reason: "readiness:question_preparation", eligible: false, nextAction: "prepare_confirmation_questions" },
     { reason: "readiness:source_recovery", eligible: false, nextAction: "recover_source" },
     { reason: "readiness:source_change_review", eligible: false, nextAction: "review_source_change" },
+    { reason: "readiness:source_rebind", eligible: false, nextAction: "refresh_source_evidence" },
+    { reason: "readiness:recruitment_refresh", eligible: false, nextAction: "refresh_recruitment_status" },
+    { reason: "readiness:coverage_review", eligible: false, nextAction: "review_source_coverage" },
     { reason: "readiness:reuse_ready", eligible: false, nextAction: "reuse" },
   ]);
 });

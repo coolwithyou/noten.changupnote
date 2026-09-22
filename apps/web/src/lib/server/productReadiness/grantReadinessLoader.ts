@@ -20,6 +20,10 @@ import {
 } from "@cunote/core";
 import { expandConfirmedGrantComponentIds } from "../ingestion/grantRevisionInvalidation";
 import {
+  parseGrantSourceChangeImpact,
+  type GrantSourceChangeImpact,
+} from "../ingestion/grantSourceChangeImpact";
+import {
   CONFIRMATION_EVALUATION_V2,
   classifyGrantReadiness,
   summarizeGrantReadiness,
@@ -58,6 +62,7 @@ export interface GrantReadinessEvidenceRow {
     readonly attachmentStatus?: "not_required" | "complete" | "missing";
     readonly attachmentManifestSha256?: string | null;
     readonly sourceRevisionSha256: string | null;
+    readonly changeImpact?: GrantSourceChangeImpact | null;
   };
   readonly criteria: readonly {
     readonly stableKey: string | null;
@@ -250,7 +255,7 @@ export async function loadCurrentGrantReadiness(input: {
   const grantIds = inventory.map((grant) => grant.id);
   const sources = [...new Set(inventory.map((grant) => grant.source))];
   const sourceIds = [...new Set(inventory.map((grant) => grant.sourceId))];
-  const [rawRows, archiveRows, criteria, questions, promotionRows, sourceBindings] = await Promise.all([
+  const [rawRows, eventRows, archiveRows, criteria, questions, promotionRows, sourceBindings] = await Promise.all([
     input.db.select({
       source: schema.grantRaw.source,
       sourceId: schema.grantRaw.sourceId,
@@ -260,6 +265,15 @@ export async function loadCurrentGrantReadiness(input: {
     }).from(schema.grantRaw).where(and(
       inArray(schema.grantRaw.source, sources),
       inArray(schema.grantRaw.sourceId, sourceIds),
+    )),
+    input.db.select({
+      source: schema.grantCollectionEvents.source,
+      sourceId: schema.grantCollectionEvents.sourceId,
+      rawHash: schema.grantCollectionEvents.rawHash,
+      changeImpact: schema.grantCollectionEvents.changeImpact,
+    }).from(schema.grantCollectionEvents).where(and(
+      inArray(schema.grantCollectionEvents.source, sources),
+      inArray(schema.grantCollectionEvents.sourceId, sourceIds),
     )),
     input.db.select({
       source: schema.grantAttachmentArchives.source,
@@ -335,6 +349,11 @@ export async function loadCurrentGrantReadiness(input: {
   ]);
 
   const rawBySource = new Map(rawRows.map((raw) => [sourceKey(raw.source, raw.sourceId), raw]));
+  const impactBySourceRevision = new Map(eventRows.flatMap((event) => {
+    const parsed = parseGrantSourceChangeImpact(event.changeImpact);
+    if (!parsed || parsed.currentRawSha256 !== event.rawHash) return [];
+    return [[sourceRevisionKey(event.source, event.sourceId, event.rawHash), parsed] as const];
+  }));
   const archiveSourceKeys = new Set(archiveRows.map((archive) => sourceKey(archive.source, archive.sourceId)));
   const criteriaByGrant = groupBy(criteria, (criterion) => criterion.grantId);
   const promotionByGrant = await loadCurrentValidPromotions(input.db, promotionRows);
@@ -372,6 +391,9 @@ export async function loadCurrentGrantReadiness(input: {
         attachmentStatus: !hasAttachments ? "not_required" : hasArchivedAttachments ? "complete" : "missing",
         attachmentManifestSha256: null,
         sourceRevisionSha256: binding?.sourceRevisionSha256 ?? null,
+        changeImpact: raw?.rawHash
+          ? impactBySourceRevision.get(sourceRevisionKey(grant.source, grant.sourceId, raw.rawHash)) ?? null
+          : null,
       },
       criteria: criteriaByGrant.get(grant.id) ?? [],
       questions: (questionsByGrant.get(grant.id) ?? []).map((question) => ({
@@ -386,7 +408,12 @@ export async function loadCurrentGrantReadiness(input: {
     };
     const readinessInput = normalizeGrantReadinessEvidence(evidence);
     const readiness = classifyGrantReadiness(readinessInput);
-    return Object.freeze({ grantId: grant.id, input: readinessInput, readiness, nextWork: planGrantNextWork(readiness) });
+    return Object.freeze({
+      grantId: grant.id,
+      input: readinessInput,
+      readiness,
+      nextWork: planGrantNextWork(readiness, evidence.source.changeImpact ?? null),
+    });
   });
 }
 
@@ -403,6 +430,9 @@ export function buildGrantReadinessReport(input: {
   const nextWorkCounts: Record<GrantNextWorkAction, number> = {
     source_recovery: 0,
     source_change_review: 0,
+    source_rebind: 0,
+    recruitment_refresh: 0,
+    coverage_review: 0,
     condition_analysis: 0,
     condition_review: 0,
     question_preparation: 0,
@@ -636,6 +666,10 @@ function groupBy<T>(rows: readonly T[], key: (row: T) => string): Map<string, T[
 
 function sourceKey(source: string, sourceId: string): string {
   return `${source}\u0000${sourceId}`;
+}
+
+function sourceRevisionKey(source: string, sourceId: string, rawHash: string): string {
+  return `${sourceKey(source, sourceId)}\u0000${rawHash}`;
 }
 
 function isSha256(value: string | null | undefined): value is string {

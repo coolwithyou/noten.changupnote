@@ -719,6 +719,8 @@ export const grantCollectionEvents = pgTable("grant_collection_events", {
   sourceId: text("source_id").notNull(),
   rawHash: text("raw_hash").notNull(),
   revisionKind: text("revision_kind").notNull(),
+  /** 현재 raw hash에 결속된 소비 기능별 변경 영향. 과거 행은 null로 보수 처리한다. */
+  changeImpact: jsonb("change_impact").$type<Record<string, unknown>>(),
   collectedAt: timestamp("collected_at", { withTimezone: true }).defaultNow().notNull(),
 }, (table) => ({
   revisionIdx: uniqueIndex("grant_collection_events_revision_idx")
