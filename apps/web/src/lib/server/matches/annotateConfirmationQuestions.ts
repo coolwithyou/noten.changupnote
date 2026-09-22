@@ -9,6 +9,10 @@ import type { CunoteDbSession } from "../db/client";
 import * as schema from "../db/schema";
 import { loadDeepAnalysisSourceBindings } from "../deep-analysis/prepareInput";
 import { normalizeConfirmationOptions } from "./grantConfirmationAnswers";
+import {
+  loadVerifiedLegacyQuestionMigrationBindings,
+  type VerifiedLegacyQuestionMigrationBinding,
+} from "../productReadiness/legacyQuestionMigrationServing";
 
 /**
  * 매칭 카드에 공고별 자가신고 확인 질문 수를 주석한다(확인 루프 Phase B).
@@ -57,12 +61,13 @@ export function applyActionableConfirmationQuestions(
   return baseMatches.map((match) => {
     const grantAnchors = anchorsByGrant.get(match.grantId) ?? [];
     if (grantAnchors.length === 0) return match;
-    const actionableTraces = match.ruleTrace.filter(traceCanUseConfirmationQuestion);
+    const actionableTraces = match.ruleTrace;
     const matchedQuestionIds = new Set<string>();
     const matchedQuestionBindings = new Map<string, { questionId: string; criterionId: string }>();
     const verifiedEligibilityQuestions = new Map<string, Set<string>>();
     for (const trace of actionableTraces) {
-      const matched = grantAnchors.filter((anchor) => anchorMatchesTrace(anchor, trace));
+      const matched = grantAnchors.filter((anchor) =>
+        anchorMatchesTrace(anchor, trace) && anchorCanAnnotateTrace(anchor, trace));
       for (const anchor of matched) {
         matchedQuestionIds.add(anchor.questionId);
         if (trace.criterionId) {
@@ -174,6 +179,16 @@ function traceCanUseConfirmationQuestion(trace: MatchCard["ruleTrace"][number]):
     || trace.unresolvedReason === "criterion_text_only";
 }
 
+function anchorCanAnnotateTrace(
+  anchor: ConfirmationQuestionAnchor,
+  trace: MatchCard["ruleTrace"][number],
+): boolean {
+  if (traceCanUseConfirmationQuestion(trace)) return true;
+  return anchor.currentV2BindingVerified === true
+    && anchor.resolutionScope === "company_fact"
+    && (trace.result === "pass" || trace.result === "fail");
+}
+
 export interface ConfirmationQuestionAnchor {
   questionId: string;
   grantId: string;
@@ -184,6 +199,8 @@ export interface ConfirmationQuestionAnchor {
   sourceSpan: string | null;
   /** Current serving run + current source + reviewed v2 three-state binding. */
   currentV2BindingVerified?: true;
+  /** 회사 사실 질문은 답변 뒤 profile 값으로 투영돼도 수정·철회 진입점을 유지한다. */
+  resolutionScope?: "per_notice" | "company_fact";
 }
 
 export interface MatchingConfirmationQuestionContext {
@@ -273,6 +290,17 @@ export async function loadMatchingConfirmationQuestionContext(
     runIds.add(row.runId);
     servingRunIdsByGrant.set(row.grantId, runIds);
   }
+  const verifiedMigrationBindings = await loadVerifiedLegacyQuestionMigrationBindings(
+    db,
+    rows.flatMap((row) => row.evaluationContractVersion === "confirmation-evaluation-v2"
+      ? [{
+          questionId: row.questionId,
+          grantId: row.grantId,
+          criterionId: row.criterionId,
+          reusable: row.reusable,
+        }]
+      : []),
+  );
   const eligibleRows = rows.filter((row) => (
     (row.evaluationContractVersion === null
       || row.evaluationContractVersion === "confirmation-evaluation-v2")
@@ -288,7 +316,12 @@ export async function loadMatchingConfirmationQuestionContext(
   for (const row of eligibleRows) {
     const binding = row.evaluationContractVersion === null
       ? null
-      : matchingQuestionBinding(row, servingRunIdsByGrant, currentSourceByGrant);
+      : matchingQuestionBinding(
+          row,
+          servingRunIdsByGrant,
+          currentSourceByGrant,
+          verifiedMigrationBindings,
+        );
     if (row.evaluationContractVersion !== null && !binding) continue;
     anchors.push({
       questionId: row.questionId,
@@ -298,7 +331,10 @@ export async function loadMatchingConfirmationQuestionContext(
       kind: row.kind,
       operator: row.operator,
       sourceSpan: row.sourceSpan,
-      ...(binding ? { currentV2BindingVerified: true as const } : {}),
+      ...(binding ? {
+        currentV2BindingVerified: true as const,
+        resolutionScope: binding.resolutionScope,
+      } : {}),
     });
     if (binding) {
       bindingsByGrantId.set(row.grantId, [
@@ -312,6 +348,7 @@ export async function loadMatchingConfirmationQuestionContext(
 
 export function matchingQuestionBinding(
   row: {
+    questionId?: string;
     grantId: string;
     criterionId: string;
     evaluationContractVersion: string | null;
@@ -329,11 +366,12 @@ export function matchingQuestionBinding(
     sourceRevisionSha256: string;
     sourceRawSha256: string;
   }>,
+  verifiedMigrationBindings: ReadonlyMap<string, VerifiedLegacyQuestionMigrationBinding> = new Map(),
 ): MatchingConfirmationCriterionBinding | null {
   if (
     row.evaluationContractVersion !== "confirmation-evaluation-v2"
     || row.answerType !== "single"
-    || row.reusable !== "per_notice"
+    || (row.reusable !== "per_notice" && row.reusable !== "company_fact")
     || row.needsReview
     || !row.sourceSpan?.trim()
   ) return null;
@@ -346,6 +384,30 @@ export function matchingQuestionBinding(
     || !evaluations.has("unsatisfied")
     || !evaluations.has("unknown")
   ) return null;
+  if (
+    row.sourceRevisionSha256 !== currentSourceByGrant.get(row.grantId)?.sourceRevisionSha256
+    || row.sourceRawSha256 !== currentSourceByGrant.get(row.grantId)?.sourceRawSha256
+  ) return null;
+  const migration = row.questionId
+    ? verifiedMigrationBindings.get(row.questionId)
+    : undefined;
+  if (
+    migration
+    && migration.grantId === row.grantId
+    && migration.criterionId === row.criterionId
+    && migration.resolutionScope === row.reusable
+  ) {
+    return {
+      criterionId: row.criterionId,
+      contractVersion: "confirmation-evaluation-v2",
+      evaluationKind: "three_state_single",
+      resolutionScope: migration.resolutionScope,
+      reviewState: "human_reviewed",
+      runId: migration.parentRunId,
+      currentSourceBindingVerified: true,
+    };
+  }
+  if (row.reusable !== "per_notice") return null;
   const provenance = row.provenance;
   const runId = typeof provenance.runId === "string" ? provenance.runId.trim() : "";
   const reviewState = provenance.auditState;
@@ -355,8 +417,6 @@ export function matchingQuestionBinding(
     || !Number.isSafeInteger(provenance.criterionIndex)
     || Number(provenance.criterionIndex) < 0
     || !servingRunIdsByGrant.get(row.grantId)?.has(runId)
-    || row.sourceRevisionSha256 !== currentSourceByGrant.get(row.grantId)?.sourceRevisionSha256
-    || row.sourceRawSha256 !== currentSourceByGrant.get(row.grantId)?.sourceRawSha256
   ) return null;
   return {
     criterionId: row.criterionId,

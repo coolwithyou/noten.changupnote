@@ -19,6 +19,10 @@ import { sha256Canonical, validatePromotionReleaseManifest } from "../analysis-s
 import type { CunoteDb, CunoteDbSession } from "../db/client";
 import * as schema from "../db/schema";
 import {
+  loadLegacyQuestionMigrationServingStates,
+  promotionStateMatchesParentOrMigration,
+} from "../productReadiness/legacyQuestionMigrationServing";
+import {
   applyPreparedGrantApplicationPrecompute,
 } from "../documents/applicationPrecomputeMaterialization";
 import { fieldCandidatesStorageKey } from "../documents/fieldCandidateStore";
@@ -80,7 +84,17 @@ export async function loadCurrentApplicationFieldRepairParent(
     throw new Error(`application repair parent manifest가 불일치합니다: ${grantId}`);
   }
   const current = await loadPromotionGrantSnapshot(db, grantId);
-  if (promotionGrantSnapshotStateSha256(current) !== row.afterSha256) {
+  const currentStateSha256 = promotionGrantSnapshotStateSha256(current);
+  const migrationStates = await loadLegacyQuestionMigrationServingStates(
+    db,
+    [row.promotionItemId],
+  );
+  if (!promotionStateMatchesParentOrMigration({
+    currentStateSha256,
+    parentAfterSha256: row.afterSha256,
+    successor: migrationStates.get(row.promotionItemId),
+    grantId,
+  })) {
     throw new Error(`application repair parent matching state가 변경됐습니다: ${grantId}`);
   }
   return {

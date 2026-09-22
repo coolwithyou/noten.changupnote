@@ -624,6 +624,13 @@
       "when": 1790121600000,
       "tag": "0088_legacy_question_migration_release",
       "breakpoints": true
+    },
+    {
+      "idx": 89,
+      "version": "7",
+      "when": 1790125200000,
+      "tag": "0089_legacy_question_migration_serving_binding",
+      "breakpoints": true
     }
   ]
 }

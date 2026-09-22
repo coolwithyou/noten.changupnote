@@ -10,12 +10,21 @@ import { acquireGrantPublicationLock } from "../ingestion/grantPublicationLock";
 import { expandConfirmedGrantComponentIds } from "../ingestion/grantRevisionInvalidation";
 import { questionDefinitionSha256, sourceSpanHash } from "../analysis-lab/promote";
 import {
+  loadPromotionGrantSnapshot,
+  promotionGrantSnapshotStateSha256,
+} from "../analysis-serving/promotionSnapshot";
+import { validatePromotionReleaseManifest } from "../analysis-serving/promotionReleaseContract";
+import {
   LEGACY_QUESTION_MIGRATION_RELEASE_PLAN_SCHEMA,
   LEGACY_QUESTION_MIGRATION_RELEASE_PROMPT_VERSION,
   serializeLegacyQuestionMigrationReleasePlan,
   type LegacyQuestionMigrationReleaseOperation,
   type LegacyQuestionMigrationReleasePlan,
 } from "./legacyQuestionMigrationReleasePlan";
+import {
+  loadLegacyQuestionMigrationServingStates,
+  promotionStateMatchesParentOrMigration,
+} from "./legacyQuestionMigrationServing";
 
 const BEFORE_SCHEMA = "legacy-question-migration-before-v1" as const;
 const AFTER_SCHEMA = "legacy-question-migration-after-v1" as const;
@@ -100,6 +109,10 @@ export async function prepareLegacyQuestionMigrationReleaseLedger(input: {
     if (existing) return assertPreparedReplay(tx, existing, releaseId, plan);
 
     const beforeByQuestion = new Map<string, LegacyQuestionMigrationBeforeSnapshot>();
+    const parentByGrant = new Map<string, Awaited<ReturnType<typeof loadCurrentLegacyQuestionMigrationParent>>>();
+    for (const grantId of uniqueGrantIds(plan)) {
+      parentByGrant.set(grantId, await loadCurrentLegacyQuestionMigrationParent(tx, grantId));
+    }
     for (const operation of sortedOperations(plan)) {
       const before = await loadBeforeSnapshot(tx, operation, true);
       assertOperationBaseline(operation, before);
@@ -121,15 +134,18 @@ export async function prepareLegacyQuestionMigrationReleaseLedger(input: {
     const itemIds: string[] = [];
     for (const operation of sortedOperations(plan)) {
       const before = beforeByQuestion.get(operation.legacyQuestion.id)!;
+      const parent = parentByGrant.get(operation.grantId)!;
       const [item] = await tx.insert(schema.analysisLabLegacyQuestionMigrationItems).values({
         releaseDbId: release.id,
         grantId: operation.grantId,
         criterionId: operation.criterionId,
+        parentPromotionItemId: parent.promotionItemId,
         legacyQuestionId: operation.legacyQuestion.id,
         planSha256: plan.contentSha256,
         operationSha256: operationSha256(operation),
         beforeSnapshot: before as unknown as Record<string, unknown>,
         beforeSha256: snapshotSha256(before),
+        beforeServingSha256: parent.currentServingStateSha256,
         status: "prepared",
       }).returning({ id: schema.analysisLabLegacyQuestionMigrationItems.id });
       if (!item) throw new Error(`이관 item 원장 생성에 실패했습니다: ${operation.legacyQuestion.id}`);
@@ -196,6 +212,15 @@ export async function applyLegacyQuestionMigrationRelease(input: {
     }
     if (release.status !== "approved") {
       throw new Error(`이관 release 적용 가능 상태가 아닙니다: ${release.status}`);
+    }
+    for (const grantId of uniqueGrantIds(plan)) {
+      const parent = await loadCurrentLegacyQuestionMigrationParent(tx, grantId);
+      const grantItems = items.filter((item) => item.grantId === grantId);
+      if (grantItems.some((item) =>
+        item.parentPromotionItemId !== parent.promotionItemId
+        || item.beforeServingSha256 !== parent.currentServingStateSha256)) {
+        throw new Error(`serving_baseline_drift: ${grantId}`);
+      }
     }
     await updateReleaseStatus(tx, release.id, "approved", "applying", input.executedBy);
     const links = await loadConfirmedLinks(tx);
@@ -285,6 +310,21 @@ export async function applyLegacyQuestionMigrationRelease(input: {
       )).returning({ id: schema.analysisLabLegacyQuestionMigrationItems.id });
       if (applied.length !== 1) throw new Error("이관 item receipt CAS가 실패했습니다.");
     }
+    for (const grantId of uniqueGrantIds(plan)) {
+      const current = await loadPromotionGrantSnapshot(tx, grantId);
+      const servingStateSha256 = promotionGrantSnapshotStateSha256(current);
+      const updated = await tx.update(schema.analysisLabLegacyQuestionMigrationItems).set({
+        servingStateSha256,
+        updatedAt: new Date(),
+      }).where(and(
+        eq(schema.analysisLabLegacyQuestionMigrationItems.releaseDbId, release.id),
+        eq(schema.analysisLabLegacyQuestionMigrationItems.grantId, grantId),
+        eq(schema.analysisLabLegacyQuestionMigrationItems.status, "applied"),
+      )).returning({ id: schema.analysisLabLegacyQuestionMigrationItems.id });
+      if (updated.length !== items.filter((item) => item.grantId === grantId).length) {
+        throw new Error(`이관 serving receipt CAS가 실패했습니다: ${grantId}`);
+      }
+    }
     await updateReleaseStatus(tx, release.id, "applying", "active", input.executedBy);
     return { releaseId: input.releaseId, itemCount: items.length, replayed: false };
   });
@@ -311,6 +351,18 @@ export async function rollbackLegacyQuestionMigrationRelease(input: {
     }
     if (release.status !== "active") {
       throw new Error(`이관 release rollback 가능 상태가 아닙니다: ${release.status}`);
+    }
+    for (const grantId of uniqueGrantIds(plan)) {
+      const grantItems = items.filter((item) => item.grantId === grantId);
+      const servingStateSha256 = grantItems[0]?.servingStateSha256;
+      if (!servingStateSha256 || grantItems.some((item) =>
+        item.servingStateSha256 !== servingStateSha256)) {
+        throw new Error(`이관 serving receipt가 불완전합니다: ${grantId}`);
+      }
+      const current = await loadPromotionGrantSnapshot(tx, grantId);
+      if (promotionGrantSnapshotStateSha256(current) !== servingStateSha256) {
+        throw new Error(`serving_after_drift: ${grantId}`);
+      }
     }
     for (const item of items) {
       if (!item.migratedQuestionId || item.status !== "applied" || !item.afterSha256) {
@@ -380,6 +432,18 @@ export async function rollbackLegacyQuestionMigrationRelease(input: {
         eq(schema.analysisLabLegacyQuestionMigrationItems.status, "rolling_back"),
       )).returning({ id: schema.analysisLabLegacyQuestionMigrationItems.id });
       if (receipt.length !== 1) throw new Error("이관 rollback receipt CAS가 실패했습니다.");
+    }
+    for (const grantId of uniqueGrantIds(plan)) {
+      const grantItems = items.filter((item) => item.grantId === grantId);
+      const beforeServingSha256 = grantItems[0]?.beforeServingSha256;
+      if (!beforeServingSha256 || grantItems.some((item) =>
+        item.beforeServingSha256 !== beforeServingSha256)) {
+        throw new Error(`이관 rollback serving baseline이 불완전합니다: ${grantId}`);
+      }
+      const restored = await loadPromotionGrantSnapshot(tx, grantId);
+      if (promotionGrantSnapshotStateSha256(restored) !== beforeServingSha256) {
+        throw new Error(`serving_rollback_drift: ${grantId}`);
+      }
     }
     await updateReleaseStatus(tx, release.id, "rolling_back", "rolled_back", input.executedBy);
     return { releaseId: input.releaseId, itemCount: items.length, replayed: false };
@@ -637,6 +701,90 @@ async function assertAppliedItemsCurrent(
       throw new Error(`after_drift: ${item.legacyQuestionId}`);
     }
   }
+  for (const grantId of uniqueGrantIds(plan)) {
+    const grantItems = items.filter((item) => item.grantId === grantId);
+    const servingStateSha256 = grantItems[0]?.servingStateSha256;
+    if (!servingStateSha256 || grantItems.some((item) =>
+      item.servingStateSha256 !== servingStateSha256)) {
+      throw new Error(`이관 serving receipt가 불완전합니다: ${grantId}`);
+    }
+    const current = await loadPromotionGrantSnapshot(db, grantId);
+    if (promotionGrantSnapshotStateSha256(current) !== servingStateSha256) {
+      throw new Error(`serving_after_drift: ${grantId}`);
+    }
+  }
+}
+
+/** 제한 이관이 참조할 현재 promotion parent와 직전 successor frontier를 유일하게 확정한다. */
+export async function loadCurrentLegacyQuestionMigrationParent(
+  db: CunoteDbSession,
+  grantId: string,
+): Promise<{
+  promotionItemId: string;
+  parentAfterSha256: string;
+  currentServingStateSha256: string;
+}> {
+  const rows = await db.select({
+    promotionItemId: schema.analysisLabPromotionItems.id,
+    releaseManifestSha256: schema.analysisLabPromotionReleases.manifestSha256,
+    releaseManifest: schema.analysisLabPromotionReleases.manifest,
+    afterSha256: schema.analysisLabPromotionItems.afterSha256,
+    appliedAt: schema.analysisLabPromotionItems.appliedAt,
+  }).from(schema.analysisLabPromotionItems)
+    .innerJoin(
+      schema.analysisLabPromotionReleases,
+      eq(schema.analysisLabPromotionReleases.id, schema.analysisLabPromotionItems.releaseDbId),
+    )
+    .where(and(
+      eq(schema.analysisLabPromotionItems.grantId, grantId),
+      eq(schema.analysisLabPromotionItems.status, "applied"),
+      inArray(schema.analysisLabPromotionReleases.status, ["active", "canary_passed"]),
+    ));
+  if (rows.length !== 1) {
+    throw new Error(`legacy question migration parent가 유일하지 않습니다: ${grantId} (${rows.length})`);
+  }
+  const row = rows[0]!;
+  if (!row.afterSha256 || !row.appliedAt) {
+    throw new Error(`legacy question migration parent receipt가 불완전합니다: ${grantId}`);
+  }
+  const manifest = validatePromotionReleaseManifest(row.releaseManifest);
+  if (manifest.manifestSha256 !== row.releaseManifestSha256) {
+    throw new Error(`legacy question migration parent manifest가 불일치합니다: ${grantId}`);
+  }
+  const current = await loadPromotionGrantSnapshot(db, grantId);
+  const currentServingStateSha256 = promotionGrantSnapshotStateSha256(current);
+  const successors = await loadLegacyQuestionMigrationServingStates(db, [row.promotionItemId]);
+  if (!promotionStateMatchesParentOrMigration({
+    currentStateSha256: currentServingStateSha256,
+    parentAfterSha256: row.afterSha256,
+    successor: successors.get(row.promotionItemId),
+    grantId,
+  })) {
+    throw new Error(`legacy question migration parent matching state가 변경됐습니다: ${grantId}`);
+  }
+  return {
+    promotionItemId: row.promotionItemId,
+    parentAfterSha256: row.afterSha256,
+    currentServingStateSha256,
+  };
+}
+
+/** 원래 promotion rollback이 적용된 질문 successor를 고아로 만들지 않게 한다. */
+export async function assertNoAppliedLegacyQuestionMigrationForParent(
+  db: CunoteDbSession,
+  parentPromotionItemId: string,
+): Promise<void> {
+  const rows = await db.select({ id: schema.analysisLabLegacyQuestionMigrationItems.id })
+    .from(schema.analysisLabLegacyQuestionMigrationItems)
+    .where(and(
+      eq(schema.analysisLabLegacyQuestionMigrationItems.parentPromotionItemId, parentPromotionItemId),
+      eq(schema.analysisLabLegacyQuestionMigrationItems.status, "applied"),
+    ));
+  if (rows.length > 0) throw new Error("legacy_question_migration_applied");
+}
+
+function uniqueGrantIds(plan: LegacyQuestionMigrationReleasePlan): string[] {
+  return [...new Set(plan.operations.map((operation) => operation.grantId))].sort();
 }
 
 async function answerCount(db: CunoteDbSession, questionId: string): Promise<number> {

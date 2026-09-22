@@ -333,6 +333,7 @@ export async function loadLegacyQuestionMigrationShadow(input: {
       source_span: question.sourceSpan,
     });
     const strictV2Visible = hasCriterion && matchingQuestionBinding({
+      questionId: question.questionId,
       grantId: question.grantId,
       criterionId: question.criterionId!,
       evaluationContractVersion: question.evaluationContractVersion,

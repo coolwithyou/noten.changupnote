@@ -1870,6 +1870,8 @@ export const analysisLabLegacyQuestionMigrationItems = pgTable(
     grantId: uuid("grant_id").notNull().references(() => grants.id, { onDelete: "restrict" }),
     criterionId: uuid("criterion_id").notNull()
       .references(() => grantCriteria.id, { onDelete: "restrict" }),
+    parentPromotionItemId: uuid("parent_promotion_item_id")
+      .references(() => analysisLabPromotionItems.id, { onDelete: "restrict" }),
     legacyQuestionId: uuid("legacy_question_id").notNull()
       .references(() => grantConfirmationQuestions.id, { onDelete: "restrict" }),
     migratedQuestionId: uuid("migrated_question_id")
@@ -1878,8 +1880,10 @@ export const analysisLabLegacyQuestionMigrationItems = pgTable(
     operationSha256: text("operation_sha256").notNull(),
     beforeSnapshot: jsonb("before_snapshot").$type<Record<string, unknown>>().notNull(),
     beforeSha256: text("before_sha256").notNull(),
+    beforeServingSha256: text("before_serving_sha256"),
     afterSnapshot: jsonb("after_snapshot").$type<Record<string, unknown>>(),
     afterSha256: text("after_sha256"),
+    servingStateSha256: text("serving_state_sha256"),
     status: text("status").default("prepared").notNull(),
     error: text("error"),
     appliedAt: timestamp("applied_at", { withTimezone: true }),
@@ -1897,6 +1901,8 @@ export const analysisLabLegacyQuestionMigrationItems = pgTable(
     grantIdx: index("analysis_lab_legacy_question_migration_grant_idx").on(table.grantId),
     criterionIdx: index("analysis_lab_legacy_question_migration_criterion_idx")
       .on(table.criterionId),
+    parentIdx: index("analysis_lab_legacy_question_migration_parent_idx")
+      .on(table.parentPromotionItemId),
     migratedQuestionIdx: index("analysis_lab_legacy_question_migration_migrated_question_idx")
       .on(table.migratedQuestionId),
     statusCheck: check("analysis_lab_legacy_question_migration_status_check", sql`

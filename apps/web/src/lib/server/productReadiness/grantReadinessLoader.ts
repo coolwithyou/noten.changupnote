@@ -32,6 +32,11 @@ import {
   type GrantReadinessSummary,
 } from "./grantReadiness";
 import { planGrantNextWork, type GrantNextWork, type GrantNextWorkAction } from "./grantNextWork";
+import {
+  loadLegacyQuestionMigrationServingStates,
+  loadVerifiedLegacyQuestionMigrationBindings,
+  promotionStateMatchesParentOrMigration,
+} from "./legacyQuestionMigrationServing";
 
 const KST_TIME_ZONE = "Asia/Seoul";
 const DEFAULT_INVENTORY_LIMIT = 20_000;
@@ -293,6 +298,7 @@ export async function loadCurrentGrantReadiness(input: {
       needsReview: schema.grantCriteria.needsReview,
     }).from(schema.grantCriteria).where(inArray(schema.grantCriteria.grantId, grantIds)),
     input.db.select({
+      questionId: schema.grantConfirmationQuestions.id,
       grantId: schema.grantConfirmationQuestions.grantId,
       criterionId: schema.grantCriteria.id,
       criterionStableKey: schema.grantCriteria.stableKey,
@@ -322,6 +328,7 @@ export async function loadCurrentGrantReadiness(input: {
         isNull(schema.grantConfirmationQuestions.invalidatedAt),
       )),
     input.db.select({
+      promotionItemId: schema.analysisLabPromotionItems.id,
       grantId: schema.analysisLabPromotionItems.grantId,
       runId: schema.analysisLabPromotionItems.runId,
       appliedAt: schema.analysisLabPromotionItems.appliedAt,
@@ -361,6 +368,17 @@ export async function loadCurrentGrantReadiness(input: {
     grantId,
     new Set([promotion.runId]),
   ]));
+  const verifiedMigrationBindings = await loadVerifiedLegacyQuestionMigrationBindings(
+    input.db,
+    questions.flatMap((question) => question.evaluationContractVersion === "confirmation-evaluation-v2"
+      ? [{
+          questionId: question.questionId,
+          grantId: question.grantId,
+          criterionId: question.criterionId,
+          reusable: question.reusable,
+        }]
+      : []),
+  );
   const questionsByGrant = groupBy(questions.map((question) => ({
     ...question,
     runtimeBindingEligible: !isNonMatchingApplicationCriterion({
@@ -372,6 +390,7 @@ export async function loadCurrentGrantReadiness(input: {
       question,
       servingRunIdsByGrant,
       sourceBindings,
+      verifiedMigrationBindings,
     ) !== null,
   })), (question) => question.grantId);
 
@@ -494,6 +513,7 @@ export async function loadReadOnlyGrantReadinessReport(input: {
 }
 
 type GrantReadinessPromotionRow = {
+  promotionItemId: string;
   grantId: string;
   runId: string;
   appliedAt: Date | null;
@@ -539,8 +559,18 @@ async function loadCurrentValidPromotions(
     db,
     candidates.map((candidate) => candidate.grantId),
   );
+  const migrationStates = await loadLegacyQuestionMigrationServingStates(
+    db,
+    candidates.map((candidate) => candidate.row.promotionItemId),
+  );
   return new Map(candidates.flatMap(({ grantId, row, evidence }) => (
-    currentStateShaByGrant.get(grantId) === row.afterSha256
+    currentStateShaByGrant.has(grantId)
+      && promotionStateMatchesParentOrMigration({
+        currentStateSha256: currentStateShaByGrant.get(grantId)!,
+        parentAfterSha256: row.afterSha256!,
+        successor: migrationStates.get(row.promotionItemId),
+        grantId,
+      })
       ? [[grantId, evidence] as const]
       : []
   )));

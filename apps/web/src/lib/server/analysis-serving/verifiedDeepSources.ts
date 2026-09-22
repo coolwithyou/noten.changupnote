@@ -14,6 +14,10 @@ import {
 } from "./promotionSnapshot";
 import { getCunoteDb } from "../db/client";
 import * as schema from "../db/schema";
+import {
+  loadLegacyQuestionMigrationServingStates,
+  promotionStateMatchesParentOrMigration,
+} from "../productReadiness/legacyQuestionMigrationServing";
 
 export type DocumentAgentEvidenceKind =
   | "current_document"
@@ -130,7 +134,16 @@ export async function loadVerifiedDeepSources(grantId: string): Promise<{
   }
   const snapshot = await loadPromotionGrantSnapshot(db, grantId);
   const currentSha256 = promotionGrantSnapshotStateSha256(snapshot);
-  if (currentSha256 !== newest.afterSha256) {
+  const migrationStates = await loadLegacyQuestionMigrationServingStates(
+    db,
+    [newest.promotionItemId],
+  );
+  if (!promotionStateMatchesParentOrMigration({
+    currentStateSha256: currentSha256,
+    parentAfterSha256: newest.afterSha256,
+    successor: migrationStates.get(newest.promotionItemId),
+    grantId,
+  })) {
     return { sources: [], provenance: { status: "current_state_drift" } };
   }
   const planStableKeyCounts = countStableKeys(plan.promotionPlan.criterionStableKeys);
