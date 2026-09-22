@@ -1,6 +1,23 @@
 import { createHash } from "node:crypto";
 import { and, eq, inArray, isNull } from "drizzle-orm";
-import type { CriterionDimension, CriterionKind, CriterionOperator } from "@cunote/contracts";
+import {
+  LEGACY_QUESTION_MIGRATION_REVIEW_DECISION_SCHEMA,
+  LEGACY_QUESTION_MIGRATION_REVIEW_MANIFEST_SCHEMA,
+  LEGACY_QUESTION_MIGRATION_REVIEW_PACKET_SCHEMA,
+  canonicalLegacyQuestionMigrationReviewJson,
+  legacyQuestionMigrationReviewManifestBody,
+  legacyQuestionMigrationReviewPacketBody,
+  parseLegacyQuestionMigrationReviewDecision,
+  type LegacyQuestionMigrationPolarity,
+  type LegacyQuestionMigrationResolutionScope,
+  type LegacyQuestionMigrationReviewDecision,
+  type LegacyQuestionMigrationReviewDetail,
+  type LegacyQuestionMigrationReviewManifest,
+  type LegacyQuestionMigrationReviewManifestBody,
+  type LegacyQuestionMigrationReviewPacket,
+  type LegacyQuestionMigrationReviewPacketBody,
+  type LegacyQuestionMigrationReviewVerdict,
+} from "@cunote/contracts/legacy-question-migration-review";
 import type { CunoteDbSession } from "../db/client";
 import * as schema from "../db/schema";
 import { validateReviewerEmail } from "../analysis-lab/review-store";
@@ -10,160 +27,27 @@ import {
   type LegacyQuestionMigrationShadowReport,
 } from "./legacyQuestionMigrationShadow";
 
-export const LEGACY_QUESTION_MIGRATION_REVIEW_PACKET_SCHEMA =
-  "legacy-question-migration-review-packet-v1" as const;
-export const LEGACY_QUESTION_MIGRATION_REVIEW_MANIFEST_SCHEMA =
-  "legacy-question-migration-review-manifest-v1" as const;
-export const LEGACY_QUESTION_MIGRATION_REVIEW_DECISION_SCHEMA =
-  "legacy-question-migration-review-decision-v1" as const;
-
-export type LegacyQuestionMigrationReviewVerdict =
-  | "approve_for_v2_draft"
-  | "repair_criterion"
-  | "retire_legacy_question";
-
-export type LegacyQuestionMigrationResolutionScope = "per_notice" | "company_fact";
-export type LegacyQuestionMigrationPolarity =
-  | "criterion_satisfaction"
-  | "exclusion_membership";
-
-export interface LegacyQuestionMigrationReviewDetail {
-  readonly grant: {
-    readonly id: string;
-    readonly title: string;
-    readonly source: string;
-    readonly sourceId: string;
-    readonly url: string | null;
-    readonly applyStart: string | null;
-    readonly applyEnd: string | null;
-  };
-  readonly question: {
-    readonly id: string;
-    readonly grantId: string;
-    readonly criterionId: string;
-    readonly evaluationContractVersion: string | null;
-    readonly sourceRevisionSha256: string | null;
-    readonly sourceRawSha256: string | null;
-    readonly criterionStableKey: string | null;
-    readonly definitionSha256: string;
-    readonly version: number;
-    readonly prompt: string;
-    readonly options: readonly Record<string, unknown>[];
-    readonly answerType: string;
-    readonly reusable: string;
-    readonly conditionKey: string | null;
-    readonly promptVersion: string;
-    readonly provenance: Readonly<Record<string, unknown>>;
-    readonly createdAt: string;
-  };
-  readonly criterion: {
-    readonly id: string;
-    readonly stableKey: string | null;
-    readonly dimension: CriterionDimension;
-    readonly kind: CriterionKind;
-    readonly operator: CriterionOperator;
-    readonly value: Readonly<Record<string, unknown>>;
-    readonly confidence: number;
-    readonly sourceSpan: string;
-    readonly sourceField: string | null;
-    readonly needsReview: boolean;
-    readonly parserVersion: string | null;
-  };
-}
-
-export interface LegacyQuestionMigrationReviewPacketBody {
-  readonly schema: typeof LEGACY_QUESTION_MIGRATION_REVIEW_PACKET_SCHEMA;
-  readonly authority: {
-    readonly status: "human_review_required";
-    readonly modelCallsMade: 0;
-    readonly serviceDatabaseWritesMade: 0;
-    readonly migrationAuthorized: false;
-    readonly releaseAuthorized: false;
-    readonly liveQuestionWriteAuthorized: false;
-  };
-  readonly shadow: {
-    readonly schema: LegacyQuestionMigrationShadowReport["schema"];
-    readonly snapshotSha256: string;
-    readonly observedAt: string;
-  };
-  readonly candidateSha256: string;
-  readonly grant: LegacyQuestionMigrationReviewDetail["grant"];
-  readonly currentSource: {
-    readonly sourceRevisionSha256: string;
-    readonly sourceRawSha256: string;
-  };
-  readonly legacyQuestion: LegacyQuestionMigrationReviewDetail["question"] & {
-    readonly answerCount: number;
-    readonly answeringCompanyCount: number;
-  };
-  readonly criterion: LegacyQuestionMigrationReviewDetail["criterion"];
-  readonly requiredReview: {
-    readonly allowedVerdicts: readonly LegacyQuestionMigrationReviewVerdict[];
-    readonly expectedPolarity: LegacyQuestionMigrationPolarity;
-    readonly allowedResolutionScopes: readonly LegacyQuestionMigrationResolutionScope[];
-    readonly checks: readonly string[];
-    readonly decisionTemplate: {
-      readonly schema: typeof LEGACY_QUESTION_MIGRATION_REVIEW_DECISION_SCHEMA;
-      readonly packetContentSha256: null;
-      readonly candidateSha256: string;
-      readonly grantId: string;
-      readonly questionId: string;
-      readonly criterionId: string;
-      readonly verdict: null;
-      readonly confirmedPolarity: null;
-      readonly resolutionScope: null;
-      readonly reviewerEmail: null;
-      readonly reviewedAt: null;
-      readonly note: null;
-    };
-  };
-}
-
-export interface LegacyQuestionMigrationReviewPacket
-  extends LegacyQuestionMigrationReviewPacketBody {
-  readonly contentSha256: string;
-}
-
-export interface LegacyQuestionMigrationReviewManifestBody {
-  readonly schema: typeof LEGACY_QUESTION_MIGRATION_REVIEW_MANIFEST_SCHEMA;
-  readonly authority: LegacyQuestionMigrationReviewPacketBody["authority"];
-  readonly shadow: LegacyQuestionMigrationReviewPacketBody["shadow"];
-  readonly packetCount: number;
-  readonly answerPreservationReviewCount: number;
-  readonly packets: readonly {
-    readonly grantId: string;
-    readonly questionId: string;
-    readonly criterionId: string;
-    readonly candidateSha256: string;
-    readonly packetContentSha256: string;
-    readonly fileName: string;
-  }[];
-}
-
-export interface LegacyQuestionMigrationReviewManifest
-  extends LegacyQuestionMigrationReviewManifestBody {
-  readonly contentSha256: string;
-}
+export {
+  LEGACY_QUESTION_MIGRATION_REVIEW_DECISION_SCHEMA,
+  LEGACY_QUESTION_MIGRATION_REVIEW_MANIFEST_SCHEMA,
+  LEGACY_QUESTION_MIGRATION_REVIEW_PACKET_SCHEMA,
+};
+export type {
+  LegacyQuestionMigrationPolarity,
+  LegacyQuestionMigrationResolutionScope,
+  LegacyQuestionMigrationReviewDecision,
+  LegacyQuestionMigrationReviewDetail,
+  LegacyQuestionMigrationReviewManifest,
+  LegacyQuestionMigrationReviewManifestBody,
+  LegacyQuestionMigrationReviewPacket,
+  LegacyQuestionMigrationReviewPacketBody,
+  LegacyQuestionMigrationReviewVerdict,
+};
 
 export interface LegacyQuestionMigrationReviewBundle {
   readonly shadowReport: LegacyQuestionMigrationShadowReport;
   readonly packets: readonly LegacyQuestionMigrationReviewPacket[];
   readonly manifest: LegacyQuestionMigrationReviewManifest;
-}
-
-export interface LegacyQuestionMigrationReviewDecision {
-  readonly schema: typeof LEGACY_QUESTION_MIGRATION_REVIEW_DECISION_SCHEMA;
-  readonly packetContentSha256: string;
-  readonly candidateSha256: string;
-  readonly grantId: string;
-  readonly questionId: string;
-  readonly criterionId: string;
-  readonly verdict: LegacyQuestionMigrationReviewVerdict;
-  readonly confirmedPolarity: LegacyQuestionMigrationPolarity | null;
-  readonly resolutionScope: LegacyQuestionMigrationResolutionScope | null;
-  readonly reviewerEmail: string;
-  readonly reviewedAt: string;
-  readonly note: string | null;
 }
 
 export function buildLegacyQuestionMigrationReviewBundle(input: {
@@ -208,7 +92,7 @@ export function buildLegacyQuestionMigrationReviewBundle(input: {
   };
   const manifest = Object.freeze({
     ...manifestBody,
-    contentSha256: sha256(stableJson(manifestBody)),
+    contentSha256: sha256(canonicalLegacyQuestionMigrationReviewJson(manifestBody)),
   });
   return Object.freeze({
     shadowReport: input.shadowReport,
@@ -240,7 +124,7 @@ function buildLegacyQuestionMigrationReviewPacket(input: {
     },
     criterion: detail.criterion,
   };
-  const candidateSha256 = sha256(stableJson(candidateEvidence));
+  const candidateSha256 = sha256(canonicalLegacyQuestionMigrationReviewJson(candidateEvidence));
   const body: LegacyQuestionMigrationReviewPacketBody = {
     schema: LEGACY_QUESTION_MIGRATION_REVIEW_PACKET_SCHEMA,
     authority: reviewAuthority(),
@@ -283,7 +167,7 @@ function buildLegacyQuestionMigrationReviewPacket(input: {
   };
   return Object.freeze({
     ...body,
-    contentSha256: sha256(stableJson(body)),
+    contentSha256: sha256(canonicalLegacyQuestionMigrationReviewJson(body)),
   });
 }
 
@@ -292,18 +176,7 @@ export function validateLegacyQuestionMigrationReviewDecision(input: {
   readonly decision: unknown;
 }): LegacyQuestionMigrationReviewDecision {
   assertPacketHash(input.packet);
-  if (!input.decision || typeof input.decision !== "object" || Array.isArray(input.decision)) {
-    throw new Error("이관 검수 결정은 객체여야 합니다.");
-  }
-  const value = input.decision as Record<string, unknown>;
-  const exactKeys = [
-    "schema", "packetContentSha256", "candidateSha256", "grantId", "questionId",
-    "criterionId", "verdict", "confirmedPolarity", "resolutionScope", "reviewerEmail",
-    "reviewedAt", "note",
-  ].sort();
-  if (JSON.stringify(Object.keys(value).sort()) !== JSON.stringify(exactKeys)) {
-    throw new Error("이관 검수 결정 필드가 정확한 계약과 다릅니다.");
-  }
+  const value = parseLegacyQuestionMigrationReviewDecision(input.decision);
   if (
     value.schema !== LEGACY_QUESTION_MIGRATION_REVIEW_DECISION_SCHEMA
     || value.packetContentSha256 !== input.packet.contentSha256
@@ -316,18 +189,11 @@ export function validateLegacyQuestionMigrationReviewDecision(input: {
   }
   const allowedVerdicts = new Set<unknown>(input.packet.requiredReview.allowedVerdicts);
   if (!allowedVerdicts.has(value.verdict)) throw new Error("이관 검수 verdict가 올바르지 않습니다.");
-  const verdict = value.verdict as LegacyQuestionMigrationReviewVerdict;
-  if (typeof value.reviewerEmail !== "string") {
-    throw new Error("검수자 이메일이 필요합니다.");
-  }
+  const verdict = value.verdict;
   const reviewer = validateReviewerEmail(value.reviewerEmail);
   if (!reviewer.ok) throw new Error(reviewer.reason);
-  const reviewedAt = canonicalIso(value.reviewedAt, "reviewedAt");
-  const note = value.note === null
-    ? null
-    : typeof value.note === "string" && value.note.trim()
-      ? value.note.trim()
-      : fail("note는 null 또는 비어 있지 않은 문자열이어야 합니다.");
+  const reviewedAt = value.reviewedAt;
+  const note = value.note;
   let confirmedPolarity: LegacyQuestionMigrationPolarity | null = null;
   let resolutionScope: LegacyQuestionMigrationResolutionScope | null = null;
   if (verdict === "approve_for_v2_draft") {
@@ -477,8 +343,9 @@ export function serializeLegacyQuestionMigrationReviewPacket(
 export function serializeLegacyQuestionMigrationReviewManifest(
   manifest: LegacyQuestionMigrationReviewManifest,
 ): Buffer {
-  const { contentSha256, ...body } = manifest;
-  if (contentSha256 !== sha256(stableJson(body))) {
+  if (manifest.contentSha256 !== sha256(canonicalLegacyQuestionMigrationReviewJson(
+    legacyQuestionMigrationReviewManifestBody(manifest),
+  ))) {
     throw new Error("이관 검수 manifest content SHA가 내용과 일치하지 않습니다.");
   }
   return Buffer.from(`${JSON.stringify(manifest, null, 2)}\n`, "utf8");
@@ -522,8 +389,9 @@ function assertDetailBinding(
 }
 
 function assertPacketHash(packet: LegacyQuestionMigrationReviewPacket): void {
-  const { contentSha256, ...body } = packet;
-  if (contentSha256 !== sha256(stableJson(body))) {
+  if (packet.contentSha256 !== sha256(canonicalLegacyQuestionMigrationReviewJson(
+    legacyQuestionMigrationReviewPacketBody(packet),
+  ))) {
     throw new Error("이관 검수 packet content SHA가 내용과 일치하지 않습니다.");
   }
 }
@@ -573,19 +441,6 @@ function uniqueMap<T>(
   return result;
 }
 
-function canonicalIso(value: unknown, label: string): string {
-  try {
-    if (typeof value !== "string" || new Date(value).toISOString() !== value) throw new Error();
-  } catch {
-    throw new Error(`${label}가 canonical ISO 시각이 아닙니다.`);
-  }
-  return value as string;
-}
-
-function fail(message: string): never {
-  throw new Error(message);
-}
-
 function isSha256(value: unknown): value is string {
   return typeof value === "string" && /^[0-9a-f]{64}$/.test(value);
 }
@@ -595,11 +450,5 @@ function sha256(value: string | Uint8Array): string {
 }
 
 function stableJson(value: unknown): string {
-  if (value === null || typeof value !== "object") return JSON.stringify(value);
-  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
-  return `{${Object.entries(value as Record<string, unknown>)
-    .filter(([, item]) => item !== undefined)
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([key, item]) => `${JSON.stringify(key)}:${stableJson(item)}`)
-    .join(",")}}`;
+  return canonicalLegacyQuestionMigrationReviewJson(value);
 }

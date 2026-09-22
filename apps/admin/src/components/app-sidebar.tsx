@@ -10,6 +10,7 @@ import {
   CalendarDaysIcon,
   CircleGaugeIcon,
   ClipboardListIcon,
+  ClipboardCheckIcon,
   CoinsIcon,
   DatabaseZapIcon,
   FileQuestionIcon,
@@ -54,6 +55,7 @@ const NAV_GROUPS = [
     items: [
       { title: "주간 검수", href: "/review", icon: BookOpenCheckIcon },
       { title: "확인질문 초안", href: "/review/confirmation-drafts", icon: FileQuestionIcon },
+      { title: "레거시 질문 이관", href: "/review/legacy-question-migration", icon: ClipboardCheckIcon },
       { title: "딥분석 시스템", href: "/pipeline", icon: FileSearchIcon },
     ],
   },

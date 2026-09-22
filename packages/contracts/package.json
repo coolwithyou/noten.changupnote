@@ -13,6 +13,10 @@
       "types": "./dist/confirmation-question-draft.d.ts",
       "default": "./dist/confirmation-question-draft.js"
     },
+    "./legacy-question-migration-review": {
+      "types": "./dist/legacy-question-migration-review.d.ts",
+      "default": "./dist/legacy-question-migration-review.js"
+    },
     "./schemas/grant-criteria.schema.json": "./schemas/grant-criteria.schema.json"
   },
   "scripts": {
