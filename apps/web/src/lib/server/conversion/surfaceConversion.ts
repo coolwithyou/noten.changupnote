@@ -152,7 +152,7 @@ export async function upsertDocumentArtifacts(
   for (const artifact of artifacts) {
     const page = artifact.page ?? null;
     const existing = await db
-      .select({ id: schema.documentArtifacts.id })
+      .select({ id: schema.documentArtifacts.id, sha256: schema.documentArtifacts.sha256, metadata: schema.documentArtifacts.metadata })
       .from(schema.documentArtifacts)
       .where(
         and(
@@ -176,10 +176,16 @@ export async function upsertDocumentArtifacts(
     };
 
     if (existing[0]) {
-      await db
+      if (preserveRecoveredMarkdown(existing[0].metadata, artifact, artifacts)) continue;
+      const changed = await db
         .update(schema.documentArtifacts)
         .set(values)
-        .where(eq(schema.documentArtifacts.id, existing[0].id));
+        .where(and(eq(schema.documentArtifacts.id, existing[0].id),
+          existing[0].sha256 === null ? isNull(schema.documentArtifacts.sha256)
+            : eq(schema.documentArtifacts.sha256, existing[0].sha256),
+          eq(schema.documentArtifacts.metadata, existing[0].metadata)))
+        .returning({ id: schema.documentArtifacts.id });
+      if (changed.length !== 1) throw new Error("변환 artifact가 동시에 변경됐습니다. 최신 상태로 다시 확인해 주세요.");
       updated += 1;
     } else {
       await db.insert(schema.documentArtifacts).values({ surfaceId, ...values });
@@ -188,6 +194,22 @@ export async function upsertDocumentArtifacts(
   }
 
   return { inserted, updated };
+}
+
+/** A preview conversion must not erase recovered analysis text for the same PDF. */
+export function preserveRecoveredMarkdown(
+  metadata: Record<string, unknown>, incoming: ConversionArtifact, batch: ConversionArtifact[],
+): boolean {
+  if (incoming.kind !== "markdown" || typeof metadata.recoveryMode !== "string"
+    || typeof incoming.metadata?.recoveryMode === "string") return false;
+  const visual = metadata.visualTranscription as { originalSha256?: unknown } | undefined;
+  const sourceSha256 = metadata.sourcePdfSha256 ?? visual?.originalSha256;
+  if (typeof sourceSha256 !== "string" || !/^[a-f0-9]{64}$/.test(sourceSha256)) return false;
+  const pdfs = batch.filter((artifact) => artifact.kind === "pdf");
+  if (pdfs.length !== 1 || !pdfs[0]?.sha256) {
+    throw new Error("복구 markdown 교체에는 현재 원본 PDF SHA 결속이 필요합니다.");
+  }
+  return pdfs[0].sha256 === sourceSha256;
 }
 
 /**

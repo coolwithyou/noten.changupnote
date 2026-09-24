@@ -1,0 +1,14 @@
+import assert from 'node:assert/strict';
+import {preserveRecoveredMarkdown} from './surfaceConversion';
+import type {ConversionArtifact} from './conversionClient';
+const md:ConversionArtifact={kind:'markdown',storageKey:'plain.md',url:null,sha256:'c'.repeat(64),contentType:'text/markdown',metadata:{converter:'pdftotext-layout'}};
+const pdf:ConversionArtifact={...md,kind:'pdf',sha256:'a'.repeat(64),metadata:{}};
+const recovery={recoveryMode:'pdftotext_layout_plus_visual_transcription',sourcePdfSha256:'a'.repeat(64)};
+assert.equal(preserveRecoveredMarkdown(recovery,md,[md,pdf]),true,'opening a preview must preserve recovered image text for the same PDF');
+assert.equal(preserveRecoveredMarkdown({recoveryMode:'visual',visualTranscription:{originalSha256:'a'.repeat(64)}},md,[pdf,md]),true);
+assert.equal(preserveRecoveredMarkdown(recovery,md,[md,{...pdf,sha256:'b'.repeat(64)}]),false,'a changed original must not keep stale recovered text');
+assert.equal(preserveRecoveredMarkdown({},md,[pdf,md]),false,'ordinary conversion updates are unchanged');
+assert.equal(preserveRecoveredMarkdown(recovery,pdf,[pdf,md]),false,'preview PDF artifacts continue updating');
+assert.throws(()=>preserveRecoveredMarkdown(recovery,md,[md]),/PDF SHA/,'unbound partial conversion cannot erase a recovery');
+assert.equal(preserveRecoveredMarkdown(recovery,{...md,metadata:recovery},[md]),false,'an explicitly bound new recovery remains possible');
+console.log('surfaceConversion recovery preservation: passed');
