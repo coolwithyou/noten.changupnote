@@ -1123,6 +1123,63 @@ test("application-only capability는 exact primary reuse 없이는 generic prima
   }, async () => undefined), /primaryReuse 결속/);
 });
 
+test("matching-only 독립 검수 repair capability는 원본 target과 primary 지시만 허용한다", async () => {
+  const reviewRepair = {
+    sourceRunId: "run-source",
+    reviewModel: "gpt-5.6-sol",
+    blockingCount: 1,
+    taskInstruction: "검증된 criterion 결함만 수정",
+  } as const;
+  const binding = {
+    grantSha256: SHA_D,
+    manifestSha256: SHA_C,
+    sourceKind: "independent_review_repair" as const,
+    model: "claude-opus-5",
+    transport: "claude-cli" as const,
+    promptVersion: ANALYSIS_LAB_PROMPT_VERSION,
+    analysisMode: "matching_only" as const,
+    withApplicationRoundtrip: false,
+    roundtripModel: null,
+    targets: new Map([[GRANT_0, {
+      grantId: GRANT_0,
+      inputSha256: SHA_A,
+      attachmentManifestSha256: SHA_B,
+      reviewRepair,
+    }]]),
+  };
+  await withAnalysisLaunchBatchExecution(binding, async () => {
+    const active = currentAnalysisLaunchBatchExecutionBinding();
+    assert.ok(active);
+    assert.equal(active.analysisMode, "matching_only");
+    assert.equal(hasLaunchBatchExecutionViolation(GRANT_0, {
+      transport: "claude-cli",
+      model: "claude-opus-5",
+      withApplicationRoundtrip: false,
+      taskInstruction: reviewRepair.taskInstruction,
+      reviewRepair: { ...reviewRepair, auditModel: null, adjudicationModel: null },
+    }, active), false);
+    assert.equal(hasLaunchBatchExecutionViolation(GRANT_0, {
+      transport: "claude-cli",
+      model: "claude-opus-5",
+      withApplicationRoundtrip: true,
+      roundtripModel: "claude-opus-5",
+      taskInstruction: reviewRepair.taskInstruction,
+      reviewRepair: { ...reviewRepair, auditModel: null, adjudicationModel: null },
+    }, active), true);
+  });
+  assert.throws(() => withAnalysisLaunchBatchExecution({
+    ...binding,
+    targets: new Map([[GRANT_0, {
+      ...binding.targets.get(GRANT_0)!,
+      applicationRoundtripReuse: reuseBinding(3, reviewRepair.sourceRunId),
+    }]]),
+  }, async () => undefined), /applicationRoundtripReuse 결속/);
+  assert.throws(() => withAnalysisLaunchBatchExecution({
+    ...binding,
+    sourceKind: "authoring_guide_adoption",
+  }, async () => undefined), /matching-only source/);
+});
+
 test("launch capability는 manifest에 exact 결속된 독립 검수 복구 지시만 허용한다", async () => {
   const reviewRepair = {
     sourceRunId: "run-source",

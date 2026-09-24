@@ -97,6 +97,7 @@ function normalizeBinding(
     analysisMode === "matching_only"
     && binding.sourceKind !== "formal_plan"
     && binding.sourceKind !== "current_inventory"
+    && binding.sourceKind !== "independent_review_repair"
   ) {
     throw new Error("launch batch matching-only source가 잘못됐습니다.");
   }
@@ -145,6 +146,8 @@ function normalizeBinding(
       applicationRoundtripReuse
       && (
         binding.sourceKind !== "independent_review_repair"
+        || analysisMode !== "primary_and_application"
+        || !binding.withApplicationRoundtrip
         || (applicationRoundtripReuse.schema === "analysis-launch-application-roundtrip-reuse-v1"
           ? !reviewRepair
             || applicationRoundtripReuse.sourceLabRunId !== reviewRepair.sourceRunId
