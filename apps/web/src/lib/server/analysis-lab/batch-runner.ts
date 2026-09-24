@@ -208,7 +208,24 @@ export function resolveLabBatchRunScan(records: readonly BatchScannedRun[]): Lab
   return { states, okCostSamples };
 }
 
-export async function scanExistingRuns(): Promise<LabBatchRunScan> {
+export interface LabRunMaterialBinding {
+  readonly inputSha256: string;
+  readonly attachmentManifestSha256: string;
+}
+
+/** A success for another input revision cannot suppress an approved current-input run. */
+export function matchesLabRunMaterialBinding(
+  run: { grantId?: unknown; inputSha256?: unknown; attachmentManifestSha256?: unknown },
+  expected: ReadonlyMap<string, LabRunMaterialBinding>,
+): boolean {
+  const binding = typeof run.grantId === "string" ? expected.get(run.grantId) : undefined;
+  return Boolean(binding && run.inputSha256 === binding.inputSha256
+    && run.attachmentManifestSha256 === binding.attachmentManifestSha256);
+}
+
+export async function scanExistingRuns(
+  expectedMaterial?: ReadonlyMap<string, LabRunMaterialBinding>,
+): Promise<LabBatchRunScan> {
   const records: BatchScannedRun[] = [];
   const root = analysisLabDir();
   let entries: string[] = [];
@@ -236,12 +253,15 @@ export async function scanExistingRuns(): Promise<LabBatchRunScan> {
         error?: unknown;
         costUsd?: unknown;
         applicationRoundtrip?: LabApplicationRoundtripReference;
+        inputSha256?: unknown;
+        attachmentManifestSha256?: unknown;
       };
       try {
         parsed = JSON.parse(await readFile(join(root, entry, file), "utf8")) as typeof parsed;
       } catch {
         continue; // 깨진 파일은 판정에서 제외(불변 저장소라 원본은 건드리지 않는다)
       }
+      if (expectedMaterial && !matchesLabRunMaterialBinding(parsed, expectedMaterial)) continue;
       if (
         typeof parsed.grantId !== "string" ||
         typeof parsed.promptVersion !== "string" ||

@@ -5,7 +5,7 @@ import { getCunoteDb } from "@/lib/server/db/client";
 import { readDeepAnalysisRuntimeAdmissionSnapshot } from "@/lib/server/deep-analysis/runtimeControl";
 import { classifyAnalysisFeatureReadiness } from "@/lib/server/analysis-serving/analysisFeatureReadiness";
 import { runLabAnalysis, prepareLabAnalysis } from "./analyze";
-import { runLabBatch, type LabBatchEvent, type LabBatchSummary } from "./batch-runner";
+import { runLabBatch, scanExistingRuns, type LabBatchEvent, type LabBatchSummary } from "./batch-runner";
 import { verifyClaudeMaxSubscriptionAuthForLaunch } from "./claude-cli-transport";
 import { createDeepRepairLiveDbLeaseClient } from "./deep-repair-live-db-runtime";
 import { createDeepRepairLiveRuntimeAuthority } from "./deep-repair-live-runtime";
@@ -581,6 +581,12 @@ export async function runApprovedAnalysisLaunchBatch(input: {
           input.onEvent?.(event);
         },
       }, {
+        // Keep skip_existing within this approved material revision. Historical
+        // successes with a missing notice/PDF must not skip a repaired input.
+        scanRunsImpl: () => scanExistingRuns(new Map(manifest.targets.map(target => [target.grantId, {
+          inputSha256: target.inputSha256,
+          attachmentManifestSha256: target.attachmentManifestSha256,
+        }]))),
         readCohortImpl: async () => ({
           version: 2,
           selectedAt: manifest.preparedAt,
