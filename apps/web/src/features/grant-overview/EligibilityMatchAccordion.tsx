@@ -114,6 +114,9 @@ function ConditionItem({
                 : "우대·평가"}
           </span>
         </div>
+        {condition.trace.label && condition.trace.label !== condition.reason ? (
+          <p className="text-sm leading-6 text-foreground">{condition.trace.label}</p>
+        ) : null}
         <dl className="grid gap-3 text-sm leading-6 sm:grid-cols-2">
           <ConditionFact label="공고 조건" value={condition.requirement} />
           <ConditionFact label="회사 정보" value={condition.companyValue} />
