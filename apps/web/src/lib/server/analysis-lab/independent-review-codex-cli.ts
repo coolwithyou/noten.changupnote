@@ -5,6 +5,7 @@ import { appendFile, mkdir, open, readFile, unlink, writeFile } from "node:fs/pr
 import { basename, dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import {
+  DEFAULT_CODEX_INDEPENDENT_REVIEW_MODEL,
   INDEPENDENT_REVIEW_RESULT_SCHEMA,
   INDEPENDENT_REVIEW_MANIFEST_SCHEMA,
   LEGACY_INDEPENDENT_REVIEW_MANIFEST_SCHEMA,
@@ -23,6 +24,7 @@ interface ManifestPacket {
 
 interface ReviewManifest {
   schema: typeof INDEPENDENT_REVIEW_MANIFEST_SCHEMA | typeof LEGACY_INDEPENDENT_REVIEW_MANIFEST_SCHEMA;
+  reviewers: Array<{ reviewer: string; transport: string; model: string }>;
   packets: ManifestPacket[];
 }
 
@@ -91,6 +93,7 @@ async function main() {
   ) throw new Error("독립 검수 manifest 형식이 아닙니다.");
   const addressedSha = basename(manifestPath).replace(/\.manifest\.json$/, "");
   if (sha256(manifestBytes) !== addressedSha) throw new Error("manifest content address가 일치하지 않습니다.");
+  const reviewerModel = resolveCodexReviewModel(manifest, option("model"));
 
   const authStatus = await runCommand("codex", ["login", "status"], root);
   if (authStatus.code !== 0 || !`${authStatus.stdout}\n${authStatus.stderr}`.includes("Logged in using ChatGPT")) {
@@ -98,7 +101,6 @@ async function main() {
   }
   const version = await runCommand("codex", ["--version"], root);
   if (version.code !== 0) throw new Error("Codex 버전을 확인하지 못했습니다.");
-  const reviewerModel = "gpt-5.6-sol";
   const outputDir = reviewResultRoot(manifestPath, addressedSha, manifest.schema);
   const rawDir = join(outputDir, "codex", "raw");
   const resultDir = join(outputDir, "codex", "results");
@@ -161,6 +163,25 @@ async function main() {
   } finally {
     removeShutdownHandlers();
   }
+}
+
+export function resolveCodexReviewModel(
+  manifest: Pick<ReviewManifest, "reviewers">,
+  requestedModel: string | null,
+): string {
+  const codexReviewers = manifest.reviewers?.filter((item) => item.reviewer === "codex") ?? [];
+  if (
+    codexReviewers.length !== 1
+    || codexReviewers[0]?.transport !== "codex-cli"
+    || !codexReviewers[0]?.model?.trim()
+  ) {
+    throw new Error("manifest의 Codex reviewer 모델 결속이 유효하지 않습니다.");
+  }
+  const model = requestedModel ?? DEFAULT_CODEX_INDEPENDENT_REVIEW_MODEL;
+  if (!model.trim() || model !== codexReviewers[0].model) {
+    throw new Error(`Codex 검수 모델은 manifest의 ${codexReviewers[0].model}과 같아야 합니다. 역사 manifest 재개 시 --model=${codexReviewers[0].model}을 지정하세요.`);
+  }
+  return model;
 }
 
 export async function runPacket(options: {

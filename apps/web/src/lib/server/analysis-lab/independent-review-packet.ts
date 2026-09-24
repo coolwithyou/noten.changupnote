@@ -34,6 +34,7 @@ export const INDEPENDENT_REVIEW_RESULT_SCHEMA = "independent-ai-review-result-v1
 export const INDEPENDENT_REVIEW_BUNDLE_SCHEMA = "independent-ai-review-bundle-v1";
 export const INDEPENDENT_REVIEW_COMBINED_RAW_SCHEMA = "independent-ai-review-combined-raw-v1";
 export const INDEPENDENT_REVIEW_AGGREGATE_SCHEMA = "independent-ai-review-aggregate-v2";
+export const DEFAULT_CODEX_INDEPENDENT_REVIEW_MODEL = "gpt-6-sol";
 export const INDEPENDENT_REVIEW_POLICY_VERSION = "codex-only-v9";
 export const LEGACY_INDEPENDENT_REVIEW_POLICY_VERSION = "codex-only-v1";
 export const LEGACY_INDEPENDENT_REVIEW_POLICY_VERSION_V2 = "codex-only-v2";
@@ -300,7 +301,7 @@ export async function prepareIndependentReviewPackets(
     reviewPolicyVersion: INDEPENDENT_REVIEW_POLICY_VERSION,
     guideSha256,
     reviewers: [
-      { reviewer: "codex", transport: "codex-cli", auth: "chatgpt-subscription", model: "gpt-5.6-sol" },
+      { reviewer: "codex", transport: "codex-cli", auth: "chatgpt-subscription", model: DEFAULT_CODEX_INDEPENDENT_REVIEW_MODEL },
     ],
     policy: {
       reviewerMode: "codex-only",

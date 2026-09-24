@@ -5,11 +5,13 @@ import { chmod, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs
 import { join, relative } from "node:path";
 import {
   acquirePacketExecutionLock,
+  resolveCodexReviewModel,
   reusableCompletedResultMatches,
   runCommand,
   runPacket,
 } from "./independent-review-codex-cli";
 import { buildAiReviewToolSchema } from "./ai-review";
+import { DEFAULT_CODEX_INDEPENDENT_REVIEW_MODEL } from "./independent-review-packet";
 import { findMonorepoRoot } from "./run-store";
 
 const repoRoot = findMonorepoRoot();
@@ -95,6 +97,20 @@ try {
     sequence: 2,
     reviewerModel: "gpt-5.6-sol",
   }), false, "다른 packet 결과를 existing으로 재사용하지 않음");
+  assert.equal(reusableCompletedResultMatches(reusable, {
+    packetSha256: "b".repeat(64),
+    sequence: 2,
+    reviewerModel: DEFAULT_CODEX_INDEPENDENT_REVIEW_MODEL,
+  }), false, "역사 결과를 새 모델 결과로 재사용하지 않음");
+  assert.equal(resolveCodexReviewModel({
+    reviewers: [{ reviewer: "codex", transport: "codex-cli", model: DEFAULT_CODEX_INDEPENDENT_REVIEW_MODEL }],
+  }, null), DEFAULT_CODEX_INDEPENDENT_REVIEW_MODEL);
+  assert.throws(() => resolveCodexReviewModel({
+    reviewers: [{ reviewer: "codex", transport: "codex-cli", model: "gpt-5.6-sol" }],
+  }, null), /--model=gpt-5\.6-sol/u, "역사 manifest는 명시적 모델 선택 전 모델을 실행하지 않음");
+  assert.equal(resolveCodexReviewModel({
+    reviewers: [{ reviewer: "codex", transport: "codex-cli", model: "gpt-5.6-sol" }],
+  }, "gpt-5.6-sol"), "gpt-5.6-sol");
 
   const fakeBin = join(tempRoot, "bin");
   await mkdir(fakeBin, { recursive: true });
@@ -177,6 +193,7 @@ if (mode === "stall_then_success" && count === 1) {
   assert.match(deliveredStdin, /\[공고별 검수 입력 — 원문 및 추출 조건\]\nfixture-user-evidence/u);
   assert.doesNotMatch(deliveredStdin, /"outputSchema"/u, "CLI flag로 전달하는 출력 schema를 stdin에 중복하지 않음");
   const deliveredArgs = JSON.parse(await readFile(retryArgsPath, "utf8")) as string[];
+  assert.equal(deliveredArgs[deliveredArgs.indexOf("--model") + 1], DEFAULT_CODEX_INDEPENDENT_REVIEW_MODEL);
   assert.equal(deliveredArgs.includes(retryCase.packetPath), false, "Codex에 packet 파일 read 경로를 지시하지 않음");
   assert.equal(deliveredArgs.at(-1)?.includes("stdin의 [검수 규칙]"), true, "prompt+stdin 계약을 사용");
   delete process.env.FAKE_CODEX_STDIN_PATH;
@@ -237,16 +254,69 @@ if (mode === "stall_then_success" && count === 1) {
   process.env.FAKE_CODEX_STATE_PATH = reuseState;
   const reuseOutcome = await runPacket({
     ...reuseCase.options,
+    reviewerModel: "gpt-5.6-sol",
     timeoutMs: 2_000,
     stallTimeoutMs: 200,
   });
   assert.equal(reuseOutcome.status, "existing");
   await assert.rejects(readFile(reuseState), "exact 완료 검수는 모델 신규 호출 없이 재사용");
 
+  const legacyCase = await preparePacketCase("legacy-model", 15);
+  const legacyManifest = {
+    schema: "independent-ai-review-manifest-v2",
+    reviewers: [{ reviewer: "codex", transport: "codex-cli", auth: "chatgpt-subscription", model: "gpt-5.6-sol" }],
+    packets: [legacyCase.options.packet],
+  };
+  const legacyManifestBytes = Buffer.from(`${JSON.stringify(legacyManifest)}\n`, "utf8");
+  const legacyManifestSha = sha256(legacyManifestBytes);
+  const legacyManifestPath = join(legacyCase.base, `${legacyManifestSha}.manifest.json`);
+  const legacyState = join(legacyCase.base, "state.txt");
+  const legacyArgs = join(legacyCase.base, "args.json");
+  await writeFile(legacyManifestPath, legacyManifestBytes);
+  const invokeLegacyCli = async (args: string[]) => {
+    const cli = spawn(process.execPath, [
+      "--import", "tsx",
+      join(repoRoot, "apps/web/src/lib/server/analysis-lab/independent-review-codex-cli.ts"),
+      `--manifest=${legacyManifestPath}`,
+      ...args,
+    ], {
+      cwd: repoRoot,
+      env: {
+        ...process.env,
+        PATH: `${fakeBin}:${originalPath ?? ""}`,
+        TSX_TSCONFIG_PATH: "apps/web/tsconfig.json",
+        FAKE_CODEX_MODE: "success",
+        FAKE_CODEX_STATE_PATH: legacyState,
+        FAKE_CODEX_ARGS_PATH: legacyArgs,
+      },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let stderr = "";
+    cli.stderr.setEncoding("utf8");
+    cli.stderr.on("data", (chunk: string) => { stderr += chunk; });
+    return new Promise<{ code: number | null; stderr: string }>((resolveExit, rejectExit) => {
+      cli.once("error", rejectExit);
+      cli.once("close", (code) => resolveExit({ code, stderr }));
+    });
+  };
+  const legacyDefault = await invokeLegacyCli([]);
+  assert.notEqual(legacyDefault.code, 0);
+  assert.match(legacyDefault.stderr, /--model=gpt-5\.6-sol/u);
+  await assert.rejects(readFile(legacyState), "잘못된 모델로는 호출 0회");
+  const legacyExplicit = await invokeLegacyCli(["--model=gpt-5.6-sol"]);
+  assert.equal(legacyExplicit.code, 0, legacyExplicit.stderr);
+  assert.equal(await readFile(legacyState, "utf8"), "1");
+  const legacyResultPath = join(legacyCase.base, "review-runs", legacyManifestSha, "codex", "results", "sequence-15.json");
+  const legacyResult = JSON.parse(await readFile(legacyResultPath, "utf8")) as { reviewerModel: string };
+  assert.equal(legacyResult.reviewerModel, "gpt-5.6-sol", "역사 모델 provenance 유지");
+  const legacyDeliveredArgs = JSON.parse(await readFile(legacyArgs, "utf8")) as string[];
+  assert.equal(legacyDeliveredArgs[legacyDeliveredArgs.indexOf("--model") + 1], "gpt-5.6-sol");
+
   for (const [signalName, sequence] of [["SIGTERM", 20], ["SIGINT", 21]] as const) {
     const signalCase = await preparePacketCase(`main-${signalName.toLowerCase()}`, sequence);
     const manifest = {
       schema: "independent-ai-review-manifest-v2",
+      reviewers: [{ reviewer: "codex", transport: "codex-cli", auth: "chatgpt-subscription", model: DEFAULT_CODEX_INDEPENDENT_REVIEW_MODEL }],
       packets: [signalCase.options.packet],
     };
     const manifestBytes = Buffer.from(`${JSON.stringify(manifest)}\n`, "utf8");
@@ -369,7 +439,7 @@ async function preparePacketCase(name: string, sequence: number) {
       logDir,
       lockDir,
       progressPath: join(base, "progress.jsonl"),
-      reviewerModel: "gpt-5.6-sol",
+      reviewerModel: DEFAULT_CODEX_INDEPENDENT_REVIEW_MODEL,
     },
   };
 }
