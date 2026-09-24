@@ -7,8 +7,10 @@ import test from "node:test";
 import { buildCurrentInventoryLaunchManifest, type CurrentLaunchInventory } from "./current-inventory-launch";
 import {
   isCurrentEligibleMatchingTargetClosingToday,
+  prepareCurrentEligibleMatchingTargets,
   prepareMatchingCampaignLaunch,
 } from "./current-inventory-launch-production";
+import { LabGrantNotFoundError } from "./analyze";
 import {
   createAnalysisLaunchGrant,
   encodeCanonical,
@@ -22,9 +24,11 @@ import {
   createMatchingCampaignIndex,
   createMatchingCampaignRunNextPlan,
   partitionMatchingCampaignGrantIds,
+  readMatchingInventoryClassification,
   readMatchingCampaignIndex,
   selectMatchingCampaignResume,
   storeMatchingCampaignIndex,
+  storeMatchingInventoryClassification,
   type MatchingInventorySnapshotTarget,
 } from "./matching-inventory-campaign";
 import {
@@ -42,10 +46,30 @@ import {
 } from "./matching-inventory-campaign-production";
 import { parseMatchingCampaignArgs } from "./matching-inventory-campaign-cli";
 import { createAnalysisLaunchStatus } from "./launch-status";
+import type { GrantSupplyPlan, GrantSupplyStage } from "../productReadiness/grantSupply";
 
 const hex = (char: string) => char.repeat(64);
 const id = (value: number) => `00000000-0000-4000-8000-${String(value).padStart(12, "0")}`;
 const digest = (value: unknown) => createHash("sha256").update(encodeCanonical(value)).digest("hex");
+
+function supplyPlan(index: number, stage: GrantSupplyStage, action: GrantSupplyPlan["nextWorkAction"]): GrantSupplyPlan {
+  return {
+    schema: "grant-supply-plan-v1",
+    grantId: id(index),
+    evidenceSha256: hex("c"),
+    nextWorkAction: action,
+    stage,
+    reason: `test_${stage}`,
+    owner: "reviewer",
+    requiredInput: null,
+    reusedRunId: null,
+    assetBinding: null,
+    candidateRuns: [],
+    candidateRunCount: 0,
+    candidatesTruncated: false,
+    modelCalls: 0,
+  };
+}
 
 function target(
   index: number,
@@ -120,6 +144,145 @@ test("공통 next-work는 모델 분석이 필요한 대상만 campaign 후보�
     { reason: "readiness:coverage_review", eligible: false, nextAction: "review_source_coverage" },
     { reason: "readiness:reuse_ready", eligible: false, nextAction: "reuse" },
   ]);
+});
+
+test("SHA 없는 준비도 판정은 보존하고 실행 판정만 exact material을 요구한다", () => {
+  const base = { ...target(70, { kind: "none" }), inputSha256: null, attachmentManifestSha256: null };
+  const reusable = classifyMatchingInventorySnapshot({
+    observedAt: "2026-09-22T00:00:00.000Z",
+    targets: [{ ...base, readinessNextWork: "reuse_ready" }],
+  });
+  assert.equal(reusable.entries[0]?.campaignEligible, false);
+  assert.equal(reusable.entries[0]?.current.inputSha256, null);
+  assert.throws(() => classifyMatchingInventorySnapshot({
+    observedAt: "2026-09-22T00:00:00.000Z",
+    targets: [{ ...base, readinessNextWork: "condition_analysis" }],
+  }), /current material/);
+  const failed = classifyMatchingInventorySnapshot({
+    observedAt: "2026-09-22T00:00:00.000Z",
+    targets: [{ ...base, preparationFailure: "grant_missing" }],
+  });
+  assert.equal(failed.entries[0]?.reason, "preparation:grant_missing");
+  assert.equal(failed.entries[0]?.campaignEligible, false);
+});
+
+test("기존 v1 classification artifact는 원래 SHA와 schema로 계속 읽는다", async () => {
+  const root = await mkdtemp(join(tmpdir(), "cunote-matching-classification-"));
+  try {
+    const current = classifyMatchingInventorySnapshot({
+      observedAt: "2026-09-22T00:00:00.000Z",
+      targets: [target(74, { kind: "none" })],
+    });
+    const legacy = { ...current, schema: "analysis-matching-inventory-classification-v1" as const };
+    const stored = await storeMatchingInventoryClassification(root, legacy);
+    const loaded = await readMatchingInventoryClassification(root, stored.sha256);
+    assert.deepEqual(loaded, legacy);
+    assert.equal(stored.sha256, digest(legacy));
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("선택한 입력 준비는 단건 결손을 격리하고 공유 장애를 중단한다", async () => {
+  const candidates = [70, 71, 72].map((index) => ({ grantId: id(index), closesToday: false }));
+  const called: string[] = [];
+  const prepared = await prepareCurrentEligibleMatchingTargets(candidates, async (grantId) => {
+    called.push(grantId);
+    if (grantId === id(70)) throw new LabGrantNotFoundError(grantId);
+    return { grant: { id: grantId }, input: { inputSha256: hex("a"), attachmentManifestSha256: hex("b") } };
+  });
+  assert.deepEqual(called, candidates.map((item) => item.grantId));
+  assert.equal(prepared.get(id(70))?.preparationFailure, "grant_missing");
+  assert.equal(prepared.get(id(71))?.inputSha256, hex("a"));
+  assert.equal(prepared.get(id(72))?.inputSha256, hex("a"));
+  await assert.rejects(
+    prepareCurrentEligibleMatchingTargets(candidates, async () => { throw new Error("shared storage unavailable"); }),
+    /shared storage unavailable/,
+  );
+});
+
+test("metadata 후보 중 실행 대상만 준비하고 실패 대상의 사유를 보존한다", async () => {
+  const prepared: string[][] = [];
+  const result = await prepareMatchingInventoryCampaign({
+    asOf: new Date("2026-09-22T00:00:00.000Z"),
+    allowedStage: "prepare",
+    dependencies: {
+      root: "/mock",
+      readCurrentCandidates: async () => [70, 71, 72, 73].map((index) => ({ grantId: id(index), closesToday: false })),
+      readHistory: async () => new Map(),
+      readNextWork: async () => new Map([
+        [id(70), "reuse_ready" as const],
+        [id(71), "condition_analysis" as const],
+        [id(72), "condition_analysis" as const],
+        [id(73), "condition_review" as const],
+      ]),
+      prepareSelected: async (selected) => {
+        prepared.push(selected.map((item) => item.grantId));
+        return new Map([
+          [id(71), { ...selected[0]!, inputSha256: hex("a"), attachmentManifestSha256: hex("b") }],
+          [id(72), { ...selected[1]!, inputSha256: null, attachmentManifestSha256: null,
+            preparationFailure: "input_integrity" as const }],
+        ]);
+      },
+      prepareCurrent: async (grantIds) => {
+        const value = manifest(grantIds, 9);
+        return { manifest: value, manifestSha256: digest(value) };
+      },
+      prepareTerminal: async () => { throw new Error("unexpected terminal prepare"); },
+      storeClassification: async (value) => ({ sha256: digest(value), path: "/mock/classification.json" }),
+      storeIndex: async (value) => ({ sha256: digest(value), path: "/mock/campaign.json" }),
+    },
+  });
+  assert.deepEqual(prepared, [[id(71), id(72)]]);
+  assert.deepEqual(result.classification.entries.map((entry) => entry.nextAction), [
+    "reuse", "prepare_matching_only", "recover_source", "review_current_conditions",
+  ]);
+  assert.equal(result.index.children.length, 1);
+  assert.deepEqual(result.index.children[0]?.targetGrantIds, [id(71)]);
+});
+
+test("공급 판정 증거가 재사용·검수·자산 조회 불가를 모델 준비에서 제외한다", async () => {
+  const indices = [80, 81, 82, 83, 84];
+  const plans = new Map([
+    [id(80), supplyPlan(80, "ready", "reuse_ready")],
+    [id(81), supplyPlan(81, "review_existing_analysis", "condition_analysis")],
+    [id(82), supplyPlan(82, "asset_inventory_unavailable", "condition_analysis")],
+    [id(83), supplyPlan(83, "await_approved_model_run", "condition_analysis")],
+    [id(84), supplyPlan(84, "prepare_promotion_release", "condition_analysis")],
+  ]);
+  const prepared: string[][] = [];
+  const result = await prepareMatchingInventoryCampaign({
+    asOf: new Date("2026-09-22T00:00:00.000Z"),
+    allowedStage: "prepare",
+    dependencies: {
+      root: "/mock",
+      readCurrentCandidates: async () => indices.map((index) => ({ grantId: id(index), closesToday: false })),
+      readHistory: async () => new Map(),
+      readSupplyPlans: async () => plans,
+      prepareSelected: async (selected) => {
+        prepared.push(selected.map((candidate) => candidate.grantId));
+        return new Map(selected.map((candidate) => [candidate.grantId, {
+          ...candidate, inputSha256: hex("a"), attachmentManifestSha256: hex("b"),
+        }]));
+      },
+      prepareCurrent: async (grantIds) => {
+        const value = manifest(grantIds, 9);
+        return { manifest: value, manifestSha256: digest(value) };
+      },
+      prepareTerminal: async () => { throw new Error("unexpected terminal prepare"); },
+      storeClassification: async (value) => ({ sha256: digest(value), path: "/mock/classification.json" }),
+      storeIndex: async (value) => ({ sha256: digest(value), path: "/mock/campaign.json" }),
+    },
+  });
+  assert.deepEqual(prepared, [[id(83)]]);
+  assert.deepEqual(result.classification.entries.map((entry) => entry.nextAction), [
+    "reuse", "review_existing_analysis", "inspect_asset_inventory", "prepare_matching_only",
+    "prepare_promotion_release",
+  ]);
+  assert.deepEqual(result.classification.entries.map((entry) => entry.supplyEvidenceSha256),
+    Array.from({ length: 5 }, () => hex("c")));
+  assert.deepEqual(result.index.children[0]?.targetGrantIds, [id(83)]);
+  assert.equal(result.modelCalls, 0);
 });
 
 test("101개 exact ID를 기존 상한 100과 1로만 나눈다", () => {

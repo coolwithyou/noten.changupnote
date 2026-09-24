@@ -16,6 +16,7 @@ import { verifyServingMonitorPostgres } from "../deep-analysis/servingMonitorPos
 import { verifyApplicationFieldRepairPostgres } from "../analysis-lab/applicationFieldRepairPostgres.integration";
 import { verifyLegacyQuestionMigrationReleasePostgres } from "../productReadiness/legacyQuestionMigrationReleasePostgres.integration";
 import { verifyQuestionPreparationAdapterPostgres } from "../productReadiness/questionPreparationAdapterPostgres.integration";
+import { verifyNewGrantFormalSupplyPostgres } from "../productReadiness/newGrantFormalSupplyPostgres.integration";
 import { verifySourceRebindAdapterPostgres } from "../productReadiness/sourceRebindAdapterPostgres.integration";
 
 const socket = process.env.CUNOTE_PRODUCT_TEST_SOCKET ?? "";
@@ -146,7 +147,8 @@ try {
     companyId: creationId,
     userId,
   });
-  await verifyQuestionPreparationAdapterPostgres({ admin, socket });
+  await verifyQuestionPreparationAdapterPostgres({ admin, socket, companyId: creationId, userId });
+  await verifyNewGrantFormalSupplyPostgres({ admin, socket, companyId: creationId });
   await verifySourceRebindAdapterPostgres({ admin, socket, companyId: creationId });
   await admin`delete from user_company where user_id=${userId} and company_id=${creationId}`;
   await assert.rejects(() => repo.createCompany({ userId, creationId, profile }));

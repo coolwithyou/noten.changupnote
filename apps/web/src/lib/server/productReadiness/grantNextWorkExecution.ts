@@ -100,6 +100,8 @@ export async function executeGrantNextWork(input: {
   readonly expectedEvidenceSha256: string;
   readonly loadSnapshot: (grantId: string) => Promise<GrantNextWorkSnapshot>;
   readonly adapters: ReadonlyMap<GrantNextWorkAction, GrantNextWorkAdapter>;
+  /** 검증된 기존 분석 자산을 승인 release로 발행할 때만 사용한다. adapter는 모델 호출 0을 증명해야 한다. */
+  readonly approvedAnalysisReuse?: boolean;
 }): Promise<GrantNextWorkExecutionResult> {
   const grantId = exactUuid(input.grantId);
   exactSha256(input.expectedEvidenceSha256, "expected evidence");
@@ -118,7 +120,10 @@ export async function executeGrantNextWork(input: {
       reason: "readiness_already_complete",
     });
   }
-  if (before.nextWork.requiresModelRun) {
+  if (before.nextWork.requiresModelRun && !(
+    input.approvedAnalysisReuse && action === "condition_analysis"
+    && input.adapters.get(action)?.action === "condition_analysis"
+  )) {
     return result({
       before,
       status: "blocked",

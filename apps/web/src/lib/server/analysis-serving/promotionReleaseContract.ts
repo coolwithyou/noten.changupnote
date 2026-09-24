@@ -9,6 +9,7 @@ import { matchingConversionIsPromotionSafe } from "./matchingConversionContract"
 import {
   validatePromotionApplicationPrecomputeEvidence,
   type PromotionApplicationPrecomputeEvidence,
+  type PromotionApplicationPrecomputeValidationPurpose,
 } from "./applicationPrecomputeEvidence";
 import { LAB_DETERMINISTIC_AUDIT_POLICY_VERSION } from "./auditPolicy";
 import { normalizeAnalysisFeatureReadiness } from "./analysisFeatureReadiness";
@@ -952,7 +953,10 @@ export function createPromotionReleaseManifest(
   return { ...body, manifestSha256: sha256Canonical(body) };
 }
 
-export function validatePromotionReleaseManifest(value: unknown): PromotionReleaseManifest {
+export function validatePromotionReleaseManifest(
+  value: unknown,
+  purpose: PromotionApplicationPrecomputeValidationPurpose = "current_admission",
+): PromotionReleaseManifest {
   if (!value || typeof value !== "object") throw new Error("release manifest가 객체가 아닙니다.");
   const manifest = value as Partial<PromotionReleaseManifest>;
   if (
@@ -1165,7 +1169,7 @@ export function validatePromotionReleaseManifest(value: unknown): PromotionRelea
   }
   for (const artifact of typed.sourceArtifacts) {
     if (artifact.applicationPrecompute !== undefined) {
-      validatePromotionApplicationPrecomputeEvidence(artifact.applicationPrecompute);
+      validatePromotionApplicationPrecomputeEvidence(artifact.applicationPrecompute, purpose);
       if (
         artifact.applicationPrecompute.releaseId !== typed.releaseId
         || artifact.applicationPrecompute.grantId !== artifact.grantId

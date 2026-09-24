@@ -19,6 +19,12 @@ import {
 import { LAB_CONFIRMATIONS_SCHEMA, type LabConfirmationsFile } from "./confirmations";
 import { planGrantPromotion, questionDefinitionSha256 } from "./promote";
 import {
+  buildConfirmationQuestionDraftPacket,
+  validateBoundManualConfirmationInput,
+} from "./confirmation-question-draft";
+import { CONFIRMATION_QUESTION_MANUAL_INPUT_SCHEMA } from "@cunote/contracts/confirmation-question-draft";
+import { buildCompanyFactReuseIdentity } from "../matches/companyFactReuse";
+import {
   capturePrimaryMatchingProjectionSnapshot,
   primaryProjectionSource,
 } from "./primary-matching-projection";
@@ -107,6 +113,48 @@ const artifact = buildManualConfirmationEvaluationsArtifact({
   createdAt: "2026-09-07T00:02:00.000Z",
   items,
 });
+const legacyCompanyFactArtifact = {
+  ...artifact,
+  items: [{
+    criterionIndex: 0,
+    resolutionScope: "company_fact" as const,
+    conditionKey: "legacy_company_fact",
+    prompt: items[0]!.prompt,
+    options: items[0]!.options,
+  }],
+};
+assert.throws(() => buildManualConfirmationEvaluationsArtifact({
+  run,
+  review,
+  createdAt: "2026-09-07T00:02:00.000Z",
+  items: legacyCompanyFactArtifact.items,
+}), /정규화 scope\/기준일이 없어/);
+const legacyDirectory = await mkdtemp(join(tmpdir(), "cunote-legacy-company-fact-"));
+try {
+  const legacyPath = join(legacyDirectory, "legacy.confirmation-evaluations.json");
+  await writeFile(legacyPath, `${JSON.stringify(legacyCompanyFactArtifact, null, 2)}\n`);
+  const legacySelection = manualConfirmationEvaluationSelectionForArtifact(legacyCompanyFactArtifact);
+  const selectedLegacy = await readSelectedManualConfirmationEvaluations(
+    run, legacySelection, { basePath: legacyPath },
+  );
+  assert.equal(selectedLegacy.artifact.items[0]?.conditionKey, "legacy_company_fact");
+  assert.equal(selectedLegacy.artifact.items[0]?.companyFactReview, undefined);
+  const historicalPlan = planGrantPromotion({
+    run, review, origin: "human", sidecar: null,
+    manualEvaluationSidecar: selectedLegacy.artifact,
+    manualConfirmationEvaluationSelection: selectedLegacy.selection,
+    sourceRawSha256: "c".repeat(64),
+  });
+  assert.equal(historicalPlan.questions[0]?.conditionKey, "legacy_company_fact");
+  await assert.rejects(resolveManualConfirmationEvaluationsForPreparation(
+    run, legacySelection, { basePath: legacyPath },
+  ), /읽기 전용이며 새 발행·재사용/);
+  await assert.rejects(saveManualConfirmationEvaluations(
+    legacyCompanyFactArtifact, run, join(legacyDirectory, "new.json"),
+  ), /읽기 전용이며 새 발행·재사용/);
+} finally {
+  await rm(legacyDirectory, { recursive: true, force: true });
+}
 assert.equal(mergeManualConfirmationEvaluations(run, artifact).criteria[0]?.confirmation?.evaluationContractVersion, "confirmation-evaluation-v2");
 const plan = planGrantPromotion({
   run,
@@ -120,6 +168,173 @@ assert.equal(plan.questions[0]?.evaluationContractVersion, "confirmation-evaluat
 assert.equal(plan.questions[0]?.sourceRawSha256, "c".repeat(64));
 assert.equal(plan.questions[0]?.criterionIndex, 0);
 assert.equal(plan.questions[0]?.resolutionState, "confirmed_correct");
+
+let companyFactRun: LabRun = { ...run, criteria: [{
+  ...criterion,
+  value: { fact_scope: "registered_business", basis_date: "2026-09-22" },
+}] };
+companyFactRun = {
+  ...companyFactRun,
+  primaryMatchingProjection: capturePrimaryMatchingProjectionSnapshot({
+    source: primaryProjectionSource({
+      runId: companyFactRun.runId,
+      grantId: companyFactRun.grantId,
+      source: companyFactRun.source,
+      sourceId: companyFactRun.sourceId,
+      inputSha256: companyFactRun.inputSha256,
+      criteria: companyFactRun.criteria,
+    }),
+    primaryExtractionAvailable: true,
+  }),
+};
+const companyFactReview = {
+  meaning: "현재 등록 사업장을 보유하는지",
+  definitionKey: "verified_company_fact",
+  definitionSource: "new_review" as const,
+  scopeField: "fact_scope",
+  scopeValue: "registered_business",
+  asOfField: "basis_date",
+  asOfDate: "2026-09-22",
+  reviewArtifactSha256: "d".repeat(64),
+};
+assert.throws(() => buildManualConfirmationEvaluationsArtifact({
+  run: companyFactRun,
+  review,
+  createdAt: "2026-09-07T00:03:00.000Z",
+  items: [{ ...items[0], resolutionScope: "company_fact", conditionKey: "verified_company_fact" }],
+}), /bound review artifact/);
+const companyFactArtifact = buildManualConfirmationEvaluationsArtifact({
+  run: companyFactRun,
+  review,
+  createdAt: "2026-09-07T00:03:00.000Z",
+  reviewArtifactSha256: companyFactReview.reviewArtifactSha256,
+  items: [{ ...items[0], resolutionScope: "company_fact", conditionKey: "verified_company_fact", companyFactReview }],
+});
+const companyFactPlan = planGrantPromotion({
+  run: companyFactRun,
+  review,
+  origin: "human",
+  sidecar: null,
+  manualEvaluationSidecar: companyFactArtifact,
+  sourceRawSha256: "c".repeat(64),
+});
+assert.equal(companyFactPlan.questions[0]?.reusable, "company_fact");
+assert.match(companyFactPlan.questions[0]?.conditionKey ?? "", /^cf2_[0-9a-f]{64}$/);
+assert.equal(companyFactArtifact.items[0]?.companyFactReview?.reviewArtifactSha256, "d".repeat(64));
+const differentMeaningArtifact = buildManualConfirmationEvaluationsArtifact({
+  run: companyFactRun,
+  review,
+  createdAt: "2026-09-07T00:03:00.000Z",
+  reviewArtifactSha256: companyFactReview.reviewArtifactSha256,
+  items: [{ ...items[0], resolutionScope: "company_fact", conditionKey: "verified_company_fact",
+    companyFactReview: { ...companyFactReview, meaning: "등록 사업장의 소유 여부" } }],
+});
+assert.notEqual(differentMeaningArtifact.items[0]?.conditionKey, companyFactArtifact.items[0]?.conditionKey,
+  "같은 자유 입력 키와 criterion이어도 사람 검수 의미가 다르면 공유 키가 달라진다");
+const companyFactRunBytes = Buffer.from(`${JSON.stringify(companyFactRun, null, 2)}\n`);
+const companyFactReviewBytes = Buffer.from(`${JSON.stringify(review, null, 2)}\n`);
+const boundPacket = buildConfirmationQuestionDraftPacket({
+  run: companyFactRun,
+  review,
+  runArtifactSha256: createHash("sha256").update(companyFactRunBytes).digest("hex"),
+  reviewArtifactSha256: createHash("sha256").update(companyFactReviewBytes).digest("hex"),
+});
+const boundReview = {
+  ...companyFactReview,
+  reviewArtifactSha256: boundPacket.source.reviewArtifactSha256,
+};
+const boundManual = validateBoundManualConfirmationInput({
+  raw: {
+    schema: CONFIRMATION_QUESTION_MANUAL_INPUT_SCHEMA,
+    draftPacket: boundPacket,
+    manualInput: {
+      questionAuthorEmail: "author@example.invalid",
+      items: [{ ...items[0], resolutionScope: "company_fact", conditionKey: "verified_company_fact", companyFactReview: boundReview }],
+    },
+  },
+  runArtifactBytes: companyFactRunBytes,
+  reviewArtifactBytes: companyFactReviewBytes,
+});
+const boundArtifact = buildManualConfirmationEvaluationsArtifact({
+  run: boundManual.run,
+  review: boundManual.review,
+  questionAuthorEmail: boundManual.manualInput.questionAuthorEmail,
+  reviewArtifactSha256: boundManual.reviewArtifactSha256,
+  createdAt: "2026-09-07T00:04:00.000Z",
+  items: boundManual.manualInput.items,
+});
+const boundSelection = manualConfirmationEvaluationSelectionForArtifact(boundArtifact);
+const boundPlan = planGrantPromotion({
+  run: companyFactRun,
+  review,
+  origin: "human",
+  sidecar: null,
+  manualEvaluationSidecar: boundArtifact,
+  manualConfirmationEvaluationSelection: boundSelection,
+  sourceRawSha256: "c".repeat(64),
+});
+assert.deepEqual(boundPlan.manualConfirmationEvaluationSelection, boundSelection);
+assert.match(boundPlan.questions[0]?.conditionKey ?? "", /^cf2_[0-9a-f]{64}$/);
+assert.equal(boundArtifact.items[0]?.companyFactReview?.reviewArtifactSha256, boundPacket.source.reviewArtifactSha256);
+const boundRevision = buildManualConfirmationEvaluationsRevisionArtifact({
+  run: companyFactRun,
+  review,
+  parent: {
+    artifact: boundArtifact,
+    selection: boundSelection,
+    path: "synthetic-fixture-only",
+    legacyShaOnly: false,
+  },
+  questionAuthorEmail: "author@example.invalid",
+  createdAt: "2026-09-07T00:05:00.000Z",
+  intent: "replace",
+  withdrawnCriterionIndexes: [],
+  reviewArtifactSha256: boundPacket.source.reviewArtifactSha256,
+  items: [{ ...boundManual.manualInput.items[0]!, prompt: "검수자가 수정한 질문" }],
+});
+const boundRevisionSelection = manualConfirmationEvaluationSelectionForArtifact(boundRevision);
+const boundRevisionPlan = planGrantPromotion({
+  run: companyFactRun,
+  review,
+  origin: "human",
+  sidecar: null,
+  manualEvaluationSidecar: boundRevision,
+  manualConfirmationEvaluationSelection: boundRevisionSelection,
+  sourceRawSha256: "c".repeat(64),
+});
+assert.deepEqual(boundRevisionPlan.manualConfirmationEvaluationSelection, boundRevisionSelection);
+assert.equal(boundRevisionPlan.questions[0]?.conditionKey, boundPlan.questions[0]?.conditionKey);
+const plannedFactQuestion = boundRevisionPlan.questions[0]!;
+const plannedFactCriterion = boundRevisionPlan.criteria[plannedFactQuestion.criteriaPosition]!;
+assert.ok(buildCompanyFactReuseIdentity({
+  questionId: "synthetic-plan-question",
+  grantId: companyFactRun.grantId,
+  reusable: plannedFactQuestion.reusable,
+  conditionKey: plannedFactQuestion.conditionKey,
+  evaluationContractVersion: plannedFactQuestion.evaluationContractVersion ?? null,
+  answerType: plannedFactQuestion.answerType,
+  options: plannedFactQuestion.options,
+  criterion: {
+    dimension: plannedFactCriterion.dimension,
+    kind: plannedFactCriterion.kind,
+    operator: plannedFactCriterion.operator,
+    value: plannedFactCriterion.value,
+  },
+}), "promotion plan의 발행 criterion과 검수 정의가 공유 identity를 유지한다");
+assert.throws(() => buildManualConfirmationEvaluationsArtifact({
+  run: companyFactRun,
+  review,
+  createdAt: "2026-09-07T00:03:00.000Z",
+  reviewArtifactSha256: companyFactReview.reviewArtifactSha256,
+  items: [{ ...items[0], resolutionScope: "company_fact", conditionKey: "Invalid Key", companyFactReview }],
+}), /회사 사실 입력 키가 검수 정의와 다릅니다/);
+assert.throws(() => buildManualConfirmationEvaluationsArtifact({
+  run,
+  review,
+  createdAt: "2026-09-07T00:03:00.000Z",
+  reviewArtifactSha256: companyFactReview.reviewArtifactSha256,
+  items: [{ ...items[0], resolutionScope: "company_fact", conditionKey: "verified_company_fact", companyFactReview }],
+}), /정규화 scope\/기준일이 없어/);
 
 const industryCriterion: LabCriterion = {
   ...criterion,

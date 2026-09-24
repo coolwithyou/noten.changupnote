@@ -13,7 +13,9 @@ import {
   sourceSpanHash,
   type GrantPromotionPlan,
 } from "../analysis-lab/promote";
+import type { LabRun } from "../analysis-lab/lab-contract";
 import { createGrantNextWorkSnapshot } from "./grantNextWorkExecution";
+import { createApprovedAnalysisPromotionAdapter, type GrantSupplyAsset } from "./grantSupply";
 import {
   bindQuestionPreparationRelease,
   createQuestionPreparationAdapter,
@@ -55,6 +57,17 @@ function snapshot() {
         eligibleQuestionCriterionStableKeys: [CRITERION_KEY],
       },
       questions: [],
+    },
+  });
+}
+
+function missingSnapshot() {
+  const current = snapshot();
+  return createGrantNextWorkSnapshot({
+    grantId: GRANT_ID,
+    readinessInput: {
+      ...current.readinessInput,
+      analysis: { ...current.readinessInput.analysis, status: "missing" },
     },
   });
 }
@@ -274,6 +287,181 @@ function rebuildManifest(
   });
 }
 
+test("미발행 분석은 exact 검수 자산과 승인 release가 같을 때만 기존 writer 포트에 전달한다", async () => {
+  const original = manifest();
+  const bound = original;
+  const current = missingSnapshot();
+  const asset: GrantSupplyAsset = {
+    runId: RUN_ID,
+    sourceRevisionSha256: REVISION,
+    inputSha256: bound.sourceArtifacts[0]!.localLabEvidence!.inputSha256,
+    attachmentManifestSha256: bound.sourceArtifacts[0]!.localLabEvidence!.analysisLaunch!.attachmentManifestSha256,
+    runSha256: bound.sourceArtifacts[0]!.runSha256,
+    currentBinding: "verified",
+    reviewStatus: "unreviewed",
+    reviewSha256: null,
+    questionDemand: "unknown",
+    manualStatus: "active",
+    manualSelection: { revision: 1, artifactSha256: SELECTION_SHA },
+    draftPacketSha256: null,
+  };
+  const loadRun = async () => ({
+    grantId: GRANT_ID,
+    runId: RUN_ID,
+    inputSha256: asset.inputSha256,
+    attachmentManifestSha256: asset.attachmentManifestSha256,
+    criteria: [{
+      dimension: "industry",
+      kind: "required",
+      operator: "text_only",
+      value: { note: "공고에 열거된 업종" },
+      sourceSpan: "식품·생활용품·가정용품 분야 중소기업",
+      spanVerified: true,
+      confidence: 1,
+    }],
+  } as unknown as LabRun);
+  let writes = 0;
+  const port: ApprovedQuestionPreparationReleasePort = {
+    loadApprovedRelease: async () => approvedRelease(bound),
+    applyApprovedCanary: async () => {
+      writes += 1;
+      return { afterStateSha256: "2".repeat(64), replayed: false, externalWrites: 1 };
+    },
+  };
+  const adapter = createApprovedAnalysisPromotionAdapter({
+    releaseId: bound.releaseId,
+    manifestSha256: bound.manifestSha256,
+    executedBy: "question-executor",
+    supplyPlanEvidenceSha256: current.evidenceSha256,
+    asset,
+    port,
+    loadRun,
+  });
+  const execution = { grantId: GRANT_ID, expectedEvidenceSha256: current.evidenceSha256, snapshot: current };
+  const applied = await adapter.execute(execution);
+  assert.equal(applied.modelCalls, 0);
+  assert.equal(applied.externalWrites, 1);
+  assert.equal(writes, 1);
+  await assert.rejects(
+    createApprovedAnalysisPromotionAdapter({
+      releaseId: bound.releaseId,
+      manifestSha256: bound.manifestSha256,
+      executedBy: "question-executor",
+      supplyPlanEvidenceSha256: current.evidenceSha256,
+      asset: { ...asset, reviewStatus: "held" },
+      port,
+      loadRun,
+    }).execute(execution),
+    /grant_supply_analysis_asset_not_publishable/,
+  );
+  assert.equal(writes, 1);
+  await assert.rejects(
+    createApprovedAnalysisPromotionAdapter({
+      releaseId: bound.releaseId,
+      manifestSha256: bound.manifestSha256,
+      executedBy: "question-executor",
+      supplyPlanEvidenceSha256: current.evidenceSha256,
+      asset: { ...asset, manualStatus: "absent", manualSelection: null },
+      port,
+      loadRun,
+    }).execute(execution),
+    /grant_supply_analysis_release_binding_mismatch/,
+  );
+  assert.equal(writes, 1);
+  const { manualConfirmationEvaluationSelection: _unusedPlanSelection, ...planWithoutSelection } =
+    bound.plans[0]!.promotionPlan;
+  const { manualConfirmationEvaluationSelection: _unusedSourceSelection,
+    manualConfirmationEvaluationsSha256: _unusedManualSha, ...sourceWithoutSelection } =
+    bound.sourceArtifacts[0]!;
+  const planWithoutQuestion = { ...planWithoutSelection, questions: [] };
+  const missingQuestionManifest = rebuildManifest(bound, {
+    plans: [{
+      ...bound.plans[0]!,
+      promotionPlan: planWithoutQuestion,
+      planSha256: planSha256(planWithoutQuestion),
+      questionCountAfter: 0,
+    }],
+    sourceArtifacts: [sourceWithoutSelection],
+  });
+  await assert.rejects(
+    createApprovedAnalysisPromotionAdapter({
+      releaseId: missingQuestionManifest.releaseId,
+      manifestSha256: missingQuestionManifest.manifestSha256,
+      executedBy: "question-executor",
+      supplyPlanEvidenceSha256: current.evidenceSha256,
+      asset: { ...asset, manualStatus: "absent", manualSelection: null },
+      port: { ...port, loadApprovedRelease: async () => approvedRelease(missingQuestionManifest) },
+      loadRun,
+    }).execute(execution),
+    /grant_supply_formal_question_demand_uncovered/,
+  );
+  assert.equal(writes, 1);
+  const badReviewManifest = rebuildManifest(bound, {
+    sourceArtifacts: [{
+      ...bound.sourceArtifacts[0]!,
+      localLabEvidence: {
+        ...bound.sourceArtifacts[0]!.localLabEvidence!,
+        analysisLaunch: {
+          ...bound.sourceArtifacts[0]!.localLabEvidence!.analysisLaunch!,
+          independentReviewAggregateSha256: "5".repeat(64),
+        },
+      },
+    }],
+  });
+  await assert.rejects(
+    createApprovedAnalysisPromotionAdapter({
+      releaseId: badReviewManifest.releaseId,
+      manifestSha256: badReviewManifest.manifestSha256,
+      executedBy: "question-executor",
+      supplyPlanEvidenceSha256: current.evidenceSha256,
+      asset,
+      port: { ...port, loadApprovedRelease: async () => approvedRelease(badReviewManifest) },
+      loadRun,
+    }).execute(execution),
+    /readiness 불일치|release transport provenance 불일치/,
+  );
+  assert.equal(writes, 1);
+  await assert.rejects(
+    createApprovedAnalysisPromotionAdapter({
+      releaseId: bound.releaseId,
+      manifestSha256: bound.manifestSha256,
+      executedBy: "question-executor",
+      supplyPlanEvidenceSha256: current.evidenceSha256,
+      asset: { ...asset, attachmentManifestSha256: "4".repeat(64) },
+      port,
+      loadRun,
+    }).execute(execution),
+    /grant_supply_formal_run_binding_mismatch/,
+  );
+  assert.equal(writes, 1);
+  await assert.rejects(
+    createApprovedAnalysisPromotionAdapter({
+      releaseId: bound.releaseId,
+      manifestSha256: bound.manifestSha256,
+      executedBy: "question-executor",
+      supplyPlanEvidenceSha256: current.evidenceSha256,
+      asset: { ...asset, runSha256: "3".repeat(64) },
+      port,
+      loadRun,
+    }).execute(execution),
+    /grant_supply_analysis_release_binding_mismatch/,
+  );
+  assert.equal(writes, 1);
+  await assert.rejects(
+    createApprovedAnalysisPromotionAdapter({
+      releaseId: bound.releaseId,
+      manifestSha256: bound.manifestSha256,
+      executedBy: "question-executor",
+      supplyPlanEvidenceSha256: current.evidenceSha256,
+      asset: { ...asset, manualStatus: "withdrawn" },
+      port,
+      loadRun,
+    }).execute(execution),
+    /grant_supply_analysis_release_binding_mismatch/,
+  );
+  assert.equal(writes, 1);
+});
+
 test("검수 revision과 receipt-backed 승인 release를 exact question canary로 결속한다", async () => {
   const current = snapshot();
   const releaseManifest = manifest();
@@ -332,6 +520,47 @@ test("질문 stable key나 source binding이 현재 B snapshot과 다르면 writ
     release: approvedRelease(wrongManifest),
     snapshot: current,
   }), /question_preparation_question_coverage_mismatch/u);
+});
+
+test("검수된 회사 사실 키는 기존 promotion release로 발행하고 잘못된 키는 차단한다", () => {
+  const current = snapshot();
+  const valid = manifest();
+  const plan = valid.plans[0]!.promotionPlan;
+  const question = plan.questions[0]!;
+  const sharedQuestion = {
+    ...question,
+    reusable: "company_fact" as const,
+    conditionKey: "verified_company_fact",
+  };
+  const sharedPlan = {
+    ...plan,
+    questions: [{ ...sharedQuestion, definitionSha256: questionDefinitionSha256(sharedQuestion) }],
+  };
+  const sharedItem = { ...valid.plans[0]!, promotionPlan: sharedPlan, planSha256: planSha256(sharedPlan) };
+  const sharedManifest = rebuildManifest(valid, { plans: [sharedItem] });
+  const bound = bindQuestionPreparationRelease({
+    releaseId: sharedManifest.releaseId,
+    expectedManifestSha256: sharedManifest.manifestSha256,
+    executedBy: "question-release-executor",
+    release: approvedRelease(sharedManifest),
+    snapshot: current,
+  });
+  assert.equal(bound.item.promotionPlan.questions[0]?.conditionKey, "verified_company_fact");
+
+  const invalidQuestion = { ...sharedQuestion, conditionKey: "Invalid Key" };
+  const invalidPlan = {
+    ...plan,
+    questions: [{ ...invalidQuestion, definitionSha256: questionDefinitionSha256(invalidQuestion) }],
+  };
+  const invalidItem = { ...valid.plans[0]!, promotionPlan: invalidPlan, planSha256: planSha256(invalidPlan) };
+  const invalidManifest = rebuildManifest(valid, { plans: [invalidItem] });
+  assert.throws(() => bindQuestionPreparationRelease({
+    releaseId: invalidManifest.releaseId,
+    expectedManifestSha256: invalidManifest.manifestSha256,
+    executedBy: "question-release-executor",
+    release: approvedRelease(invalidManifest),
+    snapshot: current,
+  }), /question_preparation_question_contract_invalid/u);
 });
 
 test("미승인 release, 수동 검수 부재, 승인 gate 손상은 fail-closed한다", () => {

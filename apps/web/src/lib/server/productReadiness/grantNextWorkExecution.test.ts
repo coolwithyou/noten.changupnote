@@ -105,7 +105,7 @@ test("다른 raw revision의 변경 영향 영수증으로 실행 snapshot을 �
     grantId: GRANT_ID,
     readinessInput: readinessInput(),
     sourceChangeImpact: {
-      schema: "grant-source-change-impact-v1",
+      schema: "grant-source-change-impact-v2",
       classification: "evidence_refresh",
       changedDomains: ["raw"],
       previousRawSha256: "c".repeat(64),

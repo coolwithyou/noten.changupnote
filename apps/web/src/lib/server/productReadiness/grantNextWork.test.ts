@@ -16,7 +16,7 @@ function readiness(blockerCodes: GrantReadiness["blockerCodes"]): GrantReadiness
 
 function impact(classification: GrantSourceChangeClassification): GrantSourceChangeImpact {
   return {
-    schema: "grant-source-change-impact-v1",
+    schema: "grant-source-change-impact-v2",
     classification,
     changedDomains: ["raw"],
     previousRawSha256: "a".repeat(64),

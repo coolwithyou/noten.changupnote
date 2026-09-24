@@ -1,37 +1,61 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { dirname } from "node:path";
 import type postgres from "postgres";
 import { drizzle } from "drizzle-orm/postgres-js";
+import type { NormalizedGrant } from "@cunote/contracts";
+import type { KStartupAnnouncement } from "@cunote/core";
+import { ANALYSIS_LAB_PROMPT_VERSION, type LabReview, type LabRun } from "../analysis-lab/lab-contract";
 import type { CunoteDb } from "../db/client";
 import * as schema from "../db/schema";
 import { loadDeepAnalysisSourceBinding } from "../deep-analysis/prepareInput";
 import {
   createPromotionReleaseManifest,
+  hashFile,
   planSha256,
+  promotionReleaseArtifactPath,
+  promotionReleaseDir,
   VERIFIED_ANALYSIS_LAUNCH_SOURCE_SCHEMA,
   VERIFIED_LOCAL_LAB_SOURCE_SCHEMA,
+  writeImmutablePromotionArtifact,
   type PromotionReleaseManifest,
   type PromotionReleasePlanItem,
 } from "../analysis-lab/promotion-release";
 import {
-  executePromotionWrites,
   questionDefinitionSha256,
   sourceSpanHash,
   type GrantPromotionPlan,
 } from "../analysis-lab/promote";
-import { createDrizzlePromotionPort } from "../analysis-lab/promote-cli";
+import { applyApprovedPromotionCanary } from "../analysis-lab/promote-cli";
+import {
+  listGrantConfirmations,
+  recalculateGrantMatch,
+  submitGrantConfirmations,
+  withdrawGrantConfirmation,
+} from "../matches/grantConfirmations";
+import { createDrizzleRepositories } from "../repositories/drizzle";
+import { publishKStartupGrants } from "../ingestion/kstartupPublisher";
+import { createQuestionPreparationFormalFixture } from "./questionPreparationFormalFixture";
+import {
+  buildManualConfirmationEvaluationsArtifact,
+  manualConfirmationEvaluationsFilePath,
+  manualConfirmationEvaluationSelectionForArtifact,
+  saveManualConfirmationEvaluations,
+} from "../analysis-lab/manual-confirmation-evaluations";
 import {
   loadPromotionGrantSnapshot,
   promotionGrantSnapshotHashes,
   promotionGrantSnapshotStateSha256,
 } from "../analysis-lab/promotion-snapshot";
 import { loadCurrentGrantReadiness } from "./grantReadinessLoader";
+import { assessPublishedGrantSupply, executeApprovedGrantSupply } from "./grantSupply";
 import {
   createGrantNextWorkSnapshot,
-  executeGrantNextWork,
 } from "./grantNextWorkExecution";
 import {
+  createApprovedQuestionPreparationReleasePort,
   createQuestionPreparationAdapter,
-  type ApprovedQuestionPreparationReleasePort,
 } from "./questionPreparationAdapter";
 
 const OPTIONS = [
@@ -44,39 +68,82 @@ const OPTIONS = [
 export async function verifyQuestionPreparationAdapterPostgres(input: {
   admin: postgres.Sql;
   socket: string;
+  companyId: string;
+  userId: string;
 }): Promise<void> {
   assert.equal(input.socket, process.env.CUNOTE_PRODUCT_TEST_SOCKET);
   assert.match(input.socket, /^\/tmp\/cunote-product-pg-[a-zA-Z0-9]+$/u);
   const db = drizzle(input.admin, { schema });
-  const grantId = crypto.randomUUID();
-  const criterionId = crypto.randomUUID();
-  const sourceId = `question-preparation-${grantId}`;
-  const rawSha256 = "b".repeat(64);
+  const sourceId = `question-preparation-${crypto.randomUUID()}`;
   const stableKey = "criterion:industry:manual";
-  const runId = `question-preparation-run-${grantId}`;
   const asOf = new Date("2026-09-22T03:00:00.000Z");
 
-  await input.admin`insert into grants
-    (id,source,source_id,title,apply_start,apply_end,status,serving_state,overall_confidence)
-    values (${grantId},'bizinfo',${sourceId},'질문 준비 격리 검증 공고',
-      '2026-09-01T00:00:00.000Z','2026-10-01T00:00:00.000Z','open','visible',1)`;
-  await input.admin`insert into grant_raw(source,source_id,payload,attachments,raw_hash,status)
-    values ('bizinfo',${sourceId},'{}',
-      ${JSON.stringify([{ filename: "guide.pdf", url: "https://example.invalid/guide.pdf" }])}::jsonb,
-      ${rawSha256},'normalized')`;
-  await input.admin`insert into grant_attachment_archives
-    (source,source_id,filename,source_uri,sha256,conversion_status)
-    values ('bizinfo',${sourceId},'guide.pdf','https://example.invalid/guide.pdf',
-      ${"a".repeat(64)},'archived')`;
-  await input.admin`insert into grant_criteria
-    (id,grant_id,dimension,operator,value,kind,confidence,source_span,raw_text,source_field,
-     stable_key,needs_review,parser_version)
-    values (${criterionId},${grantId},'industry','text_only','{"note":"공고 열거 업종"}',
-      'required',1,'식품·생활용품·가정용품 분야 중소기업',
-      '식품·생활용품·가정용품 분야 중소기업','지원대상',${stableKey},false,'fixture-v1')`;
+  const entry: NormalizedGrant<KStartupAnnouncement> = {
+    raw: {
+      source: "kstartup", source_id: sourceId,
+      payload: { pbanc_sn: sourceId, intg_pbanc_biz_nm: "질문 준비 격리 검증 공고" },
+      attachments: [{ filename: "guide.pdf", url: "https://example.invalid/guide.pdf" }],
+      status: "published",
+    },
+    grant: {
+      source: "kstartup", source_id: sourceId, title: "질문 준비 격리 검증 공고",
+      apply_start: "2026-09-01T00:00:00.000Z",
+      apply_end: "2026-10-01T00:00:00.000Z",
+      status: "open", f_regions: [], f_industries: [], f_sizes: [],
+      f_founder_traits: [], f_required_certs: [], f_apply_methods: [],
+      f_authoring_mode: "unknown", overall_confidence: 1, parser_version: "fixture-v1",
+    },
+    criteria: [{
+      dimension: "industry", operator: "text_only",
+      value: { fact_scope: "registered_business", basis_date: "2026-09-22" },
+      kind: "required", confidence: 1,
+      source_span: "식품·생활용품·가정용품 분야 중소기업",
+      raw_text: "식품·생활용품·가정용품 분야 중소기업", source_field: "지원대상",
+      needs_review: false, parser_version: "fixture-v1",
+    }],
+  };
+  const publication = await publishKStartupGrants(db, [entry], { collectedAt: asOf });
+  assert.equal(publication.revisionCounts.new, 1);
+  assert.equal(publication.supplyWorkItems?.[0]?.sourceId, sourceId);
+  assert.equal(publication.supplyWorkItems?.[0]?.discoveredBy, "current_state");
+  const [publishedGrant] = await input.admin<{ id: string }[]>`select id from grants
+    where source='kstartup' and source_id=${sourceId}`;
+  assert.ok(publishedGrant);
+  const grantId = publishedGrant.id;
+  const runId = `run-2026-09-22T030000.000Z-${grantId.replaceAll("-", "").slice(0, 6)}`;
+  const [publishedRaw] = await input.admin<{ raw_hash: string }[]>`select raw_hash from grant_raw
+    where source='kstartup' and source_id=${sourceId}`;
+  assert.ok(publishedRaw);
+  const rawSha256 = publishedRaw.raw_hash;
+  const [publishedCriterion] = await input.admin<{ id: string }[]>`select id from grant_criteria
+    where grant_id=${grantId}`;
+  assert.ok(publishedCriterion);
+  const criterionId = publishedCriterion.id;
+  await input.admin`update grant_criteria set stable_key=${stableKey} where id=${criterionId}`;
+  await input.admin`update grant_attachment_archives
+    set sha256=${"a".repeat(64)},conversion_status='archived'
+    where source='kstartup' and source_id=${sourceId}
+      and filename='guide.pdf' and source_uri='https://example.invalid/guide.pdf'`;
   const source = await loadDeepAnalysisSourceBinding({ db, grantId });
   assert.ok(source);
   assert.equal(source.sourceRawSha256, rawSha256);
+  const reviewedFact = buildSyntheticReviewedCompanyFact({
+    grantId, sourceId, runId, sourceRevisionSha256: source.sourceRevisionSha256,
+  });
+  assert.match(reviewedFact.conditionKey, /^cf2_[0-9a-f]{64}$/u);
+  const manualFile = manualConfirmationEvaluationsFilePath("kstartup", sourceId, runId);
+  await mkdir(dirname(manualFile), { recursive: true });
+  await saveManualConfirmationEvaluations(reviewedFact.artifact, reviewedFact.run, manualFile);
+  const formalFixture = await createQuestionPreparationFormalFixture({
+    run: reviewedFact.run, review: reviewedFact.review,
+    selectedManual: {
+      artifact: reviewedFact.artifact, selection: reviewedFact.selection,
+      path: "/tmp/synthetic-product-review.json", legacyShaOnly: false,
+    },
+    sourceRevisionSha256: source.sourceRevisionSha256,
+    sourceRawSha256: rawSha256,
+  });
+  assert.equal(formalFixture.candidate.sourceArtifact.runId, runId);
 
   const baselinePlan = buildQuestionPreparationFixturePlan({
     grantId,
@@ -109,6 +176,7 @@ export async function verifyQuestionPreparationAdapterPostgres(input: {
     return createGrantNextWorkSnapshot({
       grantId,
       readinessInput: row.input,
+      sourceChangeImpact: row.sourceChangeImpact ?? null,
     });
   };
   const before = await loadSnapshot();
@@ -120,6 +188,11 @@ export async function verifyQuestionPreparationAdapterPostgres(input: {
   assert.equal(before.nextWork.action, "question_preparation");
   assert.equal(before.readiness.eligibleQuestionCount, 1);
   assert.equal(before.readiness.eligibleQuestionCoveredCount, 0);
+  const [beforeSupply] = await assessPublishedGrantSupply({ db, grantIds: [grantId], asOf });
+  assert.equal(beforeSupply?.schema, "grant-supply-plan-v1");
+  assert.equal(beforeSupply?.schema === "grant-supply-plan-v1" ? beforeSupply.stage : null, "await_approved_release");
+  assert.equal(beforeSupply?.schema === "grant-supply-plan-v1" ? beforeSupply.evidenceSha256 : null,
+    before.evidenceSha256);
 
   const beforePromotionSnapshot = await loadPromotionGrantSnapshot(db, grantId);
   const releasePlan = buildQuestionPreparationFixturePlan({
@@ -129,9 +202,12 @@ export async function verifyQuestionPreparationAdapterPostgres(input: {
     sourceRevisionSha256: source.sourceRevisionSha256,
     sourceRawSha256: rawSha256,
     includeQuestion: true,
+    resolutionScope: "company_fact",
+    conditionKey: reviewedFact.conditionKey,
+    manualSelection: reviewedFact.selection,
   });
   const releaseId = `question-preparation-release-${grantId}`;
-  const releaseManifest = buildQuestionPreparationFixtureManifest({
+  const fixtureManifest = buildQuestionPreparationFixtureManifest({
     grantId,
     plan: releasePlan,
     sourceRevisionSha256: source.sourceRevisionSha256,
@@ -139,14 +215,30 @@ export async function verifyQuestionPreparationAdapterPostgres(input: {
     releaseId,
     includeQuestion: true,
   });
+  const releaseManifest = createPromotionReleaseManifest({
+    releaseId, revision: 1, createdAt: fixtureManifest.createdAt,
+    gitCommit: fixtureManifest.gitCommit, buildDigest: fixtureManifest.buildDigest,
+    cohortLabel: fixtureManifest.cohortLabel, canaryGrantIds: [grantId],
+    sourceArtifacts: [formalFixture.candidate.sourceArtifact],
+    plans: [{ ...fixtureManifest.plans[0]!, analysisLaunchReadiness: formalFixture.candidate.readiness }],
+  });
   const releaseDbId = crypto.randomUUID();
   const releaseItemId = crypto.randomUUID();
-  const approvalArtifactSha256 = "c".repeat(64);
   const gateSummary = {
     aggregateSha256: "d".repeat(64),
     shadowSha256: "e".repeat(64),
     dryRunSha256: "f".repeat(64),
   };
+  await writeImmutablePromotionArtifact(promotionReleaseArtifactPath(releaseId, "manifest.json"), releaseManifest);
+  const approvalFile = promotionReleaseArtifactPath(releaseId, "approval.json");
+  await writeImmutablePromotionArtifact(approvalFile, {
+    schema: "analysis-lab-promotion-approval-v1", releaseId,
+    manifestSha256: releaseManifest.manifestSha256,
+    releasePlanSha256: releaseManifest.releasePlanSha256,
+    approvedBy: "question-approver", approvedAt: "2026-09-22T00:10:00.000Z",
+    ...gateSummary,
+  });
+  const approvalArtifactSha256 = await hashFile(approvalFile);
   await input.admin`insert into analysis_lab_promotion_releases
     (id,release_id,revision,manifest_sha256,release_plan_sha256,manifest,git_commit,build_digest,
      status,gate_summary,created_by,approved_by,approved_at,approval_artifact_sha256)
@@ -161,93 +253,251 @@ export async function verifyQuestionPreparationAdapterPostgres(input: {
       ${JSON.stringify(beforePromotionSnapshot)}::jsonb,
       ${promotionGrantSnapshotStateSha256(beforePromotionSnapshot)},'prepared')`;
 
-  const port: ApprovedQuestionPreparationReleasePort = {
-    loadApprovedRelease: async (request) => {
-      const [row] = await input.admin<{
-        status: "approved" | "canary_running";
-        manifest: unknown;
-        manifest_sha256: string;
-        release_plan_sha256: string;
-        approved_by: string;
-        approved_at: string;
-        approval_artifact_sha256: string;
-        gate_summary: typeof gateSummary;
-      }[]>`select status,manifest,manifest_sha256,release_plan_sha256,approved_by,approved_at,
-                   approval_artifact_sha256,gate_summary
-            from analysis_lab_promotion_releases
-            where release_id=${request.releaseId} and manifest_sha256=${request.expectedManifestSha256}`;
-      assert.ok(row);
-      return {
-        status: row.status,
-        manifest: row.manifest,
-        manifestSha256: row.manifest_sha256,
-        releasePlanSha256: row.release_plan_sha256,
-        approvedBy: row.approved_by,
-        approvedAt: new Date(row.approved_at).toISOString(),
-        approvalArtifactSha256: row.approval_artifact_sha256,
-        gateSummary: row.gate_summary,
-      };
-    },
-    applyApprovedCanary: async (binding) => {
-      const claimed = await input.admin`update analysis_lab_promotion_releases
-        set status='canary_running',executed_by='question-executor',started_at=now()
-        where id=${releaseDbId} and status='approved' returning id`;
-      assert.equal(claimed.length, 1);
-      const promotionPort = createDrizzlePromotionPort(db as CunoteDb, [], {
-        releaseDbId,
-        itemByGrantId: new Map([[grantId, binding.item]]),
-      });
-      const [outcome] = await executePromotionWrites([binding.item.promotionPlan], promotionPort);
-      if (!outcome || outcome.error) {
-        await input.admin`update analysis_lab_promotion_items
-          set status='failed',error=${outcome?.error ?? "unknown failure"},updated_at=now()
-          where id=${releaseItemId}`;
-        await input.admin`update analysis_lab_promotion_releases
-          set status='partial_failed' where id=${releaseDbId}`;
-        throw new Error(outcome?.error ?? "question preparation writer failure");
-      }
-      await input.admin`update analysis_lab_promotion_releases
-        set status='canary_passed' where id=${releaseDbId}`;
-      const [applied] = await input.admin<{ after_sha256: string }[]>`
-        select after_sha256 from analysis_lab_promotion_items where id=${releaseItemId}`;
-      assert.ok(applied?.after_sha256);
-      return { afterStateSha256: applied.after_sha256, replayed: false, externalWrites: 1 };
-    },
-  };
+  // 격리 의존성 없이 실제 파일 진입점은 이 작업트리에 없는 합성 receipt를 거부한다.
+  await assert.rejects(() => applyApprovedPromotionCanary({
+    db: db as CunoteDb, releaseId, grantId,
+    expectedManifestSha256: releaseManifest.manifestSha256,
+    actor: "question-executor",
+  }), /승격 source를 현재 검증할 수 없습니다|analysis_launch_unavailable/u);
+  assert.equal((await input.admin`select status from analysis_lab_promotion_items
+    where id=${releaseItemId}`)[0]?.status, "prepared");
+
+  const unrelatedSocket = await mkdtemp("/tmp/cunote-product-pg-");
+  process.env.CUNOTE_PRODUCT_TEST_SOCKET = unrelatedSocket;
+  try {
+    await assert.rejects(() => applyApprovedPromotionCanary({
+      db: db as CunoteDb, releaseId, grantId,
+      expectedManifestSha256: releaseManifest.manifestSha256,
+      actor: "question-executor", isolatedAnalysisLaunch: formalFixture.dependencies,
+    }), /DB socket binding failed/u);
+  } finally {
+    process.env.CUNOTE_PRODUCT_TEST_SOCKET = input.socket;
+    await rm(unrelatedSocket, { recursive: true, force: true });
+  }
+
+  const port = createApprovedQuestionPreparationReleasePort(db as CunoteDb, formalFixture.dependencies);
   const adapter = createQuestionPreparationAdapter({
     releaseId,
     expectedManifestSha256: releaseManifest.manifestSha256,
     executedBy: "question-executor",
     port,
   });
-  const result = await executeGrantNextWork({
+  const result = await executeApprovedGrantSupply({
+    db,
     grantId,
     expectedEvidenceSha256: before.evidenceSha256,
-    loadSnapshot: async () => loadSnapshot(),
+    asOf,
     adapters: new Map([["question_preparation", adapter]]),
   });
   assert.equal(result.status, "completed");
   assert.equal(result.nextAction, "reuse_ready");
   assert.equal(result.modelCalls, 0);
   assert.equal(result.externalWrites, 1);
+  assert.equal((await input.admin`select status from analysis_lab_promotion_items
+    where id=${releaseItemId}`)[0]?.status, "applied");
+  assert.equal((await input.admin`select status from analysis_lab_promotion_releases
+    where id=${releaseDbId}`)[0]?.status, "canary_passed");
+  const replay = await applyApprovedPromotionCanary({
+    db: db as CunoteDb, releaseId, grantId,
+    expectedManifestSha256: releaseManifest.manifestSha256,
+    actor: "question-executor", isolatedAnalysisLaunch: formalFixture.dependencies,
+  });
+  assert.equal(replay.replayed, true);
+  assert.equal(replay.externalWrites, 0);
   const after = await loadSnapshot();
   assert.equal(after.readiness.category, "A");
   assert.equal(after.readiness.eligibleQuestionCoveredCount, 1);
+  const [afterSupply] = await assessPublishedGrantSupply({ db, grantIds: [grantId], asOf });
+  assert.equal(afterSupply?.schema === "grant-supply-plan-v1" ? afterSupply.stage : null, "ready");
   assert.equal((await input.admin`select id from grant_criteria where id=${criterionId}`).length, 1);
   const [question] = await input.admin<{
+    id: string;
     evaluation_contract_version: string;
     source_revision_sha256: string;
     source_raw_sha256: string;
     reusable: string;
-  }[]>`select evaluation_contract_version,source_revision_sha256,source_raw_sha256,reusable
+    condition_key: string | null;
+  }[]>`select id,evaluation_contract_version,source_revision_sha256,source_raw_sha256,reusable,condition_key
       from grant_confirmation_questions where grant_id=${grantId} and invalidated_at is null`;
-  assert.deepEqual(question, {
-    evaluation_contract_version: "confirmation-evaluation-v2",
-    source_revision_sha256: source.sourceRevisionSha256,
-    source_raw_sha256: rawSha256,
-    reusable: "per_notice",
-  });
-  console.log("PASS: reviewed question preparation canary advances isolated readiness B to A with zero model calls");
+  assert.equal(question?.evaluation_contract_version, "confirmation-evaluation-v2");
+  assert.equal(question?.source_revision_sha256, source.sourceRevisionSha256);
+  assert.equal(question?.source_raw_sha256, rawSha256);
+  assert.equal(question?.reusable, "company_fact");
+  assert.equal(question?.condition_key, reviewedFact.conditionKey);
+
+  const relatedGrantIds: string[] = [];
+  const negativeGrantIds: string[] = [];
+  for (let index = 0; index < 6; index += 1) {
+    const relatedGrantId = crypto.randomUUID();
+    const relatedCriterionId = crypto.randomUUID();
+    const relatedQuestionId = crypto.randomUUID();
+    const relatedSourceId = `question-preparation-related-${index}-${grantId}`;
+    const relatedRawSha256 = String(index + 1).repeat(64);
+    const sameMeaning = index < 3;
+    const criterionValue = sameMeaning
+      ? { fact_scope: "registered_business", basis_date: "2026-09-22" }
+      : index === 3 ? { fact_scope: "headquarters", basis_date: "2026-09-22" }
+      : index === 4 ? { fact_scope: "registered_business", basis_date: "2026-01-01" }
+      : { fact_scope: "registered_business", basis_date: "2026-09-22", fact_kind: "different" };
+    await input.admin`insert into grants(id,source,source_id,title,status,overall_confidence)
+      values (${relatedGrantId},'bizinfo',${relatedSourceId},'회사 사실 관련 격리 공고','open',1)`;
+    await input.admin`insert into grant_raw(source,source_id,payload,attachments,raw_hash,status)
+      values ('bizinfo',${relatedSourceId},'{}','[]',${relatedRawSha256},'normalized')`;
+    await input.admin`insert into grant_criteria
+      (id,grant_id,dimension,operator,value,kind,confidence,source_span,stable_key,needs_review)
+      values (${relatedCriterionId},${relatedGrantId},'industry','text_only',
+        ${JSON.stringify(criterionValue)}::jsonb,
+        'required',1,'식품·생활용품·가정용품 분야 중소기업',${stableKey},false)`;
+    const relatedSource = await loadDeepAnalysisSourceBinding({ db, grantId: relatedGrantId });
+    assert.ok(relatedSource);
+    const definitionSha256 = questionDefinitionSha256({
+      prompt: "귀사는 공고에 열거된 업종에 해당하나요?",
+      options: OPTIONS,
+      answerType: "single",
+      reusable: "company_fact",
+      conditionKey: reviewedFact.conditionKey,
+      evaluationContractVersion: "confirmation-evaluation-v2",
+      sourceRevisionSha256: relatedSource.sourceRevisionSha256,
+      sourceRawSha256: relatedRawSha256,
+    });
+    await input.admin`insert into grant_confirmation_questions
+      (id,grant_id,evaluation_criterion_id,evaluation_contract_version,source_revision_sha256,
+       source_raw_sha256,criterion_stable_key,definition_sha256,version,prompt,options,answer_type,
+       reusable,condition_key,prompt_ver,provenance)
+      values (${relatedQuestionId},${relatedGrantId},${relatedCriterionId},'confirmation-evaluation-v2',
+        ${relatedSource.sourceRevisionSha256},${relatedRawSha256},${stableKey},${definitionSha256},1,
+        '귀사는 공고에 열거된 업종에 해당하나요?',${JSON.stringify(OPTIONS)}::jsonb,
+        'single','company_fact',${reviewedFact.conditionKey},'fixture-v1','{}')`;
+    (sameMeaning ? relatedGrantIds : negativeGrantIds).push(relatedGrantId);
+  }
+
+  const initial = await listGrantConfirmations({ companyId: input.companyId, grantId }, db);
+  const target = initial.questions.find((entry) => entry.id === question?.id);
+  assert.ok(target?.binding, "발행된 신규 회사 사실 질문이 실제 답변 경로에 보여야 한다");
+  const repositories = createDrizzleRepositories({ dialect: "drizzle", client: db });
+  const recalculation = {
+    repositories,
+    resolveProfile: async () => ({ profile: {}, stateScope: "company" as const }),
+    annotateCards: async <T>(cards: T[]) => cards,
+  };
+  for (const negativeGrantId of negativeGrantIds) {
+    const initialNegative = await recalculateGrantMatch({
+      companyId: input.companyId, userId: input.userId, grantId: negativeGrantId,
+      questionCount: 1, asOf: new Date(asOf.getTime() - 60_000),
+    }, recalculation);
+    assert.equal(initialNegative.refresh.status, "succeeded");
+  }
+  const negativeBefore = await input.admin`select grant_id,eligibility,calculation_as_of from match_state
+    where company_id=${input.companyId} and grant_id in (${negativeGrantIds[0]!},
+      ${negativeGrantIds[1]!},${negativeGrantIds[2]!}) order by grant_id`;
+  assert.equal(negativeBefore.length, 3);
+  const saved = await submitGrantConfirmations({
+    companyId: input.companyId,
+    userId: input.userId,
+    grantId,
+    answers: [{
+      questionId: question!.id,
+      values: ["yes"],
+      binding: target.binding,
+      expectedAnswerRevision: 0,
+      expectedCompanyFactRevision: null,
+    }],
+    asOf,
+  }, { db, recalculation });
+  assert.equal(saved.refresh.status, "succeeded");
+  assert.equal(saved.refresh.savedCount, 4);
+  const yesStates = await input.admin`select grant_id,eligibility from match_state
+    where company_id=${input.companyId} and grant_id in (${grantId}, ${relatedGrantIds[0]!},
+      ${relatedGrantIds[1]!}, ${relatedGrantIds[2]!}) order by grant_id`;
+  assert.equal(yesStates.length, 4);
+  assert.ok(yesStates.every((state) => state.eligibility === "eligible"));
+  assert.deepEqual(await input.admin`select grant_id,eligibility,calculation_as_of from match_state
+    where company_id=${input.companyId} and grant_id in (${negativeGrantIds[0]!},
+      ${negativeGrantIds[1]!},${negativeGrantIds[2]!}) order by grant_id`, negativeBefore);
+  assert.equal((await input.admin`select count(*)::int as count from match_state
+    where company_id=${input.companyId} and grant_id in (${grantId}, ${relatedGrantIds[0]!},
+      ${relatedGrantIds[1]!}, ${relatedGrantIds[2]!})`)[0]?.count, 4);
+  for (const relatedGrantId of relatedGrantIds) {
+    assert.equal((await listGrantConfirmations({ companyId: input.companyId, grantId: relatedGrantId }, db))
+      .answers[0]?.evaluation, "satisfied");
+  }
+  for (const negativeGrantId of negativeGrantIds) {
+    assert.equal((await listGrantConfirmations({ companyId: input.companyId, grantId: negativeGrantId }, db))
+      .answers.length, 0);
+  }
+  const changed = await submitGrantConfirmations({
+    companyId: input.companyId,
+    userId: input.userId,
+    grantId,
+    answers: [{
+      questionId: question!.id,
+      values: ["no"],
+      binding: target.binding,
+      expectedAnswerRevision: saved.saved[0]!.answerRevision!,
+      expectedCompanyFactRevision: saved.saved[0]!.companyFactRevision!,
+    }],
+    asOf: new Date(asOf.getTime() + 60_000),
+  }, { db, recalculation });
+  assert.equal(changed.refresh.status, "succeeded");
+  assert.equal(changed.refresh.savedCount, 4);
+  const noStates = await input.admin`select grant_id,eligibility from match_state
+    where company_id=${input.companyId} and grant_id in (${grantId}, ${relatedGrantIds[0]!},
+      ${relatedGrantIds[1]!}, ${relatedGrantIds[2]!}) order by grant_id`;
+  assert.equal(noStates.length, 4);
+  assert.ok(noStates.every((state) => state.eligibility === "ineligible"));
+  for (const relatedGrantId of relatedGrantIds) {
+    assert.equal((await listGrantConfirmations({ companyId: input.companyId, grantId: relatedGrantId }, db))
+      .answers[0]?.evaluation, "unsatisfied");
+  }
+  const withdrawn = await withdrawGrantConfirmation({
+    companyId: input.companyId,
+    userId: input.userId,
+    grantId,
+    questionId: question!.id,
+    binding: target.binding,
+    expectedAnswerRevision: changed.saved[0]!.answerRevision!,
+    expectedCompanyFactRevision: changed.saved[0]!.companyFactRevision!,
+    asOf: new Date(asOf.getTime() + 120_000),
+  }, { db, recalculation });
+  assert.equal(withdrawn.refresh.status, "succeeded");
+  assert.equal(withdrawn.refresh.savedCount, 4);
+  for (const relatedGrantId of relatedGrantIds) {
+    assert.equal((await listGrantConfirmations({ companyId: input.companyId, grantId: relatedGrantId }, db))
+      .answers.length, 0);
+  }
+  // 답변 commit 이후 재계산이 실패해도 성공 영수증을 보존하고 실제 matcher로 재개한다.
+  const failedRefresh = await submitGrantConfirmations({
+    companyId: input.companyId,
+    userId: input.userId,
+    grantId,
+    answers: [{
+      questionId: question!.id,
+      values: ["yes"],
+      binding: target.binding,
+      expectedAnswerRevision: withdrawn.saved[0]?.answerRevision ?? 3,
+      expectedCompanyFactRevision: null,
+    }],
+    asOf: new Date(asOf.getTime() + 180_000),
+  }, { db, recalculate: async () => { throw new Error("synthetic refresh outage"); } });
+  assert.equal(failedRefresh.saved.length, 1);
+  assert.equal(failedRefresh.refresh.status, "failed");
+  const retried = await recalculateGrantMatch({
+    companyId: input.companyId,
+    userId: input.userId,
+    grantId,
+    relatedGrantIds,
+    questionCount: 1,
+    asOf: new Date(asOf.getTime() + 181_000),
+  }, recalculation);
+  assert.equal(retried.refresh.status, "succeeded");
+  assert.equal(retried.refresh.savedCount, 4);
+  assert.deepEqual(await input.admin`select grant_id,eligibility,calculation_as_of from match_state
+    where company_id=${input.companyId} and grant_id in (${negativeGrantIds[0]!},
+      ${negativeGrantIds[1]!},${negativeGrantIds[2]!}) order by grant_id`, negativeBefore);
+  console.log("PASS: 신규 company_fact 답변·수정·철회와 실제 matcher match_state 저장, 실패 후 재평가 재개");
+  await rm(promotionReleaseDir(releaseId), { recursive: true, force: true });
+  await rm(dirname(manualFile), { recursive: true, force: true });
+  await rm(formalFixture.root, { recursive: true, force: true });
 }
 
 export function buildQuestionPreparationFixturePlan(input: {
@@ -257,13 +507,16 @@ export function buildQuestionPreparationFixturePlan(input: {
   sourceRevisionSha256: string;
   sourceRawSha256: string;
   includeQuestion: boolean;
+  resolutionScope?: "per_notice" | "company_fact";
+  conditionKey?: string;
+  manualSelection?: ReturnType<typeof manualConfirmationEvaluationSelectionForArtifact>;
 }): GrantPromotionPlan {
   const sourceSpan = "식품·생활용품·가정용품 분야 중소기업";
   const criterion = {
     id: `${input.grantId}:llm-1`,
     dimension: "industry" as const,
     operator: "text_only" as const,
-    value: { note: "공고 열거 업종" },
+    value: { fact_scope: "registered_business", basis_date: "2026-09-22" },
     kind: "required" as const,
     confidence: 1,
     source_span: sourceSpan,
@@ -278,8 +531,8 @@ export function buildQuestionPreparationFixturePlan(input: {
     prompt: "귀사는 공고에 열거된 업종에 해당하나요?",
     options: OPTIONS,
     answerType: "single" as const,
-    reusable: "per_notice" as const,
-    conditionKey: null,
+    reusable: input.resolutionScope ?? "per_notice",
+    conditionKey: input.resolutionScope === "company_fact" ? input.conditionKey ?? null : null,
     promptVer: "manual-confirmation-evaluations-revision-v1",
     inline: false,
     provenance: {
@@ -330,7 +583,7 @@ export function buildQuestionPreparationFixturePlan(input: {
       definitionSha256: questionDefinitionSha256(base),
     }] : [],
     ...(input.includeQuestion ? {
-      manualConfirmationEvaluationSelection: {
+      manualConfirmationEvaluationSelection: input.manualSelection ?? {
         schema: "manual-confirmation-evaluation-selection-v1" as const,
         revision: 1,
         artifactSha256: "c".repeat(64),
@@ -340,6 +593,67 @@ export function buildQuestionPreparationFixturePlan(input: {
     } : {}),
     droppedQuestionCandidates: 0,
   };
+}
+
+export function buildSyntheticReviewedCompanyFact(input: {
+  grantId: string;
+  sourceId: string;
+  runId: string;
+  sourceRevisionSha256: string;
+}) {
+  const run: LabRun = {
+    runId: input.runId, grantId: input.grantId, source: "kstartup", sourceId: input.sourceId,
+    title: "질문 준비 격리 검증 공고", model: "claude-opus-5", transport: "claude-cli",
+    promptVersion: ANALYSIS_LAB_PROMPT_VERSION, startedAt: "2026-09-22T03:00:00.000Z", durationMs: 1,
+    inputBlocks: [], inputTotalChars: 1, inputSha256: "1".repeat(64),
+    sourceRevisionSha256: input.sourceRevisionSha256,
+    attachmentManifestSha256: "f".repeat(64), usage: null, costUsd: null,
+    analysisMarkdown: "합성 검수 fixture", programIntent: null,
+    criteria: [{
+      dimension: "industry", kind: "required", operator: "text_only",
+      value: { fact_scope: "registered_business", basis_date: "2026-09-22" },
+      confidence: 1, sourceSpan: "식품·생활용품·가정용품 분야 중소기업",
+      spanVerified: true, note: null,
+    }],
+    axisAssessments: [{
+      dimension: "size", status: "ambiguous", confidence: 0.5,
+      comment: "합성 검수 fixture의 미해소 축",
+    }],
+    taxonomyProposals: [], dimensionDiffs: [], primaryRepairCount: 0,
+    primaryValidationOutcome: "publishable", matchingReadiness: "conditional",
+    primaryRepairProvenance: {
+      deterministicPrimaryRepairCount: 0, modelPrimaryRepairCount: 0,
+      newIssueAfterRepairCount: 0, blockingNewIssueAfterRepairCount: 0,
+      sourceIncompleteIssueAfterRepairCount: 0,
+    },
+    error: null,
+  };
+  const review: LabReview = {
+    grantId: input.grantId, runId: input.runId,
+    reviewerEmail: "reviewer@example.invalid",
+    createdAt: "2026-09-22T03:01:00.000Z", updatedAt: "2026-09-22T03:01:00.000Z",
+    criterionReviews: [{ criterionIndex: 0, verdict: "correct", note: null }],
+    axisReviews: [], overallNote: null,
+  };
+  const reviewArtifactSha256 = createHash("sha256")
+    .update(`${JSON.stringify(review, null, 2)}\n`).digest("hex");
+  const artifact = buildManualConfirmationEvaluationsArtifact({
+    run, review, createdAt: "2026-09-22T03:02:00.000Z", reviewArtifactSha256,
+    questionAuthorEmail: "author@example.invalid",
+    items: [{
+      criterionIndex: 0, resolutionScope: "company_fact", conditionKey: "registered_business_fact",
+      companyFactReview: {
+        meaning: "기준일에 등록 사업장이 있는지",
+        definitionKey: "registered_business_fact", definitionSource: "new_review",
+        scopeField: "fact_scope", scopeValue: "registered_business",
+        asOfField: "basis_date", asOfDate: "2026-09-22", reviewArtifactSha256,
+      },
+      prompt: "귀사는 공고에 열거된 업종에 해당하나요?", options: OPTIONS,
+    }],
+  });
+  const conditionKey = artifact.items[0]?.conditionKey;
+  assert.ok(conditionKey);
+  return { run, review, artifact, selection: manualConfirmationEvaluationSelectionForArtifact(artifact), conditionKey };
 }
 
 export function buildQuestionPreparationFixtureManifest(input: {
@@ -414,7 +728,8 @@ export function buildQuestionPreparationFixtureManifest(input: {
       overlaySha256: null,
       confirmationsSha256: null,
       ...(input.includeQuestion ? {
-        manualConfirmationEvaluationsSha256: "c".repeat(64),
+        manualConfirmationEvaluationsSha256:
+          input.plan.manualConfirmationEvaluationSelection?.artifactSha256 ?? "c".repeat(64),
         manualConfirmationEvaluationSelection:
           input.plan.manualConfirmationEvaluationSelection,
       } : {}),

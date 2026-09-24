@@ -518,22 +518,28 @@ export async function recalculateGrantMatch(input: {
 }, dependencies: RecalculateGrantMatchDependencies = {}): Promise<Pick<GrantConfirmationSubmitResult, "match" | "refresh">> {
   const repositories = dependencies.repositories ?? getServiceRepositories();
   const grantIds = [...new Set([input.grantId, ...(input.relatedGrantIds ?? [])])];
-  const [resolution, loadedGrants] = await Promise.all([
-    (dependencies.resolveProfile ?? resolveProductCompanyProfile)({
-      context: "owned_read",
-      companyId: input.companyId,
-      userId: input.userId,
-      asOf: input.asOf.toISOString(),
-    }),
-    Promise.all(grantIds.map((grantId) => repositories.grants.findGrantById(grantId, { asOf: input.asOf }))),
-  ]);
+  const resolution = await (dependencies.resolveProfile ?? resolveProductCompanyProfile)({
+    context: "owned_read",
+    companyId: input.companyId,
+    userId: input.userId,
+    asOf: input.asOf.toISOString(),
+  });
+  const shouldWriteSharedState = resolution.stateScope === "company";
+  // 저장할 입력의 revision을 grant 로드보다 먼저 잡아 동시 source 변경을 CAS에서 거부한다.
+  const inputBindings = shouldWriteSharedState
+    ? await repositories.matches.captureMatchStateInputBindings({
+      companyIds: [input.companyId],
+      grantIds,
+    })
+    : undefined;
+  const loadedGrants = await Promise.all(grantIds.map((grantId) =>
+    repositories.grants.findGrantById(grantId, { asOf: input.asOf })));
   const grants = loadedGrants.filter((grant): grant is NonNullable<typeof grant> => grant !== null);
   const grant = grants.find((candidate) => candidate.grant.id === input.grantId) ?? null;
   if (!grant) {
     return { match: null, refresh: { plannedCount: 0, savedCount: 0, status: "failed" } };
   }
 
-  const shouldWriteSharedState = resolution.stateScope === "company";
   const { plan, savedCount, staleCount } = await refreshMatchStates({
     repositories,
     companyId: input.companyId,
@@ -542,6 +548,7 @@ export async function recalculateGrantMatch(input: {
     grants,
     asOf: input.asOf,
     write: shouldWriteSharedState,
+    ...(inputBindings ? { inputBindings } : {}),
   });
   const state = plan.states.find((entry) => entry.grantId === input.grantId) ?? plan.states[0];
   if (!state || staleCount > 0) {

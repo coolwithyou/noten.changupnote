@@ -108,6 +108,7 @@ export interface LoadedGrantReadiness {
   readonly input: GrantReadinessInput;
   readonly readiness: GrantReadiness;
   readonly nextWork: GrantNextWork;
+  readonly sourceChangeImpact?: GrantSourceChangeImpact | null;
 }
 
 export interface GrantReadinessReport {
@@ -238,12 +239,15 @@ export async function loadCurrentGrantReadiness(input: {
   db: CunoteDbSession;
   asOf?: Date;
   limit?: number;
+  /** 일반 공급 호출부가 수집에서 반환한 exact grant만 조회할 때 사용한다. */
+  grantIds?: readonly string[];
 }): Promise<LoadedGrantReadiness[]> {
   const asOf = input.asOf ?? new Date();
   const limit = input.limit ?? DEFAULT_INVENTORY_LIMIT;
   if (!isValidDate(asOf) || !Number.isInteger(limit) || limit < 1 || limit > DEFAULT_INVENTORY_LIMIT) {
     throw new Error(`limit은 1~${DEFAULT_INVENTORY_LIMIT.toLocaleString("en-US")} 정수여야 합니다.`);
   }
+  if (input.grantIds && input.grantIds.length === 0) return [];
   const { start, end } = kstDayBounds(asOf);
   const grants = await input.db.select({
     id: schema.grants.id,
@@ -258,6 +262,7 @@ export async function loadCurrentGrantReadiness(input: {
     eq(schema.grants.servingState, "visible"),
     lte(schema.grants.applyStart, end),
     gte(schema.grants.applyEnd, start),
+    ...(input.grantIds ? [inArray(schema.grants.id, [...input.grantIds])] : []),
   )).orderBy(desc(schema.grants.updatedAt), desc(schema.grants.id)).limit(limit + 1);
   if (grants.length > limit) throw new Error("준비도 inventory 상한 초과: 부분 집계를 반환하지 않습니다.");
   const inventory = grants.filter((grant) => isOpenVisibleCurrentGrant(grant, asOf));
@@ -320,6 +325,8 @@ export async function loadCurrentGrantReadiness(input: {
       answerType: schema.grantConfirmationQuestions.answerType,
       options: schema.grantConfirmationQuestions.options,
       reusable: schema.grantConfirmationQuestions.reusable,
+      conditionKey: schema.grantConfirmationQuestions.conditionKey,
+      value: schema.grantCriteria.value,
       provenance: schema.grantConfirmationQuestions.provenance,
     }).from(schema.grantConfirmationQuestions)
       .innerJoin(
@@ -439,6 +446,7 @@ export async function loadCurrentGrantReadiness(input: {
       input: readinessInput,
       readiness,
       nextWork: planGrantNextWork(readiness, evidence.source.changeImpact ?? null),
+      sourceChangeImpact: evidence.source.changeImpact ?? null,
     });
   });
 }
@@ -662,7 +670,7 @@ function promotionEvidence(
       deepRunSourceRevisionSha256: row.deepRunSourceRevisionSha256,
     });
     if (!servingEvidence) return null;
-    const manifest = validatePromotionReleaseManifest(row.manifest);
+    const manifest = validatePromotionReleaseManifest(row.manifest, "historical_matching_serving");
     if (manifest.manifestSha256 !== row.manifestSha256) return null;
     const plan = manifest.plans.find((item) => item.grantId === row.grantId && item.promotionPlan.runId === row.runId);
     const artifact = manifest.sourceArtifacts.find((item) => item.grantId === row.grantId && item.runId === row.runId);

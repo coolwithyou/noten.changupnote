@@ -78,6 +78,25 @@ assert.equal(
   null,
   "company_fact 질문은 일반 provenance만으로 matcher를 열지 않는다",
 );
+const reviewedCompanyFact = {
+  ...matchingBindingRow,
+  reusable: "company_fact",
+  conditionKey: "verified_company_fact",
+  dimension: "industry" as const,
+  kind: "required" as const,
+  operator: "text_only",
+  value: { note: "공고 열거 업종" },
+};
+assert.equal(
+  matchingQuestionBinding(reviewedCompanyFact, servingRuns, currentSources)?.resolutionScope,
+  "company_fact",
+  "신규 발행 질문은 현재 serving run과 검증된 회사 사실 identity로 matcher를 연다",
+);
+assert.equal(
+  matchingQuestionBinding({ ...reviewedCompanyFact, conditionKey: "Invalid Key" }, servingRuns, currentSources),
+  null,
+  "신규 회사 사실 키 오염은 matcher에서 닫는다",
+);
 assert.equal(
   matchingQuestionBinding(
     { ...matchingBindingRow, reusable: "company_fact", provenance: {} },

@@ -10,9 +10,11 @@ import {
 } from "./launch-batch-artifacts";
 import { writeImmutableBytesAtomic } from "./immutable-artifact-fs";
 import type { GrantNextWorkAction } from "../productReadiness/grantNextWork";
+import type { GrantSupplyAssessment, GrantSupplyStage } from "../productReadiness/grantSupply";
 
 export const MATCHING_INVENTORY_CLASSIFICATION_SCHEMA =
-  "analysis-matching-inventory-classification-v1" as const;
+  "analysis-matching-inventory-classification-v2" as const;
+const LEGACY_MATCHING_INVENTORY_CLASSIFICATION_SCHEMA = "analysis-matching-inventory-classification-v1" as const;
 const LEGACY_MATCHING_CAMPAIGN_INDEX_SCHEMA = "analysis-matching-campaign-index-v1" as const;
 export const MATCHING_CAMPAIGN_INDEX_SCHEMA = "analysis-matching-campaign-index-v2" as const;
 export const MATCHING_CAMPAIGN_MAX_CHILD_TARGETS = 100;
@@ -64,9 +66,11 @@ export type MatchingInventoryHistory =
 
 export interface MatchingInventorySnapshotTarget {
   readonly grantId: string;
-  readonly inputSha256: string;
-  readonly attachmentManifestSha256: string;
+  readonly inputSha256: string | null;
+  readonly attachmentManifestSha256: string | null;
   readonly closesToday: boolean;
+  readonly preparationFailure?: "grant_missing" | "input_integrity";
+  readonly supplyAssessment?: GrantSupplyAssessment;
   readonly eligibility:
     | { readonly eligible: true }
     | {
@@ -85,6 +89,8 @@ export interface MatchingInventoryClassificationEntry {
   readonly closesToday: boolean;
   readonly campaignEligible: boolean;
   readonly reason: string;
+  readonly supplyStage?: GrantSupplyStage | "inactive" | null;
+  readonly supplyEvidenceSha256?: string | null;
   readonly nextAction:
     | "reuse"
     | "independent_review"
@@ -101,12 +107,18 @@ export interface MatchingInventoryClassificationEntry {
     | "refresh_recruitment_status"
     | "review_source_coverage"
     | "resolve_quality_hold"
+    | "review_existing_analysis"
+    | "review_question_draft"
+    | "prepare_promotion_release"
+    | "await_approved_release"
+    | "inspect_asset_inventory"
+    | "resolve_asset_selection_conflict"
     | "none";
   readonly sourceManifestSha256: string | null;
   readonly sourceReceiptSha256: string | null;
   readonly current: {
-    readonly inputSha256: string;
-    readonly attachmentManifestSha256: string;
+    readonly inputSha256: string | null;
+    readonly attachmentManifestSha256: string | null;
   };
   readonly history: {
     readonly kind: MatchingInventoryHistory["kind"];
@@ -117,7 +129,7 @@ export interface MatchingInventoryClassificationEntry {
 }
 
 export interface MatchingInventoryClassification {
-  readonly schema: typeof MATCHING_INVENTORY_CLASSIFICATION_SCHEMA;
+  readonly schema: typeof MATCHING_INVENTORY_CLASSIFICATION_SCHEMA | typeof LEGACY_MATCHING_INVENTORY_CLASSIFICATION_SCHEMA;
   readonly observedAt: string;
   readonly targetCount: number;
   readonly targetGrantIds: readonly string[];
@@ -136,8 +148,11 @@ export function classifyMatchingInventorySnapshot(input: {
     const grantId = exactUuid(target.grantId, "grantId");
     if (ids.has(grantId)) throw new Error("matching inventory snapshot grantId가 중복됐습니다.");
     ids.add(grantId);
-    exactSha(target.inputSha256, "inputSha256");
-    exactSha(target.attachmentManifestSha256, "attachmentManifestSha256");
+    if ((target.inputSha256 === null) !== (target.attachmentManifestSha256 === null)) {
+      throw new Error("matching inventory 입력/첨부 SHA 결속이 불완전합니다.");
+    }
+    if (target.inputSha256 !== null) exactSha(target.inputSha256, "inputSha256");
+    if (target.attachmentManifestSha256 !== null) exactSha(target.attachmentManifestSha256, "attachmentManifestSha256");
     return classifyTarget(target);
   });
   const counts = emptyCategoryCounts();
@@ -155,6 +170,13 @@ export function classifyMatchingInventorySnapshot(input: {
 }
 
 function classifyTarget(target: MatchingInventorySnapshotTarget): MatchingInventoryClassificationEntry {
+  const supply = target.supplyAssessment;
+  if (supply && supply.grantId !== target.grantId) {
+    throw new Error("matching supply evidence grantId가 대상과 다릅니다.");
+  }
+  if (supply?.schema === "grant-supply-inactive-v1") {
+    return entry(target, "excluded", false, `supply:${supply.reason}`, "none");
+  }
   if (!target.eligibility.eligible) {
     if (target.eligibility.reason === "duplicate") {
       exactUuid(target.eligibility.duplicateOfGrantId ?? "", "duplicateOfGrantId");
@@ -167,8 +189,44 @@ function classifyTarget(target: MatchingInventorySnapshotTarget): MatchingInvent
     return entry(target, "excluded", false, `excluded:${target.eligibility.reason}`, "none");
   }
   validateHistory(target.history);
+  if (target.preparationFailure) {
+    if (target.inputSha256 !== null || target.attachmentManifestSha256 !== null) {
+      throw new Error("준비 실패 target에 material SHA가 있을 수 없습니다.");
+    }
+    return entry(target, "quality_held", false, `preparation:${target.preparationFailure}`, "recover_source");
+  }
   if (target.history.kind === "prepared" && target.history.ownership === "active_elsewhere") {
     return entry(target, "prepared_not_started", false, "active_owner_preserved", "wait_for_active_owner", target.history.manifestSha256);
+  }
+  if (supply?.schema === "grant-supply-plan-v1") {
+    if (supply.modelCalls !== 0 || !SHA.test(supply.evidenceSha256)) {
+      throw new Error("matching supply evidence 결속이 잘못됐습니다.");
+    }
+    const reason = `supply:${supply.stage}:${supply.reason}`;
+    switch (supply.stage) {
+      case "ready": return entry(target, "reusable", false, reason, "reuse");
+      case "source_review":
+        return supply.nextWorkAction === "condition_review"
+          ? entry(target, "primary_review_required", false, reason, "review_current_conditions")
+          : supply.nextWorkAction === "source_recovery"
+            ? entry(target, "quality_held", false, reason, "recover_source")
+            : supply.nextWorkAction === "coverage_review"
+              ? entry(target, "source_changed", false, reason, "review_source_coverage")
+              : entry(target, "source_changed", false, reason, "review_source_change");
+      case "review_existing_analysis": return entry(target, "primary_review_required", false, reason, "review_existing_analysis");
+      case "prepare_question_draft": return entry(target, "primary_review_required", false, reason, "prepare_confirmation_questions");
+      case "review_question_draft": return entry(target, "primary_review_required", false, reason, "review_question_draft");
+      case "prepare_promotion_release": return entry(target, "reusable", false, reason, "prepare_promotion_release");
+      case "await_approved_release": return entry(target, "reusable", false, reason, "await_approved_release");
+      case "recheck_recruitment": return entry(target, "source_changed", false, reason, "refresh_recruitment_status");
+      case "asset_inventory_unavailable": return entry(target, "quality_held", false, reason, "inspect_asset_inventory");
+      case "asset_selection_conflict": return entry(target, "quality_held", false, reason, "resolve_asset_selection_conflict");
+      case "await_approved_model_run":
+        if (supply.nextWorkAction !== "condition_analysis") {
+          throw new Error("matching 공급 모델 실행 단계의 nextWork가 다릅니다.");
+        }
+        break;
+    }
   }
   if (target.readinessNextWork && target.readinessNextWork !== "condition_analysis") {
     switch (target.readinessNextWork) {
@@ -204,6 +262,9 @@ function classifyTarget(target: MatchingInventorySnapshotTarget): MatchingInvent
   }
   if (target.history.kind === "legacy") {
     return entry(target, "quality_held", false, "legacy_history_requires_manual_review", "resolve_quality_hold");
+  }
+  if (target.inputSha256 === null || target.attachmentManifestSha256 === null) {
+    throw new Error(`matching 실행 판정에 current material이 없습니다: ${target.grantId}`);
   }
   if (target.history.kind !== "none") {
     const changed: string[] = [];
@@ -249,6 +310,11 @@ function entry(
     closesToday: target.closesToday,
     campaignEligible,
     reason,
+    supplyStage: target.supplyAssessment?.schema === "grant-supply-plan-v1"
+      ? target.supplyAssessment.stage
+      : target.supplyAssessment ? "inactive" : null,
+    supplyEvidenceSha256: target.supplyAssessment?.schema === "grant-supply-plan-v1"
+      ? target.supplyAssessment.evidenceSha256 : null,
     nextAction,
     sourceManifestSha256,
     sourceReceiptSha256,
@@ -756,7 +822,8 @@ function assertReceiptTargets(targetGrantIds: readonly string[], receipt: Analys
 }
 
 function normalizeClassification(value: MatchingInventoryClassification): MatchingInventoryClassification {
-  if (value.schema !== MATCHING_INVENTORY_CLASSIFICATION_SCHEMA
+  if ((value.schema !== MATCHING_INVENTORY_CLASSIFICATION_SCHEMA
+    && value.schema !== LEGACY_MATCHING_INVENTORY_CLASSIFICATION_SCHEMA)
     || value.targetCount !== value.entries.length
     || value.targetCount !== value.targetGrantIds.length) {
     throw new Error("matching inventory classification 계약이 잘못됐습니다.");
@@ -766,6 +833,30 @@ function normalizeClassification(value: MatchingInventoryClassification): Matchi
   for (const [index, item] of value.entries.entries()) {
     if (item.grantId !== value.targetGrantIds[index]) throw new Error("classification target 순서가 다릅니다.");
     exactUuid(item.grantId, "classification grantId");
+    if ((item.current.inputSha256 === null) !== (item.current.attachmentManifestSha256 === null)) {
+      throw new Error("classification current material 결속이 불완전합니다.");
+    }
+    if (item.current.inputSha256 === null) {
+      if (value.schema === LEGACY_MATCHING_INVENTORY_CLASSIFICATION_SCHEMA || item.campaignEligible) {
+        throw new Error("classification 실행 대상에 current material이 없습니다.");
+      }
+    } else {
+      exactSha(item.current.inputSha256, "classification inputSha256");
+      exactSha(item.current.attachmentManifestSha256!, "classification attachmentManifestSha256");
+    }
+    if (value.schema === MATCHING_INVENTORY_CLASSIFICATION_SCHEMA) {
+      if (item.supplyStage === undefined || item.supplyEvidenceSha256 === undefined
+        || (item.supplyStage !== null && item.supplyStage !== "inactive"
+          && (!item.supplyEvidenceSha256 || !SHA.test(item.supplyEvidenceSha256)))
+        || ((item.supplyStage === null || item.supplyStage === "inactive")
+          && item.supplyEvidenceSha256 !== null)) {
+        throw new Error("classification supply evidence 결속이 잘못됐습니다.");
+      }
+      if (item.campaignEligible && item.supplyStage !== null
+        && item.supplyStage !== "await_approved_model_run") {
+        throw new Error("classification 실행 대상의 supply 단계가 다릅니다.");
+      }
+    }
     regeneratedCounts[item.category] += 1;
   }
   if (!encodeCanonical(regeneratedCounts).equals(encodeCanonical(value.counts))) {

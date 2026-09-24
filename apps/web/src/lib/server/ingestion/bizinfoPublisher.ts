@@ -1,6 +1,7 @@
 import type { NormalizedGrant } from "@cunote/contracts";
 import type { BizInfoProgram } from "@cunote/core";
 import type { CunoteDb } from "../db/client";
+import { discoverGrantSupplyWork, type GrantSupplyWorkItem } from "../productReadiness/grantSupply";
 import {
   planNormalizedGrantPublication,
   publishNormalizedGrants,
@@ -9,7 +10,10 @@ import {
 } from "./normalizedGrantPublisher";
 
 export type BizInfoPublishPlan = NormalizedGrantPublishPlan & { source: "bizinfo" };
-export type BizInfoPublishResult = NormalizedGrantPublishResult & { source: "bizinfo" };
+export type BizInfoPublishResult = NormalizedGrantPublishResult & {
+  source: "bizinfo";
+  supplyWorkItems?: readonly GrantSupplyWorkItem[];
+};
 
 export function planBizInfoPublication(
   entries: Array<NormalizedGrant<BizInfoProgram>>,
@@ -25,8 +29,23 @@ export async function publishBizInfoGrants(
     collectedAt?: Date;
   } = {},
 ): Promise<BizInfoPublishResult> {
-  return publishNormalizedGrants(db, entries, {
+  const published = await publishNormalizedGrants(db, entries, {
     source: "bizinfo",
     ...options,
-  }) as Promise<BizInfoPublishResult>;
+  });
+  try {
+    const discovered = await discoverGrantSupplyWork({
+      db,
+      source: "bizinfo",
+      sourceIds: entries.map((entry) => entry.raw.source_id),
+    });
+    return {
+      ...published,
+      supplyWorkItems: discovered.items,
+      supplyAssessments: discovered.items.flatMap((item) => item.assessment ? [item.assessment] : []),
+    } as BizInfoPublishResult;
+  } catch {
+    console.warn(`[grant-supply] bizinfo discovery_failed count=${entries.length}`);
+    return { ...published, supplyAssessmentError: "assessment_failed" } as BizInfoPublishResult;
+  }
 }

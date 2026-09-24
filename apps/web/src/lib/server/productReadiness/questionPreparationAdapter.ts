@@ -4,6 +4,10 @@ import {
   type PromotionReleaseManifest,
   type PromotionReleasePlanItem,
 } from "../analysis-serving/promotionReleaseContract";
+import { eq } from "drizzle-orm";
+import type { CunoteDb } from "../db/client";
+import type { AnalysisLaunchPromotionDependencies } from "../analysis-lab/analysis-launch-promotion";
+import * as schema from "../db/schema";
 import {
   assertReceiptBackedPromotionMutationAdmitted,
 } from "../analysis-lab/promotion-mutation-admission";
@@ -12,12 +16,13 @@ import type {
   GrantNextWorkAdapter,
   GrantNextWorkSnapshot,
 } from "./grantNextWorkExecution";
+import { buildCompanyFactReuseIdentity } from "../matches/companyFactReuse";
 
 export const QUESTION_PREPARATION_ADAPTER_RECEIPT_SCHEMA =
   "question-preparation-adapter-receipt-v1" as const;
 
 export interface ApprovedQuestionPreparationRelease {
-  readonly status: "approved" | "canary_running";
+  readonly status: "approved" | "canary_running" | "partial_failed" | "canary_passed";
   readonly manifest: unknown;
   readonly manifestSha256: string;
   readonly releasePlanSha256: string;
@@ -37,6 +42,9 @@ export interface QuestionPreparationReleaseBinding {
   readonly item: PromotionReleasePlanItem;
   readonly grantId: string;
   readonly expectedEvidenceSha256: string;
+  /** 최초 공급 plan 전체(자산 선택 포함)의 exact hash. writer item에 원자적으로 기록한다. */
+  readonly supplyPlanEvidenceSha256: string;
+  readonly executedBy: string;
 }
 
 export interface QuestionPreparationReleaseApplyResult {
@@ -56,6 +64,55 @@ export interface ApprovedQuestionPreparationReleasePort {
   applyApprovedCanary(
     binding: QuestionPreparationReleaseBinding,
   ): Promise<QuestionPreparationReleaseApplyResult>;
+}
+
+/** 실제 release 원장과 기존 promotion CLI writer를 공유하는 B 질문 발행 포트. */
+export function createApprovedQuestionPreparationReleasePort(
+  db: CunoteDb,
+  isolatedAnalysisLaunch?: AnalysisLaunchPromotionDependencies,
+): ApprovedQuestionPreparationReleasePort {
+  return {
+    async loadApprovedRelease(request) {
+      const [release] = await db.select().from(schema.analysisLabPromotionReleases)
+        .where(eq(schema.analysisLabPromotionReleases.releaseId, request.releaseId)).limit(1);
+      if (!release || release.manifestSha256 !== request.expectedManifestSha256
+          || !release.approvedBy || !release.approvedAt || !release.approvalArtifactSha256
+          || !release.gateSummary || !["approved", "canary_running", "partial_failed", "canary_passed"].includes(release.status)) {
+        throw new Error("question_preparation_approved_release_unavailable");
+      }
+      const gate = release.gateSummary as Record<string, unknown>;
+      if (typeof gate.aggregateSha256 !== "string" || typeof gate.shadowSha256 !== "string"
+          || typeof gate.dryRunSha256 !== "string") {
+        throw new Error("question_preparation_release_gate_missing");
+      }
+      return {
+        status: release.status as ApprovedQuestionPreparationRelease["status"],
+        manifest: release.manifest,
+        manifestSha256: release.manifestSha256,
+        releasePlanSha256: release.releasePlanSha256,
+        approvedBy: release.approvedBy,
+        approvedAt: release.approvedAt.toISOString(),
+        approvalArtifactSha256: release.approvalArtifactSha256,
+        gateSummary: {
+          aggregateSha256: gate.aggregateSha256,
+          shadowSha256: gate.shadowSha256,
+          dryRunSha256: gate.dryRunSha256,
+        },
+      };
+    },
+    async applyApprovedCanary(binding) {
+      const { applyApprovedPromotionCanary } = await import("../analysis-lab/promote-cli");
+      return applyApprovedPromotionCanary({
+        db,
+        releaseId: binding.manifest.releaseId,
+        grantId: binding.grantId,
+        expectedManifestSha256: binding.manifest.manifestSha256,
+        actor: binding.executedBy,
+        supplyPlanEvidenceSha256: binding.supplyPlanEvidenceSha256,
+        ...(isolatedAnalysisLaunch ? { isolatedAnalysisLaunch } : {}),
+      });
+    },
+  };
 }
 
 /**
@@ -135,7 +192,7 @@ export function bindQuestionPreparationRelease(input: {
   readonly release: ApprovedQuestionPreparationRelease;
   readonly snapshot: GrantNextWorkSnapshot;
 }): QuestionPreparationReleaseBinding {
-  if (input.release.status !== "approved" && input.release.status !== "canary_running") {
+  if (!["approved", "canary_running", "partial_failed", "canary_passed"].includes(input.release.status)) {
     throw new Error("question_preparation_release_not_approved");
   }
   if (
@@ -183,6 +240,8 @@ export function bindQuestionPreparationRelease(input: {
     item,
     grantId: input.snapshot.grantId,
     expectedEvidenceSha256: input.snapshot.evidenceSha256,
+    supplyPlanEvidenceSha256: input.snapshot.evidenceSha256,
+    executedBy: input.executedBy,
   });
 }
 
@@ -229,9 +288,28 @@ function validateQuestionPreparationPlan(
   const raw = snapshot.readinessInput.source.rawSha256;
   if (!revision || !raw) throw new Error("question_preparation_source_binding_missing");
   for (const question of questions) {
+    const criterion = plan.criteria[question.criteriaPosition];
+    const companyFactValid = question.reusable !== "company_fact" || Boolean(criterion &&
+      buildCompanyFactReuseIdentity({
+        questionId: `${plan.runId}:${question.criterionIndex}`,
+        grantId: plan.grantId,
+        reusable: question.reusable,
+        conditionKey: question.conditionKey,
+        evaluationContractVersion: question.evaluationContractVersion ?? null,
+        answerType: question.answerType,
+        options: question.options,
+        criterion: {
+          dimension: criterion.dimension,
+          kind: criterion.kind,
+          operator: criterion.operator,
+          value: criterion.value,
+        },
+      }));
     if (
       question.answerType !== "single"
-      || question.reusable !== "per_notice"
+      || (question.reusable !== "per_notice" && question.reusable !== "company_fact")
+      || (question.reusable === "per_notice" && question.conditionKey !== null)
+      || !companyFactValid
       || question.sourceRevisionSha256 !== revision
       || question.sourceRawSha256 !== raw
       || question.provenance.runId !== plan.runId

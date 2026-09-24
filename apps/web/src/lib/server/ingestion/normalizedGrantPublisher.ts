@@ -30,6 +30,7 @@ import {
   classifyGrantSourceChangeImpact,
   type GrantSourceChangeProjectionInput,
 } from "./grantSourceChangeImpact";
+import type { GrantSupplyAssessment } from "../productReadiness/grantSupply";
 
 export interface NormalizedGrantPublishPlan {
   source: GrantSource;
@@ -44,6 +45,11 @@ export interface NormalizedGrantPublishPlan {
 export interface NormalizedGrantPublishResult extends NormalizedGrantPublishPlan {
   publishedAt: string;
   revisionCounts: Record<PublishedGrantRevisionKind, number>;
+  /** 커밋된 수집 결과를 일반 공급 단계로 넘길 exact 공고 ID. */
+  supplyCandidateGrantIds: string[];
+  /** 수집 커밋 뒤 일반 호출부가 만든 읽기 전용 후속 단계. */
+  supplyAssessments?: GrantSupplyAssessment[];
+  supplyAssessmentError?: "assessment_failed";
   matchStateInvalidatedCount: number;
   matchStateRefreshedCount: number;
   matchStateRefreshRequired: boolean;
@@ -121,6 +127,7 @@ export async function publishNormalizedGrants<TPayload>(
     const invalidatedStateKeys = new Set<string>();
     const invalidatedCompanyIds = new Set<string>();
     const promotionProtectedSourceIds: string[] = [];
+    const supplyCandidateGrantIds = new Set<string>();
 
     for (const entry of entries) {
       const nextRawHash = hashGrantRawPayload(entry.raw.payload);
@@ -229,6 +236,7 @@ export async function publishNormalizedGrants<TPayload>(
       if (!grant) {
         throw new Error(`${options.source} grant publish failed: ${entry.grant.source_id}`);
       }
+      if (revisionKind !== "unchanged") supplyCandidateGrantIds.add(grant.id);
 
       if (revisionKind === "changed" && previous?.grantId) {
         const affectedGrantIds = expandConfirmedGrantComponentIds([previous.grantId], confirmedLinks);
@@ -363,6 +371,7 @@ export async function publishNormalizedGrants<TPayload>(
       ...planNormalizedGrantPublication(options.source, entries),
       publishedAt: collectedAt.toISOString(),
       revisionCounts,
+      supplyCandidateGrantIds: [...supplyCandidateGrantIds].sort(),
       matchStateInvalidatedCount: invalidatedStateKeys.size,
       matchStateRefreshedCount,
       matchStateRefreshRequired: invalidatedStateKeys.size > 0 && matchStateRefreshedCount === 0,

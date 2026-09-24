@@ -60,6 +60,19 @@ const differentBasisDate = buildCompanyFactReuseIdentity(base({
 }));
 assert.notEqual(differentBasisDate?.semanticSha256, identities[0]?.semanticSha256);
 
+const differentMeaning = buildCompanyFactReuseIdentity(base({
+  conditionKey: "siheung_registered_headquarters_ownership",
+}));
+assert.notEqual(differentMeaning?.conditionKey, identities[0]?.conditionKey);
+assert.equal(resolveCompanyFactAnswer({ identity: differentMeaning!, candidates: [{
+  questionId: fourSameFacts[0]!.questionId,
+  grantId: fourSameFacts[0]!.grantId,
+  identity: identities[0]!,
+  evaluation: "satisfied",
+  answerRevision: 1,
+  answeredAt: new Date("2026-09-22T00:00:00.000Z"),
+}] }), null);
+
 assert.equal(buildCompanyFactReuseIdentity(base({ conditionKey: "Siheung location" })), null);
 assert.equal(buildCompanyFactReuseIdentity(base({ reusable: "per_notice" })), null);
 assert.equal(buildCompanyFactReuseIdentity(base({

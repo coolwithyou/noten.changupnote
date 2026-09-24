@@ -12,7 +12,7 @@ import {
   loadPromotionGrantSnapshot,
   promotionGrantSnapshotStateSha256,
 } from "./promotionSnapshot";
-import { getCunoteDb } from "../db/client";
+import { getCunoteDb, type CunoteDbSession } from "../db/client";
 import * as schema from "../db/schema";
 import {
   loadLegacyQuestionMigrationServingStates,
@@ -45,11 +45,10 @@ export interface DocumentAgentGroundingBundle {
   groundingProvenance: Record<string, unknown>;
 }
 
-export async function loadVerifiedDeepSources(grantId: string): Promise<{
+export async function loadVerifiedDeepSources(grantId: string, db: CunoteDbSession = getCunoteDb()): Promise<{
   sources: DocumentAgentGroundingSource[];
   provenance: Record<string, unknown>;
 }> {
-  const db = getCunoteDb();
   const rows = await db
     .select({
       releaseId: schema.analysisLabPromotionReleases.releaseId,
@@ -107,7 +106,7 @@ export async function loadVerifiedDeepSources(grantId: string): Promise<{
   }
   let manifest;
   try {
-    manifest = validatePromotionReleaseManifest(newest.manifest);
+    manifest = validatePromotionReleaseManifest(newest.manifest, "historical_matching_serving");
   } catch {
     return { sources: [], provenance: { status: "invalid_manifest" } };
   }
@@ -155,12 +154,13 @@ export async function loadVerifiedDeepSources(grantId: string): Promise<{
       currentSourceRawSha256: currentSource!.sourceRawSha256,
       currentMaterialSourceRevisionSha256: currentSource!.materialSourceRevisionSha256,
     });
-  if (!sourceRebindCurrent && !promotionStateMatchesParentOrMigration({
+  const parentSourceCurrent = currentSource?.sourceRevisionSha256 === sourceRevisionSha256;
+  if (!sourceRebindCurrent && (!parentSourceCurrent || !promotionStateMatchesParentOrMigration({
     currentStateSha256: currentSha256,
     parentAfterSha256: newest.afterSha256,
     successor: migrationStates.get(newest.promotionItemId),
     grantId,
-  })) {
+  }))) {
     return { sources: [], provenance: { status: "current_state_drift" } };
   }
   const planStableKeyCounts = countStableKeys(plan.promotionPlan.criterionStableKeys);

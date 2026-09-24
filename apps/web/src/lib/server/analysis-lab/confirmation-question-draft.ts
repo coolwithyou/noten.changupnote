@@ -30,6 +30,7 @@ export interface ValidatedBoundManualConfirmationInput {
   run: LabRun;
   review: LabReview;
   manualInput: ManualConfirmationDraftInput;
+  reviewArtifactSha256: string;
 }
 
 export function buildConfirmationQuestionDraftPacket(input: {
@@ -180,6 +181,7 @@ export function validateBoundManualConfirmationInput(input: {
     run,
     review,
     manualInput: envelope.manualInput,
+    reviewArtifactSha256: packet.source.reviewArtifactSha256,
   };
 }
 
@@ -217,6 +219,12 @@ function buildDraftItem(
     polarity: exclusion ? "exclusion_membership" : "criterion_satisfaction",
     criterionSha256: sha256(canonicalConfirmationQuestionDraftJson(criterion)),
     sourceSpan,
+    normalizedCriterion: {
+      dimension: criterion.dimension,
+      kind: criterion.kind,
+      operator: criterion.operator,
+      value: criterion.value,
+    },
     resolutionScope: "per_notice",
     answerType: "single",
     prompt: industry

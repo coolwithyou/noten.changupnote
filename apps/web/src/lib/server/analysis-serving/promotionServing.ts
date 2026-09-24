@@ -6,6 +6,7 @@ import {
   type VerifiedLocalLabSourceEvidence,
 } from "./promotionReleaseContract";
 import type { AuthoringFeatureReadiness } from "@cunote/contracts";
+import { applicationFieldAnalysisVersionAllowedForPurpose } from "./applicationPrecomputeEvidence";
 
 export interface PromotionServingLedgerItem {
   grantId: string;
@@ -186,7 +187,13 @@ function resolveVerifiedLocalLabItem(
     kind: "verified_local_lab",
     evidence: artifact.localLabEvidence,
     sourceRevisionSha256: artifact.sourceRevisionSha256 ?? null,
-    authoringReadiness: authoringReadinessForPromotionPlan(plan),
+    authoringReadiness: artifact.applicationPrecompute?.launchAdmission
+      && !applicationFieldAnalysisVersionAllowedForPurpose(
+        artifact.applicationPrecompute.launchAdmission.applicationFieldAnalysisVersion,
+        "current_admission",
+      )
+      ? UNVERIFIED_AUTHORING_READINESS
+      : authoringReadinessForPromotionPlan(plan),
   };
 }
 
@@ -222,7 +229,7 @@ export function isPromotionItemServingEligible(item: PromotionServingLedgerItem)
 
 function readManifest(value: unknown): PromotionReleaseManifest | null {
   try {
-    return validatePromotionReleaseManifest(value);
+    return validatePromotionReleaseManifest(value, "historical_matching_serving");
   } catch {
     return null;
   }

@@ -185,6 +185,7 @@ export function createDrizzleSourceRebindPort(input: {
         db: input.db,
         manifest: binding.manifest,
         executedBy: binding.executedBy,
+        beforeEvidenceSha256: binding.expectedEvidenceSha256,
       });
     },
   };

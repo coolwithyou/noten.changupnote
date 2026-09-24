@@ -1,6 +1,6 @@
 import { hashGrantRawPayload } from "./grantRawHash";
 
-export const GRANT_SOURCE_CHANGE_IMPACT_SCHEMA = "grant-source-change-impact-v1" as const;
+export const GRANT_SOURCE_CHANGE_IMPACT_SCHEMA = "grant-source-change-impact-v2" as const;
 
 export type GrantSourceChangeClassification =
   | "initial"
@@ -37,10 +37,7 @@ export interface GrantSourceChangeImpact {
   readonly requiresModelRun: false;
 }
 
-/**
- * 수집 시점의 이전·현재 source projection을 소비 기능별로 비교한다.
- * raw 전체가 바뀌어도 eligibility 입력이 그대로면 모델 재실행으로 보내지 않는다.
- */
+/** 수집 시점의 이전·현재 source projection을 비교한다. */
 export function classifyGrantSourceChangeImpact(input: {
   readonly previous: GrantSourceChangeProjectionInput | null;
   readonly current: GrantSourceChangeProjectionInput;
@@ -128,37 +125,22 @@ function fingerprints(input: GrantSourceChangeProjectionInput): GrantSourceFinge
   };
 }
 
-/** 모델 입력에 실제 노출되는 자격·예외 구역만 봉인한다. 관측 시각과 조회수는 제외한다. */
+/**
+ * 모델 입력은 raw 전체를 포함한다. 의미 불변 자동 재결속은 알려진 관측 메타데이터만
+ * 제외한 전체 raw가 같을 때 허용한다. 새 필드와 기간 문구도 검수로 보낸다.
+ */
 function sourceCoverageFingerprint(source: string, payload: unknown): string | null {
   if (!isRecord(payload)) return null;
   if (source === "kstartup") {
-    const detail = isRecord(payload.detail) ? payload.detail : {};
-    return hashGrantRawPayload({
-      pbanc_ctnt: payload.pbanc_ctnt ?? null,
-      aply_trgt: payload.aply_trgt ?? null,
-      aply_trgt_ctnt: payload.aply_trgt_ctnt ?? null,
-      aply_excl_trgt_ctnt: payload.aply_excl_trgt_ctnt ?? null,
-      prfn_matr: payload.prfn_matr ?? null,
-      biz_enyy: payload.biz_enyy ?? null,
-      biz_trgt_age: payload.biz_trgt_age ?? null,
-      supt_regin: payload.supt_regin ?? null,
-      supt_biz_clsfc: payload.supt_biz_clsfc ?? null,
-      detail: {
-        apply_method_text: detail.apply_method_text ?? null,
-        submit_documents_text: detail.submit_documents_text ?? null,
-        attachments: detail.attachments ?? null,
-      },
-    });
+    const { detail, ...material } = payload;
+    if (detail === undefined) return hashGrantRawPayload(material);
+    if (!isRecord(detail)) return hashGrantRawPayload({ ...material, detail });
+    const { fetched_at: _observedAt, ...materialDetail } = detail;
+    return hashGrantRawPayload({ ...material, detail: materialDetail });
   }
   if (source === "bizinfo") {
-    return hashGrantRawPayload({
-      trgetNm: payload.trgetNm ?? null,
-      pldirSportRealmLclasCodeNm: payload.pldirSportRealmLclasCodeNm ?? null,
-      pldirSportRealmMlsfcCodeNm: payload.pldirSportRealmMlsfcCodeNm ?? null,
-      reqstMthPapersCn: payload.reqstMthPapersCn ?? null,
-      bsnsSumryCn: payload.bsnsSumryCn ?? null,
-      hashtags: payload.hashtags ?? null,
-    });
+    const { inqireCo: _views, ...material } = payload;
+    return hashGrantRawPayload(material);
   }
   return null;
 }

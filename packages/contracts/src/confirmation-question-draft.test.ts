@@ -139,3 +139,67 @@ test("bound manual input은 원 packet을 보존하고 packet 밖 index와 극�
     "schema 오타가 있어도 legacy manual input으로 해석 가능한 top-level 필드를 두지 않는다",
   );
 });
+
+test("회사 사실 범위는 검수자가 확정한 표준 키가 있어야만 bound 입력으로 받는다", () => {
+  const draftPacket = fixture();
+  draftPacket.items[0]!.normalizedCriterion = {
+    dimension: "other", kind: "required", operator: "text_only",
+    value: { fact_scope: "registered_business", basis_date: "2026-09-22" },
+  };
+  const item = {
+    criterionIndex: draftPacket.items[0]!.criterionIndex,
+    resolutionScope: "company_fact",
+    conditionKey: "registered_business_location",
+    companyFactReview: {
+      meaning: "현재 등록된 사업장이 해당 지역에 있는지",
+      definitionKey: "registered_business_location",
+      definitionSource: "new_review",
+      scopeField: "fact_scope",
+      scopeValue: "registered_business",
+      asOfField: "basis_date",
+      asOfDate: "2026-09-22",
+      reviewArtifactSha256: draftPacket.source.reviewArtifactSha256,
+    },
+    prompt: "사업장이 해당 지역에 있나요?",
+    options: draftPacket.items[0]!.options,
+  };
+  const envelope = {
+    schema: CONFIRMATION_QUESTION_MANUAL_INPUT_SCHEMA,
+    draftPacket,
+    manualInput: { questionAuthorEmail: "author@example.com", items: [item] },
+  };
+  assert.equal(parseConfirmationQuestionManualInputEnvelope(envelope).manualInput.items[0]?.conditionKey,
+    "registered_business_location");
+  assert.throws(() => parseConfirmationQuestionManualInputEnvelope({
+    ...envelope,
+    manualInput: { ...envelope.manualInput, items: [{ ...item, conditionKey: "잘못된 키" }] },
+  }), /표준 사실 키 형식/);
+  const { conditionKey: _conditionKey, ...withoutKey } = item;
+  assert.throws(() => parseConfirmationQuestionManualInputEnvelope({
+    ...envelope,
+    manualInput: { ...envelope.manualInput, items: [withoutKey] },
+  }), /필드가 계약과 정확히 일치/);
+  assert.throws(() => parseConfirmationQuestionManualInputEnvelope({
+    ...envelope,
+    manualInput: { ...envelope.manualInput, items: [{
+      ...item,
+      companyFactReview: { ...item.companyFactReview, asOfDate: "2026-10-01" },
+    }] },
+  }), /검수 근거·scope·기준일/);
+  const noteOnly = fixture();
+  noteOnly.items[0]!.normalizedCriterion = {
+    dimension: "other", kind: "required", operator: "text_only",
+    value: { note: "2026-09-22 기준 등록 사업장" },
+  };
+  assert.throws(() => parseConfirmationQuestionManualInputEnvelope({
+    ...envelope, draftPacket: noteOnly,
+  }), /정규화 scope\/기준일이 없어/);
+  const noteWithStructuredFields = fixture();
+  noteWithStructuredFields.items[0]!.normalizedCriterion = {
+    dimension: "other", kind: "required", operator: "text_only",
+    value: { fact_scope: "registered_business", basis_date: "2026-09-22", note: "본점만 해당" },
+  };
+  assert.throws(() => parseConfirmationQuestionManualInputEnvelope({
+    ...envelope, draftPacket: noteWithStructuredFields,
+  }), /정규화 scope\/기준일이 없어/);
+});

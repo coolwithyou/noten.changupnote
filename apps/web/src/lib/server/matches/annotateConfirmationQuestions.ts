@@ -9,6 +9,7 @@ import type { CunoteDbSession } from "../db/client";
 import * as schema from "../db/schema";
 import { loadDeepAnalysisSourceBindings } from "../deep-analysis/prepareInput";
 import { normalizeConfirmationOptions } from "./grantConfirmationAnswers";
+import { buildCompanyFactReuseIdentity } from "./companyFactReuse";
 import {
   loadVerifiedLegacyQuestionMigrationBindings,
   type VerifiedLegacyQuestionMigrationBinding,
@@ -243,11 +244,13 @@ export async function loadMatchingConfirmationQuestionContext(
       answerType: schema.grantConfirmationQuestions.answerType,
       options: schema.grantConfirmationQuestions.options,
       reusable: schema.grantConfirmationQuestions.reusable,
+      conditionKey: schema.grantConfirmationQuestions.conditionKey,
       provenance: schema.grantConfirmationQuestions.provenance,
       criterionId: schema.grantCriteria.id,
       dimension: schema.grantCriteria.dimension,
       kind: schema.grantCriteria.kind,
       operator: schema.grantCriteria.operator,
+      value: schema.grantCriteria.value,
       sourceSpan: schema.grantCriteria.sourceSpan,
       needsReview: schema.grantCriteria.needsReview,
     })
@@ -357,6 +360,11 @@ export function matchingQuestionBinding(
     answerType: string;
     options: unknown;
     reusable: string;
+    conditionKey?: string | null;
+    dimension?: CriterionDimension;
+    kind?: CriterionKind;
+    operator?: string;
+    value?: unknown;
     provenance: Record<string, unknown>;
     needsReview: boolean;
     sourceSpan: string | null;
@@ -407,7 +415,6 @@ export function matchingQuestionBinding(
       currentSourceBindingVerified: true,
     };
   }
-  if (row.reusable !== "per_notice") return null;
   const provenance = row.provenance;
   const runId = typeof provenance.runId === "string" ? provenance.runId.trim() : "";
   const reviewState = provenance.auditState;
@@ -418,11 +425,32 @@ export function matchingQuestionBinding(
     || Number(provenance.criterionIndex) < 0
     || !servingRunIdsByGrant.get(row.grantId)?.has(runId)
   ) return null;
+  if (row.reusable === "company_fact" && (
+    !row.questionId
+    || !row.dimension
+    || !row.kind
+    || !row.operator
+    || !buildCompanyFactReuseIdentity({
+      questionId: row.questionId,
+      grantId: row.grantId,
+      reusable: row.reusable,
+      conditionKey: row.conditionKey ?? null,
+      evaluationContractVersion: row.evaluationContractVersion,
+      answerType: row.answerType,
+      options,
+      criterion: {
+        dimension: row.dimension,
+        kind: row.kind,
+        operator: row.operator,
+        value: row.value,
+      },
+    })
+  )) return null;
   return {
     criterionId: row.criterionId,
     contractVersion: "confirmation-evaluation-v2",
     evaluationKind: "three_state_single",
-    resolutionScope: "per_notice",
+    resolutionScope: row.reusable,
     reviewState,
     runId,
     currentSourceBindingVerified: true,

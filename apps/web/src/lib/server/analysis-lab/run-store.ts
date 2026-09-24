@@ -79,8 +79,9 @@ export async function listLabRunSummaries(source: string, sourceId: string): Pro
   let files: string[];
   try {
     files = await readdir(dir);
-  } catch {
-    return [];
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw error;
   }
   const summaries: LabRunSummary[] = [];
   for (const file of files) {
@@ -339,13 +340,14 @@ async function readRunFile(path: string): Promise<LabRun | null> {
     const body = await readFile(path, "utf8");
     const parsed = JSON.parse(body) as LabRun;
     // startedAt 검사는 부속 파일(검수·AI 검수·감사) 오인 방어 — 실제 런 파일은 전부 보유.
-    return typeof parsed.runId === "string" &&
+    const valid = typeof parsed.runId === "string" &&
       typeof parsed.grantId === "string" &&
-      typeof parsed.startedAt === "string"
-      ? parsed
-      : null;
-  } catch {
-    return null;
+      typeof parsed.startedAt === "string";
+    if (!valid) throw new Error(`invalid_lab_run_file:${path}`);
+    return parsed;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw error;
   }
 }
 

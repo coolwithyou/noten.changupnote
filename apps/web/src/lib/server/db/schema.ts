@@ -1798,6 +1798,8 @@ export const analysisLabPromotionItems = pgTable("analysis_lab_promotion_items",
   planSha256: text("plan_sha256").notNull(),
   beforeSnapshot: jsonb("before_snapshot").$type<Record<string, unknown>>().notNull(),
   beforeSha256: text("before_sha256").notNull(),
+  /** 승인된 공급 실행이 최초 writer 트랜잭션에 봉인한 exact plan evidence. */
+  supplyPlanEvidenceSha256: text("supply_plan_evidence_sha256"),
   afterSnapshot: jsonb("after_snapshot").$type<Record<string, unknown>>(),
   afterSha256: text("after_sha256"),
   /** Kordoc artifact 검증·materialization 결과. criteria 적용과 같은 transaction에서 기록한다. */
@@ -1818,6 +1820,9 @@ export const analysisLabPromotionItems = pgTable("analysis_lab_promotion_items",
     .on(table.deepAnalysisRunId),
   statusCheck: check("analysis_lab_promotion_items_status_check", sql`
     ${table.status} IN ('prepared', 'applying', 'applied', 'failed', 'rolling_back', 'rolled_back')
+  `),
+  supplyPlanEvidenceSha256Check: check("analysis_lab_promotion_items_supply_plan_evidence_sha256_check", sql`
+    ${table.supplyPlanEvidenceSha256} IS NULL OR ${table.supplyPlanEvidenceSha256} ~ '^[0-9a-f]{64}$'
   `),
 }));
 

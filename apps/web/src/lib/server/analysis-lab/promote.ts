@@ -3,7 +3,7 @@
 // ⚠️ 이 모듈(+promote-cli.ts)은 실험실 "DB 쓰기 0 원칙"의 **의도된 유일한 경계 통과 지점**이다.
 // 검수·감사로 확정된 criteria(B)를 프로덕션 grant_criteria 로, 확인 질문(v3 인라인 +
 // <runId>.confirmations.json 사이드카)을 grant_confirmation_questions 로 발행한다
-// (확인 루프 Phase B-4 — docs/plans/2026-07-23-confirmation-loop-phase-b.md §1).
+// (확인 루프 Phase B-4 — docs/archive/2026-09-23-condition-transition/plans/2026-07-23-confirmation-loop-phase-b.md §1).
 //
 // **기본은 dry-run(발행 계획 출력만)이다.** 실쓰기는 immutable release manifest와
 // aggregate/shadow/dry-run 승인 원장에 묶인 promote-cli 경로에서만 열린다.

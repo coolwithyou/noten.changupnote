@@ -14,6 +14,7 @@
 //   안정 키 기준 grant_criteria upsert → 질문 upsert(ID/FK 보존) → 소멸 질문 soft-invalidate
 //   → 소멸 criterion만 삭제 → 해당 grantId의 match_state 삭제.
 import { and, eq, inArray } from "drizzle-orm";
+import { readFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import {
   executePromotionWrites,
@@ -25,6 +26,7 @@ import {
   type PromotionWritePort,
 } from "./promote";
 import { getCunoteDb, type CunoteDb } from "../db/client";
+import { assertIsolatedProductTestDb } from "../db/assertIsolatedProductTestDb";
 import * as schema from "../db/schema";
 import { prepareGrantApplicationPrecompute } from "./application-precompute-prepare";
 import {
@@ -38,6 +40,7 @@ import { criterionInsertValues } from "../ingestion/normalizedGrantPublisher";
 import { loadMonorepoEnv } from "../loadMonorepoEnv";
 import { createR2ObjectStorageFromEnv } from "../storage/r2ObjectStorage";
 import { verifyPromotionReleaseSources } from "./promotion-candidates";
+import type { AnalysisLaunchPromotionDependencies } from "./analysis-launch-promotion";
 import {
   buildPromotionApplicationPrecomputeReceipt,
   readBundledPromotionApplicationPrecompute,
@@ -45,6 +48,7 @@ import {
 } from "./application-precompute-release";
 import {
   assertManifestConfirmation,
+  hashFile,
   promotionReleaseArtifactPath,
   readPromotionReleaseManifest,
   releasePlanItemHasUnsafePendingCriteria,
@@ -83,6 +87,7 @@ export function createDrizzlePromotionPort(
   releaseContext?: {
     releaseDbId: string;
     itemByGrantId: ReadonlyMap<string, PromotionReleasePlanItem>;
+    supplyPlanEvidenceSha256?: string;
     prepareApplicationPrecompute?: (
       grantId: string,
       parentLabRunId: string,
@@ -134,6 +139,10 @@ export function createDrizzlePromotionPort(
           const currentSnapshot = await loadPromotionGrantSnapshot(tx, plan.grantId, confirmedLinks);
           const currentSnapshotSha256 = promotionGrantSnapshotStateSha256(currentSnapshot);
           if (ledgerItem.status === "applied") {
+            if (releaseContext?.supplyPlanEvidenceSha256
+                && ledgerItem.supplyPlanEvidenceSha256 !== releaseContext.supplyPlanEvidenceSha256) {
+              throw new Error(`supply_plan_drift: 적용된 공급 계획 SHA가 다릅니다 (${plan.grantId})`);
+            }
             if (ledgerItem.afterSha256 === currentSnapshotSha256) {
               return {
                 criteriaDeleted: 0,
@@ -149,6 +158,10 @@ export function createDrizzlePromotionPort(
           }
           if (ledgerItem.status !== "prepared" && ledgerItem.status !== "failed") {
             throw new Error(`release item 상태가 쓰기 가능하지 않습니다: ${ledgerItem.status}`);
+          }
+          if (ledgerItem.supplyPlanEvidenceSha256
+              && ledgerItem.supplyPlanEvidenceSha256 !== releaseContext?.supplyPlanEvidenceSha256) {
+            throw new Error(`supply_plan_drift: 기존 공급 계획 SHA가 다릅니다 (${plan.grantId})`);
           }
           if (
             !snapshotMatchesReleaseBaseline(currentSnapshot, releasePlanItem)
@@ -415,6 +428,9 @@ export function createDrizzlePromotionPort(
             .set({
               afterSnapshot: afterSnapshot as unknown as Record<string, unknown>,
               afterSha256,
+              ...(releaseContext.supplyPlanEvidenceSha256
+                ? { supplyPlanEvidenceSha256: releaseContext.supplyPlanEvidenceSha256 }
+                : {}),
               ...(applicationPrecomputeReceipt
                 ? { applicationPrecomputeReceipt: applicationPrecomputeReceipt as unknown as Record<string, unknown> }
                 : {}),
@@ -451,12 +467,23 @@ function releaseDryRunGuard(
   return "pass";
 }
 
-async function verifyManifestSources(manifest: PromotionReleaseManifest): Promise<string[]> {
-  return verifyPromotionReleaseSources(manifest.sourceArtifacts);
+async function verifyManifestSources(
+  manifest: PromotionReleaseManifest,
+  isolatedAnalysisLaunch?: AnalysisLaunchPromotionDependencies,
+): Promise<string[]> {
+  if (!isolatedAnalysisLaunch) return verifyPromotionReleaseSources(manifest.sourceArtifacts);
+  const { verifyAnalysisLaunchPromotionSourceArtifactDetailed } = await import("./analysis-launch-promotion");
+  return verifyPromotionReleaseSources(manifest.sourceArtifacts, {
+    verifyOne: (artifact) => {
+      if (artifact.localLabEvidence?.reviewMethod !== "analysis_launch_independent_review") {
+        throw new Error("isolated source verification accepts analysis-launch only");
+      }
+      return verifyAnalysisLaunchPromotionSourceArtifactDetailed(artifact, isolatedAnalysisLaunch);
+    },
+  });
 }
 
-async function loadReleaseLedger(releaseId: string) {
-  const db = getCunoteDb();
+async function loadReleaseLedger(releaseId: string, db: CunoteDb = getCunoteDb()) {
   const [release] = await db
     .select()
     .from(schema.analysisLabPromotionReleases)
@@ -466,12 +493,22 @@ async function loadReleaseLedger(releaseId: string) {
   return { db, release };
 }
 
-async function mainRelease(releaseId: string): Promise<number> {
+async function mainRelease(releaseId: string, options?: {
+  readonly db: CunoteDb;
+  readonly grantId: string;
+  readonly expectedManifestSha256: string;
+  readonly actor: string;
+  readonly supplyPlanEvidenceSha256?: string;
+  readonly isolatedAnalysisLaunch?: AnalysisLaunchPromotionDependencies;
+}): Promise<number> {
   const manifest = await readPromotionReleaseManifest(releaseId);
-  const grantFilter = readArg("grantId")?.trim();
-  const write = hasFlag("write");
+  if (options && manifest.manifestSha256 !== options.expectedManifestSha256) {
+    throw new Error("exact release manifest가 요청과 다릅니다.");
+  }
+  const grantFilter = options?.grantId ?? readArg("grantId")?.trim();
+  const write = options !== undefined || hasFlag("write");
   if (write) assertReceiptBackedPromotionMutationAdmitted(manifest);
-  const { db, release } = await loadReleaseLedger(releaseId);
+  const { db, release } = await loadReleaseLedger(releaseId, options?.db);
   if (
     release.manifestSha256 !== manifest.manifestSha256
     || release.releasePlanSha256 !== manifest.releasePlanSha256
@@ -479,7 +516,7 @@ async function mainRelease(releaseId: string): Promise<number> {
     throw new Error("DB release 원장과 immutable manifest hash가 일치하지 않습니다.");
   }
 
-  const changedArtifacts = await verifyManifestSources(manifest);
+  const changedArtifacts = await verifyManifestSources(manifest, options?.isolatedAnalysisLaunch);
   const ledgerItems = await db
     .select()
     .from(schema.analysisLabPromotionItems)
@@ -543,8 +580,8 @@ async function mainRelease(releaseId: string): Promise<number> {
     return dryRunPass ? 0 : 2;
   }
 
-  assertManifestConfirmation(manifest, readArg("confirm"));
-  const actor = readArg("actor")?.trim();
+  assertManifestConfirmation(manifest, options?.expectedManifestSha256 ?? readArg("confirm"));
+  const actor = options?.actor ?? readArg("actor")?.trim();
   if (!actor) throw new Error("--actor에 실행 담당자 식별자가 필요합니다.");
   if (!dryRunPass) {
     throw new Error("현재 source/baseline/guard가 manifest dry-run 조건과 달라 쓰기를 거부합니다.");
@@ -552,6 +589,16 @@ async function mainRelease(releaseId: string): Promise<number> {
   if (!release.approvedBy || release.approvedBy === actor) {
     throw new Error("최초 release는 승인자와 실행자가 달라야 합니다.");
   }
+  const approvalPath = promotionReleaseArtifactPath(releaseId, "approval.json");
+  assertPromotionApprovalArtifactBinding({
+    releaseId,
+    manifestSha256: manifest.manifestSha256,
+    releasePlanSha256: manifest.releasePlanSha256,
+    approvedBy: release.approvedBy,
+    approvedAt: release.approvedAt?.toISOString() ?? null,
+    approvalArtifactSha256: release.approvalArtifactSha256,
+    gateSummary: release.gateSummary,
+  }, JSON.parse(await readFile(approvalPath, "utf8")), await hashFile(approvalPath));
 
   let targetItems: PromotionReleasePlanItem[];
   let nextRunningStatus: "canary_running" | "applying";
@@ -559,7 +606,19 @@ async function mainRelease(releaseId: string): Promise<number> {
     if (!manifest.canaryGrantIds.includes(grantFilter)) {
       throw new Error(`--grantId는 manifest canary allowlist에만 허용됩니다: ${grantFilter}`);
     }
-    if (!["approved", "canary_running"].includes(release.status)) {
+    const replayItem = ledgerByGrantId.get(grantFilter);
+    if (replayItem?.status === "applied") {
+      if (options?.supplyPlanEvidenceSha256
+          && replayItem.supplyPlanEvidenceSha256 !== options.supplyPlanEvidenceSha256) {
+        throw new Error("적용된 release의 공급 계획 SHA가 요청과 다릅니다.");
+      }
+      if (!["canary_running", "canary_passed", "applying", "active", "partial_failed"].includes(release.status)
+          || !dryRunPass || !replayItem.afterSha256 || !release.approvedBy || release.approvedBy === actor) {
+        throw new Error("적용된 release의 현행 상태 또는 승인 결속을 검증할 수 없습니다.");
+      }
+      return 0;
+    }
+    if (!["approved", "canary_running", "partial_failed"].includes(release.status)) {
       throw new Error(`카나리 쓰기 가능한 release 상태가 아닙니다: ${release.status}`);
     }
     targetItems = manifest.plans.filter((item) => item.grantId === grantFilter);
@@ -600,6 +659,8 @@ async function mainRelease(releaseId: string): Promise<number> {
   const port = createDrizzlePromotionPort(db, confirmedLinks, {
     releaseDbId: release.id,
     itemByGrantId,
+    ...(options?.supplyPlanEvidenceSha256
+      ? { supplyPlanEvidenceSha256: options.supplyPlanEvidenceSha256 } : {}),
     ...(applicationStorage
       ? {
           prepareApplicationPrecompute: async (grantId: string, parentLabRunId: string) => {
@@ -679,6 +740,105 @@ async function mainRelease(releaseId: string): Promise<number> {
     ` · 실패 ${failures.length} · 상태 ${terminalStatus}`,
   );
   return failures.length === 0 ? 0 : 2;
+}
+
+/** 원장 승인과 immutable 파일의 해시·actor·gate가 하나의 exact release임을 증명한다. */
+export function assertPromotionApprovalArtifactBinding(
+  ledger: {
+    readonly releaseId: string;
+    readonly manifestSha256: string;
+    readonly releasePlanSha256: string;
+    readonly approvedBy: string;
+    readonly approvedAt: string | null;
+    readonly approvalArtifactSha256: string | null;
+    readonly gateSummary: Record<string, unknown> | null;
+  },
+  rawArtifact: unknown,
+  actualSha256: string,
+): void {
+  if (!ledger.approvalArtifactSha256 || actualSha256 !== ledger.approvalArtifactSha256) {
+    throw new Error("승인 artifact와 release 원장의 hash가 다릅니다.");
+  }
+  const approval = rawArtifact && typeof rawArtifact === "object" && !Array.isArray(rawArtifact)
+    ? rawArtifact as Record<string, unknown> : {};
+  const gate = ledger.gateSummary;
+  if (approval.schema !== "analysis-lab-promotion-approval-v1"
+      || approval.releaseId !== ledger.releaseId
+      || approval.manifestSha256 !== ledger.manifestSha256
+      || approval.releasePlanSha256 !== ledger.releasePlanSha256
+      || approval.approvedBy !== ledger.approvedBy
+      || approval.approvedAt !== ledger.approvedAt
+      || !gate || approval.aggregateSha256 !== gate.aggregateSha256
+      || approval.shadowSha256 !== gate.shadowSha256
+      || approval.dryRunSha256 !== gate.dryRunSha256) {
+    throw new Error("승인 artifact의 exact release 및 gate 결속이 다릅니다.");
+  }
+}
+
+/** 기존 promotion CLI의 승인·source 검증·release CAS·writer를 exact 단건 공급에서도 공유한다. */
+export async function applyApprovedPromotionCanary(input: {
+  readonly db: CunoteDb;
+  readonly releaseId: string;
+  readonly grantId: string;
+  readonly expectedManifestSha256: string;
+  readonly actor: string;
+  readonly supplyPlanEvidenceSha256?: string;
+  /** 전용 PostgreSQL socket 통합검사에서만 실제 formal verifier에 격리 current evidence를 공급한다. */
+  readonly isolatedAnalysisLaunch?: AnalysisLaunchPromotionDependencies;
+}): Promise<{ readonly afterStateSha256: string; readonly replayed: boolean; readonly externalWrites: number }> {
+  if (input.supplyPlanEvidenceSha256
+      && !/^[a-f0-9]{64}$/u.test(input.supplyPlanEvidenceSha256)) {
+    throw new Error("공급 계획 SHA가 유효하지 않습니다.");
+  }
+  if (input.isolatedAnalysisLaunch) {
+    await assertIsolatedProductTestDb(input.db);
+  }
+  const [release] = await input.db.select({
+    id: schema.analysisLabPromotionReleases.id,
+  }).from(schema.analysisLabPromotionReleases)
+    .where(eq(schema.analysisLabPromotionReleases.releaseId, input.releaseId)).limit(1);
+  if (!release) throw new Error("승인 release 원장이 없습니다.");
+  const [before] = await input.db.select({
+    status: schema.analysisLabPromotionItems.status,
+    supplyPlanEvidenceSha256: schema.analysisLabPromotionItems.supplyPlanEvidenceSha256,
+  }).from(schema.analysisLabPromotionItems).where(and(
+    eq(schema.analysisLabPromotionItems.releaseDbId, release.id),
+    eq(schema.analysisLabPromotionItems.grantId, input.grantId),
+  )).limit(1);
+  if (!before) throw new Error("exact release item 원장이 없습니다.");
+  if (before.status === "applied" && input.supplyPlanEvidenceSha256
+      && before.supplyPlanEvidenceSha256 !== input.supplyPlanEvidenceSha256) {
+    throw new Error("적용된 release의 공급 계획 SHA가 요청과 다릅니다.");
+  }
+  const code = await mainRelease(input.releaseId, input);
+  if (code !== 0) throw new Error("승인 promotion canary 쓰기에 실패했습니다.");
+  const [after] = await input.db.select({
+    status: schema.analysisLabPromotionItems.status,
+    afterSha256: schema.analysisLabPromotionItems.afterSha256,
+    supplyPlanEvidenceSha256: schema.analysisLabPromotionItems.supplyPlanEvidenceSha256,
+  }).from(schema.analysisLabPromotionItems).where(and(
+    eq(schema.analysisLabPromotionItems.releaseDbId, release.id),
+    eq(schema.analysisLabPromotionItems.grantId, input.grantId),
+  )).limit(1);
+  if (after?.status !== "applied" || !after.afterSha256) {
+    throw new Error("승인 promotion canary 적용 영수증이 없습니다.");
+  }
+  if (input.supplyPlanEvidenceSha256
+      && after.supplyPlanEvidenceSha256 !== input.supplyPlanEvidenceSha256) {
+    throw new Error("승인 promotion canary 공급 계획 영수증이 요청과 다릅니다.");
+  }
+  const confirmedLinks = await input.db.select({
+    canonicalGrantId: schema.dedupLinks.canonicalGrantId,
+    memberGrantId: schema.dedupLinks.memberGrantId,
+  }).from(schema.dedupLinks).where(eq(schema.dedupLinks.confirmed, true));
+  const actualAfter = promotionGrantSnapshotStateSha256(
+    await loadPromotionGrantSnapshot(input.db, input.grantId, confirmedLinks),
+  );
+  if (actualAfter !== after.afterSha256) {
+    throw new Error("승인 promotion canary 적용 뒤 상태가 receipt와 다릅니다.");
+  }
+  const replayed = before.status === "applied";
+  return { afterStateSha256: after.afterSha256, replayed, externalWrites: replayed ? 0 : 1 };
 }
 
 async function main(): Promise<number> {

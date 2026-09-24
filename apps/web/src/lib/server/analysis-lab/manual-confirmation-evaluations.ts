@@ -13,6 +13,12 @@ import { classifyCriterionResolution, isProfileResolvableCriterion } from "@cuno
 import type { LabCriterion, LabReview, LabRun } from "./lab-contract";
 import { validateReviewerEmail } from "./review-store";
 import { labRunFilePath } from "./run-store";
+import { buildCompanyFactReuseIdentity } from "../matches/companyFactReuse";
+import {
+  canonicalConfirmationQuestionDraftJson,
+  normalizedCompanyFactBoundary,
+  type CompanyFactReview,
+} from "@cunote/contracts/confirmation-question-draft";
 import {
   MANUAL_CONFIRMATION_EVALUATION_SELECTION_SCHEMA,
   sha256Canonical,
@@ -29,8 +35,10 @@ export const MAX_MANUAL_CONFIRMATION_REVISION = 1_000;
 
 export interface ManualConfirmationEvaluationItem {
   criterionIndex: number;
-  /** 첫 구현은 공고에만 귀속되는 사실 확인으로 한정한다. */
-  resolutionScope: "per_notice";
+  resolutionScope: "per_notice" | "company_fact";
+  /** 회사 사실은 검수자가 정의한 키를 criterion 의미와 함께 결속한다. */
+  conditionKey?: string;
+  companyFactReview?: CompanyFactReview;
   prompt: string;
   options: Array<{
     value: string;
@@ -132,6 +140,11 @@ export function buildManualConfirmationEvaluationsArtifact(input: {
   questionAuthorEmail?: string;
   createdAt: string;
   items: unknown;
+  /** bound draft packet의 exact review 파일 SHA. 회사 사실 공유 시 필수다. */
+  reviewArtifactSha256?: string;
+  verifiedExistingDefinitionKeys?: ReadonlyMap<number, string>;
+  /** 저장된 immutable artifact를 재검증할 때만 사용한다. */
+  storedArtifact?: boolean;
 }): ManualConfirmationEvaluationsV1Artifact {
   if (!input.run.sourceRevisionSha256 || !sha256(input.run.sourceRevisionSha256)) {
     throw new Error("manual confirmation에는 run sourceRevisionSha256가 필요합니다.");
@@ -148,7 +161,12 @@ export function buildManualConfirmationEvaluationsArtifact(input: {
   const correct = new Set(input.review.criterionReviews
     .filter((item) => item.verdict === "correct")
     .map((item) => item.criterionIndex));
-  const items = parseManualItems(input.items, input.run, correct, { allowEmpty: false });
+  const items = parseManualItems(input.items, input.run, correct, {
+    allowEmpty: false,
+    ...(input.reviewArtifactSha256 ? { reviewArtifactSha256: input.reviewArtifactSha256 } : {}),
+    ...(input.verifiedExistingDefinitionKeys ? { verifiedExistingDefinitionKeys: input.verifiedExistingDefinitionKeys } : {}),
+    storedArtifact: input.storedArtifact === true,
+  });
   return {
     schema: MANUAL_CONFIRMATION_EVALUATIONS_SCHEMA,
     grantId: input.run.grantId,
@@ -171,6 +189,9 @@ export function buildManualConfirmationEvaluationsRevisionArtifact(input: {
   intent: "replace" | "withdraw_all";
   withdrawnCriterionIndexes: unknown;
   items: unknown;
+  reviewArtifactSha256?: string;
+  verifiedExistingDefinitionKeys?: ReadonlyMap<number, string>;
+  storedArtifact?: boolean;
 }): ManualConfirmationEvaluationsRevisionArtifact {
   assertManualArtifactBinding(input.parent.artifact, input.run);
   assertSelectionMatchesArtifact(input.parent.selection, input.parent.artifact);
@@ -186,7 +207,12 @@ export function buildManualConfirmationEvaluationsRevisionArtifact(input: {
   const correct = new Set(input.review.criterionReviews
     .filter((item) => item.verdict === "correct")
     .map((item) => item.criterionIndex));
-  const items = parseManualItems(input.items, input.run, correct, { allowEmpty: true })
+  const items = parseManualItems(input.items, input.run, correct, {
+    allowEmpty: true,
+    ...(input.reviewArtifactSha256 ? { reviewArtifactSha256: input.reviewArtifactSha256 } : {}),
+    ...(input.verifiedExistingDefinitionKeys ? { verifiedExistingDefinitionKeys: input.verifiedExistingDefinitionKeys } : {}),
+    storedArtifact: input.storedArtifact === true,
+  })
     .sort((left, right) => left.criterionIndex - right.criterionIndex);
   const parentItems = [...input.parent.artifact.items]
     .sort((left, right) => left.criterionIndex - right.criterionIndex);
@@ -242,6 +268,7 @@ export async function saveManualConfirmationEvaluations(
   if (parsed.schema !== MANUAL_CONFIRMATION_EVALUATIONS_SCHEMA) {
     throw new Error("초기 manual confirmation 저장에는 revision 1 artifact만 허용됩니다.");
   }
+  assertReviewedCompanyFactsForPublication(parsed);
   await writeFile(outputPath, serializeManualConfirmationEvaluationsArtifact(parsed), {
     encoding: "utf8",
     flag: "wx",
@@ -264,6 +291,7 @@ export async function saveManualConfirmationEvaluationsRevision(
   if (parsed.schema !== MANUAL_CONFIRMATION_EVALUATIONS_REVISION_SCHEMA) {
     throw new Error("revision 저장에는 revision artifact만 허용됩니다.");
   }
+  assertReviewedCompanyFactsForPublication(parsed);
   const basePath = options.basePath ?? basePathForRevisionOutput(outputPath, parsed.revision);
   const actualParent = await readSelectedManualConfirmationEvaluations(
     run,
@@ -356,11 +384,21 @@ export async function resolveManualConfirmationEvaluationsForPreparation(
   selector?: Pick<ManualConfirmationEvaluationSelector, "revision" | "artifactSha256">,
   options: { basePath?: string } = {},
 ): Promise<SelectedManualConfirmationEvaluations | null> {
-  if (selector) return readSelectedManualConfirmationEvaluations(run, selector, options);
+  if (selector) {
+    const selected = await readSelectedManualConfirmationEvaluations(run, selector, options);
+    assertReviewedCompanyFactsForPublication(selected.artifact);
+    return selected;
+  }
   if (await hasManualConfirmationEvaluationArtifacts(run, options.basePath)) {
     throw new Error(`수동 confirmation revision을 명시적으로 선택해야 합니다: ${run.grantId}`);
   }
   return null;
+}
+
+function assertReviewedCompanyFactsForPublication(artifact: ManualConfirmationEvaluationsArtifact): void {
+  if (artifact.items.some((item) => item.resolutionScope === "company_fact" && !item.companyFactReview)) {
+    throw new Error("검수 정의가 없는 역사 company_fact sidecar는 읽기 전용이며 새 발행·재사용에 사용할 수 없습니다.");
+  }
 }
 
 /** 역사 release 재검증: manifest가 지목한 SHA/selection만 읽고 이후 파일 출현은 무시한다. */
@@ -483,12 +521,15 @@ export function parseManualConfirmationEvaluationsArtifact(
   assertManualArtifactBinding(artifact, run);
   if (artifact.schema === MANUAL_CONFIRMATION_EVALUATIONS_SCHEMA) {
     // 역사 저장 artifact도 동일한 strict parser를 통과시켜 option 의미 누락을 허용하지 않는다.
+    const storedReviewSha256 = storedCompanyFactReviewSha(artifact.items);
     return buildManualConfirmationEvaluationsArtifact({
       run,
       review: reviewForStoredArtifact(run, artifact),
       questionAuthorEmail: artifact.questionAuthorEmail,
       createdAt: artifact.createdAt,
       items: artifact.items,
+      ...(storedReviewSha256 ? { reviewArtifactSha256: storedReviewSha256 } : {}),
+      storedArtifact: true,
     });
   }
   assertRevision(artifact.revision);
@@ -516,7 +557,12 @@ export function parseManualConfirmationEvaluationsArtifact(
   if (!questionAuthor.ok) throw new Error(questionAuthor.reason);
   const correct = new Set((Array.isArray(artifact.items) ? artifact.items : [])
     .flatMap((item) => Number.isSafeInteger(item?.criterionIndex) ? [item.criterionIndex] : []));
-  const items = parseManualItems(artifact.items, run, correct, { allowEmpty: true })
+  const storedReviewSha256 = storedCompanyFactReviewSha(artifact.items);
+  const items = parseManualItems(artifact.items, run, correct, {
+    allowEmpty: true,
+    ...(storedReviewSha256 ? { reviewArtifactSha256: storedReviewSha256 } : {}),
+    storedArtifact: true,
+  })
     .sort((left, right) => left.criterionIndex - right.criterionIndex);
   const withdrawnCriterionIndexes = parseCriterionIndexes(
     artifact.withdrawnCriterionIndexes,
@@ -586,8 +632,8 @@ export function mergeManualConfirmationEvaluations(
       prompt: item.prompt,
       options: item.options,
       answerType: "single",
-      reusable: "per_notice",
-      conditionKey: null,
+      reusable: item.resolutionScope,
+      conditionKey: item.resolutionScope === "company_fact" ? item.conditionKey! : null,
       evaluationContractVersion: "confirmation-evaluation-v2",
     };
     return { ...criterion, confirmation };
@@ -623,7 +669,12 @@ function parseManualItems(
   raw: unknown,
   run: LabRun,
   correctCriterionIndexes: ReadonlySet<number>,
-  options: { allowEmpty: boolean },
+  options: {
+    allowEmpty: boolean;
+    reviewArtifactSha256?: string;
+    verifiedExistingDefinitionKeys?: ReadonlyMap<number, string>;
+    storedArtifact?: boolean;
+  },
 ): ManualConfirmationEvaluationItem[] {
   if (!Array.isArray(raw) || (!options.allowEmpty && raw.length === 0)) {
     throw new Error(options.allowEmpty
@@ -654,19 +705,167 @@ function parseManualItems(
     if (classifyManualConfirmationCriterion(criterion) !== "user_confirmation") {
       throw new Error(`criterionIndex ${criterionIndex}는 사용자 확인 질문으로 발행할 수 없습니다.`);
     }
-    if (item.resolutionScope !== "per_notice") {
-      throw new Error(`criterionIndex ${criterionIndex}는 per_notice 질문이어야 합니다.`);
+    if (item.resolutionScope !== "per_notice" && item.resolutionScope !== "company_fact") {
+      throw new Error(`criterionIndex ${criterionIndex}의 질문 범위가 올바르지 않습니다.`);
     }
     const prompt = clean(item.prompt);
     if (!prompt) throw new Error(`criterionIndex ${criterionIndex} prompt가 필요합니다.`);
+    const evaluationOptions = parseEvaluationOptions(item.options, criterionIndex);
+    const legacyStoredCompanyFact = item.resolutionScope === "company_fact"
+      && options.storedArtifact === true && item.companyFactReview === undefined;
+    const companyFactReview = item.resolutionScope === "company_fact" && !legacyStoredCompanyFact
+      ? parseCompanyFactReview(item.companyFactReview, criterion.value, options.reviewArtifactSha256, criterionIndex)
+      : null;
+    if (legacyStoredCompanyFact && !buildCompanyFactReuseIdentity({
+      questionId: `${run.runId}:${criterionIndex}`,
+      grantId: run.grantId,
+      reusable: "company_fact",
+      conditionKey: item.conditionKey as string | null,
+      evaluationContractVersion: "confirmation-evaluation-v2",
+      answerType: "single",
+      options: evaluationOptions,
+      criterion: {
+        dimension: criterion.dimension,
+        kind: criterion.kind,
+        operator: criterion.operator,
+        value: criterion.value,
+      },
+    })) {
+      throw new Error(`criterionIndex ${criterionIndex}의 역사 회사 사실 identity가 올바르지 않습니다.`);
+    }
+    const definitionIdentity = item.resolutionScope === "company_fact" && companyFactReview
+      ? buildCompanyFactReuseIdentity({
+      questionId: `${run.runId}:${criterionIndex}`,
+      grantId: run.grantId,
+      reusable: "company_fact",
+      conditionKey: companyFactReview.definitionKey,
+      evaluationContractVersion: "confirmation-evaluation-v2",
+      answerType: "single",
+      options: evaluationOptions,
+      criterion: {
+        dimension: criterion.dimension,
+        kind: criterion.kind,
+        operator: criterion.operator,
+        value: criterion.value,
+      },
+    }) : null;
+    if (item.resolutionScope === "company_fact" && !legacyStoredCompanyFact && !definitionIdentity) {
+      throw new Error(`criterionIndex ${criterionIndex}의 회사 사실 키·의미 결속이 올바르지 않습니다.`);
+    }
+    const publishedConditionKey = companyFactReview && definitionIdentity
+      ? companyFactReview.definitionSource === "new_review"
+        ? reviewedCompanyFactKey(companyFactReview, definitionIdentity.semanticSha256)
+        : options.verifiedExistingDefinitionKeys?.get(criterionIndex) ?? null
+      : null;
+    if (companyFactReview?.definitionSource === "existing_reviewed"
+      && !companyFactReview.existingDefinition) {
+      throw new Error(`criterionIndex ${criterionIndex}의 기존 정의에는 exact 출처가 필요합니다.`);
+    }
+    if (companyFactReview && !publishedConditionKey && !options.storedArtifact) {
+      throw new Error(`criterionIndex ${criterionIndex}의 기존 회사 사실 정의는 identity·검수 출처 확인이 필요합니다.`);
+    }
+    if (companyFactReview) {
+      const expectedInputKey = options.storedArtifact
+        ? publishedConditionKey ?? (item.conditionKey as string)
+        : companyFactReview.definitionKey;
+      if (item.conditionKey !== expectedInputKey) {
+        throw new Error(`criterionIndex ${criterionIndex}의 회사 사실 입력 키가 검수 정의와 다릅니다.`);
+      }
+      if (options.storedArtifact && publishedConditionKey && item.conditionKey !== publishedConditionKey) {
+        throw new Error(`criterionIndex ${criterionIndex}의 저장된 회사 사실 키가 검수 정의와 다릅니다.`);
+      }
+    }
+    if (item.resolutionScope === "per_notice" && item.conditionKey !== undefined) {
+      throw new Error(`criterionIndex ${criterionIndex}의 공고별 질문에는 회사 사실 키를 둘 수 없습니다.`);
+    }
+    if (item.resolutionScope === "per_notice" && item.companyFactReview !== undefined) {
+      throw new Error(`criterionIndex ${criterionIndex}의 공고별 질문에는 회사 사실 검수 기록을 둘 수 없습니다.`);
+    }
     return {
       criterionIndex,
-      resolutionScope: "per_notice" as const,
+      resolutionScope: item.resolutionScope as "per_notice" | "company_fact",
+      ...(item.resolutionScope === "company_fact" ? {
+        conditionKey: (publishedConditionKey ?? item.conditionKey) as string,
+      } : {}),
+      ...(companyFactReview ? { companyFactReview } : {}),
       prompt,
-      options: parseEvaluationOptions(item.options, criterionIndex),
+      options: evaluationOptions,
     };
   });
   return items.sort((left, right) => left.criterionIndex - right.criterionIndex);
+}
+
+function storedCompanyFactReviewSha(items: ManualConfirmationEvaluationItem[]): string | undefined {
+  if (!Array.isArray(items)) return undefined;
+  return items.find((item) => item.resolutionScope === "company_fact")?.companyFactReview?.reviewArtifactSha256;
+}
+
+function parseCompanyFactReview(
+  raw: unknown,
+  normalizedValue: unknown,
+  expectedReviewSha256: string | undefined,
+  criterionIndex: number,
+): CompanyFactReview {
+  const boundary = normalizedCompanyFactBoundary(normalizedValue);
+  if (!boundary) {
+    throw new Error(`criterionIndex ${criterionIndex}의 정규화 scope/기준일이 없어 회사 사실 공유를 보류합니다.`);
+  }
+  if (!expectedReviewSha256 || !sha256(expectedReviewSha256)
+    || !raw || typeof raw !== "object" || Array.isArray(raw)) {
+    throw new Error(`criterionIndex ${criterionIndex}의 회사 사실에는 bound review artifact 검수 기록이 필요합니다.`);
+  }
+  const review = raw as Record<string, unknown>;
+  const existing = review.definitionSource === "existing_reviewed";
+  if (review.definitionSource !== "new_review" && !existing) {
+    throw new Error(`criterionIndex ${criterionIndex}의 회사 사실 정의 출처가 올바르지 않습니다.`);
+  }
+  const expectedKeys = [
+    "meaning", "definitionKey", "definitionSource", "scopeField", "scopeValue",
+    "asOfField", "asOfDate", "reviewArtifactSha256",
+    ...(existing ? ["existingDefinition"] : []),
+  ];
+  if (Object.keys(review).sort().join("\u0000") !== expectedKeys.sort().join("\u0000")) {
+    throw new Error(`criterionIndex ${criterionIndex}의 회사 사실 검수 기록 형식이 올바르지 않습니다.`);
+  }
+  const meaning = clean(review.meaning);
+  const definitionKey = clean(review.definitionKey);
+  if (!meaning || review.reviewArtifactSha256 !== expectedReviewSha256
+    || !definitionKey || !/^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$/.test(definitionKey)
+    || review.scopeField !== boundary.scopeField
+    || canonicalConfirmationQuestionDraftJson(review.scopeValue) !== canonicalConfirmationQuestionDraftJson(boundary.scopeValue)
+    || review.asOfField !== boundary.asOfField
+    || review.asOfDate !== boundary.asOfDate) {
+    throw new Error(`criterionIndex ${criterionIndex}의 회사 사실 의미·scope·기준일·검수 근거가 현재 criterion과 다릅니다.`);
+  }
+  const existingDefinition = existing ? review.existingDefinition as Record<string, unknown> | undefined : undefined;
+  if (existing && (!existingDefinition || typeof existingDefinition !== "object" || Array.isArray(existingDefinition)
+    || typeof existingDefinition.grantId !== "string" || !existingDefinition.grantId
+    || typeof existingDefinition.runId !== "string" || !existingDefinition.runId
+    || !Number.isSafeInteger(existingDefinition.revision) || (existingDefinition.revision as number) < 1
+    || !sha256(existingDefinition.artifactSha256)
+    || !Number.isSafeInteger(existingDefinition.criterionIndex)
+    || (existingDefinition.criterionIndex as number) < 0
+    || Object.keys(existingDefinition).sort().join("\u0000")
+      !== ["grantId", "runId", "revision", "artifactSha256", "criterionIndex"].sort().join("\u0000"))) {
+    throw new Error(`criterionIndex ${criterionIndex}의 기존 정의 exact selector가 올바르지 않습니다.`);
+  }
+  return {
+    meaning,
+    definitionKey,
+    definitionSource: existing ? "existing_reviewed" : "new_review",
+    ...(existing ? { existingDefinition: existingDefinition as NonNullable<CompanyFactReview["existingDefinition"]> } : {}),
+    ...boundary,
+    reviewArtifactSha256: expectedReviewSha256,
+  };
+}
+
+function reviewedCompanyFactKey(review: CompanyFactReview, definitionSemanticSha256: string): string {
+  return `cf2_${sha256Canonical({
+    definitionKey: review.definitionKey,
+    meaning: review.meaning,
+    reviewArtifactSha256: review.reviewArtifactSha256,
+    semanticSha256: definitionSemanticSha256,
+  })}`;
 }
 
 function parseCriterionIndexes(raw: unknown, label: string): number[] {

@@ -8,15 +8,17 @@ import {
   loadPromotionGrantSnapshot,
   promotionGrantSnapshotHashes,
 } from "../analysis-serving/promotionSnapshot";
-import { executeGrantNextWork, createGrantNextWorkSnapshot } from "./grantNextWorkExecution";
+import { createGrantNextWorkSnapshot } from "./grantNextWorkExecution";
 import { loadCurrentGrantReadiness } from "./grantReadinessLoader";
 import {
-  createDrizzleSourceRebindPort,
-  createSourceRebindAdapter,
-} from "./sourceRebindAdapter";
+  assessPublishedGrantSupply,
+  executeApprovedGrantSupply,
+  loadCurrentGrantSupplySnapshot,
+} from "./grantSupply";
 import {
   applySourceRebindRelease,
   approveSourceRebindRelease,
+  assertNoAppliedSourceRebindForParent,
   buildCurrentSourceRebindReleaseManifest,
   prepareSourceRebindReleaseLedger,
 } from "./sourceRebindRelease";
@@ -26,6 +28,7 @@ import {
   seedQuestionPreparationFixtureAppliedRelease,
 } from "./questionPreparationAdapterPostgres.integration";
 import { loadPromotionServingRequestSnapshot } from "../repositories/drizzle";
+import { loadVerifiedDeepSources } from "../analysis-serving/verifiedDeepSources";
 import type { GrantSourceChangeImpact } from "../ingestion/grantSourceChangeImpact";
 
 /** 폐기용 Unix socket DB에서 source_rebind → 답변 보존 → A 전환을 검증한다. */
@@ -109,7 +112,7 @@ export async function verifySourceRebindAdapterPostgres(input: {
   });
 
   const sourceChangeImpact: GrantSourceChangeImpact = {
-    schema: "grant-source-change-impact-v1" as const,
+    schema: "grant-source-change-impact-v2" as const,
     classification: "evidence_refresh" as const,
     changedDomains: ["raw"] as const,
     previousRawSha256,
@@ -146,6 +149,9 @@ export async function verifySourceRebindAdapterPostgres(input: {
   assert.equal(before.readiness.category, "D");
   assert.equal(before.readinessInput.source.materialRevisionSha256,
     currentSource.materialSourceRevisionSha256);
+  const staleDeep = await loadVerifiedDeepSources(grantId, db);
+  assert.deepEqual(staleDeep.sources, [], "source drift 중에는 이전 딥분석 근거를 제공하지 않는다");
+  assert.equal(staleDeep.provenance.status, "current_state_drift");
 
   const releaseManifest = await buildCurrentSourceRebindReleaseManifest({
     db,
@@ -165,17 +171,18 @@ export async function verifySourceRebindAdapterPostgres(input: {
     approvedBy: "source-rebind-approver",
     approvalArtifactSha256: "3".repeat(64),
   });
-  const adapter = createSourceRebindAdapter({
-    releaseId: releaseManifest.releaseId,
-    expectedManifestSha256: releaseManifest.manifestSha256,
-    executedBy: "source-rebind-executor",
-    port: createDrizzleSourceRebindPort({ db: db as CunoteDb }),
-  });
-  const result = await executeGrantNextWork({
+  const publishedSnapshot = await loadCurrentGrantSupplySnapshot({ db, grantId, asOf });
+  assert.equal(publishedSnapshot?.evidenceSha256, before.evidenceSha256);
+  const result = await executeApprovedGrantSupply({
+    db: db as CunoteDb,
     grantId,
     expectedEvidenceSha256: before.evidenceSha256,
-    loadSnapshot,
-    adapters: new Map([["source_rebind", adapter]]),
+    approvedRelease: {
+      releaseId: releaseManifest.releaseId,
+      manifestSha256: releaseManifest.manifestSha256,
+      executedBy: "source-rebind-executor",
+    },
+    asOf,
   });
   const after = await loadSnapshot();
   assert.equal(result.status, "completed", JSON.stringify({ result, after }));
@@ -183,6 +190,8 @@ export async function verifySourceRebindAdapterPostgres(input: {
   assert.equal(result.modelCalls, 0);
   assert.equal(result.externalWrites, 1);
   assert.equal(after.readiness.category, "A");
+  const reboundDeep = await loadVerifiedDeepSources(grantId, db);
+  assert.equal(reboundDeep.provenance.status, "verified");
   const serving = await loadPromotionServingRequestSnapshot(db, [grantId]);
   const servingItem = serving.items.find((candidate) => candidate.item.grantId === grantId);
   assert.equal(servingItem?.evidence.sourceRevisionSha256, currentSource.sourceRevisionSha256);
@@ -203,6 +212,41 @@ export async function verifySourceRebindAdapterPostgres(input: {
   assert.equal(answer?.source_raw_sha256, currentRawSha256);
   assert.equal(answer?.answer_revision, 3);
   assert.equal(answer?.question_definition_sha256, releaseManifest.questions[0]?.afterDefinitionSha256);
+  const recovered = await executeApprovedGrantSupply({
+    db: db as CunoteDb,
+    grantId,
+    expectedEvidenceSha256: before.evidenceSha256,
+    approvedRelease: {
+      releaseId: releaseManifest.releaseId,
+      manifestSha256: releaseManifest.manifestSha256,
+      executedBy: "source-rebind-executor",
+    },
+    asOf,
+  });
+  assert.equal(recovered.status, "already_complete");
+  assert.equal(recovered.externalWrites, 0);
+  await assert.rejects(executeApprovedGrantSupply({
+    db: db as CunoteDb,
+    grantId,
+    expectedEvidenceSha256: "8".repeat(64),
+    approvedRelease: {
+      releaseId: parentManifest.releaseId,
+      manifestSha256: parentManifest.manifestSha256,
+      executedBy: "source-rebind-executor",
+    },
+    asOf,
+  }), /grant_supply_promotion_recovery_before_evidence_mismatch/);
+  await assert.rejects(executeApprovedGrantSupply({
+    db: db as CunoteDb,
+    grantId,
+    expectedEvidenceSha256: "9".repeat(64),
+    approvedRelease: {
+      releaseId: releaseManifest.releaseId,
+      manifestSha256: releaseManifest.manifestSha256,
+      executedBy: "source-rebind-executor",
+    },
+    asOf,
+  }), /grant_supply_rebind_recovery_before_evidence_mismatch/);
   const replay = await applySourceRebindRelease({
     db: db as CunoteDb,
     manifest: releaseManifest,
@@ -220,7 +264,7 @@ export async function verifySourceRebindAdapterPostgres(input: {
 
   const secondRawSha256 = "4".repeat(64);
   activeImpact = {
-    schema: "grant-source-change-impact-v1",
+    schema: "grant-source-change-impact-v2",
     classification: "evidence_refresh",
     changedDomains: ["raw"],
     previousRawSha256: currentRawSha256,
@@ -262,16 +306,16 @@ export async function verifySourceRebindAdapterPostgres(input: {
     approvedBy: "source-rebind-approver-2",
     approvalArtifactSha256: "5".repeat(64),
   });
-  const secondResult = await executeGrantNextWork({
+  const secondResult = await executeApprovedGrantSupply({
+    db: db as CunoteDb,
     grantId,
     expectedEvidenceSha256: secondBefore.evidenceSha256,
-    loadSnapshot,
-    adapters: new Map([["source_rebind", createSourceRebindAdapter({
+    approvedRelease: {
       releaseId: secondManifest.releaseId,
-      expectedManifestSha256: secondManifest.manifestSha256,
+      manifestSha256: secondManifest.manifestSha256,
       executedBy: "source-rebind-executor-2",
-      port: createDrizzleSourceRebindPort({ db: db as CunoteDb }),
-    })]]),
+    },
+    asOf,
   });
   assert.equal(secondResult.status, "completed");
   assert.equal((await loadSnapshot()).readiness.category, "A");
@@ -295,5 +339,43 @@ export async function verifySourceRebindAdapterPostgres(input: {
     executedBy: "source-rebind-executor",
   });
   assert.equal(preservedFirstReplay.replayed, true);
+  await assert.rejects(
+    assertNoAppliedSourceRebindForParent(db, releaseManifest.parent.promotionItemId),
+    /source_rebind_applied/,
+    "승인된 successor가 있으면 원 promotion rollback을 막는다",
+  );
+  const coverageRawSha256 = "6".repeat(64);
+  const coverageImpact: GrantSourceChangeImpact = {
+    schema: "grant-source-change-impact-v2",
+    classification: "coverage_review_required",
+    changedDomains: ["raw", "coverage"],
+    previousRawSha256: secondRawSha256,
+    currentRawSha256: coverageRawSha256,
+    requiresModelRun: false,
+  };
+  await input.admin`update grant_raw set payload='{"viewCount":3,"exclusion":"new"}'::jsonb,
+    raw_hash=${coverageRawSha256},collected_at=now()
+    where source='bizinfo' and source_id=${sourceId}`;
+  await input.admin`insert into grant_collection_events
+    (source,source_id,raw_hash,revision_kind,change_impact)
+    values ('bizinfo',${sourceId},${coverageRawSha256},'changed',
+      ${JSON.stringify(coverageImpact)}::jsonb)`;
+  const coverageSnapshot = await loadCurrentGrantSupplySnapshot({ db, grantId, asOf });
+  assert.equal(coverageSnapshot?.nextWork.action, "coverage_review");
+  const coverageDeep = await loadVerifiedDeepSources(grantId, db);
+  assert.deepEqual(coverageDeep.sources, []);
+  assert.equal(coverageDeep.provenance.status, "current_state_drift");
+  await input.admin`update grants set status='closed' where id=${grantId}`;
+  assert.equal(await loadCurrentGrantSupplySnapshot({ db, grantId, asOf }), null,
+    "모집 종료 뒤에는 기존 A 준비도를 현행 지원 가능으로 제공하지 않는다");
+  const [inactive] = await assessPublishedGrantSupply({ db, grantIds: [grantId], asOf });
+  assert.equal(inactive?.schema, "grant-supply-inactive-v1");
+  const [closedAnswer] = await input.admin<{
+    answer: { values: string[] };
+    answer_revision: number;
+  }[]>`select answer,answer_revision from company_grant_confirmations
+    where company_id=${input.companyId} and question_id=${questionId}`;
+  assert.deepEqual(closedAnswer?.answer, { values: ["yes"] });
+  assert.equal(closedAnswer?.answer_revision, 3);
   console.log("PASS: repeated evidence-only source rebind preserves the answer and advances isolated readiness D to A");
 }

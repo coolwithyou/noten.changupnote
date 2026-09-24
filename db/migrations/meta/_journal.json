@@ -638,6 +638,13 @@
       "when": 1790132400000,
       "tag": "0090_source_rebind_successor",
       "breakpoints": true
+    },
+    {
+      "idx": 91,
+      "version": "7",
+      "when": 1790208000000,
+      "tag": "0091_promotion_supply_plan_evidence",
+      "breakpoints": true
     }
   ]
 }

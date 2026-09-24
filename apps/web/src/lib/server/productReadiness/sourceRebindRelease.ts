@@ -261,9 +261,11 @@ export async function applySourceRebindRelease(input: {
   readonly db: CunoteDb;
   readonly manifest: SourceRebindReleaseManifest;
   readonly executedBy: string;
+  readonly beforeEvidenceSha256?: string;
 }): Promise<AppliedSourceRebindResult> {
   const manifest = validateSourceRebindReleaseManifest(input.manifest);
   const executedBy = nonEmpty(input.executedBy, "executed_by");
+  if (input.beforeEvidenceSha256 !== undefined) exactSha(input.beforeEvidenceSha256, "before_evidence");
   return input.db.transaction(async (tx) => {
     await acquireGrantPublicationLock(tx, manifest.grantId);
     const bound = await loadReleaseAndItem(tx, manifest, true);
@@ -337,6 +339,7 @@ export async function applySourceRebindRelease(input: {
     const afterSnapshot = {
       schema: "source-rebind-after-v1",
       grantId: manifest.grantId,
+      beforeEvidenceSha256: input.beforeEvidenceSha256 ?? null,
       currentSourceRevisionSha256: manifest.source.currentRevisionSha256,
       currentSourceRawSha256: manifest.source.currentRawSha256,
       currentMaterialSourceRevisionSha256: manifest.source.currentMaterialRevisionSha256,

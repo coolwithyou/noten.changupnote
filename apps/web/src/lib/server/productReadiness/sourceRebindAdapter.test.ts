@@ -25,7 +25,7 @@ const CURRENT_MATERIAL = "e".repeat(64);
 
 function impact(classification: GrantSourceChangeImpact["classification"] = "evidence_refresh"): GrantSourceChangeImpact {
   return {
-    schema: "grant-source-change-impact-v1",
+    schema: "grant-source-change-impact-v2",
     classification,
     changedDomains: classification === "evidence_refresh" ? ["raw"] : ["raw", "coverage"],
     previousRawSha256: PREVIOUS_RAW,
