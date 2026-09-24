@@ -65,7 +65,7 @@ for (const rule of [
   assert.equal(DEEP_ANALYSIS_AUDIT_SYSTEM_PROMPT.includes(rule), true);
 }
 assert.equal(DEEP_ANALYSIS_AUDIT_CONTRACT_VERSION, "deep-analysis-audit-candidates-v10");
-assert.equal(DEEP_ANALYSIS_AUDIT_PROMPT_VERSION, "deep-analysis-blind-audit-v26");
+assert.equal(DEEP_ANALYSIS_AUDIT_PROMPT_VERSION, "deep-analysis-blind-audit-v27");
 assert.equal(DEEP_ANALYSIS_AUDIT_SCOPE_VERSION, "deep-analysis-match-impacting-scope-v1");
 
 const auditToolSchema = buildDeepAnalysisAuditToolSchema();

@@ -15,6 +15,7 @@
 //   → 소멸 criterion만 삭제 → 해당 grantId의 match_state 삭제.
 import { and, eq, inArray } from "drizzle-orm";
 import { readFile } from "node:fs/promises";
+import { verifyActiveReplacement } from "./promotion-replacement";
 import { pathToFileURL } from "node:url";
 import {
   executePromotionWrites,
@@ -522,6 +523,9 @@ async function mainRelease(releaseId: string, options?: {
     .from(schema.analysisLabPromotionItems)
     .where(eq(schema.analysisLabPromotionItems.releaseDbId, release.id));
   const ledgerByGrantId = new Map(ledgerItems.map((item) => [item.grantId, item]));
+  if (write && manifest.replacesActiveRelease && ledgerItems.some((item) => item.status !== "applied")) {
+    await verifyActiveReplacement(manifest);
+  }
   const confirmedLinks = await db
     .select({
       canonicalGrantId: schema.dedupLinks.canonicalGrantId,

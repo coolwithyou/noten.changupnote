@@ -187,7 +187,7 @@ assert.match(
 );
 assert.match(
   DEEP_ANALYSIS_APPLICANT_INDUSTRY_SCOPE_RULE,
-  /바이오 스타트업 모집.*industry\/text_only.*지원 과제의 주제.*program_intent/,
+  /KSIC 코드가 없어도.*value.tags.*ICT 중소기업.*size.*동시 영위.*industry\/text_only.*지원 과제의 주제.*program_intent/,
 );
 assert.match(
   DEEP_ANALYSIS_SYSTEM_PROMPT,

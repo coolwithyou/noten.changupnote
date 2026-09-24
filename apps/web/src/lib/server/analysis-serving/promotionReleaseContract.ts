@@ -196,6 +196,12 @@ export interface PromotionReleaseManifestBody {
   releasePlanSha256: string;
   sourceArtifacts: PromotionSourceArtifact[];
   plans: PromotionReleasePlanItem[];
+  /** Explicit replacement of an applied release; current publication is the new CAS baseline. */
+  replacesActiveRelease?: {
+    releaseId: string;
+    manifestSha256: string;
+    items: Array<{ grantId: string; runId: string; afterSha256: string }>;
+  };
 }
 
 export interface PromotionReleaseManifest extends PromotionReleaseManifestBody {
@@ -973,6 +979,19 @@ export function validatePromotionReleaseManifest(
   }
   assertSafeReleaseId(manifest.releaseId);
   const typed = manifest as PromotionReleaseManifest;
+  if (typed.replacesActiveRelease !== undefined) {
+    const previous = typed.replacesActiveRelease;
+    assertSafeReleaseId(previous.releaseId);
+    if (previous.releaseId === typed.releaseId || !isSha256(previous.manifestSha256)
+      || !Array.isArray(previous.items) || previous.items.length !== 1 || previous.items.length !== typed.plans.length
+      || new Set(previous.items.map((item) => item.grantId)).size !== previous.items.length
+      || previous.items.some((item) => !isSha256(item.afterSha256)
+        || typeof item.runId !== "string" || !item.runId
+        || !typed.plans.some((plan) => plan.grantId === item.grantId
+          && plan.promotionPlan.runId !== item.runId))) {
+      throw new Error("replacement release의 exact 이전 발행 결속이 올바르지 않습니다.");
+    }
+  }
   if (
     typed.servingProvenance !== undefined
     && typed.servingProvenance !== resolvePromotionServingProvenance(typed.sourceArtifacts)

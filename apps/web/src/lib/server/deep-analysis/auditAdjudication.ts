@@ -50,7 +50,7 @@ import { isDeepAnalysisMatchImpactingCriterion } from "./auditScope";
 import { stableJson } from "./sourceRevision";
 
 export const DEEP_ANALYSIS_AUDIT_ADJUDICATION_VERSION =
-  "deep-analysis-audit-adjudication-v27" as const;
+  "deep-analysis-audit-adjudication-v28" as const;
 export const DEEP_ANALYSIS_AUDIT_FINDING_VERIFIER_VERSION =
   "deep-analysis-audit-finding-verifier-v3" as const;
 export const DEEP_ANALYSIS_AUDIT_UNCERTAINTY_VERIFIER_VERSION =
