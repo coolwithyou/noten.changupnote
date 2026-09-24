@@ -2,7 +2,8 @@ import { readFile } from "node:fs/promises";
 import { and, eq, inArray } from "drizzle-orm";
 import { applyPublishGuards } from "./promote";
 import { assertReceiptBackedPromotionMutationAdmitted } from "./promotion-mutation-admission";
-import { loadDeepRepairPromotionCohort } from "./deep-repair-promotion";
+import { loadDeepRepairPromotionCohort, loadCurrentGrantEvidence } from "./deep-repair-promotion";
+import { loadActiveReplacement, isPreparedAncestorOfReplacement, verifyActiveReplacement } from "./promotion-replacement";
 import { loadAnalysisLaunchPromotionCohort } from "./analysis-launch-promotion";
 import {
   prepareAnalysisLaunchPromotionApplicationPrecomputeBundle,
@@ -128,6 +129,7 @@ async function assertPreparedRevisionCanAdvance(input: {
   sourceArtifacts: ReturnType<typeof validatePromotionReleaseManifest>["sourceArtifacts"];
   supersedePreparedReleaseId?: string;
   supersedeExcludedGrantIds?: readonly string[];
+  activeReplacement?: Awaited<ReturnType<typeof loadActiveReplacement>>;
 }): Promise<{ supersededReleaseIds: string[]; refreshedSourceGrantIds: string[] }> {
   const db = getCunoteDb();
   const rows = await db
@@ -154,12 +156,14 @@ async function assertPreparedRevisionCanAdvance(input: {
       supersedePreparedReleaseSeen = true;
     }
     if (release.status === "rolled_back") continue;
+    if (release.releaseId === input.activeReplacement?.evidence.releaseId && release.status === "active") continue;
     if (release.status !== "prepared") {
       throw new Error(
         `이미 승인·적용 수명주기에 진입한 release와 겹칩니다: ${release.releaseId} (${release.status})`,
       );
     }
     const manifest = validatePromotionReleaseManifest(release.manifest);
+    if (input.activeReplacement && isPreparedAncestorOfReplacement(manifest, input.activeReplacement.manifest)) continue;
     try {
       assertReceiptBackedPromotionMutationAdmitted(manifest);
     } catch {
@@ -273,6 +277,7 @@ async function prepare(): Promise<number> {
     .map((value) => value.trim())
     .filter(Boolean);
   const revision = Number(readArg("revision") ?? "1");
+  const replaceActiveReleaseId = readArg("replace-active")?.trim();
   const supersedePreparedReleaseId = readArg("supersede-prepared")?.trim();
   const supersedeExcludedGrantIds = (readArg("supersede-excluded-grantIds") ?? "")
     .split(",")
@@ -302,6 +307,11 @@ async function prepare(): Promise<number> {
     throw new Error("자동 대상 선정을 하지 않습니다. --grantIds exact CSV가 필요합니다.");
   }
   const build = readPromotionBuildProvenance();
+  if (replaceActiveReleaseId && (launchReceiptSha256s.length !== 1 || exactGrantIds.length !== 1)) {
+    throw new Error("--replace-active는 독립 검수된 exact launch receipt·공고 각 하나에만 허용합니다.");
+  }
+  const activeReplacement = replaceActiveReleaseId
+    ? await loadActiveReplacement(replaceActiveReleaseId, exactGrantIds) : undefined;
   const manualSelectionSet = await readManualConfirmationEvaluationSelectionSet(
     readArg("manual-confirmation-selections"),
   );
@@ -317,6 +327,13 @@ async function prepare(): Promise<number> {
         launchReceiptSha256s,
         grantIds: exactGrantIds,
         ...(reviewManifestSha256 ? { reviewManifestSha256 } : {}),
+        ...(activeReplacement ? { dependencies: {
+          loadCurrentGrantEvidence: async (run) => {
+            const previous = activeReplacement.evidence.items.find((item) => item.grantId === run.grantId);
+            if (!previous || previous.runId === run.runId) throw new Error("동일 분석의 중복 발행은 허용하지 않습니다.");
+            return { ...await loadCurrentGrantEvidence(run, new Date()), hasPromotionItem: false };
+          },
+        } } : {}),
         manualConfirmationSelections: manualSelectionSet.selections,
       })
     : null;
@@ -405,6 +422,8 @@ async function prepare(): Promise<number> {
     const snapshot = await loadPromotionGrantSnapshot(db, plan.grantId, confirmedLinks);
     snapshotByGrant.set(plan.grantId, snapshot);
     const hashes = promotionGrantSnapshotHashes(snapshot);
+    if (activeReplacement && activeReplacement.evidence.items.find((item) => item.grantId === plan.grantId)?.afterSha256
+      !== promotionGrantSnapshotStateSha256(snapshot)) throw new Error("replacement 준비 중 이전 발행 snapshot이 변경됐습니다.");
     planItems.push({
       grantId: plan.grantId,
       planSha256: planSha256(plan),
@@ -471,6 +490,7 @@ async function prepare(): Promise<number> {
     grantIds: exactGrantIds,
     plans: planItems,
     sourceArtifacts,
+    ...(activeReplacement ? { activeReplacement } : {}),
     ...(supersedePreparedReleaseId ? { supersedePreparedReleaseId } : {}),
     ...(supersedeExcludedGrantIds.length > 0 ? { supersedeExcludedGrantIds } : {}),
   });
@@ -493,6 +513,7 @@ async function prepare(): Promise<number> {
     canaryGrantIds: selectCanaries(planItems, readArg("canary")),
     sourceArtifacts,
     plans: planItems,
+    ...(activeReplacement ? { replacesActiveRelease: activeReplacement.evidence } : {}),
   });
   // 파일 또는 DB를 쓰기 전에 현재 mutation admission과 동일한 receipt 결속을 증명한다.
   assertReceiptBackedPromotionMutationAdmitted(manifest);
@@ -671,6 +692,7 @@ async function approve(): Promise<number> {
     buildDigest: manifest.buildDigest,
   }, currentBuild);
   assertManifestConfirmation(manifest, readArg("confirm"));
+  await verifyActiveReplacement(manifest);
   assertReceiptBackedPromotionMutationAdmitted(manifest);
   const aggregate = await readGate(
     releaseId,

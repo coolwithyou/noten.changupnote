@@ -1011,3 +1011,18 @@ assert.equal(
 }
 
 console.log("promotion release tests: ok");
+
+{
+  const {manifestSha256: _hash,...body}=manifest({...planItem,planSha256:planSha256(planItem.promotionPlan)});
+  const previous={releaseId:'deep-previous-r1',manifestSha256:'a'.repeat(64),items:[{grantId:plan.grantId,runId:'previous-run',afterSha256:'b'.repeat(64)}]};
+  const replacement=createPromotionReleaseManifest({...body,replacesActiveRelease:previous});
+  assert.doesNotThrow(()=>validatePromotionReleaseManifest(replacement));
+  for(const replacesActiveRelease of [
+    {...previous,releaseId:body.releaseId},
+    {...previous,items:[]},
+    {...previous,manifestSha256:'bad'},
+    {...previous,items:[{...previous.items[0]!,runId:plan.runId}]},
+    {...previous,items:[{...previous.items[0]!,grantId:'unrelated'}]},
+    {...previous,items:[{...previous.items[0]!,afterSha256:'bad'}]},
+  ]) assert.throws(()=>validatePromotionReleaseManifest(createPromotionReleaseManifest({...body,replacesActiveRelease})));
+}
