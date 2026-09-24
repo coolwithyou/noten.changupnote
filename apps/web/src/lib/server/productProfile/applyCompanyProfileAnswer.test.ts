@@ -155,5 +155,36 @@ try {
   else delete repositories.matches.listCriterionConfirmations;
 }
 
+const providerEvidence = {
+  sourceKind: "authoritative_api" as const, provider: "apick", scope: "shared" as const,
+  axisCompleteness: "complete" as const, confidence: 0.85,
+  persistenceClass: "versioned_provider_observation" as const,
+};
+for (const [timestamp, editable] of [["2026-05-01T00:00:00.000Z", true], [asOf.toISOString(), false]] as const) {
+  const officialCompany = await repositories.companies.createCompany({ userId, profile: {
+    name: "업력 갱신 검증", biz_age_months: 27, revenue_krw: 100,
+    profile_evidence: {
+      biz_age: { ...providerEvidence, asOf: timestamp },
+      revenue: { ...providerEvidence, provider: "popbill", scope: "user", asOf: asOf.toISOString() },
+    },
+  } });
+  const write = () => applyCompanyProfileAnswer({
+    companyId: officialCompany.id, userId, answer: { field: "biz_age", value: 29 }, asOf,
+  });
+  if (!editable) {
+    await assert.rejects(write, /공식 API 확인값/);
+    continue;
+  }
+  const corrected = await write();
+  assert.equal(corrected.profile.biz_age_months, 29);
+  assert.equal(corrected.profile.profile_evidence?.biz_age?.sourceKind, "self_declared");
+  const reread = await loadOwnedCompanyMatching({ companyId: officialCompany.id, userId, asOf });
+  assert.equal(reread.profileRevision, corrected.matching.profileRevision);
+  assert.deepEqual(reread.teaser.profileView, corrected.matching.teaser.profileView, "the corrected answer survives a new authenticated read");
+  const stored = await repositories.companies.resolveCompanyProfile({ companyId: officialCompany.id, userId });
+  assert.equal(stored?.revenue_krw, 100, "editing one expired field preserves consent-hidden stored fields");
+  assert.ok(stored?.profile_evidence?.biz_age?.supplemental?.some((e) => e.provider === "apick" && e.asOf === timestamp), "expired provenance remains in storage for audit");
+}
+
 console.log("productProfile/applyCompanyProfileAnswer.test.ts: all assertions passed");
 await closeCunoteDb();

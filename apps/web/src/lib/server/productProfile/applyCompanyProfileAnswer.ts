@@ -36,6 +36,7 @@ import {
 } from "@/lib/server/matches/annotateConfirmationQuestions";
 import { matchingProfileRevision, CompanyProfileConflictError } from "../repositories/companyProfileConcurrency";
 import { annotateProductExposure } from "../productReadiness/exposure";
+import { isProductProfileObservationExpired } from "./resolveProductCompanyProfile";
 
 const OPERATIONAL_DIMENSIONS = new Set<string>(OPERATIONAL_PROFILE_DIMENSIONS);
 
@@ -235,7 +236,12 @@ function applyAnswer(
   answer: MatchingProfileAnswerRequest,
   asOf: Date,
 ): CompanyProfile {
-  const storageProfile = restoreTargetTypeUserMerge(profile);
+  const restored = restoreTargetTypeUserMerge(profile);
+  const evidence = restored.profile_evidence?.[answer.field];
+  const expiredEvidence = evidence && isProductProfileObservationExpired(evidence, answer.field, asOf.toISOString())
+    ? evidence : undefined;
+  // Keep unrelated stored observations (including consent-hidden fields) intact.
+  const storageProfile = expiredEvidence ? profileWithoutEvidence(restored, answer.field) : restored;
   if (answer.unknown === true) {
     return markProfileQuestionUnknown({
       profile: storageProfile,
@@ -267,7 +273,8 @@ function applyAnswer(
       provider: "cunote_profile_question",
       asOf: asOf.toISOString(),
       observation: { scope: "user", persistenceClass: "portable_user_answer" },
-      ...(existingEvidence ? { supplementalEvidence: evidenceObservations(existingEvidence) } : {}),
+      ...(existingEvidence || expiredEvidence
+        ? { supplementalEvidence: evidenceObservations((existingEvidence ?? expiredEvidence)!) } : {}),
     },
   );
 }
