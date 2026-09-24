@@ -390,10 +390,17 @@ export function historicalBlockingCounterOnlyCountsSourceIncomplete(run: LabRun)
 export async function loadAnalysisLaunchPromotionCohort(input: {
   launchReceiptSha256s: readonly string[];
   grantIds: readonly string[];
+  reviewManifestSha256?: string;
   manualConfirmationSelections?: readonly ManualConfirmationEvaluationSelector[];
   dependencies?: AnalysisLaunchPromotionDependencies;
 }): Promise<AnalysisLaunchPromotionCohort> {
   const receiptSha256s = normalizeExactShaList(input.launchReceiptSha256s, "launch receipt");
+  const reviewManifestSha256 = input.reviewManifestSha256 === undefined
+    ? undefined
+    : exactSha(input.reviewManifestSha256, "review manifest");
+  if (reviewManifestSha256 && receiptSha256s.length !== 1) {
+    throw new Error("--review-manifest는 launch receipt 하나에만 사용할 수 있습니다.");
+  }
   const requestedGrantIds = normalizeExactGrantIds(input.grantIds);
   const manualSelectionByGrantId = indexManualConfirmationEvaluationSelectors(
     input.manualConfirmationSelections ?? [],
@@ -401,7 +408,7 @@ export async function loadAnalysisLaunchPromotionCohort(input: {
   );
   const root = input.dependencies?.repositoryRoot ?? findMonorepoRoot();
   const launches = await Promise.all(
-    receiptSha256s.map((sha256) => loadLaunch(root, sha256, requestedGrantIds)),
+    receiptSha256s.map((sha256) => loadLaunch(root, sha256, requestedGrantIds, reviewManifestSha256)),
   );
   const loadedByGrant = new Map<string, LoadedTarget[]>();
 
@@ -565,6 +572,7 @@ export async function verifyAnalysisLaunchPromotionSourceArtifactDetailed(
     const cohort = await loadAnalysisLaunchPromotionCohort({
       launchReceiptSha256s: [evidence.launchReceiptSha256],
       grantIds: [artifact.grantId],
+      reviewManifestSha256: evidence.independentReviewManifestSha256,
       dependencies: {
         ...dependencies,
         // release prepare가 만든 approved item 자체는 source drift가 아니다. 별도 deep run,
@@ -843,6 +851,7 @@ async function loadLaunch(
   root: string,
   receiptSha256: string,
   requestedGrantIds: readonly string[],
+  reviewManifestSha256?: string,
 ): Promise<LoadedLaunch> {
   const { receipt, manifest } = await readCompletedAnalysisLaunchArtifacts({
     launchReceiptSha256: receiptSha256,
@@ -852,7 +861,9 @@ async function loadLaunch(
     receiptSha256,
     receipt,
     manifest,
-    review: await loadReviewEvidence(root, receiptSha256, receipt, requestedGrantIds),
+    review: await loadReviewEvidence(
+      root, receiptSha256, receipt, requestedGrantIds, reviewManifestSha256,
+    ),
   };
 }
 
@@ -1029,6 +1040,7 @@ async function loadReviewEvidence(
   receiptSha256: string,
   receipt: AnalysisLaunchReceipt,
   requestedGrantIds: readonly string[],
+  reviewManifestSha256?: string,
 ): Promise<ReviewEvidence> {
   const reviewRoot = join(root, "spike-out", "analysis-lab", "independent-review", receiptSha256);
   const manifestFiles = (await readdir(reviewRoot))
@@ -1036,6 +1048,9 @@ async function loadReviewEvidence(
     .sort();
   if (manifestFiles.length === 0) {
     throw new Error(`independent review manifest가 없습니다: ${receiptSha256}`);
+  }
+  if (reviewManifestSha256 && !manifestFiles.includes(`${reviewManifestSha256}.manifest.json`)) {
+    throw new Error(`선택한 independent review manifest가 receipt에 없습니다: ${receiptSha256}`);
   }
   const candidates = await Promise.all(manifestFiles.map((manifestFile) => (
     loadReviewManifestCandidate(receiptSha256, receipt, reviewRoot, manifestFile)
@@ -1059,7 +1074,16 @@ async function loadReviewEvidence(
   }
   const coverageLeaders = ranked.filter((item) => item.coverage === maxCoverage);
   const maxPolicyRank = Math.max(...coverageLeaders.map((item) => item.policyRank));
-  const selected = coverageLeaders.filter((item) => item.policyRank === maxPolicyRank);
+  const leaders = coverageLeaders.filter((item) => item.policyRank === maxPolicyRank);
+  const selected = reviewManifestSha256
+    ? leaders.filter((item) => item.candidate.manifestSha256 === reviewManifestSha256)
+    : leaders;
+  if (reviewManifestSha256 && selected.length === 0) {
+    throw new Error(`선택한 independent review manifest가 최고 coverage·정책 후보가 아닙니다: ${receiptSha256}`);
+  }
+  if (reviewManifestSha256 && maxCoverage !== requestedSequences.size) {
+    throw new Error(`선택한 independent review manifest가 exact 대상을 모두 검수하지 않았습니다: ${receiptSha256}`);
+  }
   if (selected.length !== 1) {
     throw new Error(
       `동일 coverage와 정책 버전의 독립 검수 manifest가 둘 이상입니다: ${receiptSha256}`,

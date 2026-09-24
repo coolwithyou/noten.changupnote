@@ -260,6 +260,8 @@ async function assertPreparedRevisionCanAdvance(input: {
 
 async function prepare(): Promise<number> {
   const series = readArg("series")?.trim();
+  const reviewManifestSha256 = readArg("review-manifest")?.trim();
+  if (reviewManifestSha256 === "") throw new Error("--review-manifest에는 SHA256이 필요합니다.");
   const launchReceiptSha256s = (readArg("launch-receipts") ?? "")
     .split(",")
     .map((value) => value.trim())
@@ -287,6 +289,9 @@ async function prepare(): Promise<number> {
       "신규 release 준비는 --series 또는 --launch-receipts 중 하나와 --grantIds exact CSV가 필요합니다.",
     );
   }
+  if (reviewManifestSha256 && launchReceiptSha256s.length !== 1) {
+    throw new Error("--review-manifest에는 --launch-receipts 하나가 필요합니다.");
+  }
   if (!cohort) throw new Error("--cohort가 필요합니다.");
   if (!actor) throw new Error("--actor에 준비 담당자 식별자가 필요합니다.");
   if (!Number.isInteger(revision) || revision < 1) throw new Error("--revision은 1 이상의 정수여야 합니다.");
@@ -311,6 +316,7 @@ async function prepare(): Promise<number> {
     ? await loadAnalysisLaunchPromotionCohort({
         launchReceiptSha256s,
         grantIds: exactGrantIds,
+        ...(reviewManifestSha256 ? { reviewManifestSha256 } : {}),
         manualConfirmationSelections: manualSelectionSet.selections,
       })
     : null;
@@ -539,6 +545,8 @@ async function prepare(): Promise<number> {
 
 async function inspectReceiptBackedCohort(): Promise<number> {
   const series = readArg("series")?.trim();
+  const reviewManifestSha256 = readArg("review-manifest")?.trim();
+  if (reviewManifestSha256 === "") throw new Error("--review-manifest에는 SHA256이 필요합니다.");
   const launchReceiptSha256s = (readArg("launch-receipts") ?? "")
     .split(",")
     .map((value) => value.trim())
@@ -550,6 +558,9 @@ async function inspectReceiptBackedCohort(): Promise<number> {
   if (Boolean(series) === (launchReceiptSha256s.length > 0)) {
     throw new Error("--inspect에는 --series 또는 --launch-receipts 중 하나가 필요합니다.");
   }
+  if (reviewManifestSha256 && launchReceiptSha256s.length !== 1) {
+    throw new Error("--review-manifest에는 --launch-receipts 하나가 필요합니다.");
+  }
   if (grantIds.length === 0) throw new Error("--inspect에는 --grantIds exact CSV가 필요합니다.");
   const manualSelectionSet = await readManualConfirmationEvaluationSelectionSet(
     readArg("manual-confirmation-selections"),
@@ -558,6 +569,7 @@ async function inspectReceiptBackedCohort(): Promise<number> {
     const cohort = await loadAnalysisLaunchPromotionCohort({
       launchReceiptSha256s,
       grantIds,
+      ...(reviewManifestSha256 ? { reviewManifestSha256 } : {}),
       manualConfirmationSelections: manualSelectionSet.selections,
     });
     console.log(JSON.stringify({

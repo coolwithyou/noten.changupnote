@@ -167,7 +167,7 @@ try {
     }],
   };
   const storedReceipt = await writeAnalysisLaunchArtifact("receipts", receipt, root);
-  await writeReviewEvidence({
+  const legacyReviewManifestSha256 = await writeReviewEvidence({
     root,
     receiptSha256: storedReceipt.sha256,
     manifestSha256: storedManifest.sha256,
@@ -260,6 +260,111 @@ try {
     "같은 packet coverage면 최신 검수 정책을 선택한다",
   );
   assert.equal(isVerifiedLocalLabSourceArtifact(candidate.sourceArtifact), true);
+
+  const solReviewManifestSha256 = await writeReviewEvidence({
+    root,
+    receiptSha256: storedReceipt.sha256,
+    manifestSha256: storedManifest.sha256,
+    grantSha256: storedGrant.sha256,
+    runPath,
+    runArtifactSha256,
+    policyVersion: "codex-only-v5",
+    reviewerModel: "gpt-6-sol",
+    blocked: false,
+  });
+  const reviewSelectionDependencies = {
+    repositoryRoot: root,
+    resolveManualConfirmationEvaluations: async () => selectedManual,
+    loadCurrentGrantEvidence: async () => ({
+      sourceRevisionSha256,
+      sourceRawSha256: "9".repeat(64),
+      inputSha256,
+      attachmentManifestSha256,
+      status: "open" as const,
+      servingState: "visible" as const,
+      applicationOpen: true,
+      hasDeepAnalysisRun: false,
+      hasPromotionItem: false,
+      confirmedDuplicate: false,
+    }),
+  };
+  const reviewSelectionInput = {
+    launchReceiptSha256s: [storedReceipt.sha256],
+    grantIds: [grantId],
+    manualConfirmationSelections: [{
+      grantId,
+      runId,
+      revision: selectedManual.selection.revision,
+      artifactSha256: selectedManual.selection.artifactSha256,
+    }],
+    dependencies: reviewSelectionDependencies,
+  };
+  await assert.rejects(() => loadAnalysisLaunchPromotionCohort(reviewSelectionInput),
+    /동일 coverage와 정책 버전/, "명시 선택이 없으면 동률 manifest를 거부한다");
+  for (const reviewManifestSha256 of [selectedReviewManifestSha256, solReviewManifestSha256]) {
+    const selectedCohort = await loadAnalysisLaunchPromotionCohort({
+      ...reviewSelectionInput,
+      reviewManifestSha256,
+    });
+    assert.equal(
+      selectedCohort.candidates[0]?.sourceArtifact.localLabEvidence?.analysisLaunch
+        ?.independentReviewManifestSha256,
+      reviewManifestSha256,
+      "선택한 검수 manifest SHA가 release source에 봉인된다",
+    );
+  }
+  await assert.rejects(() => loadAnalysisLaunchPromotionCohort({
+    ...reviewSelectionInput,
+    reviewManifestSha256: "f".repeat(64),
+  }), /선택한 independent review manifest가 receipt에 없습니다/);
+  await assert.rejects(() => loadAnalysisLaunchPromotionCohort({
+    ...reviewSelectionInput,
+    reviewManifestSha256: legacyReviewManifestSha256,
+  }), /최고 coverage·정책 후보가 아닙니다/, "명시 SHA로 상위 정책 검수를 우회하지 않는다");
+  await assert.rejects(() => loadAnalysisLaunchPromotionCohort({
+    ...reviewSelectionInput,
+    reviewManifestSha256: "invalid",
+  }), /review manifest.*SHA|SHA.*review manifest/);
+  await assert.rejects(() => loadAnalysisLaunchPromotionCohort({
+    ...reviewSelectionInput,
+    launchReceiptSha256s: [storedReceipt.sha256, "e".repeat(64)],
+    reviewManifestSha256: solReviewManifestSha256,
+  }), /launch receipt 하나/);
+  const mismatchedReviewerManifestSha256 = await writeReviewEvidence({
+    root,
+    receiptSha256: storedReceipt.sha256,
+    manifestSha256: storedManifest.sha256,
+    grantSha256: storedGrant.sha256,
+    runPath,
+    runArtifactSha256,
+    policyVersion: "codex-only-v5",
+    reviewerModel: "gpt-6-astra",
+    aggregateReviewerModel: "gpt-6-sol",
+    blocked: false,
+  });
+  await assert.rejects(() => loadAnalysisLaunchPromotionCohort({
+    ...reviewSelectionInput,
+    reviewManifestSha256: mismatchedReviewerManifestSha256,
+  }), /aggregate reviewer가 다릅니다/, "명시 SHA도 모델 provenance를 검증한다");
+  const mismatchedReceiptManifestSha256 = await writeReviewEvidence({
+    root,
+    receiptSha256: storedReceipt.sha256,
+    manifestSha256: "0".repeat(64),
+    grantSha256: storedGrant.sha256,
+    runPath,
+    runArtifactSha256,
+    policyVersion: "codex-only-v5",
+    reviewerModel: "gpt-6-terra",
+    blocked: false,
+  });
+  await assert.rejects(() => loadAnalysisLaunchPromotionCohort({
+    ...reviewSelectionInput,
+    reviewManifestSha256: mismatchedReceiptManifestSha256,
+  }), /manifest 결속이 다릅니다/, "명시 SHA도 launch receipt 결속을 검증한다");
+  await rm(join(
+    root, "spike-out", "analysis-lab", "independent-review", storedReceipt.sha256,
+    `${mismatchedReceiptManifestSha256}.manifest.json`,
+  ));
 
   const classifyFixtureRun = (fixture: LabRun) => classifyAnalysisLaunchPromotionReadiness({
     loaded: {
@@ -1217,6 +1322,8 @@ async function writeReviewEvidence(input: {
   runPath: string;
   runArtifactSha256: string;
   policyVersion: string;
+  reviewerModel?: string;
+  aggregateReviewerModel?: string;
   blocked: boolean;
 }): Promise<string> {
   const reviewRoot = join(
@@ -1248,7 +1355,7 @@ async function writeReviewEvidence(input: {
     reviewPolicyVersion: input.policyVersion,
     reviewers: [{
       reviewer: "codex",
-      model: "gpt-5.6-sol",
+      model: input.reviewerModel ?? "gpt-5.6-sol",
       transport: "codex-cli",
       auth: "chatgpt-subscription",
     }],
@@ -1270,7 +1377,7 @@ async function writeReviewEvidence(input: {
     reviewedTargets: 1,
     reviewMode: "codex-only",
     reviewerSummaries: {
-      codex: { model: "gpt-5.6-sol", transport: "codex-cli" },
+      codex: { model: input.aggregateReviewerModel ?? input.reviewerModel ?? "gpt-5.6-sol", transport: "codex-cli" },
     },
     comparisons: [{ sequence: 0, criterionTotal: 1, axisTotal: 20 }],
     consensus: {
