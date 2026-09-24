@@ -261,22 +261,27 @@ export async function discoverGrantSupplyWork(input: {
     events,
     current,
   });
+  const assessIds = (grantIds: readonly string[]) => {
+    const selectedIds = new Set(grantIds);
+    return assessPublishedGrantSupply({
+      db: input.db,
+      grantIds,
+      ...(input.asOf ? { asOf: input.asOf } : {}),
+      ...(input.runSelections ? { runSelections: input.runSelections.filter(
+        (selection) => selectedIds.has(selection.grantId),
+      ) } : {}),
+      ...(input.manualConfirmationSelections ? {
+        manualConfirmationSelections: input.manualConfirmationSelections.filter(
+          (selection) => selectedIds.has(selection.grantId),
+        ),
+      } : {}),
+    });
+  };
   const items = await assessGrantSupplyDiscoveryTargets({
     targets,
+    assessBatch: assessIds,
     assess: async (grantId) => {
-      const [assessment] = await assessPublishedGrantSupply({
-        db: input.db,
-        grantIds: [grantId],
-        ...(input.asOf ? { asOf: input.asOf } : {}),
-        ...(input.runSelections ? { runSelections: input.runSelections.filter(
-          (selection) => selection.grantId === grantId,
-        ) } : {}),
-        ...(input.manualConfirmationSelections ? {
-          manualConfirmationSelections: input.manualConfirmationSelections.filter(
-            (selection) => selection.grantId === grantId,
-          ),
-        } : {}),
-      });
+      const [assessment] = await assessIds([grantId]);
       if (!assessment) throw new Error("current_assessment_missing");
       return assessment;
     },
@@ -325,15 +330,34 @@ export async function readGrantSupplyDiscoverySourceIdPage(input: {
 export async function assessGrantSupplyDiscoveryTargets(input: {
   readonly targets: readonly GrantSupplyDiscoveryTarget[];
   readonly assess: (grantId: string) => Promise<GrantSupplyAssessment>;
+  readonly assessBatch?: (grantIds: readonly string[]) => Promise<readonly GrantSupplyAssessment[]>;
 }): Promise<GrantSupplyWorkItem[]> {
   const items: GrantSupplyWorkItem[] = [];
   for (let offset = 0; offset < input.targets.length; offset += 8) {
-    items.push(...await Promise.all(input.targets.slice(offset, offset + 8)
+    const chunk = input.targets.slice(offset, offset + 8);
+    const grantIds = [...new Set(chunk.flatMap((target) => target.grantId ? [target.grantId] : []))];
+    let batchById: Map<string, GrantSupplyAssessment> | null = null;
+    if (input.assessBatch && grantIds.length > 0) {
+      try {
+        const assessments = await input.assessBatch(grantIds);
+        const byId = new Map(assessments.map((assessment) => [assessment.grantId, assessment]));
+        if (assessments.length !== grantIds.length || byId.size !== grantIds.length
+            || grantIds.some((grantId) => !byId.has(grantId))) {
+          throw new Error("grant_supply_discovery_batch_response_invalid");
+        }
+        batchById = byId;
+      } catch (error) {
+        if (isSharedGrantSupplyDiscoveryFailure(error)) throw error;
+        // 한 공고의 자료 오류라면 같은 chunk만 단건 재조회해 실패 공고를 격리한다.
+        batchById = null;
+      }
+    }
+    items.push(...await Promise.all(chunk
       .map(async (target): Promise<GrantSupplyWorkItem> => {
       if (!target.grantId) return grantSupplyFailedWork(target,
         target.discoveredBy === "collection_event" ? "collection_event_grant_missing" : "current_grant_missing");
       try {
-        const assessment = await input.assess(target.grantId);
+        const assessment = batchById?.get(target.grantId) ?? await input.assess(target.grantId);
         const asset = assessment.schema === GRANT_SUPPLY_PLAN_SCHEMA ? assessment.assetBinding : null;
         const status = assessment.schema === "grant-supply-inactive-v1" ? "inactive"
           : assessment.stage === "ready" ? "complete" : "pending";

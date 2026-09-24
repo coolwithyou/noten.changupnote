@@ -11,7 +11,9 @@ import { discoverGrantSupplyWork } from "./grantSupply";
 const socket = process.env.CUNOTE_PRODUCT_TEST_SOCKET ?? "";
 assert.match(socket, /^\/tmp\/cunote-product-pg-[a-zA-Z0-9]+$/u);
 assert.match(realpathSync(socket), /^\/(?:private\/)?tmp\/cunote-product-pg-[a-zA-Z0-9]+$/u);
-const admin = postgres({ host: socket, database: "postgres", username: "postgres", prepare: false, max: 1, onnotice: () => {} });
+let queryCount = 0;
+const admin = postgres({ host: socket, database: "postgres", username: "postgres", prepare: false,
+  max: 1, onnotice: () => {}, debug: () => { queryCount += 1; } });
 try {
   const [empty] = await admin`select count(*)::int as count from pg_tables where schemaname='public'`;
   assert.equal(empty!.count, 0, "전용 빈 cluster만 사용한다");
@@ -51,6 +53,23 @@ try {
   assert.equal(first.items[0]?.discoveredBy, "collection_event");
   assert.equal(first.items[0]?.eventRawSha256, rawHash);
   assert.equal(first.items[0]?.status, "inactive");
+
+  // 닫힌 공고도 readiness 조회가 필요하다. 8건을 한 번에 판정하면 DB 왕복은
+  // source 조회 1회 + grant/readiness 조회 2회로 수렴한다.
+  const batchSourceIds = Array.from({ length: 8 }, (_, index) =>
+    `grant-supply-batch-${String(index + 1).padStart(2, "0")}`);
+  await admin`insert into grants
+    (id, source, source_id, title, status, serving_state, overall_confidence, updated_at)
+    select gen_random_uuid(), 'bizinfo', 'grant-supply-batch-' || lpad(n::text, 2, '0'),
+      '공급 배치 조회 공고', 'closed', 'visible', 1, ${new Date("2026-09-22T00:00:00.000Z").toISOString()}
+    from generate_series(1, 8) as n`;
+  const queriesBeforeBatch = queryCount;
+  const batch = await discoverGrantSupplyWork({ db, source: "bizinfo", sourceIds: batchSourceIds,
+    asOf: new Date("2026-09-24T02:00:00.000Z") });
+  const batchQueries = queryCount - queriesBeforeBatch;
+  assert.equal(batch.items.length, 8);
+  assert.ok(batch.items.every((item) => item.status === "inactive"));
+  assert.ok(batchQueries <= 5, `8건 발견의 DB 왕복이 과도합니다: ${batchQueries}`);
 
   // 이벤트 500건 한도를 넘는 기간에도 source ID 합집합을 한 번씩만 처리한다.
   await admin`insert into grant_collection_events
@@ -128,7 +147,7 @@ try {
   } finally {
     await restartedReader.end({ timeout: 5 });
   }
-  console.log("PASS: committed event, publisher unchanged, and status-only state rediscovered on a new connection");
+  console.log(`PASS: discovery paging, publisher state, and 8-target batch (${batchQueries} DB queries)`);
 } finally {
   await admin.end({ timeout: 5 });
 }

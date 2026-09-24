@@ -361,3 +361,49 @@ test("공통 DB 장애는 대상별 실패로 숨기지 않고 기간 조회를 
     (error) => error === missingColumn,
   );
 });
+
+test("공급 발견은 8건씩 배치하고 한 건의 자료 오류만 단건 재조회로 격리한다", async () => {
+  const ids = Array.from({ length: 9 }, (_, index) =>
+    `10000000-0000-4000-8000-${String(index + 100).padStart(12, "0")}`);
+  const targets = buildGrantSupplyDiscoveryTargets({
+    source: "bizinfo", sourceIds: null, events: [],
+    current: ids.map((id, index) => ({ id, sourceId: `source-${index}` })),
+  });
+  const calls: string[][] = [];
+  const assess = async (id: string) => planGrantSupply({
+    snapshot: snapshot("missing", id), inventory: checked(),
+  });
+  const batched = await assessGrantSupplyDiscoveryTargets({
+    targets,
+    assess: async () => { throw new Error("unexpected_single_read"); },
+    assessBatch: async (grantIds) => {
+      calls.push([...grantIds]);
+      return Promise.all(grantIds.map(assess));
+    },
+  });
+  assert.deepEqual(calls.map((call) => call.length), [8, 1]);
+  assert.equal(batched.length, 9);
+  assert.ok(batched.every((item) => item.status === "pending"));
+
+  const failedId = ids[3]!;
+  let singleReads = 0;
+  const isolated = await assessGrantSupplyDiscoveryTargets({
+    targets: targets.slice(0, 8),
+    assessBatch: async () => { throw new Error("one_target_broken"); },
+    assess: async (id) => {
+      singleReads += 1;
+      if (id === failedId) throw new Error("one_target_broken");
+      return assess(id);
+    },
+  });
+  assert.equal(singleReads, 8);
+  assert.deepEqual(isolated.map((item) => item.status),
+    ["pending", "pending", "pending", "failed", "pending", "pending", "pending", "pending"]);
+
+  const sharedError = Object.assign(new Error("connection failed"), { code: "08006" });
+  await assert.rejects(assessGrantSupplyDiscoveryTargets({
+    targets,
+    assessBatch: async () => { throw sharedError; },
+    assess: async () => { throw new Error("unexpected_single_read"); },
+  }), (error) => error === sharedError);
+});

@@ -3,9 +3,8 @@
 // 이 모듈은 순수 코어다: argv/env 파싱과 loadMonorepoEnv 는 호출부(CLI · API 라우트)의 책임이며,
 // 여기서는 process.env 가 이미 주입돼 있다고 가정한다(Vercel 런타임 · CLI 양쪽 공통).
 // CLI 는 archive-kstartup.ts, 서버 라우트는 /api/cron/ingest-kstartup 이 이 함수를 호출한다.
-import { existsSync, readFileSync } from "node:fs";
-import { resolve } from "node:path";
 import { and, eq, inArray } from "drizzle-orm";
+import samplePayload from "../../../../../../samples/kstartup_announcement_sample.json";
 import type { NormalizedGrant } from "@cunote/contracts";
 import {
   deriveKStartupAuthoringMode,
@@ -415,8 +414,7 @@ async function readLivePayload(page: number, perPage: number): Promise<KStartupA
 }
 
 function readSamplePayload(limit: number): KStartupApiResponse {
-  const path = findProjectFile("samples/kstartup_announcement_sample.json");
-  const parsed = JSON.parse(readFileSync(path, "utf8")) as KStartupApiResponse;
+  const parsed = samplePayload as KStartupApiResponse;
   const safeLimit = Math.min(parsed.data.length, limit);
   return {
     ...parsed,
@@ -536,14 +534,4 @@ function addTotals(totals: ArchiveTotals, plan: GrantArchivePlan, publishedCount
 
 function readTotalCount(payload: KStartupApiResponse, fallback: number | null): number | null {
   return payload.totalCount ?? payload.matchCount ?? fallback;
-}
-
-function findProjectFile(relativePath: string): string {
-  const candidates = [
-    resolve(process.cwd(), relativePath),
-    resolve(process.cwd(), "../..", relativePath),
-  ];
-  const found = candidates.find((candidate) => existsSync(candidate));
-  if (!found) throw new Error(`Missing project file: ${relativePath}`);
-  return found;
 }
