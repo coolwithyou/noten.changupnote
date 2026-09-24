@@ -69,9 +69,11 @@ writeFileSync(join(fixtureRoot, "node_modules", "leaked", "index.js"), "leak\n")
 writeFileSync(join(fixtureRoot, "apps", "fixture", ".next-build", "server.js"), "leak\n");
 writeFileSync(join(fixtureRoot, "apps", "fixture", "spike-out-private", "artifact.json"), "{}\n");
 
+mkdirSync(join(fixtureRoot, "samples"));
+writeFileSync(join(fixtureRoot, "samples", "kstartup_announcement_sample.json"), "{}\n");
 const snapshot = createProductUatSourceSnapshot({
   sourceRoot: fixtureRoot,
-  sourceInventory: ["package.json", "pnpm-lock.yaml", "apps/fixture/safe.txt"],
+  sourceInventory: ["package.json", "pnpm-lock.yaml", "apps/fixture/safe.txt", "samples/kstartup_announcement_sample.json"],
   workspacePackages: [],
   inheritedEnv: { PATH: process.env.PATH, HOME: process.env.HOME },
 });
@@ -79,9 +81,14 @@ assert.equal(findForbiddenSnapshotPaths(snapshot.snapshotRoot).filter((path) => 
 assert.equal(readFileSync(join(snapshot.snapshotRoot, "apps", "fixture", "safe.txt"), "utf8"), "safe-source\n");
 assert.deepEqual(
   snapshot.sourceFiles.map((entry) => entry.path),
-  ["apps/fixture/safe.txt", "package.json", "pnpm-lock.yaml"],
+  ["apps/fixture/safe.txt", "package.json", "pnpm-lock.yaml", "samples/kstartup_announcement_sample.json"],
   "manifest에는 복사된 안전 소스만 포함한다",
 );
+assert.throws(() => createProductUatSourceSnapshot({
+  sourceRoot: fixtureRoot,
+  sourceInventory: ["samples/private.json"],
+  installDependencies: false,
+}), /allowlist 밖/);
 assert.match(snapshot.sourceManifestSha256, /^[a-f0-9]{64}$/);
 assert.ok(snapshot.snapshotRoot.startsWith(realpathSync(tmpdir())));
 assert.throws(
@@ -168,7 +175,7 @@ await assert.rejects(
 console.log(JSON.stringify({
   ok: true,
   suite: "product-uat-runtime",
-  checks: 27,
+  checks: 28,
   sourceManifestSha256: snapshot.sourceManifestSha256,
   retainedFixture: testRoot,
 }));

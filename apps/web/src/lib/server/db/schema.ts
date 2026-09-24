@@ -898,6 +898,26 @@ export const companyGrantConfirmations = pgTable("company_grant_confirmations", 
   companyGrantIdx: index("company_grant_confirmations_company_grant_idx").on(table.companyId, table.grantId),
 }));
 
+/** 회사 사실 철회는 원본 공고/질문 수명과 독립적으로 보존한다. */
+export const companyFactWithdrawals = pgTable("company_fact_withdrawals", {
+  companyId: uuid("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  semanticSha256: text("semantic_sha256").notNull(),
+  conditionKey: text("condition_key").notNull(),
+  contractVersion: text("contract_version").notNull(),
+  // 출처 식별자이며 FK가 아니다. 원본 삭제가 철회를 취소해서는 안 된다.
+  sourceQuestionId: uuid("source_question_id").notNull(),
+  sourceGrantId: uuid("source_grant_id").notNull(),
+  answerRevision: integer("answer_revision").notNull(),
+  withdrawnAt: timestamp("withdrawn_at", { withTimezone: true }).notNull(),
+  withdrawnBy: uuid("withdrawn_by").references(() => users.id, { onDelete: "set null" }),
+}, (table) => ({
+  pk: primaryKey({ columns: [table.companyId, table.semanticSha256] }),
+  semanticSha: check("company_fact_withdrawals_semantic_sha256_check", sql`${table.semanticSha256} ~ '^[0-9a-f]{64}$'`),
+  conditionKey: check("company_fact_withdrawals_condition_key_check", sql`${table.conditionKey} ~ '^[a-z][a-z0-9]*(_[a-z0-9]+)*$'`),
+  contract: check("company_fact_withdrawals_contract_version_check", sql`${table.contractVersion} = 'company-fact-reuse-v1'`),
+  revision: check("company_fact_withdrawals_answer_revision_check", sql`${table.answerRevision} > 0`),
+}));
+
 /**
  * 입력 상한을 넘는 통합공고를 일반 공고처럼 잘라 분석하지 않고, Ops 사람 승인 뒤
  * 별도 분리 worker가 가져갈 수 있도록 보존하는 상태 원장이다. 원문 revision마다

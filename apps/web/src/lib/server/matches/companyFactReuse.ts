@@ -133,6 +133,19 @@ export function isCompanyFactWithdrawal(raw: unknown): boolean {
   );
 }
 
+/** 회사 잠금 안에서 호출한다. 요청 도착 시각/시계 차이로 최신 의사가 과거가 되지 않게 한다. */
+export function nextCompanyFactAnswerTime(
+  now: Date,
+  identity: CompanyFactReuseIdentity,
+  candidates: readonly CompanyFactAnswerCandidate[],
+): Date {
+  return new Date(candidates.reduce((latest, candidate) => (
+    sameCompanyFactIdentity(candidate.identity, identity)
+      ? Math.max(latest, candidate.answeredAt.getTime() + 1)
+      : latest
+  ), now.getTime()));
+}
+
 export function optionValueForEvaluation(
   question: Pick<CompanyFactReuseQuestion, "options">,
   evaluation: GrantConfirmationEvaluation,

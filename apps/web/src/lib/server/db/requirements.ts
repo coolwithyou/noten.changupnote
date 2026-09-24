@@ -55,6 +55,7 @@ export const REQUIRED_TABLES = [
   "audit_dispatch_items",
   "grant_confirmation_questions",
   "company_grant_confirmations",
+  "company_fact_withdrawals",
   "analysis_lab_promotion_releases",
   "analysis_lab_promotion_items",
   "analysis_lab_source_rebind_items",
@@ -62,6 +63,7 @@ export const REQUIRED_TABLES = [
 
 export const RLS_TABLES = [
   "companies",
+  "company_fact_withdrawals",
   "user_company",
   "user_application_profiles",
   "company_application_profiles",

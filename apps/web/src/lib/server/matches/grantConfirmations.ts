@@ -32,12 +32,14 @@ import {
 import {
   buildCompanyFactReuseIdentity,
   isCompanyFactWithdrawal,
+  nextCompanyFactAnswerTime,
   optionValueForEvaluation,
   resolveCompanyFactAnswer,
   sameCompanyFactIdentity,
   type CompanyFactAnswerCandidate,
   type CompanyFactReuseIdentity,
 } from "./companyFactReuse";
+import { loadCompanyFactWithdrawals, saveCompanyFactWithdrawal } from "./companyFactWithdrawalStore";
 import { refreshMatchStates } from "./matchStateRefresh";
 
 /** 확인 질문 요청 오류 — webActionError 가 status/code 를 그대로 응답에 싣는다. */
@@ -251,6 +253,10 @@ export async function submitGrantConfirmations(input: {
         );
       }
       const nextRevision = currentRevision + 1;
+      const question = questionById.get(answer.questionId);
+      const answeredAt = question?.companyFactIdentity
+        ? nextCompanyFactAnswerTime(asOf, question.companyFactIdentity, companyFactCandidates)
+        : asOf;
       const row = {
         answer: { values: answer.values },
         disqualified: answer.disqualified,
@@ -262,7 +268,7 @@ export async function submitGrantConfirmations(input: {
         questionVersion: answer.binding?.questionVersion ?? null,
         answerRevision: nextRevision,
         answeredBy: input.userId,
-        answeredAt: asOf,
+        answeredAt,
       };
       await tx
         .insert(schema.companyGrantConfirmations)
@@ -279,7 +285,6 @@ export async function submitGrantConfirmations(input: {
           ],
           set: row,
         });
-      const question = questionById.get(answer.questionId);
       let companyFactRevision: string | undefined;
       if (question?.companyFactIdentity && answer.evaluation) {
         companyFactCandidates = companyFactCandidates.filter((candidate) => (
@@ -291,7 +296,7 @@ export async function submitGrantConfirmations(input: {
           identity: question.companyFactIdentity,
           evaluation: answer.evaluation,
           answerRevision: nextRevision,
-          answeredAt: asOf,
+          answeredAt,
         });
         companyFactRevision = resolveCompanyFactAnswer({
           identity: question.companyFactIdentity,
@@ -304,7 +309,7 @@ export async function submitGrantConfirmations(input: {
         ...(answer.evaluation
           ? { evaluation: answer.evaluation, answerRevision: nextRevision }
           : { disqualified: answer.disqualified }),
-        answeredAt: asOf.toISOString(),
+        answeredAt: answeredAt.toISOString(),
         ...(companyFactRevision ? { companyFactRevision } : {}),
       });
     }
@@ -438,6 +443,7 @@ export async function withdrawGrantConfirmation(input: {
         identities: [question.companyFactIdentity],
       });
       const binding = question.binding!;
+      const answeredAt = nextCompanyFactAnswerTime(asOf, question.companyFactIdentity, candidates);
       const row = {
         answer: { values: [], withdrawn: true },
         disqualified: false,
@@ -449,7 +455,7 @@ export async function withdrawGrantConfirmation(input: {
         questionVersion: binding.questionVersion,
         answerRevision: (direct?.answerRevision ?? 0) + 1,
         answeredBy: input.userId,
-        answeredAt: asOf,
+        answeredAt,
       };
       await tx.insert(schema.companyGrantConfirmations).values({
         companyId: input.companyId,
@@ -462,6 +468,16 @@ export async function withdrawGrantConfirmation(input: {
           schema.companyGrantConfirmations.questionId,
         ],
         set: row,
+      });
+      await saveCompanyFactWithdrawal({
+        db: tx,
+        companyId: input.companyId,
+        identity: question.companyFactIdentity,
+        questionId: input.questionId,
+        grantId: input.grantId,
+        answerRevision: row.answerRevision,
+        answeredAt,
+        userId: input.userId,
       });
     } else if (direct) {
       await tx.delete(schema.companyGrantConfirmations).where(and(
@@ -833,11 +849,11 @@ async function loadAnswerDtos(input: {
     const identity = question.companyFactIdentity!;
     const direct = directRows.find((row) => (
       row.questionId === question.id
-      && answerMatchesQuestionBinding(row, question)
     ));
     const resolved = resolveCompanyFactAnswer({ identity, candidates });
     if (!resolved) {
-      return direct && isCompanyFactWithdrawal(direct.answer)
+      // 값이 미해소여도 실제 저장 revision을 반환해야 기존 질문에서 재답변할 수 있다.
+      return direct
         ? [{
             questionId: question.id,
             values: [],
@@ -913,7 +929,7 @@ async function loadCompanyFactAnswerCandidates(input: {
     db: input.db,
     grantIds: [...new Set(rows.map((row) => row.questionGrantId))],
   });
-  return rows.flatMap((row): CompanyFactAnswerCandidate[] => {
+  const candidates = rows.flatMap((row): CompanyFactAnswerCandidate[] => {
     const currentSource = currentSourceByGrant.get(row.questionGrantId);
     const evaluation = isCompanyFactWithdrawal(row.answer) ? "withdrawn" : row.evaluation;
     if (
@@ -953,29 +969,7 @@ async function loadCompanyFactAnswerCandidates(input: {
       answeredAt: row.answeredAt,
     }];
   });
-}
-
-function answerMatchesQuestionBinding(
-  row: {
-    evaluation: string | null;
-    evaluationCriterionId: string | null;
-    sourceRevisionSha256: string | null;
-    sourceRawSha256: string | null;
-    questionDefinitionSha256: string | null;
-    questionVersion: number | null;
-  },
-  question: QuestionRow,
-): boolean {
-  const binding = question.binding;
-  return Boolean(
-    binding
-    && isConfirmationEvaluation(row.evaluation)
-    && row.evaluationCriterionId === binding.criterionId
-    && row.sourceRevisionSha256 === binding.sourceRevisionSha256
-    && row.sourceRawSha256 === binding.sourceRawSha256
-    && row.questionDefinitionSha256 === binding.definitionSha256
-    && row.questionVersion === binding.questionVersion,
-  );
+  return [...candidates, ...await loadCompanyFactWithdrawals(input.db, input.companyId)];
 }
 
 function isUuid(value: string): boolean {

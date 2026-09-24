@@ -107,7 +107,8 @@ export function classifyPublicPreviewRefresh(input: {
 }): "already_fresh" | "rate_limited" | "live" {
   if (input.liveCheckedAt) {
     const ageMs = input.now.getTime() - input.liveCheckedAt.getTime();
-    if (ageMs >= 0 && ageMs < PUBLIC_PREVIEW_ALREADY_FRESH_MS) return "already_fresh";
+    // 대기 중인 요청의 now보다 뒤에 저장된 캐시도 재과금하지 않는다.
+    if (ageMs < PUBLIC_PREVIEW_ALREADY_FRESH_MS) return "already_fresh";
   }
   if (input.cooldownExpiresAt && input.cooldownExpiresAt.getTime() > input.now.getTime()) {
     return "rate_limited";
@@ -135,51 +136,28 @@ function normalizePublicPreviewCompanyName(value: string | null | undefined): st
 export async function executePublicPreviewRefresh<T extends PublicPreviewRefreshProfile>(
   input: ExecutePublicPreviewRefreshInput<T>,
 ): Promise<PublicPreviewRefreshExecution<T>> {
-  const cachedEntry = await input.cache.getFresh({
-    provider: input.popbillProvider,
-    bizNo: input.bizNo,
-    scope: input.popbillScope,
-    now: input.now,
-  });
-  const cooldown = await input.cache.getFresh({
-    provider: PUBLIC_PREVIEW_REFRESH_PROVIDER,
-    bizNo: input.bizNo,
-    scope: PUBLIC_PREVIEW_REFRESH_COOLDOWN_SCOPE,
-    now: input.now,
-  });
-  const decision = classifyPublicPreviewRefresh({
-    now: input.now,
-    liveCheckedAt: cachedEntry?.checkedAt ?? cachedEntry?.fetchedAt ?? null,
-    cooldownExpiresAt: cooldown
-      ? cooldown.expiresAt ?? new Date(input.now.getTime() + PUBLIC_PREVIEW_REFRESH_COOLDOWN_MS)
-      : null,
-  });
+  const decision = await readRefreshDecision(input);
+  if (decision !== "live") return finishWithoutLive(input, decision);
 
-  if (decision !== "live") {
-    return finishWithoutLive(input, decision);
-  }
-
-  const guard = await input.cache.getFresh({
-    provider: input.guardProvider,
-    bizNo: input.bizNo,
-    scope: input.guardScope,
-    now: input.now,
-  });
-  if (canonicalState(guard?.canonicalPayload) === "attempt_reserved") {
-    const resolution = await readCachedOrNull(input);
-    return { refreshResult: "failed", resolution };
+  if (await hasPendingLookupGuard(input)) {
+    return { refreshResult: "failed", resolution: await readCachedOrNull(input) };
   }
 
   const ownerToken = await claimPopbillPaidLookupLease(input.cache, input.bizNo, input.now);
   if (!ownerToken) {
-    const resolution = await readCachedOrNull(input);
-    return { refreshResult: "failed", resolution };
+    return { refreshResult: "failed", resolution: await readCachedOrNull(input) };
   }
 
   let previous: T | null = null;
   let paidCallStarted = false;
   let cooldownStored = false;
   try {
+    // 첫 snapshot 뒤 다른 소유자가 조회를 끝냈을 수 있다. 잠금 안에서 다시 판정한다.
+    const rechecked = await readRefreshDecision(input);
+    if (rechecked !== "live") return await finishWithoutLive(input, rechecked);
+    if (await hasPendingLookupGuard(input)) {
+      return { refreshResult: "failed", resolution: await readCachedOrNull(input) };
+    }
     previous = await input.readCached();
     await input.reserveBudget();
     await input.preLiveLookup?.();
@@ -193,10 +171,7 @@ export async function executePublicPreviewRefresh<T extends PublicPreviewRefresh
         provider: PUBLIC_PREVIEW_REFRESH_PROVIDER,
         bizNo: input.bizNo,
         scope: PUBLIC_PREVIEW_REFRESH_COOLDOWN_SCOPE,
-        canonicalPayload: {
-          state: "settled",
-          settledAt: input.now.toISOString(),
-        },
+        canonicalPayload: { state: "settled", settledAt: input.now.toISOString() },
         providerResultCode: "settled",
         providerResultMessage: "Public preview refresh cooldown",
         checkedAt: input.now,
@@ -219,10 +194,47 @@ export async function executePublicPreviewRefresh<T extends PublicPreviewRefresh
         console.warn(`공개 재조회 lease 해제 실패: ${errorMessage(error)}`);
       });
     } else {
-      // SDK promise timeout은 실제 provider 요청 취소를 증명하지 못한다. 쿨다운도 없으면 재과금을 차단한다.
+      // SDK promise timeout은 실제 provider 요청 취소를 증명하지 못한다.
       console.warn("공개 재조회 유료 호출 또는 쿨다운 정산이 불명확해 lease를 유지합니다.");
     }
   }
+}
+
+async function readRefreshDecision<T extends PublicPreviewRefreshProfile>(
+  input: ExecutePublicPreviewRefreshInput<T>,
+): Promise<"already_fresh" | "rate_limited" | "live"> {
+  const cachedEntry = await input.cache.getFresh({
+    provider: input.popbillProvider,
+    bizNo: input.bizNo,
+    scope: input.popbillScope,
+    now: input.now,
+  });
+  const cooldown = await input.cache.getFresh({
+    provider: PUBLIC_PREVIEW_REFRESH_PROVIDER,
+    bizNo: input.bizNo,
+    scope: PUBLIC_PREVIEW_REFRESH_COOLDOWN_SCOPE,
+    now: input.now,
+  });
+  return classifyPublicPreviewRefresh({
+    now: input.now,
+    liveCheckedAt: cachedEntry?.checkedAt ?? cachedEntry?.fetchedAt ?? null,
+    cooldownExpiresAt: cooldown
+      ? cooldown.expiresAt ?? new Date(input.now.getTime() + PUBLIC_PREVIEW_REFRESH_COOLDOWN_MS)
+      : null,
+  });
+
+}
+
+async function hasPendingLookupGuard<T extends PublicPreviewRefreshProfile>(
+  input: ExecutePublicPreviewRefreshInput<T>,
+): Promise<boolean> {
+  const guard = await input.cache.getFresh({
+    provider: input.guardProvider,
+    bizNo: input.bizNo,
+    scope: input.guardScope,
+    now: input.now,
+  });
+  return canonicalState(guard?.canonicalPayload) === "attempt_reserved";
 }
 
 async function finishWithoutLive<T extends PublicPreviewRefreshProfile>(

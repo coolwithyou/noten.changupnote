@@ -63,6 +63,7 @@ import {
   resolveCompanyFactAnswer,
   type CompanyFactAnswerCandidate,
 } from "../matches/companyFactReuse";
+import { loadCompanyFactWithdrawals } from "../matches/companyFactWithdrawalStore";
 import type {
   CompanyRecord,
   CompanyRepository,
@@ -1370,6 +1371,7 @@ class DrizzleMatchRepository<TPayload> implements MatchRepository<TPayload> {
         answeredAt: row.answeredAt,
       }];
     });
+    candidates.push(...await loadCompanyFactWithdrawals(this.db.client, input.companyId));
     for (const target of reusableTargets) {
       if (
         !target.criterionId
