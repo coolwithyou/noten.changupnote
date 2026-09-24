@@ -1,6 +1,7 @@
 import type { CompanyProfile, Grant, GrantCriterion } from "@cunote/contracts";
 import { expandKsicCodes, isLikelyKsicCode } from "../industry/ksic.js";
 import { projectGrantIndustryTags } from "../grants/industry-projection.js";
+import { compareIndustryCategories } from "../industry/semantic-category.js";
 
 export interface RelevanceResult {
   score: number | null;
@@ -45,6 +46,8 @@ export function calculateRelevance(
     grantIndustryValues.map(normalizeText),
   );
   const codeOverlap = intersect(companyCodes, grantCodes);
+  const semanticIndustry = grantCodes.length === 0
+    ? compareIndustryCategories(grantIndustryValues, companyIndustries).match : null;
   const keywordOverlap = intersect(companyTokens, grantTokens);
   const goals = readProfileGoals(company);
   const matchedGoals = goals.filter((goal) => goalPattern(goal).test(goalText));
@@ -53,7 +56,7 @@ export function calculateRelevance(
   if (companyIndustries.length > 0 || companyCodes.length > 0) {
     const hasGrantIndustrySignal = grantIndustryValues.length > 0 || keywordOverlap.length > 0;
     if (hasGrantIndustrySignal) {
-      const industryScore = exactLabels.length > 0 || codeOverlap.length > 0
+      const industryScore = exactLabels.length > 0 || codeOverlap.length > 0 || semanticIndustry !== null
         ? 100
         : keywordOverlap.length > 0
           ? Math.min(85, 55 + keywordOverlap.length * 10)
@@ -73,6 +76,7 @@ export function calculateRelevance(
     components.reduce((sum, component) => sum + component.score * component.weight, 0) / 100,
   );
   const reasons: string[] = [];
+  if (semanticIndustry) reasons.push(`업종 포함관계: ${semanticIndustry.path.join(" → ")}`);
   const industryMatches = uniqueStrings([...exactLabels, ...codeOverlap, ...keywordOverlap]).slice(0, 2);
   if (industryMatches.length > 0) reasons.push(`업종 연관 신호: ${industryMatches.map(industryTokenLabel).join(", ")}`);
   if (matchedGoals.length > 0) reasons.push(`관심 목표와 일치: ${matchedGoals.slice(0, 2).join(", ")}`);

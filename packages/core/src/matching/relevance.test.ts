@@ -43,6 +43,22 @@ assert.equal(foodAlias.score, 46, "농식품 variants must map to the food canon
 const insufficient = calculateRelevance({}, grant({ title: "일반 지원사업", f_industries: [] }));
 assert.equal(insufficient.score, null);
 
+const semanticIct = calculateRelevance(
+  { industries: ["응용 소프트웨어 개발 및 공급업"] },
+  grant({ title: "BTS 전시회 모집", f_industries: [] }),
+  [{ dimension: "industry", kind: "required", operator: "in", value: { tags: ["ICT"] }, confidence: 0.9 }],
+);
+assert.equal(semanticIct.score, 70);
+assert.ok(semanticIct.reasons.some((reason) => reason.includes("응용 소프트웨어") && reason.includes("ICT")));
+assert.ok(semanticIct.reasons.every((reason) => !reason.includes("신호가 적어요")));
+const softwareUser = calculateRelevance({ industries: ["소프트웨어를 이용하는 음식점"] },
+  grant({ title: "BTS 전시회 모집", f_industries: ["ICT"] }));
+assert.equal(softwareUser.score, 0);
+const semanticExclusion = calculateRelevance({ industries: ["응용 소프트웨어 개발 및 공급업"] },
+  grant({ title: "일반 지원", f_industries: [] }),
+  [{ dimension: "industry", kind: "exclusion", operator: "not_in", value: { tags: ["ICT"] }, confidence: 0.9 }]);
+assert.equal(semanticExclusion.score, null);
+
 const goalMustComeFromPurposeFields = calculateRelevance(
   { other_conditions: { interest_goals: ["사업화"] } },
   grant({ title: "외식서비스 경영혁신 지원", f_industries: ["창업기업"] }),
