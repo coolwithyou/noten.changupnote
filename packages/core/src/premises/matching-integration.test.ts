@@ -57,7 +57,7 @@ const company: CompanyProfile = {
 const matched = matchGrantCriteria([premises], company, {
   asOf: new Date("2026-09-08T15:30:00.000Z"),
 });
-assert.equal(RULESET_VERSION, "ruleset-kstartup-spine-v14");
+assert.equal(RULESET_VERSION, "ruleset-kstartup-spine-v15");
 assert.equal(matched.eligibility, "eligible", "premises must use its own location, never company.region");
 assert.equal(matched.rule_trace[0]?.result, "pass");
 

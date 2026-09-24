@@ -44,7 +44,8 @@ import type { MatchingConversionReport } from "@/lib/server/analysis-serving/mat
 // v26: 평가 정밀도 한계와 공고일 기준 confirmation 기간을 자격 한계·현재 시점과 구분한다.
 // v27: 서약 사실과 평가 진행 방식에 실제 신청·평가 효과가 결속됐는지 검증한다.
 // v28: 평가 근거 전부 부재 설명과 evaluation_precision의 자기모순을 repair한다.
-export const ANALYSIS_LAB_PROMPT_VERSION = "lab-deep-v28";
+// v29: 명시적인 신청기업 산업 범위를 코드 없이 구조화하고 복합 전제는 보존한다.
+export const ANALYSIS_LAB_PROMPT_VERSION = "lab-deep-v29";
 export const ANALYSIS_LAB_DEFAULT_MODEL = "claude-opus-4-8";
 
 /**

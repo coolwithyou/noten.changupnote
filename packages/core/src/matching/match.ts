@@ -29,6 +29,7 @@ import { evaluatePriorAward } from "../prior-award/evaluate.js";
 import { resolveGrantExtractionManifest } from "../extraction/manifest.js";
 import { REGION_LABELS } from "../kstartup/constants.js";
 import { industryCodeMatches } from "../industry/ksic.js";
+import { compareIndustryCategories, involvesIndustryCategory } from "../industry/semantic-category.js";
 import { certsMatch } from "../certification/certs.js";
 import {
   DISQUALIFICATION_EXCEPTION_LABELS,
@@ -41,7 +42,7 @@ import {
 import { activeNumericQuestionRange, type NumericQuestionRange } from "../company/question-answer-state.js";
 import { evaluatePremisesCriterion } from "../premises/contract.js";
 
-export const RULESET_VERSION = "ruleset-kstartup-spine-v14";
+export const RULESET_VERSION = "ruleset-kstartup-spine-v15";
 export const SCORING_VERSION = "scoring-verification-v3";
 
 const CORE_GATE_DIMENSIONS = new Set<CriterionDimension>([
@@ -728,17 +729,27 @@ function evaluateIndustry(criterion: GrantCriterion, company: CompanyProfile): R
   }
 
   const codeHit = critCodes.length > 0 && industryCodeMatches(critCodes, companyCodes);
+  const semantic = compareIndustryCategories(critLabels, companyLabels);
   const labelHit = critLabels.length > 0 && critLabels.some((entry) =>
-    companyLabels.some((companyLabel) => industryLabelsOverlap(entry, companyLabel)));
-  const overlaps = codeHit || labelHit;
+    companyLabels.some((companyLabel) => (critCodes.length > 0 || !involvesIndustryCategory(entry, companyLabel)) && industryLabelsOverlap(entry, companyLabel)));
+  // An explicit code requirement keeps its existing code boundary. Policy-category
+  // membership only applies when the notice did not narrow eligibility to codes.
+  const semanticHit = critCodes.length === 0 ? semantic.match : null;
+  const overlaps = codeHit || labelHit || Boolean(semanticHit);
   const exclusion = criterion.operator === "not_in" || criterion.kind === "exclusion";
   if (overlaps) {
     return trace(
       criterion,
       exclusion ? "fail" : "pass",
-      `${label} ${requiredDisplay.join(", ")} - 귀사 ${companyDisplay.join(", ")}`,
+      semanticHit
+        ? `${label} ${semanticHit.required} - 귀사 ${semanticHit.observed} (${semanticHit.path.join(" → ")})`
+        : `${label} ${requiredDisplay.join(", ")} - 귀사 ${companyDisplay.join(", ")}`,
       companyDisplay,
     );
+  }
+
+  if (critCodes.length === 0 && (semantic.recognized || value.list_semantics === "open")) {
+    return trace(criterion, "unknown", `${label} ${requiredDisplay.join(", ")}에 해당하는 세부 사업 확인 필요`, companyDisplay, "company_profile_missing");
   }
 
   // 자동조회/점진 질문으로 얻은 업종은 positive-only(partial)일 수 있다. 이때 no-hit는

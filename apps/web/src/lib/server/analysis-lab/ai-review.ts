@@ -43,6 +43,7 @@ import type { AiAxisReview, AiCriterionReview } from "./ai-review-compare";
 import {
   DEEP_ANALYSIS_NON_MATCHING_DECLARATION_RULE,
   DEEP_ANALYSIS_SCORING_TABLE_COMPLETENESS_RULE,
+  DEEP_ANALYSIS_APPLICANT_INDUSTRY_SCOPE_RULE,
 } from "../deep-analysis/extractor";
 import { DIMENSION_LABELS } from "./diff";
 import {
@@ -67,9 +68,10 @@ export const AI_REVIEW_SCHEMA = "lab-ai-review-v1";
  *   ② 통합공고류의 빈 축은 공고 자체 차원 요건으로만 판정
  *   ③ 다른 축 criterion 으로 이미 포착된 조건은 빈 축 missed_condition 아님
  * v7 (2026-08-09): 판정 어휘는 유지하고 제출자료와 실제 매칭 사실의 대칭 경계를 추가한다.
+ * v9 (2026-09-24): KSIC 없는 명시적 신청기업 산업 범위를 구조화 대상으로 검수한다.
  * 구 산출물은 promptVersion으로 구분하고 필요한 대상만 버전명으로 보존 후 재검수한다.
  */
-export const AI_REVIEW_PROMPT_VERSION = "ai-review-v8";
+export const AI_REVIEW_PROMPT_VERSION = "ai-review-v9";
 export const AI_REVIEW_TOOL_NAME = "emit_deep_analysis_review";
 export const AI_REVIEW_DEFAULT_MODEL = "claude-sonnet-5";
 
@@ -125,7 +127,8 @@ export interface AiReviewFile {
    * (감사 레인 LabAudit.aiAuditTransport 와 동형 — 하위 호환 optional).
    */
   aiReviewTransport?: "api" | "claude-cli";
-  promptVersion: typeof AI_REVIEW_PROMPT_VERSION;
+  /** Stored reviews retain their original version; old calibration is not transferred to a new prompt. */
+  promptVersion: string;
   /** 판정 rubric 으로 삽입된 검수 가이드 전문의 sha256 (provenance). */
   guideSha256: string;
   /** 재조립 입력 sha256 === run.inputSha256 검증 통과 표식(불일치 런은 파일 자체가 없음). */
@@ -292,7 +295,8 @@ export function buildSystemPrompt(rubric: string): string {
     "  업무 분야이지 신청기업의 업종 자격이 아니다. 이를 industry criterion으로 만들었다면",
     "  wrong이다. 축약문만 있어 업종인지 직무인지 확정하지 못했다는 이유로 blocking",
     "  industry/text_only를 만든 경우도 wrong이며, 첨부 누락이면 industry=input_missing으로 둔다.",
-    "  특정 업종 영위·KSIC·사업자등록 업태·종목·제외업종이 명시된 경우만 업종 조건이다.",
+    "  신청기업의 산업·사업 분야를 명시한 자격조건도 업종 조건이다. KSIC 코드 유무와 구분한다.",
+    DEEP_ANALYSIS_APPLICANT_INDUSTRY_SCOPE_RULE,
     "- 모든 criterion 인덱스와 모든 빈 축을 빠짐없이 정확히 한 번씩 판정하라.",
   ].join("\n");
 }

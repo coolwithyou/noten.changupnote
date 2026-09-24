@@ -40,7 +40,7 @@ import { sealDeepAnalysisInput } from "./inputManifest";
 import { validateDeepAnalysisResult } from "./validator";
 
 const span = "부산 소재 기업만 신청 가능";
-assert.equal(DEEP_ANALYSIS_AUDIT_ADJUDICATION_VERSION, "deep-analysis-audit-adjudication-v27");
+assert.equal(DEEP_ANALYSIS_AUDIT_ADJUDICATION_VERSION, "deep-analysis-audit-adjudication-v28");
 assert.match(
   DEEP_ANALYSIS_AUDIT_ADJUDICATION_SYSTEM_PROMPT,
   /blocking_findings에는 원문으로 입증된 primary의 실질 누락 또는 오분류만/,

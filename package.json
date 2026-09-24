@@ -27,6 +27,7 @@
     "ingest:knowledge": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/knowledge/ingest-knowledge-source.ts",
     "backfill:lesson-field-keys": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/knowledge/backfill-lesson-field-keys.ts",
     "test:lesson-context": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/knowledge/lessonContext.test.ts",
+    "test:industry-semantic": "tsx packages/core/src/industry/semantic-category.test.ts",
     "test:criterion-resolution": "tsx packages/core/src/matching/criterion-resolution.test.ts",
     "test:grant-next-work": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/productReadiness/grantNextWork.test.ts",
     "test:company-fact-reuse": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/matches/companyFactReuse.test.ts",

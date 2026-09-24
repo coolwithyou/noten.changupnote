@@ -43,7 +43,7 @@ import {
   );
   assert.match(systemPrompt, /사실 부존재를 1인칭으로 확인하더라도[\s\S]*신청 제외·지원 불가·결격/);
   assert.match(systemPrompt, /영어가 진행 언어·방식으로만 명시되면 영어 발표 역량을 독립 preferred로 추론하지 말고/);
-  assert.equal(AI_REVIEW_PROMPT_VERSION, "ai-review-v8");
+  assert.equal(AI_REVIEW_PROMPT_VERSION, "ai-review-v9");
   console.log("✅ AI 검수 프롬프트 — 현재 매처 계약과 exclusion 극성 공유");
 }
 

@@ -1,0 +1,66 @@
+import assert from "node:assert/strict";
+import type { CompanyProfile, GrantCriterion } from "@cunote/contracts";
+import { matchGrantCriteria } from "../matching/match.js";
+import { compareIndustryCategories } from "./semantic-category.js";
+import { normalizeGrantLlmCriteria } from "../bizinfo/llm-criteria.js";
+
+const company: CompanyProfile = {
+  industries: ["응용 소프트웨어 개발 및 공급업", "컴퓨터 프로그래밍 서비스업", "광고 대행업"],
+  confidence: { industry: 0.6 }, list_completeness: { industry: "complete" },
+};
+const industry: GrantCriterion = {
+  dimension: "industry", kind: "required", operator: "in", value: { tags: ["ICT"] },
+  source_span: "과학기술 및 ICT 중소 기업", confidence: 0.95, needs_review: false,
+};
+const size: GrantCriterion = {
+  dimension: "size", kind: "required", operator: "in", value: { sizes: ["중소기업"] },
+  source_span: "과학기술 및 ICT 중소 기업", confidence: 0.95, needs_review: false,
+};
+
+for (const label of ["응용 소프트웨어 개발 및 공급업", "컴퓨터 프로그래밍 서비스업", "호스팅 및 관련 서비스업", "SW"]) {
+  const result = matchGrantCriteria([industry], { ...company, industries: [label] });
+  assert.equal(result.rule_trace[0]?.result, "pass", `${label} satisfies the broader ICT category`);
+  assert.match(result.rule_trace[0]!.message, /ICT/);
+}
+assert.deepEqual(compareIndustryCategories(["ICT"], ["컴퓨터 프로그래밍 서비스업"]).match?.path,
+  ["컴퓨터 프로그래밍", "소프트웨어", "ICT"]);
+assert.equal(compareIndustryCategories(["소프트웨어 개발 및 공급업"], ["컴퓨터 프로그래밍 서비스업"]).match, null,
+  "a shared software parent does not establish a specific publishing industry");
+
+const incomplete = matchGrantCriteria([industry, size], company);
+assert.equal(incomplete.rule_trace.find(t => t.dimension === "industry")?.result, "pass");
+assert.equal(incomplete.rule_trace.find(t => t.dimension === "size")?.result, "unknown");
+assert.equal(incomplete.eligibility, "conditional", "sector membership never invents SME status");
+
+assert.equal(compareIndustryCategories(["게임 소프트웨어"], ["소프트웨어"]).match, null, "parent membership does not prove a child activity");
+for (const label of ["ICT", "소프트웨어"]) {
+  const narrower = matchGrantCriteria([{ ...industry, value: { tags: ["게임 소프트웨어"] } }], { ...company, industries: [label] });
+  assert.equal(narrower.rule_trace[0]?.result, "unknown");
+}
+for (const label of ["소프트웨어", "시스템 소프트웨어 개발 및 공급업"]) {
+  const narrower = matchGrantCriteria([{ ...industry, value: { tags: ["응용 소프트웨어 개발 및 공급업"] } }], { ...company, industries: [label] });
+  assert.equal(narrower.rule_trace[0]?.result, "unknown", "broad or sibling software activity does not prove application software");
+}
+for (const label of ["광고 대행업", "소프트웨어 교육업", "비소프트웨어 제조업", "소프트웨어를 이용하는 음식점"]) {
+  assert.equal(compareIndustryCategories(["ICT"], [label]).match, null, "using or mentioning software does not establish an ICT business");
+  assert.notEqual(matchGrantCriteria([industry], { ...company, industries: [label] }).rule_trace[0]?.result, "pass");
+}
+const exclusion = matchGrantCriteria([{ ...industry, kind: "exclusion", operator: "not_in" }], company);
+assert.equal(exclusion.rule_trace[0]?.result, "fail", "the same semantic relation preserves exclusion polarity");
+const unresolved = matchGrantCriteria([{ ...industry, operator: "text_only", value: { note: "ICT 분야 참여 조건 원문 확인" } }], company);
+assert.equal(unresolved.rule_trace[0]?.result, "unknown", "historical unresolved scope is not silently rewritten");
+const unreviewed = matchGrantCriteria([{ ...industry, needs_review: true }], company);
+assert.equal(unreviewed.review_gate?.tier, "needs_core_review", "semantic membership does not forge review approval");
+
+// Synthetic model output exercises the real reviewed-output normalizer and matcher.
+// This is not evidence that a new live model run or publication has occurred.
+const projected = normalizeGrantLlmCriteria({ criteria: [industry, size] }, "semantic-industry-fixture", {
+  sourcePrefix: "lab-shadow", parserVersion: "semantic-industry-fixture", forceNeedsReview: false,
+});
+assert.deepEqual(projected[0]?.value, { tags: ["ICT"] });
+const projectedMatch = matchGrantCriteria(projected, company);
+assert.equal(projectedMatch.rule_trace.find(t => t.dimension === "industry")?.result, "pass");
+assert.equal(projectedMatch.rule_trace.find(t => t.dimension === "size")?.result, "unknown");
+assert.equal(projectedMatch.eligibility, "conditional");
+
+console.log("industry/semantic-category.test.ts: all assertions passed");
