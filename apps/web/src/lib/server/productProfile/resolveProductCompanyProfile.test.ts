@@ -260,6 +260,59 @@ assert.equal(malformedView.rows.find((row) => row.dimension === "premises")?.pre
 assert.equal(PRODUCT_PROFILE_SOURCE_POLICIES.find((policy) => policy.id === "nice_demo")?.classification, "disabled");
 assert.equal(PRODUCT_PROFILE_SOURCE_POLICIES.some((policy) => String(policy.classification) === "pending"), false);
 
+// A cache row without expiresAt must still obey the source's observation TTL.
+const freshAge: CompanyProfile = {
+  biz_age_months: 29,
+  profile_evidence: { biz_age: { ...observation("popbill_establish_date", "shared", 0.75), sourceKind: "derived" } },
+};
+const expiredAsOf = "2026-06-01T12:00:00.000Z";
+const staleCache = {
+  ...cacheEntry({ biz_age_months: 27 }), provider: "apick", scope: "bizDetail",
+  checkedAt: new Date(expiredAsOf), fetchedAt: new Date(expiredAsOf), expiresAt: null,
+};
+const freshnessDependencies: ProductProfileResolverDependencies = {
+  ...dependencies,
+  enrichmentCache: { async getFresh(input) {
+    return input.provider === "popbill" ? cacheEntry(freshAge) : input.provider === "apick" ? staleCache : null;
+  } },
+};
+const freshAnonymous = await resolveProductCompanyProfile({
+  context: "anonymous_teaser", bizNo: "7465400870", asOf,
+}, freshnessDependencies);
+assert.equal(freshAnonymous.profile.biz_age_months, 29, "expired authoritative cache must not override a current derived observation");
+assert.equal(freshAnonymous.sourceReceipts.find((r) => r.source === "apick_cache")?.reason, "observation_expired");
+
+activeConsents = [];
+const materialized: CompanyProfile = {
+  ...freshAge,
+  region: { code: "11", label: "서울" }, revenue_krw: 100, founder_age: 40,
+  profile_evidence: {
+    ...freshAge.profile_evidence,
+    region: { ...observation("apick", "shared", 0.85), asOf: expiredAsOf },
+    revenue: observation("popbill", "user", 0.9),
+    founder_age: { ...observation("user", "user", 0.6), sourceKind: "self_declared", asOf: expiredAsOf },
+  },
+};
+const freshOwned = await resolveProductCompanyProfile({ context: "owned_read", companyId, userId: ownerUserId, asOf }, {
+  ...freshnessDependencies,
+  companies: { ...dependencies.companies, async listUserCompanies() { return [{ ...ownerCompany, profile: materialized }]; } },
+});
+assert.equal(freshOwned.profile.biz_age_months, 29, "persisted shared public observations retain their acquisition policy");
+assert.equal(freshOwned.profile.region, undefined, "stored provider observations expire even after company creation");
+assert.equal(freshOwned.profile.revenue_krw, undefined, "owner refresh still requires its own active consent");
+assert.equal(freshOwned.profile.founder_age, 40, "portable user answers do not acquire a provider TTL");
+for (const timestamp of [null, "invalid", "2026-07-15T12:00:00.000Z", "2026-06-14T12:00:00.000Z"]) {
+  const invalidProfile: CompanyProfile = {
+    biz_age_months: 27,
+    profile_evidence: { biz_age: { ...observation("apick", "shared", 0.85), asOf: timestamp } },
+  };
+  const invalid = await resolveProductCompanyProfile({ context: "owned_read", companyId, userId: ownerUserId, asOf }, {
+    ...dependencies,
+    companies: { ...dependencies.companies, async listUserCompanies() { return [{ ...ownerCompany, profile: invalidProfile }]; } },
+  });
+  assert.equal(invalid.profile.biz_age_months, undefined, "invalid, future or boundary-expired timestamps cannot establish a current official fact");
+}
+
 console.log("productProfile/resolveProductCompanyProfile.test.ts: all assertions passed");
 
 function observation(

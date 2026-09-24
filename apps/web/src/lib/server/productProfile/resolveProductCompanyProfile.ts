@@ -454,6 +454,10 @@ async function readAnonymousCacheProfiles(input: {
   const result: ProfileInput[] = [];
   for (const { key, entry } of reads) {
     if (!entry) continue;
+    if (!isObservationFresh((entry.checkedAt ?? entry.fetchedAt).toISOString(), requirePolicy(key.source), input.asOf)) {
+      markReceipt(input.receipts, key.source, "unavailable", "observation_expired");
+      continue;
+    }
     const profile = profileFromAnonymousCache(entry, key.source);
     if (!profile) continue;
     result.push({
@@ -503,6 +507,10 @@ function collectAllowedUpdates(
       if (!OPERATIONAL_DIMENSION_SET.has(update.field)) continue;
       const source = sourceForUpdate(update, item.source);
       const sourcePolicy = requirePolicy(source);
+      if (!isObservationFresh(update.asOf, sourcePolicy, input.asOf)) {
+        markReceipt(receipts, source, "unavailable", "observation_expired");
+        continue;
+      }
       if (!isUpdateAllowed(update, sourcePolicy, input, activeConsents, item.source)) {
         if (sourcePolicy.classification !== "disabled") {
           markReceipt(receipts, source, "not_authorized", "scope_or_consent_not_allowed");
@@ -576,7 +584,8 @@ function isObservationAllowed(
   input: ResolveProductCompanyProfileInput,
   activeConsents: ReadonlySet<ConsentScope>,
 ): boolean {
-  const policyEntry = requirePolicy(sourceForProvider(observation.provider, observation.sourceKind, undefined));
+  const policyEntry = requirePolicy(sourceForProvider(observation.provider, observation.sourceKind, undefined, observation.scope));
+  if (!isObservationFresh(observation.asOf, policyEntry, input.asOf)) return false;
   if (!isPolicyAllowed(policyEntry, input, activeConsents)) return false;
   if (input.context === "system_recompute" && !input.userId && observation.scope === "user") return false;
   if (policyEntry.classification === "owner" || policyEntry.classification === "consent") {
@@ -589,25 +598,48 @@ function sourceForUpdate(update: CompanyProfileFieldUpdate, origin: ProductProfi
   if (origin === "anonymous_ephemeral") return origin;
   const provider = update.provider?.trim().toLowerCase() ?? "";
   if (
-    (origin === "popbill_cache" && provider === "popbill") ||
+    (origin === "popbill_cache" && isPopbillProvider(provider)) ||
     (origin === "apick_cache" && provider === "apick") ||
     (origin === "startup_confirmation_cache" && (provider === "kised" || provider === "startup_confirmation")) ||
     (origin === "kipris_cache" && provider === "kipris") ||
-    (origin === "popbill_refresh" && provider === "popbill")
+    (origin === "popbill_refresh" && isPopbillProvider(provider))
   ) return origin;
-  return sourceForProvider(provider, update.sourceKind, update.field);
+  return sourceForProvider(provider, update.sourceKind, update.field, update.observation?.scope);
+}
+
+function isPopbillProvider(provider: string): boolean {
+  return provider === "popbill" || provider === "popbill_establish_date" || provider === "popbill_corp_scale";
+}
+
+function isObservationFresh(asOf: string | null | undefined, policy: ProductProfileSourcePolicy, now: string): boolean {
+  if (policy.ttlMs === null) return true;
+  const age = Date.parse(now) - Date.parse(asOf ?? "");
+  return Number.isFinite(age) && age >= 0 && age < policy.ttlMs;
+}
+
+/** Only an elapsed provider TTL permits replacing a stored official value with a user answer. */
+export function isProductProfileObservationExpired(
+  observation: CompanyProfileEvidenceObservation,
+  field: CriterionDimension,
+  now: string,
+): boolean {
+  const policy = requirePolicy(sourceForProvider(observation.provider, observation.sourceKind, field, observation.scope));
+  if (policy.ttlMs === null) return false;
+  const age = Date.parse(now) - Date.parse(observation.asOf ?? "");
+  return Number.isFinite(age) && age >= policy.ttlMs;
 }
 
 function sourceForProvider(
   rawProvider: string,
   sourceKind: CompanyProfileEvidenceObservation["sourceKind"] | undefined,
   field: CriterionDimension | undefined,
+  scope?: CompanyProfileEvidenceObservation["scope"],
 ): ProductProfileSourceId {
   const provider = rawProvider.trim().toLowerCase();
   if (sourceKind === "self_declared" || provider.startsWith("cunote_") || provider === "user" || provider === "manual" || provider === "legacy_company_profile") {
     return "portable_user_answer";
   }
-  if (provider === "popbill") return "popbill_refresh";
+  if (isPopbillProvider(provider)) return scope === "shared" ? "popbill_cache" : "popbill_refresh";
   if (provider === "nts") return "nts_cache";
   if (provider === "smpp") return "smpp_cache";
   if (provider === "apick") return "apick_cache";
