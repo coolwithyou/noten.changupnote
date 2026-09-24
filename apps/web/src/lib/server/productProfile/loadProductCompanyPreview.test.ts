@@ -170,14 +170,155 @@ assert.deepEqual(virtualResolution.profile.certs, ["장애인기업 확인서"])
 assert.equal(virtualResolution.profile.region?.code, "44");
 assert.equal(virtualResolution.sourceReceipts[0]?.reason, "virtual_company_fixture");
 
+const tenDaysAgo = new Date(asOf.getTime() - 10 * 24 * 60 * 60 * 1000);
+const withinHour = new Date(asOf.getTime() - 30 * 60 * 1000);
+const cooldownUntil = new Date(asOf.getTime() + 12 * 60 * 60 * 1000);
+
+let refreshPopbillCalls = 0;
+let refreshAcquireCalls = 0;
+const alreadyFresh = await loadProductCompanyPreview(bizNo, {
+  asOf,
+  refresh: true,
+  dependencies: refreshDependencies({
+    liveCheckedAt: withinHour,
+    cooldownExpiresAt: null,
+    onPopbill() {
+      refreshPopbillCalls += 1;
+      throw new Error("already fresh must not call popbill");
+    },
+    onAcquire() {
+      refreshAcquireCalls += 1;
+    },
+  }),
+});
+assert.equal(alreadyFresh.refreshResult, "already_fresh");
+assert.equal(alreadyFresh.name, profile.name);
+assert.equal(refreshPopbillCalls, 0);
+assert.equal(refreshAcquireCalls, 0);
+
+refreshPopbillCalls = 0;
+const rateLimited = await loadProductCompanyPreview(bizNo, {
+  asOf,
+  refresh: true,
+  dependencies: refreshDependencies({
+    liveCheckedAt: tenDaysAgo,
+    cooldownExpiresAt: cooldownUntil,
+    onPopbill() {
+      refreshPopbillCalls += 1;
+      throw new Error("rate limited refresh must not call popbill");
+    },
+  }),
+});
+assert.equal(rateLimited.refreshResult, "rate_limited");
+assert.equal(rateLimited.name, profile.name);
+assert.equal(refreshPopbillCalls, 0);
+
+refreshPopbillCalls = 0;
+let refreshedName = profile.name ?? "";
+const updated = await loadProductCompanyPreview(bizNo, {
+  asOf,
+  refresh: true,
+  publicRequestKey: "refresh-client",
+  dependencies: refreshDependencies({
+    liveCheckedAt: tenDaysAgo,
+    cooldownExpiresAt: null,
+    async onPopbill(requestedBizNo, refreshOptions) {
+      refreshPopbillCalls += 1;
+      assert.equal(requestedBizNo, bizNo);
+      assert.equal(refreshOptions.asOf, asOf);
+      assert.equal(refreshOptions.publicRequestKey, "refresh-client");
+      refreshedName = "바뀐 상호";
+      return {
+        profile: { ...profile, name: "바뀐 상호" },
+        evidence: storedEvidence(),
+        refreshResult: "updated" as const,
+      };
+    },
+    resolveName: () => refreshedName,
+  }),
+});
+assert.equal(updated.refreshResult, "updated");
+assert.equal(updated.name, "바뀐 상호");
+assert.equal(refreshPopbillCalls, 1);
+assert.equal(updated.cacheStatus, "stored");
+
+refreshPopbillCalls = 0;
+const unchanged = await loadProductCompanyPreview(bizNo, {
+  asOf,
+  refresh: true,
+  dependencies: refreshDependencies({
+    liveCheckedAt: tenDaysAgo,
+    cooldownExpiresAt: null,
+    async onPopbill() {
+      refreshPopbillCalls += 1;
+      return { profile, evidence: storedEvidence() };
+    },
+  }),
+});
+assert.equal(unchanged.refreshResult, "unchanged");
+assert.equal(unchanged.name, profile.name);
+assert.equal(refreshPopbillCalls, 1);
+
+refreshPopbillCalls = 0;
+const failedRefresh = await loadProductCompanyPreview(bizNo, {
+  asOf,
+  refresh: true,
+  dependencies: refreshDependencies({
+    liveCheckedAt: tenDaysAgo,
+    cooldownExpiresAt: null,
+    async onPopbill() {
+      refreshPopbillCalls += 1;
+      throw providerError;
+    },
+  }),
+});
+assert.equal(failedRefresh.refreshResult, "failed");
+assert.equal(failedRefresh.name, profile.name);
+assert.equal(refreshPopbillCalls, 1);
+
+refreshPopbillCalls = 0;
+const virtualRefresh = await loadProductCompanyPreview("0000000001", {
+  asOf,
+  allowVirtual: true,
+  refresh: true,
+  dependencies: refreshDependencies({
+    liveCheckedAt: tenDaysAgo,
+    cooldownExpiresAt: null,
+    onPopbill() {
+      refreshPopbillCalls += 1;
+      throw new Error("virtual refresh must not call popbill");
+    },
+  }),
+});
+assert.equal(virtualRefresh.name, "창업노트 가상기업 — 충남 장애인기업");
+assert.equal(virtualRefresh.cacheStatus, "virtual");
+assert.equal(virtualRefresh.refreshResult, undefined);
+assert.equal(refreshPopbillCalls, 0);
+
+await assert.rejects(
+  () => loadProductCompanyPreview("1234567890", {
+    asOf,
+    refresh: true,
+    dependencies: refreshDependencies({
+      liveCheckedAt: tenDaysAgo,
+      cooldownExpiresAt: null,
+      onPopbill() {
+        throw new Error("invalid refresh must not call popbill");
+      },
+    }),
+  }),
+  (error: unknown) => error instanceof ServiceDataError && error.code === "invalid_biz_no",
+);
+
 console.log("productProfile/loadProductCompanyPreview.test.ts: all assertions passed");
 
-function resolvedProfile(): ResolvedProductCompanyProfile {
+function resolvedProfile(name?: string): ResolvedProductCompanyProfile {
+  const nextProfile = name ? { ...profile, name } : profile;
   return {
     context: "anonymous_teaser",
     asOf: asOf.toISOString(),
     stateScope: "request",
-    profile,
+    profile: nextProfile,
     decisions: [],
     view: buildMatchingProfileView(profile, asOf.toISOString()),
     sourceReceipts: [{
@@ -198,6 +339,35 @@ function unavailableProfile(): ProductProfileResolutionError {
     503,
     "bizNo",
   );
+}
+
+function refreshDependencies(input: {
+  liveCheckedAt: Date;
+  cooldownExpiresAt: Date | null;
+  onPopbill: (
+    bizNo: string,
+    options: { asOf?: Date; publicRequestKey?: string },
+  ) => Promise<{ profile: CompanyProfile; evidence: CompanyEvidence; refreshResult?: "updated" }>;
+  onAcquire?: () => void;
+  resolveName?: () => string;
+}) {
+  return {
+    async resolveAnonymous() {
+      const name = input.resolveName?.() ?? profile.name;
+      return resolvedProfile(name ?? undefined);
+    },
+    async acquirePublicBase() {
+      input.onAcquire?.();
+      throw new Error("refresh must not use cache-first acquisition");
+    },
+    async readRefreshContext() {
+      return {
+        liveCheckedAt: input.liveCheckedAt,
+        cooldownExpiresAt: input.cooldownExpiresAt,
+      };
+    },
+    refreshPublicBase: input.onPopbill,
+  };
 }
 
 function storedEvidence(): CompanyEvidence {

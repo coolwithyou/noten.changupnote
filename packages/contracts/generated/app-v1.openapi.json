@@ -4787,6 +4787,9 @@
           "bizNo": {
             "type": "string",
             "minLength": 10
+          },
+          "refresh": {
+            "type": "boolean"
           }
         },
         "additionalProperties": false
@@ -4831,6 +4834,16 @@
           },
           "cacheStatus": {
             "type": "string"
+          },
+          "refreshResult": {
+            "type": "string",
+            "enum": [
+              "updated",
+              "unchanged",
+              "already_fresh",
+              "rate_limited",
+              "failed"
+            ]
           }
         },
         "additionalProperties": false

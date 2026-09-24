@@ -38,6 +38,7 @@ export interface BizLookupController {
   lookup: BizLookupModalState | null;
   confirmLookup: () => void;
   rejectLookup: () => void;
+  refreshLookup: () => void;
   closeLookup: () => void;
   heroInputRef: RefObject<HTMLInputElement | null>;
   /** 마지막으로 포커스된 입력을 기억해 dismiss/select 후 그 폼으로 포커스를 되돌린다. */
@@ -266,6 +267,94 @@ export function useBizLookup(): BizLookupController {
     window.location.assign(`/matches?${params.toString()}`);
   }
 
+  function refreshLookup() {
+    if (lookup?.phase !== "confirm") return;
+    void requestCompanyRefresh(lookup);
+  }
+
+  async function requestCompanyRefresh(
+    previous: Extract<BizLookupModalState, { phase: "confirm" }>,
+  ) {
+    const digits = previous.bizNo;
+    const requestId = crypto.randomUUID();
+    const seq = ++lookupSeqRef.current;
+    setLookup({ phase: "loading", bizNo: digits, intent: "refresh" });
+    recordLandingEvent({
+      event: "company_refresh_requested",
+      requestId,
+      inputLength: digits.length,
+    });
+    const startedAt = performance.now();
+
+    try {
+      const response = await fetch("/api/web/company-preview", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ bizNo: digits, refresh: true }),
+      });
+      const payload = (await response.json()) as ActionResult<CompanyPreviewResult>;
+      if (seq !== lookupSeqRef.current) return;
+      if (!response.ok || !payload.ok || !payload.data) {
+        const errorCode = payload.error?.code ?? `http_${response.status}`;
+        recordLandingEvent({
+          event: "company_refresh_failed",
+          requestId,
+          durationMs: performance.now() - startedAt,
+          errorCode,
+        });
+        if (
+          errorCode === "biz_no_closed" ||
+          errorCode === "biz_no_not_registered" ||
+          errorCode === "invalid_biz_no"
+        ) {
+          setLookup({
+            phase: "error",
+            bizNo: digits,
+            title: titleForPreviewError(errorCode),
+            message: messageForPreviewError(errorCode, payload.error?.message),
+          });
+          return;
+        }
+        setLookup({
+          phase: "confirm",
+          bizNo: digits,
+          preview: { ...previous.preview, refreshResult: "failed" },
+        });
+        return;
+      }
+      if (payload.data.refreshResult === "failed") {
+        recordLandingEvent({
+          event: "company_refresh_failed",
+          requestId,
+          durationMs: performance.now() - startedAt,
+          errorCode: "refresh_failed",
+        });
+      } else {
+        const reason = payload.data.refreshResult === "updated" ? "name_changed" : payload.data.refreshResult;
+        recordLandingEvent({
+          event: "company_refresh_succeeded",
+          requestId,
+          durationMs: performance.now() - startedAt,
+          ...(reason ? { reason } : {}),
+        });
+      }
+      setLookup({ phase: "confirm", bizNo: digits, preview: payload.data });
+    } catch {
+      if (seq !== lookupSeqRef.current) return;
+      recordLandingEvent({
+        event: "company_refresh_failed",
+        requestId,
+        durationMs: performance.now() - startedAt,
+        errorCode: "network_error",
+      });
+      setLookup({
+        phase: "confirm",
+        bizNo: digits,
+        preview: { ...previous.preview, refreshResult: "failed" },
+      });
+    }
+  }
+
   function dismiss(reason: "rejected" | "closed") {
     if (lookup?.phase === "confirm" && reason === "rejected") {
       recordLandingEvent({ event: "company_rejected" });
@@ -283,6 +372,7 @@ export function useBizLookup(): BizLookupController {
     isSubmitting: lookup?.phase === "loading",
     lookup,
     confirmLookup,
+    refreshLookup,
     rejectLookup: () => dismiss("rejected"),
     closeLookup: () => dismiss("closed"),
     heroInputRef,

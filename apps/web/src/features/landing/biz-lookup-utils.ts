@@ -18,7 +18,7 @@ export const LANDING_LOGIN_HREF = `/login?${new URLSearchParams({ callbackUrl: "
  * loading → 확인 중, confirm → 상호/영업상태 확인, error → 안내.
  */
 export type BizLookupModalState =
-  | { phase: "loading"; bizNo: string }
+  | { phase: "loading"; bizNo: string; intent?: "lookup" | "refresh" }
   | { phase: "confirm"; bizNo: string; preview: CompanyPreviewResult }
   | { phase: "error"; bizNo: string; title: string; message: string };
 
@@ -33,6 +33,42 @@ export function fmtBiz(value: string): string {
   if (d.length > 5) return `${d.slice(0, 3)}-${d.slice(3, 5)}-${d.slice(5)}`;
   if (d.length > 3) return `${d.slice(0, 3)}-${d.slice(3)}`;
   return d;
+}
+
+const PREVIEW_CHECKED_AT_NOTICE_MS = 7 * 24 * 60 * 60 * 1000;
+const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
+
+/**
+ * 확인 시각이 7일을 넘긴 경우에만 보여 주는 문구.
+ * 시각은 KST 달력의 월·일이다.
+ */
+export function previewCheckedAtNotice(checkedAt: string | undefined, now: Date): string | null {
+  if (!checkedAt) return null;
+  const time = new Date(checkedAt).getTime();
+  if (Number.isNaN(time)) return null;
+  if (now.getTime() - time <= PREVIEW_CHECKED_AT_NOTICE_MS) return null;
+  const kst = new Date(time + KST_OFFSET_MS);
+  return `${kst.getUTCMonth() + 1}월 ${kst.getUTCDate()}일에 확인한 정보예요`;
+}
+
+/** 재조회 결과 문구. 시스템 내부 용어는 넣지 않는다. */
+export function previewRefreshNotice(
+  result: CompanyPreviewResult["refreshResult"],
+): string | null {
+  switch (result) {
+    case "updated":
+      return "최신 정보로 바꿨어요";
+    case "unchanged":
+      return "국세청에 등록된 상호는 그대로예요. 반영까지 하루이틀 걸릴 수 있어요.";
+    case "already_fresh":
+      return "방금 확인한 정보예요";
+    case "rate_limited":
+      return "오늘은 이미 최신 정보를 확인했어요.";
+    case "failed":
+      return "지금은 최신 정보를 가져오지 못했어요. 잠시 뒤 다시 눌러 주세요.";
+    default:
+      return null;
+  }
 }
 
 /** 10자리를 000-**-00*** 로 마스킹(서버 maskCorpNum과 동일 포맷 — 로딩→확인 상태에서 포맷이 바뀌지 않게). */

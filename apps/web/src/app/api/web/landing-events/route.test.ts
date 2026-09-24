@@ -8,6 +8,9 @@ const companyPreviewEvents = [
   "company_preview_failed",
   "company_confirmed",
   "company_rejected",
+  "company_refresh_requested",
+  "company_refresh_succeeded",
+  "company_refresh_failed",
 ] as const;
 
 for (const event of companyPreviewEvents) {

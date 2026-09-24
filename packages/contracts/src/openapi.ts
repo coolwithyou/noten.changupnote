@@ -1825,6 +1825,7 @@ export const appV1OpenApi = {
         required: ["bizNo"],
         properties: {
           bizNo: { type: "string", minLength: 10 },
+          refresh: { type: "boolean" },
         },
         additionalProperties: false,
       },
@@ -1845,6 +1846,10 @@ export const appV1OpenApi = {
           regionLabel: { type: "string" },
           checkedAt: { type: "string" },
           cacheStatus: { type: "string" },
+          refreshResult: {
+            type: "string",
+            enum: ["updated", "unchanged", "already_fresh", "rate_limited", "failed"],
+          },
         },
         additionalProperties: false,
       },

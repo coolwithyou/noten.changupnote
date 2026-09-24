@@ -908,6 +908,11 @@ export interface CompanyEnrichmentRequest {
 /** 랜딩 상호명 확인 게이트 요청. 명시적 요청에서만 공개 기본정보 cache miss를 보강한다. */
 export interface CompanyPreviewRequest {
   bizNo: string;
+  /**
+   * 같은 번호의 상호가 바뀌었을 때만 true.
+   * 첫 조회와 번호 재입력은 캐시를 먼저 읽고, true인 이번 요청만 캐시 읽기를 건너뛴다.
+   */
+  refresh?: boolean;
 }
 
 /**
@@ -925,6 +930,11 @@ export interface CompanyPreviewResult {
   regionLabel?: string;
   checkedAt?: string;
   cacheStatus?: string;
+  /**
+   * refresh 요청의 결과. 없으면 일반 조회.
+   * updated는 상호가 바뀐 경우이고, 나머지 값은 이전 상호를 유지한다.
+   */
+  refreshResult?: "updated" | "unchanged" | "already_fresh" | "rate_limited" | "failed";
 }
 
 export interface CompanyRecord {

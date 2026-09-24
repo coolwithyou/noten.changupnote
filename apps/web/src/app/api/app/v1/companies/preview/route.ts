@@ -11,7 +11,11 @@ export async function POST(request: Request) {
     const publicRequestKey = publicLookupRequestKey(request, { requireSameOrigin: false });
     const body = await readBody(request);
     return appData<CompanyPreviewResult>(
-      await loadProductCompanyPreview(body.bizNo ?? "", { asOf: new Date(), publicRequestKey }),
+      await loadProductCompanyPreview(body.bizNo ?? "", {
+        asOf: new Date(),
+        publicRequestKey,
+        ...(body.refresh === true ? { refresh: true } : {}),
+      }),
     );
   } catch (error) {
     return appErrorFromUnknown(error, "회사 정보를 확인하지 못했습니다.");
