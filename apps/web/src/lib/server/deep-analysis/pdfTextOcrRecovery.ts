@@ -285,6 +285,7 @@ async function recoverOneCandidate(input: {
     metadata: {
       converter,
       recoveryMode: mode,
+      sourcePdfSha256: input.candidate.pdfSha256,
       pageCount: input.candidate.pageCount,
       charCount: markdown.length,
       ...(averageConfidence === null ? {} : { averageConfidence }),
