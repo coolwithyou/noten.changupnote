@@ -53,8 +53,8 @@ export async function loadActiveReplacement(releaseId: string, grantIds: readonl
 /** An older prepared revision already followed by this applied cohort is historical. */
 export function isPreparedAncestorOfReplacement(previous: PromotionReleaseManifest, active: PromotionReleaseManifest): boolean {
   return previous.cohortLabel === active.cohortLabel && previous.revision < active.revision
-    && previous.plans.length === active.plans.length
-    && previous.plans.every((old) => active.plans.some((item) => item.grantId === old.grantId
+    && previous.plans.length >= active.plans.length && active.plans.length > 0
+    && active.plans.every((item) => previous.plans.some((old) => item.grantId === old.grantId
       && item.promotionPlan.runId === old.promotionPlan.runId));
 }
 

@@ -9,6 +9,8 @@ for(const change of [{releaseStatus:'applying'},{releaseStatus:'rolling_back'},{
 const old={cohortLabel:'original',revision:1,plans:[{grantId:'g',promotionPlan:{runId:'old'}}]} as PromotionReleaseManifest;
 const active={...old,revision:2};
 assert.equal(isPreparedAncestorOfReplacement(old,active),true);
+assert.equal(isPreparedAncestorOfReplacement({...old,plans:[...old.plans,{...old.plans[0]!,grantId:'held-and-excluded'}]},active),true,
+ 'an applied subset proves the overlapping target is no longer an outstanding prepared reservation');
 assert.equal(isPreparedAncestorOfReplacement({...old,revision:2},active),false);
 assert.equal(isPreparedAncestorOfReplacement({...old,cohortLabel:'unrelated'},active),false);
 assert.equal(isPreparedAncestorOfReplacement({...old,plans:[]},active),false);
