@@ -87,7 +87,7 @@ export async function prepareIndependentReviewRepairLaunchManifest(input: {
   readonly targetPreparation: readonly {
     readonly originalSequence: number;
     readonly grantId: string;
-    readonly applicationRoundtrip: "reuse_reviewed_v1" | "reuse_failed_primary_v2" | "new_analysis";
+    readonly applicationRoundtrip: "not_required" | "reuse_reviewed_v1" | "reuse_failed_primary_v2" | "new_analysis";
     readonly attachments: readonly LabAttachmentPreparationDiagnostic[];
   }[];
 }> {
@@ -133,6 +133,14 @@ export async function prepareIndependentReviewRepairLaunchManifest(input: {
     reviewManifest.launchManifestSha256,
     repositoryRoot,
   ));
+  const analysisMode = sourceManifest.execution.analysisMode ?? "primary_and_application";
+  if (
+    (analysisMode !== "matching_only" && analysisMode !== "primary_and_application")
+    || (analysisMode === "matching_only" && sourceManifest.execution.withApplicationRoundtrip)
+    || (analysisMode === "primary_and_application" && !sourceManifest.execution.withApplicationRoundtrip)
+  ) {
+    throw new Error("독립 검수 repair 원본 launch의 analysisMode/필드 분석 결속이 지원되지 않습니다.");
+  }
   const sourceGrant = normalizeAnalysisLaunchGrant(await readAnalysisLaunchArtifact(
     "grants",
     reviewManifest.launchGrantSha256,
@@ -400,6 +408,8 @@ export async function prepareIndependentReviewRepairLaunchManifest(input: {
   }));
   const manifest = createIndependentReviewRepairAnalysisLaunchManifest({
     aggregateSha256,
+    analysisMode,
+    withApplicationRoundtrip: sourceManifest.execution.withApplicationRoundtrip,
     targets: exactRepairTargets,
     preparedTargets: stablePreparedTargets,
     provenance,
@@ -417,7 +427,9 @@ export async function prepareIndependentReviewRepairLaunchManifest(input: {
     targetPreparation: Object.freeze(exactRepairTargets.map((target, index) => Object.freeze({
       originalSequence: target.originalSequence,
       grantId: target.grantId,
-      applicationRoundtrip: target.applicationRoundtripReuse?.schema
+      applicationRoundtrip: !sourceManifest.execution.withApplicationRoundtrip
+        ? "not_required" as const
+        : target.applicationRoundtripReuse?.schema
         === "analysis-launch-application-roundtrip-reuse-v1"
         ? "reuse_reviewed_v1" as const
         : target.applicationRoundtripReuse?.schema

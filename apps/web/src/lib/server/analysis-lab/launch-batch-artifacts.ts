@@ -379,6 +379,8 @@ export function createAuthoringGuideRerunAnalysisLaunchManifest(input: {
 
 export function createIndependentReviewRepairAnalysisLaunchManifest(input: {
   readonly aggregateSha256: string;
+  readonly analysisMode: AnalysisLaunchManifest["execution"]["analysisMode"];
+  readonly withApplicationRoundtrip: boolean;
   readonly targets: readonly {
     readonly originalSequence: number;
     readonly grantId: string;
@@ -399,6 +401,16 @@ export function createIndependentReviewRepairAnalysisLaunchManifest(input: {
   readonly now: Date;
 }): AnalysisLaunchManifest {
   const aggregateSha256 = exactSha(input.aggregateSha256, "aggregateSha256");
+  if (
+    (input.analysisMode !== "matching_only" && input.analysisMode !== "primary_and_application")
+    || (input.analysisMode === "matching_only" && input.withApplicationRoundtrip)
+    || (input.analysisMode === "primary_and_application" && !input.withApplicationRoundtrip)
+  ) {
+    throw new Error("독립 검수 repair의 원본 analysisMode와 신청서 필드 분석 결속이 다릅니다.");
+  }
+  if (!input.withApplicationRoundtrip && input.targets.some((target) => target.applicationRoundtripReuse)) {
+    throw new Error("matching-only 독립 검수 repair는 Kordoc exact 재사용을 결속할 수 없습니다.");
+  }
   if (input.targets.length === 0) throw new Error("독립 검수 합의 결함 재분석 대상이 없습니다.");
   const originalSequences = input.targets.map((target) => target.originalSequence);
   if (
@@ -432,8 +444,9 @@ export function createIndependentReviewRepairAnalysisLaunchManifest(input: {
     sequenceTo: input.targets.length - 1,
     preparedTargets: input.preparedTargets,
     provenance: input.provenance,
-    withApplicationRoundtrip: true,
-    roundtripModel: APPLICATION_ROUNDTRIP_ADOPTED_MODEL,
+    analysisMode: input.analysisMode,
+    withApplicationRoundtrip: input.withApplicationRoundtrip,
+    ...(input.withApplicationRoundtrip ? { roundtripModel: APPLICATION_ROUNDTRIP_ADOPTED_MODEL } : {}),
     concurrency: input.concurrency,
     now: input.now,
   }, {
@@ -731,6 +744,7 @@ function normalizeAnalysisLaunchManifestForPurpose(
     analysisMode === "matching_only"
     && sourceKind !== "formal_plan"
     && sourceKind !== "current_inventory"
+    && sourceKind !== "independent_review_repair"
   ) {
     throw new Error("matching-only launch source가 잘못됐습니다.");
   }
@@ -756,7 +770,9 @@ function normalizeAnalysisLaunchManifestForPurpose(
       : targets.some((target) => (
           target.applicationRoundtripReuse
           && (
-            (target.applicationRoundtripReuse.schema === "analysis-launch-application-roundtrip-reuse-v1"
+            !withApplicationRoundtrip
+            || analysisMode !== "primary_and_application"
+            || (target.applicationRoundtripReuse.schema === "analysis-launch-application-roundtrip-reuse-v1"
               ? !target.reviewRepair
                 || target.applicationRoundtripReuse.sourceLabRunId !== target.reviewRepair.sourceRunId
               : target.reviewRepair !== undefined)
@@ -850,10 +866,15 @@ function normalizeAnalysisLaunchManifestForPurpose(
         || completedLaunch !== undefined
         || planSha256 !== planArtifactSha256
         || existingRunPolicy !== "rerun_exact_targets"
-        || analysisMode !== "primary_and_application"
-        || !withApplicationRoundtrip
-        || roundtripModel !== APPLICATION_ROUNDTRIP_ADOPTED_MODEL
-        || applicationFieldAnalysisVersion !== APPLICATION_ROUNDTRIP_VERSION
+        || (analysisMode === "primary_and_application"
+          ? !withApplicationRoundtrip
+            || roundtripModel !== APPLICATION_ROUNDTRIP_ADOPTED_MODEL
+            || applicationFieldAnalysisVersion !== APPLICATION_ROUNDTRIP_VERSION
+          : analysisMode === "matching_only"
+            ? withApplicationRoundtrip
+              || roundtripModel !== null
+              || applicationFieldAnalysisVersion !== null
+            : true)
       ))
     || (
       sourceKind !== "formal_plan"
