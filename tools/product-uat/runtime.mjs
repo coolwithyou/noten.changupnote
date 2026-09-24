@@ -32,6 +32,7 @@ const INHERITED_ENV_ALLOWLIST = Object.freeze([
 ]);
 
 const FORBIDDEN_SNAPSHOT_BASENAME = /^(?:\.env.*|\.npmrc|\.vercel|node_modules|\.git|\.next(?:-.*)?|spike-out.*)$/;
+const SOURCE_RUNTIME_ASSETS = new Set(["samples/kstartup_announcement_sample.json"]);
 const SOURCE_TOP_LEVEL_DIRECTORIES = new Set(["apps", "db", "packages", "scripts", "tools"]);
 const SOURCE_ROOT_FILES = new Set([
   "design-tokens.json",
@@ -278,6 +279,7 @@ function assertAllowedSourcePath(path) {
     if (!SOURCE_ROOT_FILES.has(parts[0])) throw new Error(`UAT source root 파일 allowlist 밖입니다: ${path}`);
     return;
   }
+  if (SOURCE_RUNTIME_ASSETS.has(normalized)) return;
   if (!SOURCE_TOP_LEVEL_DIRECTORIES.has(parts[0])) {
     throw new Error(`UAT source 상위 경로 allowlist 밖입니다: ${path}`);
   }

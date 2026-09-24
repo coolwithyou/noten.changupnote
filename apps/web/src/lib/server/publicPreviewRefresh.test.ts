@@ -415,6 +415,70 @@ assert.equal(reclaimedCache.has(PUBLIC_PREVIEW_REFRESH_PROVIDER, PUBLIC_PREVIEW_
 assert.equal(await claimPopbillPaidLookupLease(reclaimedCache, bizNo, new Date(now.getTime() + 4 * 60_000)), null);
 assert.equal(await releasePopbillPaidLookupLease(reclaimedCache, bizNo, newOwner), true);
 
+// B가 첫 snapshot을 읽고 멈춘 동안 A가 완료하고 lease까지 반환한 경우.
+const delayedCache = new MemoryCache();
+const originalClaim = delayedCache.claim.bind(delayedCache);
+let releaseDelayedClaim!: () => void;
+const delayedGate = new Promise<void>((resolve) => { releaseDelayedClaim = resolve; });
+let observedDelayedClaim!: () => void;
+const claimObserved = new Promise<void>((resolve) => { observedDelayedClaim = resolve; });
+let delayFirstClaim = true;
+delayedCache.claim = async (input) => {
+  if (delayFirstClaim) {
+    delayFirstClaim = false;
+    observedDelayedClaim();
+    await delayedGate;
+  }
+  return originalClaim(input);
+};
+let delayedLiveCalls = 0;
+let delayedBudgetCalls = 0;
+const delayedInput = {
+  bizNo, now, cache: delayedCache, popbillProvider, popbillScope, guardProvider, guardScope,
+  readCached: async () => ({profile: {name: "상호"}}),
+  reserveBudget: async () => { delayedBudgetCalls += 1; },
+  liveLookup: async () => { delayedLiveCalls += 1; return {profile: {name: "상호"}}; },
+};
+const delayedRequest = executePublicPreviewRefresh(delayedInput);
+await claimObserved;
+assert.equal((await executePublicPreviewRefresh(delayedInput)).refreshResult, "unchanged");
+releaseDelayedClaim();
+assert.equal((await delayedRequest).refreshResult, "rate_limited");
+assert.equal(delayedLiveCalls, 1, "선행 요청이 lease를 반환해도 늦은 요청은 다시 과금하지 않는다");
+assert.equal(delayedBudgetCalls, 1);
+assert.equal(delayedCache.has(PUBLIC_PREVIEW_REFRESH_PROVIDER, PUBLIC_PREVIEW_REFRESH_LEASE_SCOPE), false);
+
+for (const scenario of ["fresh_cache", "pending_guard", "read_failure"] as const) {
+  const cache = new MemoryCache();
+  const claim = cache.claim.bind(cache);
+  cache.claim = async (input) => {
+    const owner = await claim(input);
+    if (scenario === "fresh_cache") {
+      await cache.put({provider: popbillProvider, scope: popbillScope, bizNo,
+        canonicalPayload: {profile: {name: "새 상호"}},
+        checkedAt: new Date(now.getTime() + 1000), fetchedAt: new Date(now.getTime() + 1000)});
+    } else if (scenario === "pending_guard") {
+      await cache.put({provider: guardProvider, scope: guardScope, bizNo,
+        canonicalPayload: {state: "attempt_reserved"}, expiresAt: null});
+    } else {
+      cache.getFresh = async () => { throw new Error("recheck unavailable"); };
+    }
+    return owner;
+  };
+  let liveCalls = 0;
+  let budgetCalls = 0;
+  const result = await executePublicPreviewRefresh({
+    ...delayedInput, cache,
+    reserveBudget: async () => { budgetCalls += 1; },
+    liveLookup: async () => { liveCalls += 1; return {profile: {name: "상호"}}; },
+  });
+  assert.equal(result.refreshResult, scenario === "fresh_cache" ? "already_fresh" : "failed");
+  assert.equal(liveCalls, 0, scenario);
+  assert.equal(budgetCalls, 0, scenario);
+  assert.equal(cache.has(PUBLIC_PREVIEW_REFRESH_PROVIDER, PUBLIC_PREVIEW_REFRESH_LEASE_SCOPE), false);
+  if (scenario === "pending_guard") assert.equal(cache.has(guardProvider, guardScope), true);
+}
+
 console.log("publicPreviewRefresh.test.ts: all assertions passed");
 
 interface RunInput {

@@ -361,6 +361,17 @@ export async function verifyConfirmationEvaluationsPostgres(input: {
     userId: input.userId,
   });
 
+  await input.client.begin(async (tx) => {
+    await tx`select set_config('app.current_user_id',${input.userId},true)`;
+    const rows = await tx`select company_id from company_fact_withdrawals where company_id=${input.companyId}`;
+    assert.equal(rows.length, 1, "회사 구성원은 철회 장벽을 읽을 수 있다");
+    assert.equal((await tx`delete from company_fact_withdrawals where company_id=${input.companyId} returning company_id`).length, 0,
+      "일반 DB 역할은 철회 장벽을 직접 삭제할 수 없다");
+  });
+  await input.client.begin(async (tx) => {
+    await tx`select set_config('app.current_user_id',${crypto.randomUUID()},true)`;
+    assert.equal((await tx`select company_id from company_fact_withdrawals`).length, 0, "다른 회사/비구성원에게 철회 이력을 노출하지 않는다");
+  });
   console.log("PASS: confirmation v2 migration, publication/rollback, repository→matcher/card roundtrip, RLS, CAS, source/attachment drift and lock races");
 }
 
@@ -783,6 +794,27 @@ async function assertCompanyFactReuseRoundTrip(input: {
     grantIds: fixtures.slice(0, 4).map((fixture) => fixture.grantId),
   });
   assert.equal(afterWithdrawal.size, 0, "company_fact 철회는 같은 의미의 네 공고를 모두 미확인으로 되돌린다");
+  const firstAfterWithdrawal = await listGrantConfirmations({
+    companyId: input.companyId, grantId: first.grantId,
+  }, input.db);
+  assert.deepEqual(firstAfterWithdrawal.answers[0]?.values, []);
+  assert.equal(firstAfterWithdrawal.answers[0]?.answerRevision, 1,
+    "다른 공고에서 철회해도 기존 직접 답변의 CAS revision은 보존한다");
+  const assertStillWithdrawn = async () => {
+    const evaluations = await repositories.matches.listCriterionConfirmations!({
+      companyId: input.companyId, grantIds: [first.grantId],
+    });
+    assert.equal(evaluations.size, 0, "질문/원천 수명이 끝나도 철회한 과거 답변은 되살아나지 않는다");
+    const ledger = await listGrantConfirmations({companyId: input.companyId, grantId: first.grantId}, input.db);
+    assert.deepEqual(ledger.answers[0]?.values, []);
+  };
+  await input.admin`update grant_confirmation_questions set invalidated_at=now() where id=${second.questionId}`;
+  await assertStillWithdrawn();
+  await input.admin`update grant_confirmation_questions set invalidated_at=null where id=${second.questionId}`;
+  const [oldRaw] = await input.admin`select raw_hash from grant_raw where source='bizinfo' and source_id=${second.sourceId}`;
+  await input.admin`update grant_raw set raw_hash=${"f".repeat(64)} where source='bizinfo' and source_id=${second.sourceId}`;
+  await assertStillWithdrawn();
+  await input.admin`update grant_raw set raw_hash=${oldRaw!.raw_hash} where source='bizinfo' and source_id=${second.sourceId}`;
   const withdrawnSource = await listGrantConfirmations({
     companyId: input.companyId,
     grantId: second.grantId,
@@ -793,6 +825,22 @@ async function assertCompanyFactReuseRoundTrip(input: {
     companyId: input.companyId,
     grantId: third.grantId,
   }, input.db)).answers.length, 0);
+  // 공고 물리 삭제와 재시작 후에도 DB에 남은 철회 장벽을 두 reader가 읽는다.
+  await input.admin`delete from grants where id=${second.grantId}`;
+  await assertStillWithdrawn();
+  const freshDb = drizzle(input.admin, { schema });
+  const reanswered = await submitGrantConfirmations({
+    companyId: input.companyId, userId: input.userId, grantId: first.grantId,
+    answers: [{questionId: first.questionId, values: ["yes"], binding: first.binding,
+      expectedAnswerRevision: firstAfterWithdrawal.answers[0]!.answerRevision,
+      expectedCompanyFactRevision: null}],
+    // 요청 시계가 과거여도 새 답변이 철회보다 최신으로 저장돼야 한다.
+    asOf: new Date("2026-09-22T04:00:00.000Z"),
+  }, {db: freshDb, recalculate: noopRecalculate});
+  assert.equal(reanswered.saved[0]?.answerRevision, 2);
+  const [withdrawal] = await input.admin`select withdrawn_at from company_fact_withdrawals where company_id=${input.companyId}`;
+  assert.ok(new Date(reanswered.saved[0]!.answeredAt).getTime() > new Date(withdrawal!.withdrawn_at).getTime());
+  const reloadedThird = await listGrantConfirmations({companyId: input.companyId, grantId: third.grantId}, freshDb);
   await submitGrantConfirmations({
     companyId: input.companyId,
     userId: input.userId,
@@ -802,14 +850,14 @@ async function assertCompanyFactReuseRoundTrip(input: {
       values: ["yes"],
       binding: third.binding,
       expectedAnswerRevision: 0,
-      expectedCompanyFactRevision: null,
+      expectedCompanyFactRevision: reloadedThird.answers[0]!.companyFactRevision ?? null,
     }],
   }, { db: input.db, recalculate: noopRecalculate });
   const afterReanswer = await repositories.matches.listCriterionConfirmations!({
     companyId: input.companyId,
     grantIds: fixtures.slice(0, 4).map((fixture) => fixture.grantId),
   });
-  for (const fixture of fixtures.slice(0, 4)) {
+  for (const fixture of fixtures.slice(0, 4).filter((item) => item.grantId !== second.grantId)) {
     assert.equal(afterReanswer.get(fixture.grantId)?.[0]?.evaluation, "satisfied");
   }
 }
