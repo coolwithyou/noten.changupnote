@@ -175,6 +175,8 @@ try {
   };
   const manifest = createIndependentReviewRepairAnalysisLaunchManifest({
     aggregateSha256,
+    analysisMode: "primary_and_application",
+    withApplicationRoundtrip: true,
     targets: [{
       originalSequence: SOURCE_SEQUENCE,
       grantId: GRANT_ID,
@@ -404,6 +406,8 @@ async function verifyFailedPrimaryReuseV2(): Promise<void> {
     };
     const successor = createIndependentReviewRepairAnalysisLaunchManifest({
       aggregateSha256,
+      analysisMode: "primary_and_application",
+      withApplicationRoundtrip: true,
       targets: [{
         originalSequence: sourceSequence,
         grantId: GRANT_ID,

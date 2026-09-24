@@ -31,6 +31,7 @@ assert.equal(normalizeConfirmationAnswerType("single"), "single");
 assert.equal(normalizeConfirmationAnswerType("something-else"), "single");
 
 const matchingBindingRow = {
+  questionId: "00000000-0000-4000-8000-000000000003",
   grantId: "00000000-0000-4000-8000-000000000001",
   criterionId: "00000000-0000-4000-8000-000000000002",
   evaluationContractVersion: "confirmation-evaluation-v2",
@@ -59,6 +60,65 @@ const currentSources = new Map([[matchingBindingRow.grantId, {
 assert.equal(
   matchingQuestionBinding(matchingBindingRow, servingRuns, currentSources)?.evaluationKind,
   "three_state_single",
+);
+const migratedCompanyFact = {
+  questionId: matchingBindingRow.questionId,
+  grantId: matchingBindingRow.grantId,
+  criterionId: matchingBindingRow.criterionId,
+  parentPromotionItemId: "00000000-0000-4000-8000-000000000004",
+  parentRunId: "run-parent",
+  resolutionScope: "company_fact" as const,
+};
+assert.equal(
+  matchingQuestionBinding(
+    { ...matchingBindingRow, reusable: "company_fact", provenance: {} },
+    servingRuns,
+    currentSources,
+  ),
+  null,
+  "company_fact 질문은 일반 provenance만으로 matcher를 열지 않는다",
+);
+const reviewedCompanyFact = {
+  ...matchingBindingRow,
+  reusable: "company_fact",
+  conditionKey: "verified_company_fact",
+  dimension: "industry" as const,
+  kind: "required" as const,
+  operator: "text_only",
+  value: { note: "공고 열거 업종" },
+};
+assert.equal(
+  matchingQuestionBinding(reviewedCompanyFact, servingRuns, currentSources)?.resolutionScope,
+  "company_fact",
+  "신규 발행 질문은 현재 serving run과 검증된 회사 사실 identity로 matcher를 연다",
+);
+assert.equal(
+  matchingQuestionBinding({ ...reviewedCompanyFact, conditionKey: "Invalid Key" }, servingRuns, currentSources),
+  null,
+  "신규 회사 사실 키 오염은 matcher에서 닫는다",
+);
+assert.equal(
+  matchingQuestionBinding(
+    { ...matchingBindingRow, reusable: "company_fact", provenance: {} },
+    servingRuns,
+    currentSources,
+    new Map([[matchingBindingRow.questionId, migratedCompanyFact]]),
+  )?.resolutionScope,
+  "company_fact",
+  "exact 이관 원장이 검증된 company_fact 질문만 matcher를 연다",
+);
+assert.equal(
+  matchingQuestionBinding(
+    { ...matchingBindingRow, reusable: "company_fact", provenance: {} },
+    servingRuns,
+    currentSources,
+    new Map([[matchingBindingRow.questionId, {
+      ...migratedCompanyFact,
+      criterionId: "00000000-0000-4000-8000-000000000099",
+    }]]),
+  ),
+  null,
+  "이관 원장의 criterion 결속이 다르면 닫는다",
 );
 assert.equal(
   matchingQuestionBinding({ ...matchingBindingRow, answerType: "multi" }, servingRuns, currentSources),
@@ -345,6 +405,53 @@ assert.equal(reconfirm[0]?.confirmationQuestionCount, 1, "기존 답변이 있�
 assert.deepEqual(reconfirm[0]?.confirmationQuestionIds, ["q-actionable"]);
 assert.equal(reconfirm[0]?.confirmationEligibilityQuestionIds, undefined, "trace 없는 재확인은 자격 질문으로 추정하지 않는다");
 
+const resolvedCompanyFactGrantId = "23232323-2323-4232-8232-232323232323";
+const resolvedCompanyFactCriterionId = "criterion-resolved-company-fact";
+const resolvedCompanyFactCard = card(resolvedCompanyFactGrantId, [{
+  criterionId: resolvedCompanyFactCriterionId,
+  dimension: "region",
+  kind: "required",
+  result: "pass",
+  label: "시흥 소재 확인",
+  sourceSpan: "시흥시에 소재한 기업",
+  checklistSection: "satisfied",
+}]);
+const resolvedCompanyFact = applyActionableConfirmationQuestions([resolvedCompanyFactCard], [{
+  questionId: "q-resolved-company-fact",
+  grantId: resolvedCompanyFactGrantId,
+  criterionId: resolvedCompanyFactCriterionId,
+  dimension: "region",
+  kind: "required",
+  operator: "text_only",
+  sourceSpan: "시흥시에 소재한 기업",
+  currentV2BindingVerified: true,
+  resolutionScope: "company_fact",
+}]);
+assert.equal(
+  resolvedCompanyFact[0]?.confirmationQuestionCount,
+  1,
+  "검증된 company_fact는 profile 값으로 충족된 뒤에도 수정·철회 질문 결속을 유지한다",
+);
+assert.deepEqual(resolvedCompanyFact[0]?.confirmationQuestionBindings, [{
+  questionId: "q-resolved-company-fact",
+  criterionId: resolvedCompanyFactCriterionId,
+}]);
+assert.equal(
+  applyActionableConfirmationQuestions([resolvedCompanyFactCard], [{
+    questionId: "q-resolved-per-notice",
+    grantId: resolvedCompanyFactGrantId,
+    criterionId: resolvedCompanyFactCriterionId,
+    dimension: "region",
+    kind: "required",
+    operator: "text_only",
+    sourceSpan: "시흥시에 소재한 기업",
+    currentV2BindingVerified: true,
+    resolutionScope: "per_notice",
+  }])[0]?.confirmationQuestionCount,
+  undefined,
+  "일반 per_notice 질문은 사용자 확인 provenance 없이 resolved trace에 다시 붙이지 않는다",
+);
+
 const preferredGrantId = "33333333-3333-1333-8333-333333333333";
 const preferredCriterionId = "criterion-preferred-confirmation";
 const preferredCard = card(preferredGrantId, [{
@@ -572,5 +679,6 @@ function anchor(
     operator: dimension === "prior_award" ? "exists" : "text_only",
     sourceSpan,
     currentV2BindingVerified: true,
+    resolutionScope: "per_notice",
   };
 }

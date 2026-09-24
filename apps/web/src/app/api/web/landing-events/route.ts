@@ -12,6 +12,9 @@ type LandingFunnelEvent =
   | "company_preview_failed"
   | "company_confirmed"
   | "company_rejected"
+  | "company_refresh_requested"
+  | "company_refresh_succeeded"
+  | "company_refresh_failed"
   | "teaser_submitted"
   | "teaser_succeeded"
   | "teaser_failed"
@@ -34,6 +37,9 @@ const LANDING_EVENTS: LandingFunnelEvent[] = [
   "company_preview_failed",
   "company_confirmed",
   "company_rejected",
+  "company_refresh_requested",
+  "company_refresh_succeeded",
+  "company_refresh_failed",
   "teaser_submitted",
   "teaser_succeeded",
   "teaser_failed",

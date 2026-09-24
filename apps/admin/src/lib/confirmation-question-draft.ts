@@ -4,6 +4,7 @@ import {
   confirmationQuestionDraftPacketBody,
   parseConfirmationQuestionDraftPacket,
   parseConfirmationQuestionManualInputEnvelope,
+  normalizedCompanyFactBoundary,
   type ConfirmationQuestionDraftEvaluation,
   type ConfirmationQuestionDraftPacket,
   type ConfirmationQuestionManualInputEnvelope,
@@ -17,6 +18,12 @@ export interface EditableConfirmationQuestionDraftItem {
   polarity: "criterion_satisfaction" | "exclusion_membership";
   criterionSha256: string;
   sourceSpan: string;
+  resolutionScope: "per_notice" | "company_fact";
+  conditionKey?: string;
+  companyFactMeaning?: string;
+  companyFactDefinitionSource?: "new_review" | "existing_reviewed";
+  existingDefinition?: import("@cunote/contracts/confirmation-question-draft").CompanyFactReview["existingDefinition"];
+  normalizedCriterion?: import("@cunote/contracts/confirmation-question-draft").ConfirmationQuestionDraftItem["normalizedCriterion"];
   prompt: string;
   options: Array<{
     value: "yes" | "no" | "unknown";
@@ -31,6 +38,8 @@ export interface ImportedConfirmationQuestionDraft {
   fileSha256: string;
   items: EditableConfirmationQuestionDraftItem[];
   questionAuthorEmail: string;
+  revisionIntent: "initial" | "replace" | "withdraw_all";
+  withdrawnCriterionIndexes: number[];
 }
 
 export interface ConfirmationQuestionDraftImportGeneration {
@@ -76,12 +85,21 @@ export async function importConfirmationQuestionDraft(
         polarity: item.polarity,
         criterionSha256: item.criterionSha256,
         sourceSpan: item.sourceSpan,
+        resolutionScope: prior?.resolutionScope ?? "per_notice",
+        conditionKey: prior?.conditionKey ?? "",
+        companyFactMeaning: prior?.companyFactReview?.meaning ?? "",
+        companyFactDefinitionSource: prior?.companyFactReview?.definitionSource ?? "new_review",
+        ...(prior?.companyFactReview?.existingDefinition ? {
+          existingDefinition: prior.companyFactReview.existingDefinition,
+        } : {}),
         prompt: prior?.prompt ?? item.prompt,
         options: (prior?.options ?? item.options).map((option) => ({ ...option })),
         decision: envelope ? (prior ? "include" : "exclude") : "pending",
       };
     }),
     questionAuthorEmail: envelope?.manualInput.questionAuthorEmail ?? "",
+    revisionIntent: envelope?.manualInput.intent ?? "initial",
+    withdrawnCriterionIndexes: envelope?.manualInput.withdrawnCriterionIndexes ?? [],
   };
 }
 
@@ -89,6 +107,8 @@ export function buildManualConfirmationDraftInput(input: {
   packet: ConfirmationQuestionDraftPacket;
   questionAuthorEmail: string;
   items: readonly EditableConfirmationQuestionDraftItem[];
+  revisionIntent?: "initial" | "replace" | "withdraw_all";
+  withdrawnCriterionIndexes?: readonly number[];
 }): ConfirmationQuestionManualInputEnvelope {
   const questionAuthorEmail = input.questionAuthorEmail.trim();
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(questionAuthorEmail)) {
@@ -98,12 +118,21 @@ export function buildManualConfirmationDraftInput(input: {
     throw new Error("모든 후보를 포함 또는 제외로 명시 검토해주세요.");
   }
   const included = input.items.filter((item) => item.decision === "include");
-  if (included.length === 0) throw new Error("내보낼 질문을 하나 이상 포함해주세요.");
+  if (included.length === 0 && input.revisionIntent !== "withdraw_all") {
+    throw new Error("내보낼 질문을 하나 이상 포함해주세요.");
+  }
+  if (input.revisionIntent === "withdraw_all" && included.length > 0) {
+    throw new Error("전체 철회에는 포함 질문이 없어야 합니다.");
+  }
   return parseConfirmationQuestionManualInputEnvelope({
     schema: CONFIRMATION_QUESTION_MANUAL_INPUT_SCHEMA,
     draftPacket: input.packet,
     manualInput: {
       questionAuthorEmail,
+      ...(input.revisionIntent && input.revisionIntent !== "initial" ? {
+        intent: input.revisionIntent,
+        withdrawnCriterionIndexes: [...(input.withdrawnCriterionIndexes ?? [])],
+      } : {}),
       items: included.map((item) => {
         const prompt = item.prompt.trim();
         if (!prompt) throw new Error(`조건 ${item.criterionIndex + 1}의 질문 문구가 비어 있습니다.`);
@@ -115,13 +144,41 @@ export function buildManualConfirmationDraftInput(input: {
         assertExplicitPolarity(item, options);
         return {
           criterionIndex: item.criterionIndex,
-          resolutionScope: "per_notice" as const,
+          resolutionScope: item.resolutionScope,
+          ...(item.resolutionScope === "company_fact" ? { conditionKey: (item.conditionKey ?? "").trim() } : {}),
+          ...(item.resolutionScope === "company_fact" ? {
+            companyFactReview: buildCompanyFactReview(item, input.packet.source.reviewArtifactSha256),
+          } : {}),
           prompt,
           options,
         };
       }),
     },
   });
+}
+
+function buildCompanyFactReview(
+  item: EditableConfirmationQuestionDraftItem,
+  reviewArtifactSha256: string,
+) {
+  const boundary = normalizedCompanyFactBoundary(item.normalizedCriterion?.value);
+  if (!boundary) {
+    throw new Error(`조건 ${item.criterionIndex + 1}은 정규화 scope/기준일이 없어 회사 사실 공유를 보류합니다. 원 criterion 검수·수정으로 되돌리세요.`);
+  }
+  const meaning = item.companyFactMeaning?.trim() ?? "";
+  if (!meaning) throw new Error(`조건 ${item.criterionIndex + 1}의 검수된 회사 사실 의미를 입력하세요.`);
+  const definitionSource = item.companyFactDefinitionSource ?? "new_review";
+  if (definitionSource === "existing_reviewed" && !item.existingDefinition) {
+    throw new Error(`조건 ${item.criterionIndex + 1}의 기존 정의에는 exact artifact selector가 필요합니다.`);
+  }
+  return {
+    meaning,
+    definitionKey: (item.conditionKey ?? "").trim(),
+    definitionSource,
+    ...(definitionSource === "existing_reviewed" ? { existingDefinition: item.existingDefinition! } : {}),
+    ...boundary,
+    reviewArtifactSha256,
+  };
 }
 
 export function manualConfirmationDraftFilename(

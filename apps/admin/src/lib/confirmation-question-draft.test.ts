@@ -5,6 +5,7 @@ import {
   CONFIRMATION_QUESTION_DRAFT_GENERATOR_VERSION,
   CONFIRMATION_QUESTION_DRAFT_PACKET_SCHEMA,
   canonicalConfirmationQuestionDraftJson,
+  confirmationQuestionDraftPacketBody,
   type ConfirmationQuestionDraftPacketBody,
   type ConfirmationQuestionDraftPacket,
 } from "@cunote/contracts/confirmation-question-draft";
@@ -108,6 +109,36 @@ test("bound export를 다시 가져오면 편집 문구·작성자와 include/ex
   assert.equal(imported.items[0]?.prompt, "관리자가 편집한 질문");
   assert.equal(imported.items[0]?.decision, "include");
   assert.equal(imported.items[1]?.decision, "exclude");
+});
+
+test("관리자 검수의 회사 사실 범위와 키가 bound 파일 왕복에서 유지된다", async () => {
+  const draftPacket = packet();
+  draftPacket.items[0]!.normalizedCriterion = {
+    dimension: "other", kind: "exclusion", operator: "text_only",
+    value: { fact_scope: "registered_business", basis_date: "2026-09-22" },
+  };
+  draftPacket.contentSha256 = createHash("sha256")
+    .update(canonicalConfirmationQuestionDraftJson(confirmationQuestionDraftPacketBody(draftPacket)))
+    .digest("hex");
+  const item: EditableConfirmationQuestionDraftItem = {
+    ...draftPacket.items[0]!,
+    options: draftPacket.items[0]!.options.map((option) => ({ ...option })),
+    decision: "include",
+    resolutionScope: "company_fact",
+    conditionKey: "verified_company_fact",
+    companyFactMeaning: "등록 사업장의 소재 여부",
+  };
+  const envelope = buildManualConfirmationDraftInput({
+    packet: draftPacket,
+    questionAuthorEmail: "author@example.invalid",
+    items: [item],
+  });
+  assert.equal(envelope.manualInput.items[0]?.conditionKey, "verified_company_fact");
+  assert.equal(envelope.manualInput.items[0]?.companyFactReview?.asOfDate, "2026-09-22");
+  const reimported = await importConfirmationQuestionDraft(JSON.stringify(envelope));
+  assert.equal(reimported.items[0]?.resolutionScope, "company_fact");
+  assert.equal(reimported.items[0]?.conditionKey, "verified_company_fact");
+  assert.equal(reimported.items[0]?.companyFactMeaning, "등록 사업장의 소재 여부");
 });
 
 test("import generation은 늦게 끝난 이전 파일이 최신 선택을 덮지 못하게 한다", () => {

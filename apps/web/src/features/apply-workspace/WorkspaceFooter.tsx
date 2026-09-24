@@ -3,7 +3,7 @@
 /**
  * HWP/HWPX 원본 다운로드 버튼 + rhwp 검증 클라이언트 헬퍼 (Apply Experience v2 · §4.3 · P2-8).
  *
- * 2026-07-15 워크스페이스 재정의(docs/research/2026-07-15-작성도우미-워크스페이스-재정의.md §2-⑤)로
+ * 2026-07-15 워크스페이스 재정의(docs/archive/2026-09-23-condition-transition/research/2026-07-15-작성도우미-워크스페이스-재정의.md §2-⑤)로
  * 상시 하단 바(WorkspaceFooter)와 이중 진행 표시(ProgressMeter)는 해체됐다. 문서 Select 는 상단 바로,
  * 진행 표시는 단일 축(confirmed/total)으로 WorkspaceView 상단 바에 편입됐다. 이 파일에는
  * 다운로드 버튼과 그 HWPX 헬퍼만 남는다(완료 카드 주 CTA + 전체 목록 하단 보조 버튼이 재사용).

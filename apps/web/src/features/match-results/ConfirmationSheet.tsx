@@ -76,6 +76,7 @@ export function ConfirmationSheet({
     };
   }
   const [answerRevisionByQuestion, setAnswerRevisionByQuestion] = useState<Record<string, number>>({});
+  const [companyFactRevisionByQuestion, setCompanyFactRevisionByQuestion] = useState<Record<string, string | null>>({});
   const loadedResponseIsCurrent = loadedScope !== null && confirmationResponseIsCurrent({
     request: loadedScope,
     current: requestScopeRef.current,
@@ -124,6 +125,9 @@ export function ConfirmationSheet({
         setPersistedDraft(loadedDraft);
         setAnswerRevisionByQuestion(Object.fromEntries(
           payload.data.answers.map((answer) => [answer.questionId, answer.answerRevision ?? 0]),
+        ));
+        setCompanyFactRevisionByQuestion(Object.fromEntries(
+          payload.data.answers.map((answer) => [answer.questionId, answer.companyFactRevision ?? null]),
         ));
         setCanSubmit(payload.data.canSubmit === true);
         setLoadedScope(requestScope);
@@ -181,6 +185,7 @@ export function ConfirmationSheet({
       ...(question.binding ? {
         binding: question.binding,
         expectedAnswerRevision: answerRevisionByQuestion[question.id] ?? 0,
+        expectedCompanyFactRevision: companyFactRevisionByQuestion[question.id] ?? null,
       } : {}),
     }))
     .filter((entry) => entry.values.length > 0);
@@ -241,6 +246,52 @@ export function ConfirmationSheet({
         current: requestScopeRef.current,
         open,
       })) setSubmitting(false);
+    }
+  }
+
+  async function withdraw(question: GrantConfirmationQuestionDto) {
+    if (!confirmationSubmissionIsAllowed({
+      loaded: loadedScope,
+      current: requestScopeRef.current,
+      open,
+      status,
+      canSubmit,
+    }) || submitting || (persistedDraft[question.id]?.length ?? 0) === 0) return;
+    setSubmitting(true);
+    setError(null);
+    const requestScope = { ...requestScopeRef.current };
+    try {
+      const response = await fetch(endpoint, {
+        method: "DELETE",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          questionId: question.id,
+          binding: question.binding,
+          expectedAnswerRevision: answerRevisionByQuestion[question.id] ?? 0,
+          expectedCompanyFactRevision: companyFactRevisionByQuestion[question.id] ?? null,
+        }),
+        signal: AbortSignal.timeout(20_000),
+      });
+      const payload = (await response.json()) as ActionResult<GrantConfirmationSubmitResult>;
+      if (!confirmationResponseIsCurrent({ request: requestScope, current: requestScopeRef.current, open })) return;
+      if (response.status === 401 || response.status === 403) {
+        setDraft(persistedDraft);
+        setCanSubmit(false);
+        setPermissionChanged(true);
+        return;
+      }
+      if (!response.ok || !payload.ok || !payload.data) {
+        throw new Error(payload.error?.message ?? "확인 답변을 철회하지 못했습니다.");
+      }
+      onSaved?.(payload.data);
+      onOpenChange(false);
+    } catch (caught) {
+      if (!confirmationResponseIsCurrent({ request: requestScope, current: requestScopeRef.current, open })) return;
+      setError(caught instanceof Error ? caught.message : "확인 답변을 철회하지 못했습니다.");
+    } finally {
+      if (confirmationResponseIsCurrent({ request: requestScope, current: requestScopeRef.current, open })) {
+        setSubmitting(false);
+      }
     }
   }
 
@@ -322,6 +373,20 @@ export function ConfirmationSheet({
                         </ToggleGroupItem>
                       ))}
                     </ToggleGroup>
+                    {(persistedDraft[question.id]?.length ?? 0) > 0 && submissionAllowed ? (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="mt-1 px-1 text-text-tertiary"
+                        disabled={submitting}
+                        onClick={() => void withdraw(question)}
+                      >
+                        {companyFactRevisionByQuestion[question.id]
+                          ? "여러 공고에 적용된 이 답변 철회"
+                          : "저장된 답변 철회"}
+                      </Button>
+                    ) : null}
                   </div>
                 ))}
                 {error ? (

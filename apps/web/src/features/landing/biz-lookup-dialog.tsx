@@ -1,5 +1,6 @@
 "use client";
 
+import type { CompanyPreviewResult } from "@cunote/contracts";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -10,7 +11,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { maskLandingBizNo, type BizLookupModalState } from "./biz-lookup-utils";
+import {
+  maskLandingBizNo,
+  previewCheckedAtNotice,
+  previewRefreshNotice,
+  type BizLookupModalState,
+} from "./biz-lookup-utils";
 import type { BizLookupController } from "./use-biz-lookup";
 
 interface BizLookupDialogProps {
@@ -46,6 +52,22 @@ export function BizLookupDialog({ controller }: BizLookupDialogProps) {
   );
 }
 
+function PreviewNotices({ preview }: { preview: CompanyPreviewResult }) {
+  const checkedNotice = previewCheckedAtNotice(preview.checkedAt, new Date());
+  const refreshNotice = previewRefreshNotice(preview.refreshResult);
+  if (!checkedNotice && !refreshNotice) return null;
+  return (
+    <div className="mt-3 flex flex-col gap-1.5">
+      {checkedNotice ? <p className="text-sm text-text-tertiary">{checkedNotice}</p> : null}
+      {refreshNotice ? (
+        <p className="text-sm leading-relaxed text-text-secondary" role="status">
+          {refreshNotice}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 function DialogBody({ lookup, controller }: { lookup: BizLookupModalState; controller: BizLookupController }) {
   if (lookup.phase === "loading") {
     return (
@@ -56,7 +78,7 @@ function DialogBody({ lookup, controller }: { lookup: BizLookupModalState; contr
             aria-hidden
           />
           <DialogTitle className="mt-5 text-[17px] leading-snug font-bold text-ink">
-            사업자 정보를 확인하고 있어요
+            {lookup.intent === "refresh" ? "최신 상호를 확인하고 있어요" : "사업자 정보를 확인하고 있어요"}
           </DialogTitle>
           <DialogDescription className="mt-2 text-sm text-text-tertiary tabular-nums">
             {maskLandingBizNo(lookup.bizNo)}
@@ -83,6 +105,7 @@ function DialogBody({ lookup, controller }: { lookup: BizLookupModalState; contr
             {previewFacts}
           </DialogDescription>
         </DialogHeader>
+        <PreviewNotices preview={lookup.preview} />
 
         <DialogFooter className="mx-0 mt-6 mb-0 flex-col items-stretch gap-[9px] border-0 bg-transparent p-0 sm:flex-col sm:justify-normal">
           <Button
@@ -99,6 +122,14 @@ function DialogBody({ lookup, controller }: { lookup: BizLookupModalState; contr
             className="h-auto w-full py-3 text-sm"
           >
             아니요, 다시 입력할게요
+          </Button>
+          <Button
+            type="button"
+            variant="link"
+            onClick={controller.refreshLookup}
+            className="h-auto w-full py-1 text-sm font-medium text-text-tertiary"
+          >
+            상호가 바뀌었어요
           </Button>
         </DialogFooter>
       </div>

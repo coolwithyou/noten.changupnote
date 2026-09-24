@@ -3,7 +3,7 @@
 // (`claude -p --output-format json ...`)으로 번역하고, CLI 의 단일 JSON stdout 을
 // Messages API 모양 Response 로 재조립한다 — lab:batch 등 대량 딥분석을
 // Max 구독(Keychain OAuth)으로 API 토큰 지출 없이 실행하기 위한 것.
-// 설계 정본: docs/plans/2026-08-02-claude-cli-transport-for-deep-analysis.md §4.
+// 초기 설계 기록: docs/archive/2026-09-23-condition-transition/plans/2026-08-02-claude-cli-transport-for-deep-analysis.md §4.
 // - 주입은 기존 심(fetchImpl 파라미터)으로만 — 검증·정규화·게이트 로직 무수정.
 // - 응답 불신 원칙: shim 은 "모양"만 재조립하고 내용 검증은 기존 하류가 수행한다.
 // - 재시도는 이 모듈의 몫이 아니다 — 합성 HTTP 상태를 본 기존 호출부의 분기가 발화한다.

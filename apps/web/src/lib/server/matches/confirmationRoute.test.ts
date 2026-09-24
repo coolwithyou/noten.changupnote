@@ -5,6 +5,7 @@ import { CompanyAccessForbiddenError } from "../auth/companyAccessPolicy";
 
 let role: CompanyRole = "owner";
 let submitCalls = 0;
+let withdrawCalls = 0;
 const access = () => ({
   companyId: "company-a",
   userId: "user-a",
@@ -60,6 +61,15 @@ mock.module(new URL("./grantConfirmations.ts", import.meta.url).href, {
         refresh: { plannedCount: 0, savedCount: 0, status: "not_persisted_user_scope" as const },
       };
     },
+    withdrawGrantConfirmation: async () => {
+      withdrawCalls += 1;
+      return {
+        grantId: "grant-a",
+        saved: [],
+        match: null,
+        refresh: { plannedCount: 0, savedCount: 0, status: "not_persisted_user_scope" as const },
+      };
+    },
   },
 });
 
@@ -99,4 +109,13 @@ assert.equal(forbiddenPut.status, 403);
 assert.equal((await forbiddenPut.json()).error.code, "company_write_forbidden");
 assert.equal(submitCalls, 0, "viewer PUT은 답변 저장 seam 호출 전에 거부한다");
 
-console.log("confirmation-route: latest role canSubmit projection and server PUT guard passed");
+const forbiddenDelete = await route.DELETE(new Request(request(), {
+  method: "DELETE",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({ questionId: "question-a", expectedAnswerRevision: 1 }),
+}), context);
+assert.equal(forbiddenDelete.status, 403);
+assert.equal((await forbiddenDelete.json()).error.code, "company_write_forbidden");
+assert.equal(withdrawCalls, 0, "viewer DELETE는 답변 철회 seam 호출 전에 거부한다");
+
+console.log("confirmation-route: latest role canSubmit projection and server PUT/DELETE guards passed");

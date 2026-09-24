@@ -44,6 +44,7 @@ const UAT = Object.freeze({
   companyBName: "격리 합성 회사 B",
   requiredPrompt: "최초 필수 질문",
   servingPrompt: "정상 노출 우대 질문",
+  migrationPrompt: "현재 시흥시에 등록된 사업장이 있나요?",
 });
 
 export function parseNaturalConfirmationArgs(args) {
@@ -93,6 +94,7 @@ export function validateNaturalConfirmationConnection(connectionPath, options = 
   );
   assert.match(connection.syntheticGrantId ?? "", UUID, "required other fixture grant가 누락됐습니다.");
   assert.match(connection.syntheticServingGrantId ?? "", UUID, "serving confirmation fixture grant가 누락됐습니다.");
+  assert.match(connection.syntheticMigrationGrantId ?? "", UUID, "migration confirmation fixture grant가 누락됐습니다.");
   const source = validateSourceManifest(connection, canonicalTmp);
 
   const requestedFixtureReceiptPath = resolve(connection.confirmationFixtureReceiptPath);
@@ -103,8 +105,12 @@ export function validateNaturalConfirmationConnection(connectionPath, options = 
   assert.equal(fixtureReceipt?.schema, FIXTURE_RECEIPT_SCHEMA);
   assert.equal(fixtureReceipt?.grantId, connection.syntheticGrantId);
   assert.equal(fixtureReceipt?.servingGrantId, connection.syntheticServingGrantId);
+  assert.equal(fixtureReceipt?.migrationGrantId, connection.syntheticMigrationGrantId);
   assert.equal(fixtureReceipt?.publicationAuthority, "isolated_publisher_fixture_not_release_approval");
   assert.ok(fixtureReceipt?.finalState?.activePrompts?.includes(UAT.requiredPrompt));
+  assert.equal(fixtureReceipt?.migration?.authority, "isolated_local_fixture_not_service_migration_approval");
+  assert.equal(fixtureReceipt?.migratedQuestionRoundTrip?.status, "passed");
+  assert.equal(fixtureReceipt?.migratedQuestionRoundTrip?.relatedGrantCount, 4);
   assert.equal(
     fixtureReceipt?.naturalUiReadiness?.requiredOtherCompanyA?.naturalCtaContractReady,
     true,
@@ -119,6 +125,7 @@ export function validateNaturalConfirmationConnection(connectionPath, options = 
     userPassword: connection.userPassword,
     grantId: connection.syntheticGrantId,
     servingGrantId: connection.syntheticServingGrantId,
+    migrationGrantId: connection.syntheticMigrationGrantId,
     fixtureReceiptPath,
     source,
     provenance: {
@@ -238,6 +245,13 @@ export async function runNaturalConfirmationAcceptance(connection, options = {})
     );
 
     assertHoldActive(connection);
+    const migratedQuestionRoundTrip = await acceptanceStep(
+      "owner_migrated_question_roundtrip",
+      () => verifyMigratedQuestionRoundTrip(sessions.owner, connection),
+      sessions.owner,
+    );
+
+    assertHoldActive(connection);
     await acceptanceStep("editor_login", () => login(sessions.editor, connection, UAT.editorEmail), sessions.editor);
     const editorDrawer = await acceptanceStep(
       "editor_profile_drawer_reload",
@@ -300,6 +314,7 @@ export async function runNaturalConfirmationAcceptance(connection, options = {})
       },
       requiredOtherTextOnly: ownerRoundTrip.requiredOtherTextOnly,
       ownerRoundTrip,
+      migratedQuestionRoundTrip,
       editorDrawer,
       companyIsolation,
       lateGet,
@@ -316,6 +331,45 @@ export async function runNaturalConfirmationAcceptance(connection, options = {})
     };
   } finally {
     for (const session of Object.values(sessions)) session.close();
+  }
+}
+
+export async function runMigratedQuestionAcceptance(connection, options = {}) {
+  const sessionPrefix = options.sessionPrefix ?? `cunote-migrated-question-${process.pid}`;
+  assert.match(sessionPrefix, SESSION_NAME);
+  const session = (options.makeSession ?? (() => createAgentBrowserSession({
+    session: `${sessionPrefix}-owner`,
+    webUrl: connection.webUrl,
+    sensitiveValues: [connection.userPassword],
+  })))();
+  try {
+    assertHoldActive(connection);
+    await acceptanceStep("migration_owner_login", () => login(session, connection, UAT.ownerEmail), session);
+    const roundTrip = await acceptanceStep(
+      "migration_inline_roundtrip",
+      () => verifyMigratedQuestionRoundTrip(session, connection),
+      session,
+    );
+    return {
+      schema: "cunote-migrated-question-browser-receipt-v1",
+      status: "passed",
+      completedAt: new Date().toISOString(),
+      publicationAuthority: "isolated_local_fixture_not_service_migration_approval",
+      app: { origin: new URL(connection.webUrl).origin, transport: "loopback_http" },
+      sourceProvenance: {
+        sourceManifestSha256: connection.source.manifestSha256,
+        connectionRawSha256: connection.provenance.connectionRawSha256,
+        fixtureReceiptRawSha256: connection.provenance.fixtureReceiptRawSha256,
+        browserToolRawSha256: connection.provenance.browserToolRawSha256,
+        runtimeBound: true,
+      },
+      account: "actual_password_login",
+      roundTrip,
+      modelCalls: 0,
+      externalWrites: 0,
+    };
+  } finally {
+    session.close();
   }
 }
 
@@ -344,6 +398,7 @@ function pageDiagnostic(session) {
       dialogButtons: Array.from(document.querySelectorAll('[role="dialog"] button')).map(button => ({
         label: button.textContent.trim(), disabled: button.disabled,
       })),
+      migrationStep: window.__cunoteMigrationStep ?? null,
     })`);
   } catch {
     return { unavailable: true };
@@ -401,6 +456,169 @@ async function verifyOwnerRoundTrip(session, connection) {
     restoredAfterSheetReopen: true,
     restoredAfterPageReload: true,
     revisitSnapshotSha256: revisitSnapshot,
+  };
+}
+
+async function verifyMigratedQuestionRoundTrip(session, connection) {
+  session.open(`/matches?companyId=${encodeURIComponent(UAT.companyA)}`);
+  session.evaluate("window.__cunoteMigrationStep = 'page_opened'");
+  closeProfileDrawerIfOpen(session);
+  const matching = readMatching(session, connection.migrationGrantId, UAT.companyA);
+  session.evaluate("window.__cunoteMigrationStep = 'matching_loaded'");
+  const match = matching.teaser.matches.find((entry) => entry.grantId === connection.migrationGrantId);
+  assert.ok(match, "이관 질문 fixture가 실제 매칭 응답에 있어야 합니다.");
+  const confirmation = readConfirmations(session, connection.migrationGrantId, UAT.companyA);
+  session.evaluate("window.__cunoteMigrationStep = 'confirmation_loaded'");
+  assert.equal(confirmation.canSubmit, true);
+  const question = questionByPrompt(confirmation, UAT.migrationPrompt);
+  const priorWithdrawal = optionalAnswerFor(confirmation, question.id);
+  assert.deepEqual(priorWithdrawal?.values ?? [], [], "HTTP 선행 철회 뒤 선택값은 비어 있어야 합니다.");
+
+  const yes = optionByValue(question, "yes");
+  const no = optionByValue(question, "no");
+  const cardSelector = ensureGrantCardVisible(session, connection.migrationGrantId);
+  session.evaluate("window.__cunoteMigrationStep = 'card_visible'");
+  session.run(["wait", "1000"]);
+  const migrationCardState = session.evaluate(`(() => {
+    const card = document.querySelector(${JSON.stringify(cardSelector)});
+    return {
+      text: card?.innerText ?? '',
+      buttons: Array.from(card?.querySelectorAll('button') ?? []).map(button => button.textContent.trim()),
+    };
+  })()`);
+  assert.ok(
+    migrationCardState.text.includes(question.prompt),
+    `이관 질문이 공고 카드에 바로 보여야 합니다: ${JSON.stringify(migrationCardState)}`,
+  );
+  session.evaluate("window.__cunoteMigrationStep = 'inline_prompt_visible'");
+  installResponseObserver(session);
+  const inlineClicked = session.evaluate(`(() => {
+    const card = document.querySelector(${JSON.stringify(cardSelector)});
+    const button = Array.from(card?.querySelectorAll('button') ?? []).find(candidate =>
+      candidate.textContent.trim() === ${JSON.stringify(yes.label)});
+    if (!button || button.disabled) return false;
+    button.click();
+    return true;
+  })()`);
+  assert.equal(inlineClicked, true, "이관 질문의 inline 긍정 답변을 바로 누를 수 있어야 합니다.");
+  session.evaluate("window.__cunoteMigrationStep = 'inline_clicked'");
+  waitFor(session, "(window.__cunoteNaturalResponses ?? []).some(response => response.method === 'PUT')");
+  session.evaluate("window.__cunoteMigrationStep = 'inline_put_observed'");
+  const firstPut = observedResponses(session).filter((response) =>
+    response.method === "PUT"
+    && response.url.includes(`/api/web/matches/${connection.migrationGrantId}/confirmations`)
+    && response.url.includes(`companyId=${UAT.companyA}`)).at(-1);
+  assert.ok(firstPut);
+  assert.equal(firstPut.status, 200);
+  assert.equal(firstPut.body?.data?.refresh?.plannedCount, 4);
+  waitFor(session, `document.body.innerText.includes(${JSON.stringify("같은 회사 정보를 쓰는 공고 4건도 함께 다시 확인했어요.")})`);
+  session.evaluate("window.__cunoteMigrationStep = 'related_notice_visible'");
+  const continued = session.evaluate(`(() => {
+    const card = document.querySelector(${JSON.stringify(cardSelector)});
+    const section = Array.from(card?.querySelectorAll('section') ?? []).find(candidate =>
+      candidate.innerText.includes('같은 회사 정보를 쓰는 공고 4건'));
+    const button = section?.querySelector('button');
+    if (!button || button.disabled) return null;
+    const label = button.textContent.trim();
+    button.click();
+    return label;
+  })()`);
+  assert.ok(continued, "inline 저장 결과를 실제 매칭 결과에 반영할 수 있어야 합니다.");
+  session.evaluate("window.__cunoteMigrationStep = 'continued'");
+  if (continued === "신청 준비하기") {
+    waitFor(session, `location.pathname === ${JSON.stringify(`/grants/${connection.migrationGrantId}`)}`);
+    session.open(`/matches?companyId=${encodeURIComponent(UAT.companyA)}`);
+    closeProfileDrawerIfOpen(session);
+  } else {
+    waitFor(session, "(window.__cunoteNaturalResponses ?? []).some(response => response.method === 'GET' && response.url.includes('/api/web/company-matching'))");
+    session.run(["wait", "--load", "networkidle"]);
+  }
+  const postSaveMatch = readMatching(session, connection.migrationGrantId, UAT.companyA)
+    .teaser.matches.find((entry) => entry.grantId === connection.migrationGrantId);
+  assert.ok(
+    (postSaveMatch?.confirmationQuestionCount ?? 0) > 0,
+    `저장 뒤에도 수정 가능한 이관 질문 결속이 남아야 합니다: ${JSON.stringify({
+      confirmationQuestionCount: postSaveMatch?.confirmationQuestionCount ?? null,
+      confirmationQuestionIds: postSaveMatch?.confirmationQuestionIds ?? null,
+      userConfirmedCount: postSaveMatch?.userConfirmedCount ?? null,
+      ruleTrace: postSaveMatch?.ruleTrace.map((trace) => ({
+        criterionId: trace.criterionId ?? null,
+        result: trace.result,
+        resolution: trace.resolution ?? null,
+        sourceSpan: trace.sourceSpan ?? null,
+      })) ?? null,
+    })}`,
+  );
+  const resolvedCardSelector = ensureGrantCardVisible(session, connection.migrationGrantId);
+  assert.equal(session.evaluate(`(() => {
+    const card = document.querySelector(${JSON.stringify(resolvedCardSelector)});
+    return Array.from(card?.querySelectorAll('button') ?? []).some(button =>
+      button.textContent.trim() === '확인 내용 수정');
+  })()`), true, "지원 가능 전환 뒤에도 확인 내용 수정 진입점이 남아야 합니다.");
+
+  const yesLedger = readConfirmations(session, connection.migrationGrantId, UAT.companyA);
+  const yesAnswer = answerFor(yesLedger, question.id);
+  const changed = writeConfirmationFromAuthenticatedPage(session, {
+    method: "PUT",
+    grantId: connection.migrationGrantId,
+    companyId: UAT.companyA,
+    body: {
+      answers: [{
+        questionId: question.id,
+        values: [no.value],
+        binding: question.binding,
+        expectedAnswerRevision: yesAnswer.answerRevision,
+        expectedCompanyFactRevision: yesAnswer.companyFactRevision,
+      }],
+    },
+  });
+  assert.equal(changed.status, 200);
+  assert.equal(changed.body?.data?.saved?.[0]?.evaluation, "unsatisfied");
+  assert.equal(changed.body?.data?.refresh?.plannedCount, 4);
+  const noAnswer = answerFor(
+    readConfirmations(session, connection.migrationGrantId, UAT.companyA),
+    question.id,
+  );
+  assert.deepEqual(noAnswer.values, [no.value]);
+
+  const withdrawn = writeConfirmationFromAuthenticatedPage(session, {
+    method: "DELETE",
+    grantId: connection.migrationGrantId,
+    companyId: UAT.companyA,
+    body: {
+      questionId: question.id,
+      binding: question.binding,
+      expectedAnswerRevision: noAnswer.answerRevision,
+      expectedCompanyFactRevision: noAnswer.companyFactRevision,
+    },
+  });
+  assert.equal(withdrawn.status, 200);
+  assert.equal(withdrawn.body?.data?.refresh?.plannedCount, 4);
+
+  session.open(`/matches?companyId=${encodeURIComponent(UAT.companyA)}`);
+  closeProfileDrawerIfOpen(session);
+  const restoredCardSelector = ensureGrantCardVisible(session, connection.migrationGrantId);
+  session.run(["wait", "500"]);
+  assert.equal(session.evaluate(`document.querySelector(${JSON.stringify(restoredCardSelector)})?.innerText.includes(${JSON.stringify(question.prompt)}) === true`), true);
+  const revisitSnapshotSha256 = snapshotDigest(session);
+  const reentered = readConfirmations(session, connection.migrationGrantId, UAT.companyA);
+  assert.equal(questionByPrompt(reentered, UAT.migrationPrompt).id, question.id);
+  assert.deepEqual(answerFor(reentered, question.id).values, []);
+  return {
+    status: "passed",
+    migrationGrantId: connection.migrationGrantId,
+    questionId: question.id,
+    naturalCardCta: "inline_single_question",
+    relatedGrantCount: firstPut.body.data.refresh.plannedCount,
+    relatedGrantNoticeVisible: true,
+    savedActionLabel: continued,
+    prepareNavigationVerified: continued === "신청 준비하기",
+    editEntryVisibleAfterEligible: true,
+    changedEvaluation: changed.body.data.saved[0].evaluation,
+    withdrawalTransport: "authenticated_browser_fetch",
+    deleteStatus: withdrawn.status,
+    restoredAfterPageReload: true,
+    revisitSnapshotSha256,
   };
 }
 
@@ -653,6 +871,17 @@ function readApi(session, path) {
   }))`);
 }
 
+function writeConfirmationFromAuthenticatedPage(session, input) {
+  const endpoint = `/api/web/matches/${encodeURIComponent(input.grantId)}/confirmations?${new URLSearchParams({
+    companyId: input.companyId,
+  })}`;
+  return session.evaluate(`fetch(${JSON.stringify(endpoint)}, {
+    method: ${JSON.stringify(input.method)},
+    headers: { 'content-type': 'application/json' },
+    body: ${JSON.stringify(JSON.stringify(input.body))},
+  }).then(async response => ({ status: response.status, body: await response.json() }))`);
+}
+
 function requiredQuestion(payload) {
   const question = questionByPrompt(payload, UAT.requiredPrompt);
   assert.ok(question, "required other/text_only 질문이 실제 API에 있어야 합니다.");
@@ -686,13 +915,53 @@ function answerFor(payload, questionId) {
 function optionalAnswerFor(payload, questionId) {
   const answer = payload.answers.find((candidate) => candidate.questionId === questionId);
   return answer
-    ? { values: answer.values, answerRevision: answer.answerRevision ?? 0 }
+    ? {
+        values: answer.values,
+        answerRevision: answer.answerRevision ?? 0,
+        companyFactRevision: answer.companyFactRevision ?? null,
+      }
     : null;
 }
 
 function openQuestionFromCard(session, grantId, prompt, options = {}) {
   const cardSelector = `[data-product-grant=${JSON.stringify(grantId)}]`;
-  for (let attempt = 0; attempt < 6 && !session.evaluate(`Boolean(document.querySelector(${JSON.stringify(cardSelector)}))`); attempt += 1) {
+  ensureGrantCardVisible(session, grantId);
+  const collapsed = `${cardSelector} > button[aria-expanded="false"]`;
+  if (session.evaluate(`Boolean(document.querySelector(${JSON.stringify(collapsed)}))`)) {
+    session.run(["click", collapsed]);
+  }
+  const cta = session.evaluate(`(() => {
+    const card = document.querySelector(${JSON.stringify(cardSelector)});
+    const button = Array.from(card?.querySelectorAll('button') ?? []).find(candidate =>
+      [
+        '확인하기',
+        '확인 내용 수정',
+        '공고별 질문에 답하기',
+        '이 조건에 답하기',
+        '회사 정보를 저장하고 답하기',
+      ].includes(candidate.textContent.trim()));
+    return button?.textContent.trim() ?? null;
+  })()`);
+  const cardButtons = session.evaluate(`Array.from(document.querySelector(${JSON.stringify(cardSelector)})?.querySelectorAll('button') ?? []).map(button => button.textContent.trim())`);
+  assert.ok(cta, `실제 공고 카드에 확인 CTA가 있어야 합니다: ${JSON.stringify(cardButtons)}`);
+  session.evaluate(`(() => {
+    const card = document.querySelector(${JSON.stringify(cardSelector)});
+    const button = Array.from(card?.querySelectorAll('button') ?? []).find(candidate =>
+      candidate.textContent.trim() === ${JSON.stringify(cta)});
+    if (!button) throw new Error('확인 CTA가 사라졌습니다.');
+    button.click();
+    return true;
+  })()`);
+  waitFor(session, `Boolean(document.querySelector('button[aria-label="공고 확인 질문 닫기"]'))`);
+  if (options.waitForQuestion !== false) {
+    waitFor(session, `Boolean(document.querySelector(${JSON.stringify(`[aria-label=${JSON.stringify(prompt)}]`)}))`);
+  }
+  return { cta, snapshotSha256: snapshotDigest(session) };
+}
+
+function ensureGrantCardVisible(session, grantId) {
+  const cardSelector = `[data-product-grant=${JSON.stringify(grantId)}]`;
+  for (let attempt = 0; attempt < 8 && !session.evaluate(`Boolean(document.querySelector(${JSON.stringify(cardSelector)}))`); attempt += 1) {
     const expanded = session.evaluate(`(() => {
       const button = Array.from(document.querySelectorAll('button')).find(candidate =>
         candidate.getAttribute('aria-expanded') === 'false'
@@ -707,28 +976,16 @@ function openQuestionFromCard(session, grantId, prompt, options = {}) {
   waitFor(session, `Boolean(document.querySelector(${JSON.stringify(cardSelector)}))`);
   const collapsed = `${cardSelector} > button[aria-expanded="false"]`;
   if (session.evaluate(`Boolean(document.querySelector(${JSON.stringify(collapsed)}))`)) {
-    session.run(["click", collapsed]);
+    const clicked = session.evaluate(`(() => {
+      const button = document.querySelector(${JSON.stringify(collapsed)});
+      if (!button) return false;
+      button.click();
+      return true;
+    })()`);
+    assert.equal(clicked, true, `공고 ${grantId}의 접힌 카드를 열 수 없습니다.`);
+    waitFor(session, `Boolean(document.querySelector(${JSON.stringify(`${cardSelector} button[aria-label="카드 접기"]`)}))`);
   }
-  const cta = session.evaluate(`(() => {
-    const card = document.querySelector(${JSON.stringify(cardSelector)});
-    const button = Array.from(card?.querySelectorAll('button') ?? []).find(candidate =>
-      ['확인하기', '확인 내용 수정'].includes(candidate.textContent.trim()));
-    return button?.textContent.trim() ?? null;
-  })()`);
-  assert.ok(cta, "실제 공고 카드에 확인 CTA가 있어야 합니다.");
-  session.evaluate(`(() => {
-    const card = document.querySelector(${JSON.stringify(cardSelector)});
-    const button = Array.from(card?.querySelectorAll('button') ?? []).find(candidate =>
-      candidate.textContent.trim() === ${JSON.stringify(cta)});
-    if (!button) throw new Error('확인 CTA가 사라졌습니다.');
-    button.click();
-    return true;
-  })()`);
-  waitFor(session, `Boolean(document.querySelector('button[aria-label="공고 확인 질문 닫기"]'))`);
-  if (options.waitForQuestion !== false) {
-    waitFor(session, `Boolean(document.querySelector(${JSON.stringify(`[aria-label=${JSON.stringify(prompt)}]`)}))`);
-  }
-  return { cta, snapshotSha256: snapshotDigest(session) };
+  return cardSelector;
 }
 
 function selectQuestionOption(session, prompt, label) {

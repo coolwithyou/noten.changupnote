@@ -27,6 +27,7 @@ import { buildBizInfoSampleEntries } from "./bizinfoSample";
 import { publishBizInfoGrants } from "./bizinfoPublisher";
 import { archiveBizInfoProgramAttachments, type GrantAttachmentArchiveBundle } from "./grantAttachmentArchive";
 import { hashGrantRawPayload } from "./grantRawHash";
+import { discoverGrantSupplyWork, type GrantSupplyWorkItem } from "../productReadiness/grantSupply";
 
 const TEXT_ONLY_FALLBACK_VERSION = "bizinfo-text-only-fallback-v1";
 
@@ -98,6 +99,9 @@ export interface ArchiveBizInfoResult {
     matchStateRefreshRequired: boolean;
     grantIds: string[];
   };
+  /** 커밋 뒤 exact 대상의 현재 공급 단계. 재시작 시 report:grant-supply 기간 조회로 재발견한다. */
+  supplyWorkItems: readonly GrantSupplyWorkItem[];
+  supplyDiscoveryError: string | null;
 }
 
 interface BizInfoExtractionArtifact {
@@ -173,6 +177,24 @@ export async function archiveBizInfo(input: ArchiveBizInfoInput): Promise<Archiv
       await updateSourceCursor(input.db, input.collectedAt);
     }
   }
+  const supplyWorkItems: GrantSupplyWorkItem[] = [...(published?.supplyWorkItems ?? [])];
+  let supplyDiscoveryError: string | null = published?.supplyAssessmentError ?? null;
+  if (input.write && input.db) {
+    const publishedIds = new Set(publishableEntries.map((entry) => entry.raw.source_id));
+    const existingIds = new Set(existingHashes.map((row) => row.sourceId));
+    const unchangedIds = selectedPrograms.map((program) => program.pblancId)
+      .filter((sourceId) => existingIds.has(sourceId) && !publishedIds.has(sourceId));
+    if (unchangedIds.length > 0) {
+      try {
+        const resumed = await discoverGrantSupplyWork({
+          db: input.db, source: "bizinfo", sourceIds: unchangedIds,
+        });
+        supplyWorkItems.push(...resumed.items);
+      } catch (error) {
+        supplyDiscoveryError = error instanceof Error ? error.message : String(error);
+      }
+    }
+  }
 
   return {
     dryRun: !input.write,
@@ -217,6 +239,8 @@ export async function archiveBizInfo(input: ArchiveBizInfoInput): Promise<Archiv
       matchStateRefreshRequired: published?.matchStateRefreshRequired ?? false,
       grantIds: published?.matchStateRefreshGrantIds ?? [],
     },
+    supplyWorkItems,
+    supplyDiscoveryError,
   };
 }
 

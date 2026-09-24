@@ -719,6 +719,8 @@ export const grantCollectionEvents = pgTable("grant_collection_events", {
   sourceId: text("source_id").notNull(),
   rawHash: text("raw_hash").notNull(),
   revisionKind: text("revision_kind").notNull(),
+  /** 현재 raw hash에 결속된 소비 기능별 변경 영향. 과거 행은 null로 보수 처리한다. */
+  changeImpact: jsonb("change_impact").$type<Record<string, unknown>>(),
   collectedAt: timestamp("collected_at", { withTimezone: true }).defaultNow().notNull(),
 }, (table) => ({
   revisionIdx: uniqueIndex("grant_collection_events_revision_idx")
@@ -1796,6 +1798,8 @@ export const analysisLabPromotionItems = pgTable("analysis_lab_promotion_items",
   planSha256: text("plan_sha256").notNull(),
   beforeSnapshot: jsonb("before_snapshot").$type<Record<string, unknown>>().notNull(),
   beforeSha256: text("before_sha256").notNull(),
+  /** 승인된 공급 실행이 최초 writer 트랜잭션에 봉인한 exact plan evidence. */
+  supplyPlanEvidenceSha256: text("supply_plan_evidence_sha256"),
   afterSnapshot: jsonb("after_snapshot").$type<Record<string, unknown>>(),
   afterSha256: text("after_sha256"),
   /** Kordoc artifact 검증·materialization 결과. criteria 적용과 같은 transaction에서 기록한다. */
@@ -1816,6 +1820,9 @@ export const analysisLabPromotionItems = pgTable("analysis_lab_promotion_items",
     .on(table.deepAnalysisRunId),
   statusCheck: check("analysis_lab_promotion_items_status_check", sql`
     ${table.status} IN ('prepared', 'applying', 'applied', 'failed', 'rolling_back', 'rolled_back')
+  `),
+  supplyPlanEvidenceSha256Check: check("analysis_lab_promotion_items_supply_plan_evidence_sha256_check", sql`
+    ${table.supplyPlanEvidenceSha256} IS NULL OR ${table.supplyPlanEvidenceSha256} ~ '^[0-9a-f]{64}$'
   `),
 }));
 
@@ -1851,6 +1858,104 @@ export const analysisLabApplicationFieldRepairs = pgTable("analysis_lab_applicat
     .on(table.parentPromotionItemId),
   grantIdx: index("analysis_lab_application_field_repairs_grant_idx").on(table.grantId),
   statusCheck: check("analysis_lab_application_field_repairs_status_check", sql`
+    ${table.status} IN ('prepared', 'applying', 'applied', 'failed')
+  `),
+}));
+
+/**
+ * 사람 검수를 통과한 legacy confirmation 질문을 v2 질문 한 건으로 제한 이관하는 원장.
+ * 일반 promotion item과 분리해 criteria/다른 질문/사용자 답변을 rollback 범위에 넣지 않는다.
+ */
+export const analysisLabLegacyQuestionMigrationItems = pgTable(
+  "analysis_lab_legacy_question_migration_items",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    releaseDbId: uuid("release_db_id").notNull()
+      .references(() => analysisLabPromotionReleases.id, { onDelete: "restrict" }),
+    grantId: uuid("grant_id").notNull().references(() => grants.id, { onDelete: "restrict" }),
+    criterionId: uuid("criterion_id").notNull()
+      .references(() => grantCriteria.id, { onDelete: "restrict" }),
+    parentPromotionItemId: uuid("parent_promotion_item_id")
+      .references(() => analysisLabPromotionItems.id, { onDelete: "restrict" }),
+    legacyQuestionId: uuid("legacy_question_id").notNull()
+      .references(() => grantConfirmationQuestions.id, { onDelete: "restrict" }),
+    migratedQuestionId: uuid("migrated_question_id")
+      .references(() => grantConfirmationQuestions.id, { onDelete: "restrict" }),
+    planSha256: text("plan_sha256").notNull(),
+    operationSha256: text("operation_sha256").notNull(),
+    beforeSnapshot: jsonb("before_snapshot").$type<Record<string, unknown>>().notNull(),
+    beforeSha256: text("before_sha256").notNull(),
+    beforeServingSha256: text("before_serving_sha256"),
+    afterSnapshot: jsonb("after_snapshot").$type<Record<string, unknown>>(),
+    afterSha256: text("after_sha256"),
+    servingStateSha256: text("serving_state_sha256"),
+    status: text("status").default("prepared").notNull(),
+    error: text("error"),
+    appliedAt: timestamp("applied_at", { withTimezone: true }),
+    rolledBackAt: timestamp("rolled_back_at", { withTimezone: true }),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    releaseQuestionIdx: uniqueIndex("analysis_lab_legacy_question_migration_release_question_idx")
+      .on(table.releaseDbId, table.legacyQuestionId),
+    activeLegacyQuestionIdx: uniqueIndex("analysis_lab_legacy_question_migration_active_legacy_idx")
+      .on(table.legacyQuestionId)
+      .where(sql`${table.status} IN ('prepared', 'applying', 'applied', 'rolling_back')`),
+    releaseStatusIdx: index("analysis_lab_legacy_question_migration_release_status_idx")
+      .on(table.releaseDbId, table.status),
+    grantIdx: index("analysis_lab_legacy_question_migration_grant_idx").on(table.grantId),
+    criterionIdx: index("analysis_lab_legacy_question_migration_criterion_idx")
+      .on(table.criterionId),
+    parentIdx: index("analysis_lab_legacy_question_migration_parent_idx")
+      .on(table.parentPromotionItemId),
+    migratedQuestionIdx: index("analysis_lab_legacy_question_migration_migrated_question_idx")
+      .on(table.migratedQuestionId),
+    statusCheck: check("analysis_lab_legacy_question_migration_status_check", sql`
+      ${table.status} IN (
+        'prepared', 'applying', 'applied', 'failed', 'rolling_back', 'rolled_back'
+      )
+    `),
+  }),
+);
+
+/**
+ * 조건·첨부·모집 의미가 바뀌지 않은 source evidence refresh를 기존 promotion의 successor로
+ * 기록한다. 기존 promotion manifest를 고치지 않고 질문/답변의 source 결속만 원자적으로
+ * 전진시키며, current serving hash가 receipt와 일치할 때만 reader가 새 source를 채택한다.
+ */
+export const analysisLabSourceRebindItems = pgTable("analysis_lab_source_rebind_items", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  releaseDbId: uuid("release_db_id").notNull()
+    .references(() => analysisLabPromotionReleases.id, { onDelete: "restrict" }),
+  grantId: uuid("grant_id").notNull().references(() => grants.id, { onDelete: "restrict" }),
+  parentPromotionItemId: uuid("parent_promotion_item_id").notNull()
+    .references(() => analysisLabPromotionItems.id, { onDelete: "restrict" }),
+  impactSha256: text("impact_sha256").notNull(),
+  previousSourceRevisionSha256: text("previous_source_revision_sha256").notNull(),
+  previousSourceRawSha256: text("previous_source_raw_sha256").notNull(),
+  currentSourceRevisionSha256: text("current_source_revision_sha256").notNull(),
+  currentSourceRawSha256: text("current_source_raw_sha256").notNull(),
+  currentMaterialSourceRevisionSha256: text("current_material_source_revision_sha256").notNull(),
+  beforeSnapshot: jsonb("before_snapshot").$type<Record<string, unknown>>().notNull(),
+  beforeSha256: text("before_sha256").notNull(),
+  beforeServingSha256: text("before_serving_sha256").notNull(),
+  afterSnapshot: jsonb("after_snapshot").$type<Record<string, unknown>>(),
+  afterSha256: text("after_sha256"),
+  servingStateSha256: text("serving_state_sha256"),
+  reboundQuestionCount: integer("rebound_question_count"),
+  reboundAnswerCount: integer("rebound_answer_count"),
+  status: text("status").default("prepared").notNull(),
+  error: text("error"),
+  appliedAt: timestamp("applied_at", { withTimezone: true }),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  releaseIdx: uniqueIndex("analysis_lab_source_rebind_release_idx").on(table.releaseDbId),
+  parentPreviousIdx: uniqueIndex("analysis_lab_source_rebind_parent_previous_idx")
+    .on(table.parentPromotionItemId, table.previousSourceRevisionSha256)
+    .where(sql`${table.status} IN ('prepared', 'applying', 'applied')`),
+  parentIdx: index("analysis_lab_source_rebind_parent_idx").on(table.parentPromotionItemId),
+  grantIdx: index("analysis_lab_source_rebind_grant_idx").on(table.grantId),
+  statusCheck: check("analysis_lab_source_rebind_status_check", sql`
     ${table.status} IN ('prepared', 'applying', 'applied', 'failed')
   `),
 }));

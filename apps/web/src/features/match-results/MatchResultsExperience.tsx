@@ -270,7 +270,9 @@ export function MatchResultsExperience() {
     if (action === "reload" || action === "reload_with_notice") {
       toast.info(action === "reload_with_notice"
         ? "답변은 저장됐어요. 최신 판정을 다시 확인하고 있어요."
-        : "답변을 반영해 최신 판정을 확인하고 있어요.");
+        : result.refresh.plannedCount > 1
+          ? `같은 회사 정보를 쓰는 공고 ${result.refresh.plannedCount}건을 함께 다시 확인했어요.`
+          : "답변을 반영해 최신 판정을 확인하고 있어요.");
       void loadCompanyMatching(companyId!, { preserveReady: true }).catch(() => {
         toast.error("답변은 저장됐지만 최신 판정을 불러오지 못했어요. 페이지에서 다시 시도해 주세요.");
       });

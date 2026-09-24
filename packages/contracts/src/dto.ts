@@ -829,6 +829,10 @@ export interface GrantConfirmationAnswerDto {
   questionId: string;
   values: string[];
   evaluation?: GrantConfirmationEvaluation;
+  /** 같은 의미의 company_fact 전체에서 최신 답변을 가리키는 optimistic-CAS revision. */
+  companyFactRevision?: string;
+  /** 현재 공고가 아닌 같은 의미의 다른 질문 답변을 투영한 경우. */
+  reusedFromCompanyFact?: boolean;
   /** @deprecated 역사 exclusion 답변 호환 필드. */
   disqualified?: boolean;
   answerRevision?: number;
@@ -853,6 +857,8 @@ export interface GrantConfirmationSubmitRequest {
     binding?: NonNullable<GrantConfirmationQuestionDto["binding"]>;
     /** 같은 질문을 동시에 수정할 때 마지막 읽은 answer revision. 최초 저장은 0. */
     expectedAnswerRevision?: number;
+    /** company_fact 수정 시 GET에서 받은 revision. 아직 답변이 없으면 null. */
+    expectedCompanyFactRevision?: string | null;
   }>;
 }
 
@@ -902,6 +908,11 @@ export interface CompanyEnrichmentRequest {
 /** 랜딩 상호명 확인 게이트 요청. 명시적 요청에서만 공개 기본정보 cache miss를 보강한다. */
 export interface CompanyPreviewRequest {
   bizNo: string;
+  /**
+   * 같은 번호의 상호가 바뀌었을 때만 true.
+   * 첫 조회와 번호 재입력은 캐시를 먼저 읽고, true인 이번 요청만 캐시 읽기를 건너뛴다.
+   */
+  refresh?: boolean;
 }
 
 /**
@@ -919,6 +930,11 @@ export interface CompanyPreviewResult {
   regionLabel?: string;
   checkedAt?: string;
   cacheStatus?: string;
+  /**
+   * refresh 요청의 결과. 없으면 일반 조회.
+   * updated는 상호가 바뀐 경우이고, 나머지 값은 이전 상호를 유지한다.
+   */
+  refreshResult?: "updated" | "unchanged" | "already_fresh" | "rate_limited" | "failed";
 }
 
 export interface CompanyRecord {

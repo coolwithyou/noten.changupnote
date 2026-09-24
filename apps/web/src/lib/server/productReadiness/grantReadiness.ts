@@ -21,6 +21,8 @@ export type GrantReadinessBlocker =
   | "attachment_manifest_missing"
   | "attachment_manifest_changed"
   | "analysis_missing"
+  | "analysis_source_binding_missing"
+  | "analysis_attachment_binding_missing"
   | "criteria_structure_incomplete"
   | "criteria_review_incomplete"
   | "eligible_question_key_missing"
@@ -39,6 +41,8 @@ export interface GrantReadinessInput {
     readonly collectedAt?: string | null;
     readonly revisionSha256: string | null;
     readonly rawSha256: string | null;
+    /** raw 관측값을 제외한 공고·첨부 projection. source rebind admission에서만 사용한다. */
+    readonly materialRevisionSha256?: string | null;
     readonly attachmentStatus: "not_required" | "complete" | "missing";
     readonly attachmentManifestSha256: string | null;
   };
@@ -85,12 +89,14 @@ const D_BLOCKERS = new Set<GrantReadinessBlocker>([
   "source_revision_changed",
   "source_raw_changed",
   "attachments_missing",
-  "attachment_manifest_missing",
   "attachment_manifest_changed",
   "analysis_missing",
 ]);
 
 const C_BLOCKERS = new Set<GrantReadinessBlocker>([
+  "analysis_source_binding_missing",
+  "analysis_attachment_binding_missing",
+  "attachment_manifest_missing",
   "criteria_structure_incomplete",
   "criteria_review_incomplete",
   "eligible_question_key_missing",
@@ -166,13 +172,18 @@ function addSourceBindingBlockers(
   analysis: GrantReadinessInput["analysis"],
   blockers: Set<GrantReadinessBlocker>,
 ): void {
-  if (nonEmpty(source.revisionSha256) && analysis.sourceRevisionSha256 !== source.revisionSha256) {
+  if (nonEmpty(source.revisionSha256) && !nonEmpty(analysis.sourceRevisionSha256)) {
+    blockers.add("analysis_source_binding_missing");
+  } else if (nonEmpty(source.revisionSha256) && analysis.sourceRevisionSha256 !== source.revisionSha256) {
     blockers.add("source_revision_changed");
   }
   if (nonEmpty(source.rawSha256) && analysis.sourceRawSha256 !== source.rawSha256) {
     blockers.add("source_raw_changed");
   }
   if (source.attachmentStatus === "complete" && nonEmpty(source.attachmentManifestSha256)
+    && !nonEmpty(analysis.attachmentManifestSha256)) {
+    blockers.add("analysis_attachment_binding_missing");
+  } else if (source.attachmentStatus === "complete" && nonEmpty(source.attachmentManifestSha256)
     && analysis.attachmentManifestSha256 !== source.attachmentManifestSha256) {
     blockers.add("attachment_manifest_changed");
   }

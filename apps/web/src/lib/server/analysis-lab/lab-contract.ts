@@ -54,7 +54,7 @@ export const ANALYSIS_LAB_DEFAULT_MODEL = "claude-opus-4-8";
  * 재현율은 "공고당 놓친 hard 요건" 수준이 검수 비용을 좌우하며,
  * 커버리지는 현행 파이프라인 대비 개선 배수(1.5x)가 딥분석 도입의 최소 명분이다.
  * 구조화 비율은 실험의 존재 이유(기계판정 가능률 병목 해소)를 직접 재는 게이트 —
- * 승격 결정·기준치 근거는 docs/research/2026-07-21-공모딥분석-검수집계-판정.md §6
+ * 승격 결정·기준치 근거는 docs/archive/2026-09-23-condition-transition/research/2026-07-21-공모딥분석-검수집계-판정.md §6
  * (파일럿 실측 63.0%, 소표본·얇은 공고 유입을 감안한 보수 기준 50%).
  */
 export const ANALYSIS_LAB_GATES = {
@@ -139,7 +139,7 @@ export type LabConfirmationOption = DeepAnalysisConfirmationOption;
 /**
  * 자가신고 확인 질문 — kind=exclusion 중 소싱 데이터로 판정 불가한 항목에 한해
  * 딥분석이 사전 생성한다(v3). 확인 시점 재생성 없이 이 캐시를 쓴다.
- * 근거: docs/research/2026-07-23-미판정-결격-사용자확인-루프-검토.md §4.1.
+ * 근거: docs/archive/2026-09-23-condition-transition/research/2026-07-23-미판정-결격-사용자확인-루프-검토.md §4.1.
  */
 export type LabCriterionConfirmation = DeepAnalysisCriterionConfirmation;
 

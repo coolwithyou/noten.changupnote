@@ -108,17 +108,33 @@ try {
     audit.releasePendingGets(); await wait(30);
     if (!readOnly() || !pressed('확인할 수 없음')) throw new Error('A→B→A 뒤 오래된 writable GET을 폐기해야 한다');
 
+    audit.setGet('a', {canSubmit:true, delayMs:0, persistedValue:'yes'});
+    audit.setOpen(false); await wait(20); audit.setOpen(true);
+    await until(writable, '철회 검증은 writable v2 답변을 다시 읽어야 한다');
+    const withdraw = button('여러 공고에 적용된 이 답변 철회');
+    if (!withdraw) throw new Error('공통 회사 사실 답변은 관련 공고 적용 범위를 알려야 한다');
+    withdraw.click();
+    await until(() => audit.requests.some(request => request.method === 'DELETE'), '명시적 철회는 DELETE를 보내야 한다');
+    const deletion = audit.requests.find(request => request.method === 'DELETE');
+    if (deletion?.body?.questionId !== 'question-a'
+      || deletion?.body?.expectedAnswerRevision !== 1
+      || deletion?.body?.expectedCompanyFactRevision !== 'd'.repeat(64)) {
+      throw new Error('철회도 화면에 읽힌 exact 질문·답변·회사 사실 revision에 결속해야 한다');
+    }
+
     return JSON.stringify({
       ok: true,
       suite: 'confirmation-sheet-browser',
-      checks: ['viewer_read_only', 'persisted_answer_visible', '403_restore', 'no_retry_storm', 'aba_stale_403', 'close_reopen_stale_get', 'aba_stale_get'],
+      checks: ['viewer_read_only', 'persisted_answer_visible', '403_restore', 'no_retry_storm', 'aba_stale_403', 'close_reopen_stale_get', 'aba_stale_get', 'company_fact_withdrawal_binding'],
       getCount: audit.requests.filter(request => request.method === 'GET').length,
       putCount: audit.requests.filter(request => request.method === 'PUT').length,
+      deleteCount: audit.requests.filter(request => request.method === 'DELETE').length,
       externalWrites: 0,
     });
   })()`));
   const result = typeof rawResult === "string" ? JSON.parse(rawResult) : rawResult;
   assert.equal(result.ok, true);
+  assert.equal(result.deleteCount, 1);
   console.log(JSON.stringify(result));
 } finally {
   try { browser(["close"]); } catch {}

@@ -14,6 +14,49 @@ import {
   type PromotionServingLedgerItem,
 } from "./promotion-serving";
 import { assertServingVerificationTargets } from "../deep-analysis/verify-serving-cli";
+import { APPLICATION_ROUNDTRIP_ADOPTED_MODEL } from "../application-analysis/contract";
+import { validatePromotionApplicationPrecomputeEvidence } from "../analysis-serving/applicationPrecomputeEvidence";
+
+const historicalApplicationEvidence = {
+  schema: "promotion-application-precompute-v3",
+  releaseId: "historical-serving-r1",
+  grantId: "00000000-0000-4000-8000-000000000001",
+  parentLabRunId: "run-2026-08-06T000000.000Z-abcd",
+  roundtripRunId: "roundtrip-historical-r1",
+  status: "ready",
+  transport: "claude-cli",
+  model: APPLICATION_ROUNDTRIP_ADOPTED_MODEL,
+  analysisSha256: "a".repeat(64),
+  manifestSha256: "b".repeat(64),
+  sourceCount: 1,
+  documentCount: 1,
+  materializableDocumentCount: 1,
+  reviewRequiredDocumentCount: 0,
+  launchAdmission: {
+    launchReceiptSha256: "c".repeat(64),
+    launchManifestSha256: "d".repeat(64),
+    launchGrantSha256: "e".repeat(64),
+    launchSequence: 0,
+    independentReviewManifestSha256: "f".repeat(64),
+    independentReviewAggregateSha256: "1".repeat(64),
+    runArtifactSha256: "2".repeat(64),
+    applicationFieldAnalysisVersion: "kordoc-application-roundtrip-v9",
+  },
+};
+assert.throws(() => validatePromotionApplicationPrecomputeEvidence(historicalApplicationEvidence),
+  /formal launch RHWP evidence/, "신규 release admission에는 구 Kordoc 버전을 허용하지 않는다");
+assert.doesNotThrow(() => validatePromotionApplicationPrecomputeEvidence(
+  historicalApplicationEvidence, "historical_matching_serving",
+));
+assert.throws(() => validatePromotionApplicationPrecomputeEvidence({
+  ...historicalApplicationEvidence,
+  launchAdmission: { ...historicalApplicationEvidence.launchAdmission, launchReceiptSha256: "invalid" },
+}, "historical_matching_serving"), /formal launch RHWP evidence/);
+assert.throws(() => validatePromotionApplicationPrecomputeEvidence({
+  ...historicalApplicationEvidence,
+  launchAdmission: { ...historicalApplicationEvidence.launchAdmission,
+    applicationFieldAnalysisVersion: "kordoc-application-roundtrip-v8" },
+}, "historical_matching_serving"), /formal launch RHWP evidence/);
 
 const grantId = "00000000-0000-4000-8000-000000000001";
 const runId = "run-2026-08-06T000000.000Z-abcd";

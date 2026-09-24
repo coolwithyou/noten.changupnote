@@ -9,7 +9,9 @@ import {
 import {
   prepareMatchingCampaignLaunch,
   prepareTerminalRepairLaunch,
-  readCurrentEligibleMatchingTargets,
+  prepareCurrentEligibleMatchingTargets,
+  readCurrentEligibleMatchingCandidates,
+  type CurrentEligibleMatchingCandidate,
   type CurrentEligibleMatchingTarget,
 } from "./current-inventory-launch-production";
 import { verifyCurrentInventoryLaunchBinding } from "./current-inventory-launch";
@@ -46,6 +48,11 @@ import {
   type MatchingInventoryHistory,
 } from "./matching-inventory-campaign";
 import { findMonorepoRoot } from "./run-store";
+import type { GrantNextWorkAction } from "../productReadiness/grantNextWork";
+import {
+  assessPublishedGrantSupply,
+  type GrantSupplyAssessment,
+} from "../productReadiness/grantSupply";
 
 const SHA_FILE = /^([a-f0-9]{64})\.json$/u;
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/u;
@@ -60,10 +67,23 @@ export interface MatchingCampaignHistoryRecord {
 
 export interface MatchingCampaignProductionDependencies {
   readonly root: string;
-  readonly readCurrentTargets: (asOf: Date) => Promise<readonly CurrentEligibleMatchingTarget[]>;
+  /** Legacy fixture adapter. Production uses metadata enumeration followed by selected preparation. */
+  readonly readCurrentTargets?: (asOf: Date) => Promise<readonly CurrentEligibleMatchingTarget[]>;
+  readonly readCurrentCandidates?: (asOf: Date) => Promise<readonly CurrentEligibleMatchingCandidate[]>;
+  readonly prepareSelected?: (
+    candidates: readonly CurrentEligibleMatchingCandidate[],
+  ) => Promise<ReadonlyMap<string, CurrentEligibleMatchingTarget>>;
   readonly readHistory: (
-    current: readonly CurrentEligibleMatchingTarget[],
+    current: readonly CurrentEligibleMatchingCandidate[],
   ) => Promise<ReadonlyMap<string, MatchingCampaignHistoryRecord>>;
+  readonly readNextWork?: (
+    current: readonly CurrentEligibleMatchingCandidate[],
+    asOf: Date,
+  ) => Promise<ReadonlyMap<string, GrantNextWorkAction>>;
+  readonly readSupplyPlans?: (
+    current: readonly CurrentEligibleMatchingCandidate[],
+    asOf: Date,
+  ) => Promise<ReadonlyMap<string, GrantSupplyAssessment>>;
   readonly prepareCurrent: (
     grantIds: readonly string[],
     classification: MatchingInventoryClassification,
@@ -71,6 +91,8 @@ export interface MatchingCampaignProductionDependencies {
   readonly prepareTerminal: (
     sourceManifestSha256: string,
     sourceGrantSha256: string,
+    classification: MatchingInventoryClassification,
+    grantIds: readonly string[],
   ) => Promise<MatchingCampaignChildInput>;
   readonly storeClassification: (
     value: MatchingInventoryClassification,
@@ -277,14 +299,70 @@ export async function prepareMatchingInventoryCampaign(input: {
   const dependencies = input.dependencies ?? defaultDependencies();
   const childSize = input.childSize ?? MATCHING_CAMPAIGN_MAX_CHILD_TARGETS;
   partitionMatchingCampaignGrantIds([], childSize);
-  const current = await dependencies.readCurrentTargets(input.asOf);
-  if (current.length === 0) throw new Error("현행 지원 가능 matching campaign 모집단이 없습니다.");
-  const history = await dependencies.readHistory(current);
+  const candidates = dependencies.readCurrentCandidates
+    ? await dependencies.readCurrentCandidates(input.asOf)
+    : dependencies.readCurrentTargets
+      ? await dependencies.readCurrentTargets(input.asOf)
+      : (() => { throw new Error("matching campaign 후보 reader가 없습니다."); })();
+  if (candidates.length === 0) throw new Error("현행 지원 가능 matching campaign 모집단이 없습니다.");
+  const [history, supplyPlans, fallbackNextWork] = await Promise.all([
+    dependencies.readHistory(candidates),
+    dependencies.readSupplyPlans
+      ? dependencies.readSupplyPlans(candidates, input.asOf)
+      : Promise.resolve(null),
+    !dependencies.readSupplyPlans && dependencies.readNextWork
+      ? dependencies.readNextWork(candidates, input.asOf)
+      : Promise.resolve(null),
+  ]);
+  const readinessNextWork = supplyPlans
+    ? new Map(candidates.map((target) => {
+        const plan = supplyPlans.get(target.grantId);
+        return [target.grantId,
+          plan?.schema === "grant-supply-plan-v1" ? plan.nextWorkAction : "condition_analysis" as const,
+        ] as const;
+      }))
+    : fallbackNextWork ?? new Map(candidates.map((target) => [target.grantId, "condition_analysis" as const]));
+  for (const target of candidates) {
+    if (supplyPlans && !supplyPlans.has(target.grantId)) {
+      throw new Error(`matching campaign 공급 판정이 없습니다: ${target.grantId}`);
+    }
+    if (!readinessNextWork.has(target.grantId)) {
+      throw new Error(`matching campaign 다음 작업이 없습니다: ${target.grantId}`);
+    }
+  }
+  const selected = candidates.filter((candidate) => {
+    if (supplyPlans) {
+      const plan = supplyPlans.get(candidate.grantId);
+      if (plan?.schema !== "grant-supply-plan-v1" || plan.stage !== "await_approved_model_run") return false;
+    }
+    if (readinessNextWork.get(candidate.grantId) !== "condition_analysis") return false;
+    const prior = history.get(candidate.grantId)?.history;
+    return prior?.kind !== "legacy" && !(prior?.kind === "prepared" && prior.ownership === "active_elsewhere");
+  });
+  const selectedIds = new Set(selected.map((target) => target.grantId));
+  const prepared = dependencies.prepareSelected
+    ? await dependencies.prepareSelected(selected)
+    : new Map(candidates
+      .filter((target): target is CurrentEligibleMatchingTarget => "inputSha256" in target)
+      .map((target) => [target.grantId, target]));
+  const current = candidates.map((candidate) => {
+    const material = prepared.get(candidate.grantId);
+    if (selectedIds.has(candidate.grantId) && !material) {
+      throw new Error(`matching campaign 선택 target 준비 결과가 없습니다: ${candidate.grantId}`);
+    }
+    return material ?? {
+      ...candidate,
+      inputSha256: null,
+      attachmentManifestSha256: null,
+    };
+  });
   const classification = classifyMatchingInventorySnapshot({
     observedAt: input.asOf.toISOString(),
     targets: current.map((target) => ({
       ...target,
       eligibility: { eligible: true as const },
+      readinessNextWork: readinessNextWork.get(target.grantId)!,
+      ...(supplyPlans ? { supplyAssessment: supplyPlans.get(target.grantId)! } : {}),
       history: history.get(target.grantId)?.history ?? { kind: "none" as const },
     })),
   });
@@ -353,7 +431,9 @@ export async function prepareMatchingInventoryCampaign(input: {
         `terminal recovery source가 child-size를 초과합니다: ${source.manifestSha256} (${source.targetGrantIds.length} > ${childSize})`,
       );
     }
-    children.push(await dependencies.prepareTerminal(source.manifestSha256, source.grantSha256));
+    children.push(await dependencies.prepareTerminal(
+      source.manifestSha256, source.grantSha256, classification, source.targetGrantIds,
+    ));
   }
 
   if (children.length === 0) {
@@ -430,9 +510,12 @@ function defaultDependencies(): MatchingCampaignProductionDependencies {
   const root = findMonorepoRoot();
   return {
     root,
-    readCurrentTargets: readCurrentEligibleMatchingTargets,
+    readCurrentCandidates: readCurrentEligibleMatchingCandidates,
+    prepareSelected: prepareCurrentEligibleMatchingTargets,
+    readSupplyPlans: readCurrentMatchingSupplyPlans,
     readHistory: (current) => readVerifiedCurrentLaunchHistory(root, current),
     prepareCurrent: async (grantIds, classification) => {
+      await verifyMatchingCampaignSupplyPlans(grantIds, classification);
       const prepared = await prepareMatchingCampaignLaunch({
         grantIds,
         concurrency: 2,
@@ -441,7 +524,8 @@ function defaultDependencies(): MatchingCampaignProductionDependencies {
       });
       return { manifest: prepared.manifest, manifestSha256: prepared.manifestSha256 };
     },
-    prepareTerminal: async (sourceManifestSha256, sourceGrantSha256) => {
+    prepareTerminal: async (sourceManifestSha256, sourceGrantSha256, classification, grantIds) => {
+      await verifyMatchingCampaignSupplyPlans(grantIds, classification);
       const prepared = await prepareTerminalRepairLaunch({
         sourceManifestSha256,
         sourceGrantSha256,
@@ -455,10 +539,54 @@ function defaultDependencies(): MatchingCampaignProductionDependencies {
   };
 }
 
+async function readCurrentMatchingSupplyPlans(
+  current: readonly CurrentEligibleMatchingCandidate[],
+  asOf: Date,
+): Promise<ReadonlyMap<string, GrantSupplyAssessment>> {
+  const db = getCunoteDb();
+  const plans = new Map<string, GrantSupplyAssessment>();
+  // 자산 검증은 source/첨부를 다시 읽을 수 있어 한 번에 500건을 시작하지 않는다.
+  for (let offset = 0; offset < current.length; offset += 16) {
+    const grantIds = current.slice(offset, offset + 16).map((target) => target.grantId);
+    const assessments = await assessPublishedGrantSupply({ db, grantIds, asOf });
+    for (const assessment of assessments) {
+      if (!grantIds.includes(assessment.grantId) || plans.has(assessment.grantId)) {
+        throw new Error(`matching campaign 공급 판정 범위가 다릅니다: ${assessment.grantId}`);
+      }
+      plans.set(assessment.grantId, assessment);
+    }
+    if (assessments.length !== grantIds.length) {
+      throw new Error("matching campaign 공급 판정 대상 수가 다릅니다.");
+    }
+  }
+  return plans;
+}
+
+async function verifyMatchingCampaignSupplyPlans(
+  grantIds: readonly string[],
+  classification: MatchingInventoryClassification,
+): Promise<void> {
+  const current = await readCurrentMatchingSupplyPlans(
+    grantIds.map((grantId) => ({ grantId, closesToday: false })),
+    new Date(classification.observedAt),
+  );
+  const expected = new Map(classification.entries.map((entry) => [entry.grantId, entry]));
+  for (const grantId of grantIds) {
+    const plan = current.get(grantId);
+    const entry = expected.get(grantId);
+    if (plan?.schema !== "grant-supply-plan-v1"
+      || plan.stage !== "await_approved_model_run"
+      || entry?.supplyStage !== plan.stage
+      || entry.supplyEvidenceSha256 !== plan.evidenceSha256) {
+      throw new Error(`matching campaign child 준비 전 공급 판정이 변경됐습니다: ${grantId}`);
+    }
+  }
+}
+
 /** 현행 current-inventory artifact만 자동 판정하고 나머지 과거 이력은 fail-safe held로 둔다. */
 export async function readVerifiedCurrentLaunchHistory(
   root: string,
-  current: readonly CurrentEligibleMatchingTarget[],
+  current: readonly CurrentEligibleMatchingCandidate[],
 ): Promise<ReadonlyMap<string, MatchingCampaignHistoryRecord>> {
   const runtime = await readDeepAnalysisRuntimeAdmissionSnapshot(getCunoteDb());
   const activeGrantSha256 = activeLaunchGrantShaFromRuntime(runtime);

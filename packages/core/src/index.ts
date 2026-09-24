@@ -94,6 +94,7 @@ export * from "./kstartup/llm-criteria.js";
 export * from "./kstartup/normalize.js";
 export * from "./kstartup/types.js";
 export * from "./matching/match.js";
+export * from "./matching/criterion-resolution.js";
 export * from "./matching/question-planner.js";
 export * from "./matching/priority.js";
 export * from "./matching/ranking.js";

@@ -12,8 +12,17 @@ import {
   loadPromotionGrantSnapshot,
   promotionGrantSnapshotStateSha256,
 } from "./promotionSnapshot";
-import { getCunoteDb } from "../db/client";
+import { getCunoteDb, type CunoteDbSession } from "../db/client";
 import * as schema from "../db/schema";
+import {
+  loadLegacyQuestionMigrationServingStates,
+  promotionStateMatchesParentOrMigration,
+} from "../productReadiness/legacyQuestionMigrationServing";
+import {
+  loadSourceRebindServingStates,
+  sourceRebindMatchesCurrent,
+} from "../productReadiness/sourceRebindServing";
+import { loadDeepAnalysisSourceBinding } from "../deep-analysis/prepareInput";
 
 export type DocumentAgentEvidenceKind =
   | "current_document"
@@ -36,11 +45,10 @@ export interface DocumentAgentGroundingBundle {
   groundingProvenance: Record<string, unknown>;
 }
 
-export async function loadVerifiedDeepSources(grantId: string): Promise<{
+export async function loadVerifiedDeepSources(grantId: string, db: CunoteDbSession = getCunoteDb()): Promise<{
   sources: DocumentAgentGroundingSource[];
   provenance: Record<string, unknown>;
 }> {
-  const db = getCunoteDb();
   const rows = await db
     .select({
       releaseId: schema.analysisLabPromotionReleases.releaseId,
@@ -98,7 +106,7 @@ export async function loadVerifiedDeepSources(grantId: string): Promise<{
   }
   let manifest;
   try {
-    manifest = validatePromotionReleaseManifest(newest.manifest);
+    manifest = validatePromotionReleaseManifest(newest.manifest, "historical_matching_serving");
   } catch {
     return { sources: [], provenance: { status: "invalid_manifest" } };
   }
@@ -130,7 +138,29 @@ export async function loadVerifiedDeepSources(grantId: string): Promise<{
   }
   const snapshot = await loadPromotionGrantSnapshot(db, grantId);
   const currentSha256 = promotionGrantSnapshotStateSha256(snapshot);
-  if (currentSha256 !== newest.afterSha256) {
+  const [migrationStates, sourceRebindStates, currentSource] = await Promise.all([
+    loadLegacyQuestionMigrationServingStates(db, [newest.promotionItemId]),
+    loadSourceRebindServingStates(db, [newest.promotionItemId]),
+    loadDeepAnalysisSourceBinding({ db, grantId }),
+  ]);
+  const sourceRebind = sourceRebindStates.get(newest.promotionItemId);
+  const sourceRebindCurrent = Boolean(currentSource)
+    && sourceRebind?.rootSourceRevisionSha256 === sourceRevisionSha256
+    && sourceRebindMatchesCurrent({
+      state: sourceRebind,
+      grantId,
+      currentStateSha256: currentSha256,
+      currentSourceRevisionSha256: currentSource!.sourceRevisionSha256,
+      currentSourceRawSha256: currentSource!.sourceRawSha256,
+      currentMaterialSourceRevisionSha256: currentSource!.materialSourceRevisionSha256,
+    });
+  const parentSourceCurrent = currentSource?.sourceRevisionSha256 === sourceRevisionSha256;
+  if (!sourceRebindCurrent && (!parentSourceCurrent || !promotionStateMatchesParentOrMigration({
+    currentStateSha256: currentSha256,
+    parentAfterSha256: newest.afterSha256,
+    successor: migrationStates.get(newest.promotionItemId),
+    grantId,
+  }))) {
     return { sources: [], provenance: { status: "current_state_drift" } };
   }
   const planStableKeyCounts = countStableKeys(plan.promotionPlan.criterionStableKeys);
@@ -174,7 +204,9 @@ export async function loadVerifiedDeepSources(grantId: string): Promise<{
       guide,
       runId: newest.runId,
       inputSha256: expectedInputSha256,
-      sourceRevisionSha256,
+      sourceRevisionSha256: sourceRebindCurrent
+        ? currentSource!.sourceRevisionSha256
+        : sourceRevisionSha256,
       attachmentManifestSha256: expectedAttachmentManifestSha256,
     });
     if (guideBound) {

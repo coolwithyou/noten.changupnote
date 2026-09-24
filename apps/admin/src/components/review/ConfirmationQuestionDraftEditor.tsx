@@ -23,6 +23,8 @@ import {
 import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
+import { normalizedCompanyFactBoundary } from "@cunote/contracts/confirmation-question-draft"
 import {
   beginConfirmationQuestionDraftImport,
   buildManualConfirmationDraftInput,
@@ -35,6 +37,7 @@ import {
 export function ConfirmationQuestionDraftEditor({ actorEmail }: { actorEmail: string }) {
   const [draft, setDraft] = useState<ImportedConfirmationQuestionDraft | null>(null)
   const [questionAuthorEmail, setQuestionAuthorEmail] = useState("")
+  const [withdrawnIndexesText, setWithdrawnIndexesText] = useState("")
   const [error, setError] = useState<string | null>(null)
   const [isImporting, setIsImporting] = useState(false)
   const importGeneration = useRef(0)
@@ -55,6 +58,7 @@ export function ConfirmationQuestionDraftEditor({ actorEmail }: { actorEmail: st
       if (!generation.isLatest()) return
       setDraft(imported)
       setQuestionAuthorEmail(imported.questionAuthorEmail)
+      setWithdrawnIndexesText(imported.withdrawnCriterionIndexes.join(","))
     } catch (cause) {
       if (!generation.isLatest()) return
       setDraft(null)
@@ -85,6 +89,10 @@ export function ConfirmationQuestionDraftEditor({ actorEmail }: { actorEmail: st
         packet: draft.packet,
         questionAuthorEmail,
         items: draft.items,
+        revisionIntent: draft.revisionIntent,
+        withdrawnCriterionIndexes: withdrawnIndexesText.trim()
+          ? withdrawnIndexesText.split(",").map((value) => Number(value.trim()))
+          : [],
       })
       const blob = new Blob([`${JSON.stringify(manualInput, null, 2)}\n`], {
         type: "application/json",
@@ -205,6 +213,29 @@ export function ConfirmationQuestionDraftEditor({ actorEmail }: { actorEmail: st
                   />
                   <FieldDescription>기존 manual CLI가 사람 이메일 형식과 AI 식별자 금지를 다시 검증합니다.</FieldDescription>
                 </Field>
+                <Field>
+                  <FieldLabel>Manual snapshot 종류</FieldLabel>
+                  <ToggleGroup variant="outline" value={[draft.revisionIntent]}
+                    onValueChange={(values) => setDraft((current) => current ? {
+                      ...current,
+                      revisionIntent: values.at(-1) === "replace" ? "replace"
+                        : values.at(-1) === "withdraw_all" ? "withdraw_all" : "initial",
+                    } : current)}>
+                    <ToggleGroupItem value="initial">첫 발행</ToggleGroupItem>
+                    <ToggleGroupItem value="replace">수정 revision</ToggleGroupItem>
+                    <ToggleGroupItem value="withdraw_all">전체 철회</ToggleGroupItem>
+                  </ToggleGroup>
+                  <FieldDescription>수정·철회는 CLI에서 exact parent revision과 SHA를 별도로 지정해야 합니다.</FieldDescription>
+                </Field>
+                {draft.revisionIntent !== "initial" ? (
+                  <Field>
+                    <FieldLabel htmlFor="withdrawn-criterion-indexes">철회할 원 criterion index</FieldLabel>
+                    <Input id="withdrawn-criterion-indexes"
+                      value={withdrawnIndexesText}
+                      onChange={(event) => setWithdrawnIndexesText(event.currentTarget.value)} />
+                    <FieldDescription>쉼표로 구분합니다. 원 parent snapshot에서 실제 제거한 index와 정확히 같아야 CLI가 저장합니다.</FieldDescription>
+                  </Field>
+                ) : null}
               </FieldGroup>
             </CardContent>
             <CardFooter className="justify-end">
@@ -241,13 +272,14 @@ function QuestionCard({
   const kindLabel = item.criterionKind === "required"
     ? "필수"
     : item.criterionKind === "preferred" ? "우대" : "제외"
+  const factBoundary = normalizedCompanyFactBoundary(item.normalizedCriterion?.value)
   return (
     <Card>
       <CardHeader>
         <div className="flex flex-wrap items-center gap-2">
           <Badge variant="outline">조건 {item.criterionIndex + 1}</Badge>
           <Badge variant={item.criterionKind === "exclusion" ? "destructive" : "secondary"}>{kindLabel}</Badge>
-          <Badge variant="outline">공고별 1회</Badge>
+          <Badge variant="outline">{item.resolutionScope === "company_fact" ? "회사 사실 공유" : "공고별 1회"}</Badge>
         </div>
         <CardTitle className="pt-2">2. 질문 문구와 평가 극성 검토</CardTitle>
         <CardDescription>
@@ -262,6 +294,11 @@ function QuestionCard({
             <FieldDescription className="break-all">criterion SHA: {item.criterionSha256}</FieldDescription>
           </Field>
           <Field>
+            <FieldLabel>검수된 정규화 조건</FieldLabel>
+            <pre className="overflow-auto rounded-lg border bg-muted/40 p-3 text-xs">{JSON.stringify(item.normalizedCriterion ?? null, null, 2)}</pre>
+            <FieldDescription>원문·정규화 값의 의미가 다르면 공유를 선택하지 말고 원 criterion 검수·수정으로 되돌리세요.</FieldDescription>
+          </Field>
+          <Field>
             <FieldLabel htmlFor={`prompt-${item.criterionIndex}`}>사용자 질문</FieldLabel>
             <Textarea
               id={`prompt-${item.criterionIndex}`}
@@ -269,6 +306,86 @@ function QuestionCard({
               onChange={(event) => onChange(updateQuestionPrompt(event.currentTarget.value))}
             />
           </Field>
+          <Field>
+            <FieldLabel>답변 재사용 범위</FieldLabel>
+            <ToggleGroup variant="outline" value={[item.resolutionScope]}
+              onValueChange={(values) => onChange((current) => {
+                const selected = values.at(-1)
+                return selected === "per_notice"
+                  ? { ...current, resolutionScope: "per_notice", conditionKey: "" }
+                  : selected === "company_fact"
+                    ? { ...current, resolutionScope: "company_fact" }
+                    : current
+              })}>
+              <ToggleGroupItem value="per_notice">이 공고만</ToggleGroupItem>
+              <ToggleGroupItem value="company_fact">같은 회사 사실 공유</ToggleGroupItem>
+            </ToggleGroup>
+            <FieldDescription>원문 해석이 끝난 회사 사실에만 선택하세요. 공유 판정은 표준 키와 조건의 정규화 값을 함께 비교하므로 범위·기준일도 그 값에 반영됐는지 검수하세요.</FieldDescription>
+          </Field>
+          {item.resolutionScope === "company_fact" ? (
+            <>
+              <Field>
+                <FieldLabel htmlFor={`condition-key-${item.criterionIndex}`}>검증된 표준 사실 키</FieldLabel>
+                <Input id={`condition-key-${item.criterionIndex}`} value={item.conditionKey ?? ""}
+                  placeholder="registered_business_location"
+                  onChange={(event) => onChange((current) => ({ ...current, conditionKey: event.currentTarget.value }))} />
+                <FieldDescription>키 형식만으로 의미가 검증되지 않습니다. 기존 정의는 원 검수 artifact와 identity를 대조한 뒤에만 선택하세요.</FieldDescription>
+              </Field>
+              <Field>
+                <FieldLabel htmlFor={`fact-meaning-${item.criterionIndex}`}>검수자가 확정한 회사 사실의 의미</FieldLabel>
+                <Textarea id={`fact-meaning-${item.criterionIndex}`} value={item.companyFactMeaning ?? ""}
+                  onChange={(event) => onChange((current) => ({ ...current, companyFactMeaning: event.currentTarget.value }))} />
+                <FieldDescription>질문의 참/거짓 대상과 적용 대상을 적으세요. 이 결정은 작성자의 manual artifact에 결속됩니다.</FieldDescription>
+              </Field>
+              <Field>
+                <FieldLabel>정의 출처</FieldLabel>
+                <ToggleGroup variant="outline" value={[item.companyFactDefinitionSource ?? "new_review"]}
+                  onValueChange={(values) => onChange((current) => ({
+                    ...current,
+                    companyFactDefinitionSource: values.at(-1) === "existing_reviewed" ? "existing_reviewed" : "new_review",
+                  }))}>
+                  <ToggleGroupItem value="new_review">새 의미 검수</ToggleGroupItem>
+                  <ToggleGroupItem value="existing_reviewed">기존 검수 정의 선택</ToggleGroupItem>
+                </ToggleGroup>
+                <FieldDescription>기존 정의는 원 manual artifact의 exact selector를 입력해야 CLI가 identity와 검수 출처를 대조합니다.</FieldDescription>
+              </Field>
+              {item.companyFactDefinitionSource === "existing_reviewed" ? (
+                <FieldGroup>
+                  {([
+                    ["grantId", "원 Grant ID"],
+                    ["runId", "원 Run ID"],
+                    ["revision", "원 Manual revision"],
+                    ["artifactSha256", "원 Manual artifact SHA-256"],
+                    ["criterionIndex", "원 Criterion index"],
+                  ] as const).map(([field, label]) => (
+                    <Field key={field}>
+                      <FieldLabel htmlFor={`existing-${field}-${item.criterionIndex}`}>{label}</FieldLabel>
+                      <Input id={`existing-${field}-${item.criterionIndex}`}
+                        value={item.existingDefinition?.[field] ?? ""}
+                        onChange={(event) => onChange((current) => ({
+                          ...current,
+                          existingDefinition: {
+                            grantId: current.existingDefinition?.grantId ?? "",
+                            runId: current.existingDefinition?.runId ?? "",
+                            revision: current.existingDefinition?.revision ?? 0,
+                            artifactSha256: current.existingDefinition?.artifactSha256 ?? "",
+                            criterionIndex: current.existingDefinition?.criterionIndex ?? 0,
+                            [field]: field === "revision" || field === "criterionIndex"
+                              ? Number(event.currentTarget.value)
+                              : event.currentTarget.value,
+                          },
+                        }))} />
+                    </Field>
+                  ))}
+                </FieldGroup>
+              ) : null}
+              <Field>
+                <FieldLabel>구조화된 공유 범위와 기준일</FieldLabel>
+                <pre className="overflow-auto rounded-lg border bg-muted/40 p-3 text-xs">{factBoundary ? JSON.stringify(factBoundary, null, 2) : "정규화 scope/기준일 없음 — 공유 발행 보류"}</pre>
+                <FieldDescription>설명문에만 있는 범위·날짜는 공유 대상이 아닙니다. 이 값은 내보낼 때 원 packet과 다시 비교합니다.</FieldDescription>
+              </Field>
+            </>
+          ) : null}
           <Field>
             <FieldLabel>고정 3상태 선택지</FieldLabel>
             <div className="grid gap-3 md:grid-cols-3">

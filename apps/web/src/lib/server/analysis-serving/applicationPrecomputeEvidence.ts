@@ -10,10 +10,13 @@ export const ANALYSIS_LAUNCH_PROMOTION_APPLICATION_PRECOMPUTE_SCHEMA =
 
 export type PromotionApplicationPrecomputeValidationPurpose =
   | "current_admission"
-  | "field_repair_serving";
+  | "field_repair_serving"
+  | "historical_matching_serving";
 
 const FIELD_REPAIR_SERVING_COMPATIBLE_ROUNDTRIP_VERSION =
   "kordoc-application-roundtrip-v11";
+const HISTORICAL_MATCHING_SERVING_ROUNDTRIP_VERSION =
+  "kordoc-application-roundtrip-v9";
 
 export function applicationFieldAnalysisVersionAllowedForPurpose(
   value: unknown,
@@ -21,7 +24,9 @@ export function applicationFieldAnalysisVersionAllowedForPurpose(
 ): boolean {
   return value === APPLICATION_ROUNDTRIP_VERSION
     || (purpose === "field_repair_serving"
-      && value === FIELD_REPAIR_SERVING_COMPATIBLE_ROUNDTRIP_VERSION);
+      && value === FIELD_REPAIR_SERVING_COMPATIBLE_ROUNDTRIP_VERSION)
+    || (purpose === "historical_matching_serving"
+      && value === HISTORICAL_MATCHING_SERVING_ROUNDTRIP_VERSION);
 }
 
 export interface PromotionApplicationPrecomputeAdmissionEvidence {

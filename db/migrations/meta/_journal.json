@@ -610,6 +610,41 @@
       "when": 1789891200000,
       "tag": "0086_match_journey_events",
       "breakpoints": true
+    },
+    {
+      "idx": 87,
+      "version": "7",
+      "when": 1790035200000,
+      "tag": "0087_grant_source_change_impact",
+      "breakpoints": true
+    },
+    {
+      "idx": 88,
+      "version": "7",
+      "when": 1790121600000,
+      "tag": "0088_legacy_question_migration_release",
+      "breakpoints": true
+    },
+    {
+      "idx": 89,
+      "version": "7",
+      "when": 1790125200000,
+      "tag": "0089_legacy_question_migration_serving_binding",
+      "breakpoints": true
+    },
+    {
+      "idx": 90,
+      "version": "7",
+      "when": 1790132400000,
+      "tag": "0090_source_rebind_successor",
+      "breakpoints": true
+    },
+    {
+      "idx": 91,
+      "version": "7",
+      "when": 1790208000000,
+      "tag": "0091_promotion_supply_plan_evidence",
+      "breakpoints": true
     }
   ]
 }

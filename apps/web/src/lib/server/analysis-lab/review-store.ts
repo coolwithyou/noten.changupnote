@@ -102,12 +102,15 @@ async function readReviewFile(path: string): Promise<LabReview | null> {
   try {
     const body = await readFile(path, "utf8");
     const parsed = JSON.parse(body) as LabReview;
-    return typeof parsed.runId === "string" &&
+    const valid = typeof parsed.runId === "string" &&
       typeof parsed.grantId === "string" &&
-      typeof parsed.reviewerEmail === "string"
-      ? parsed
-      : null;
-  } catch {
-    return null;
+      typeof parsed.reviewerEmail === "string" &&
+      Array.isArray(parsed.criterionReviews) &&
+      Array.isArray(parsed.axisReviews);
+    if (!valid) throw new Error(`invalid_lab_review_file:${path}`);
+    return parsed;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw error;
   }
 }

@@ -1,5 +1,5 @@
 // 공모 딥분석 실험실 — 확정 결격 질문 경량 보강 러너 코어 (dev 전용, 결과는 사이드카 파일).
-// 확인 루프 Phase B-0(계획 docs/plans/2026-07-23-confirmation-loop-phase-b.md §0-1):
+// 확인 루프 Phase B-0(계획 docs/archive/2026-09-23-condition-transition/plans/2026-07-23-confirmation-loop-phase-b.md §0-1):
 // 확대 실험의 기존 30건은 v2 런이라 confirmation(자가신고 확인 질문, lab-deep-v3)이 없고,
 // 검수·감사 자산은 동결이라 전체 재분석은 기각됐다. 대신 **검수·감사로 확정(correct)된
 // exclusion criterion 만** 대상으로 질문을 생성해 런 파일 옆 사이드카에 저장한다:

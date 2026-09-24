@@ -44,7 +44,7 @@ window.fetch = async (_input, init) => {
         grantId: "audit-grant",
         saved: [],
         match,
-        refresh: { plannedCount: 1, savedCount: 1, status: "succeeded" },
+        refresh: { plannedCount: 4, savedCount: 4, status: "succeeded" },
       } satisfies GrantConfirmationSubmitResult,
     }), { headers: { "content-type": "application/json" } });
   }

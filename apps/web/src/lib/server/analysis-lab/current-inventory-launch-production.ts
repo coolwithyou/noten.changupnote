@@ -4,7 +4,7 @@ import { getCunoteDb } from "../db/client";
 import * as schema from "../db/schema";
 import { loadDeepAnalysisSourceBindings } from "../deep-analysis/prepareInput";
 import { isKStartupRecruitmentClosedPayload } from "../repositories/activeGrantFilter";
-import { prepareLabAnalysis } from "./analyze";
+import { LabGrantNotFoundError, prepareLabAnalysis } from "./analyze";
 import { readDeepRepairHistoricalGrantIds } from "./deep-repair-preparation-history";
 import { readCurrentDeepRepairExecutionProvenance } from "./deep-repair-runtime-provenance";
 import { resolveLabModel } from "./extractor";
@@ -56,6 +56,8 @@ export async function prepareMatchingCampaignLaunch(input: {
     const entry = entries.get(grantId);
     if (!entry?.campaignEligible
       || (entry.category !== "new" && entry.category !== "source_changed" && entry.category !== "prepared_not_started")
+      || !entry.current.inputSha256
+      || !entry.current.attachmentManifestSha256
       || !/^[a-f0-9]{64}$/u.test(entry.current.inputSha256)
       || !/^[a-f0-9]{64}$/u.test(entry.current.attachmentManifestSha256)) {
       throw new Error(`matching campaign classification이 current 준비를 허용하지 않습니다: ${grantId}`);
@@ -238,10 +240,14 @@ export function assertMissingWorkspaceFieldsState(input: { fieldCount: number; e
 
 export interface CurrentEligibleMatchingTarget {
   readonly grantId: string;
-  readonly inputSha256: string;
-  readonly attachmentManifestSha256: string;
+  readonly inputSha256: string | null;
+  readonly attachmentManifestSha256: string | null;
   readonly closesToday: boolean;
+  /** target-local input failure only; shared DB/storage failures reject the snapshot. */
+  readonly preparationFailure?: "grant_missing" | "input_integrity";
 }
+
+export type CurrentEligibleMatchingCandidate = Pick<CurrentEligibleMatchingTarget, "grantId" | "closesToday">;
 
 export function isCurrentEligibleMatchingTargetClosingToday(applyEnd: Date | null, asOf: Date): boolean {
   return applyEnd instanceof Date
@@ -249,10 +255,10 @@ export function isCurrentEligibleMatchingTargetClosingToday(applyEnd: Date | nul
     && applyEnd.getTime() === kstDayStartUtc(asOf).getTime();
 }
 
-/** 고정 시각의 지원 가능·노출·중복 대표 모집단과 현재 분석 input 결속을 읽는다. */
-export async function readCurrentEligibleMatchingTargets(
+/** 고정 시각의 지원 가능·노출·중복 대표 모집단만 읽는다. */
+export async function readCurrentEligibleMatchingCandidates(
   asOf: Date = new Date(),
-): Promise<readonly CurrentEligibleMatchingTarget[]> {
+): Promise<readonly CurrentEligibleMatchingCandidate[]> {
   if (!Number.isFinite(asOf.getTime())) throw new Error("campaign snapshot 시각이 잘못됐습니다.");
   const db = getCunoteDb();
   const candidates = await db.transaction(async tx => {
@@ -284,22 +290,65 @@ export async function readCurrentEligibleMatchingTargets(
     return candidateRows.filter((row) => !memberIds.has(row.id))
       .sort((left, right) => left.id.localeCompare(right.id, "en"));
   }, { isolationLevel: "repeatable read", accessMode: "read only" });
-  const result: CurrentEligibleMatchingTarget[] = [];
+  return Object.freeze(candidates.map((row) => Object.freeze({
+    grantId: row.id,
+    closesToday: isCurrentEligibleMatchingTargetClosingToday(row.applyEnd, asOf),
+  })));
+}
+
+/** 선택한 공고만 물리 입력을 조립한다. 다른 종류의 실패는 공유 장애 가능성이 있어 중단한다. */
+export async function prepareCurrentEligibleMatchingTargets(
+  candidates: readonly CurrentEligibleMatchingCandidate[],
+  prepare: (grantId: string) => Promise<{
+    grant: { id: string };
+    input: { inputSha256: string; attachmentManifestSha256: string };
+  }> = prepareLabAnalysis,
+): Promise<ReadonlyMap<string, CurrentEligibleMatchingTarget>> {
+  const result = new Map<string, CurrentEligibleMatchingTarget>();
   for (let offset = 0; offset < candidates.length; offset += 2) {
-    const prepared = await Promise.all(candidates.slice(offset, offset + 2).map(async (row) => ({
-      row,
-      prepared: await prepareLabAnalysis(row.id),
-    })));
-    for (const { row, prepared: current } of prepared) {
-      result.push(Object.freeze({
-        grantId: row.id,
-        inputSha256: current.input.inputSha256,
-        attachmentManifestSha256: current.input.attachmentManifestSha256,
-        closesToday: isCurrentEligibleMatchingTargetClosingToday(row.applyEnd, asOf),
-      }));
-    }
+    const batch = await Promise.all(candidates.slice(offset, offset + 2).map(async (candidate) => {
+      try {
+        const current = await prepare(candidate.grantId);
+        if (current.grant.id !== candidate.grantId) {
+          throw new Error(`입력 준비 target 결속이 다릅니다: ${candidate.grantId}`);
+        }
+        return Object.freeze({
+          ...candidate,
+          inputSha256: current.input.inputSha256,
+          attachmentManifestSha256: current.input.attachmentManifestSha256,
+        });
+      } catch (error) {
+        const preparationFailure = error instanceof LabGrantNotFoundError
+          ? "grant_missing" as const
+          : error instanceof Error && (
+            error.message === "markdown SHA-256 mismatch"
+            || error.message === "attachment preparation provenance length mismatch"
+            || error.message.startsWith("attachment preparation outcome unresolved:")
+            || error.message.startsWith("attachment provenance outcome unresolved:")
+          )
+            ? "input_integrity" as const
+            : null;
+        if (!preparationFailure) throw error;
+        return Object.freeze({
+          ...candidate,
+          inputSha256: null,
+          attachmentManifestSha256: null,
+          preparationFailure,
+        });
+      }
+    }));
+    for (const target of batch) result.set(target.grantId, target);
   }
-  return Object.freeze(result);
+  return result;
+}
+
+/** 기존 직접 호출자는 모든 현행 대상의 exact material을 요청한다. */
+export async function readCurrentEligibleMatchingTargets(
+  asOf: Date = new Date(),
+): Promise<readonly CurrentEligibleMatchingTarget[]> {
+  const candidates = await readCurrentEligibleMatchingCandidates(asOf);
+  const prepared = await prepareCurrentEligibleMatchingTargets(candidates);
+  return Object.freeze(candidates.map((candidate) => prepared.get(candidate.grantId)!));
 }
 
 export async function readCurrentEligibility(grantIds: readonly string[], policy: CurrentInventoryPolicy) {

@@ -652,6 +652,8 @@ test("독립 검수 합의 결함 재분석은 exact 원본 대상과 RHWP 필�
   const applicationRoundtripReuse = reuseBinding(3, "run-source-3");
   const repair = createIndependentReviewRepairAnalysisLaunchManifest({
     aggregateSha256: SHA_D,
+    analysisMode: "primary_and_application",
+    withApplicationRoundtrip: true,
     targets: [
       {
         originalSequence: 3,
@@ -727,6 +729,8 @@ test("독립 검수 합의 결함 재분석은 exact 원본 대상과 RHWP 필�
 
   assert.throws(() => createIndependentReviewRepairAnalysisLaunchManifest({
     aggregateSha256: SHA_D,
+    analysisMode: "primary_and_application",
+    withApplicationRoundtrip: true,
     targets: [{
       originalSequence: 3,
       grantId: GRANT_0,
@@ -745,6 +749,8 @@ test("독립 검수 합의 결함 재분석은 exact 원본 대상과 RHWP 필�
   }), /원본 launch와 달라졌습니다/);
   assert.throws(() => createIndependentReviewRepairAnalysisLaunchManifest({
     aggregateSha256: SHA_D,
+    analysisMode: "primary_and_application",
+    withApplicationRoundtrip: true,
     targets: [{
       originalSequence: 3,
       grantId: GRANT_0,
@@ -768,6 +774,65 @@ test("독립 검수 합의 결함 재분석은 exact 원본 대상과 RHWP 필�
     concurrency: 1,
     now: new Date("2026-08-29T00:00:00.000Z"),
   }), /source sequence/);
+});
+
+test("독립 검수 matching-only repair는 원본 범위를 유지하고 Kordoc 결속을 거부한다", () => {
+  const input = {
+    aggregateSha256: SHA_D,
+    analysisMode: "matching_only" as const,
+    withApplicationRoundtrip: false,
+    targets: [{
+      originalSequence: 3,
+      grantId: GRANT_0,
+      source: "kstartup",
+      inputSha256: SHA_A,
+      attachmentManifestSha256: SHA_B,
+      reviewRepair: {
+        sourceRunId: "run-source-3",
+        reviewModel: "gpt-5.6-sol",
+        blockingCount: 1,
+        taskInstruction: "검증된 criterion 결함만 수정",
+      },
+    }],
+    preparedTargets: [{ grantId: GRANT_0, inputSha256: SHA_A, attachmentManifestSha256: SHA_B }],
+    provenance: {
+      gitSha: GIT_A,
+      packageRuntimeSha256: SHA_C,
+      validatorVersion: DEEP_ANALYSIS_VALIDATOR_VERSION,
+    },
+    concurrency: 1,
+    now: new Date("2026-09-24T00:00:00.000Z"),
+  };
+  const repair = createIndependentReviewRepairAnalysisLaunchManifest(input);
+  assert.equal(repair.source.kind, "independent_review_repair");
+  assert.equal(repair.execution.analysisMode, "matching_only");
+  assert.equal(repair.execution.withApplicationRoundtrip, false);
+  assert.equal(repair.execution.roundtripModel, null);
+  assert.equal(repair.execution.applicationFieldAnalysisVersion, null);
+  assert.equal(repair.targets[0]?.applicationRoundtripReuse, undefined);
+  assert.deepEqual(normalizeAnalysisLaunchManifest(JSON.parse(encodeCanonical(repair).toString("utf8"))), repair);
+
+  assert.throws(() => createIndependentReviewRepairAnalysisLaunchManifest({
+    ...input,
+    withApplicationRoundtrip: true,
+  }), /analysisMode/);
+  assert.throws(() => createIndependentReviewRepairAnalysisLaunchManifest({
+    ...input,
+    targets: [{ ...input.targets[0]!, applicationRoundtripReuse: reuseBinding(3, "run-source-3") }],
+  }), /Kordoc exact 재사용/);
+  assert.throws(() => normalizeAnalysisLaunchManifest({
+    ...repair,
+    targets: [{ ...repair.targets[0]!, applicationRoundtripReuse: reuseBinding(3, "run-source-3") }],
+  }), /primary repair 외 launch/);
+  assert.throws(() => normalizeAnalysisLaunchManifest({
+    ...repair,
+    execution: {
+      ...repair.execution,
+      withApplicationRoundtrip: true,
+      roundtripModel: "claude-opus-5",
+      applicationFieldAnalysisVersion: APPLICATION_ROUNDTRIP_VERSION,
+    },
+  }), /analysisMode/);
 });
 
 test("독립 검수 repair 준비는 현재 입력이 달라진 target만 격리한다", () => {
@@ -1058,6 +1123,63 @@ test("application-only capability는 exact primary reuse 없이는 generic prima
   }, async () => undefined), /primaryReuse 결속/);
 });
 
+test("matching-only 독립 검수 repair capability는 원본 target과 primary 지시만 허용한다", async () => {
+  const reviewRepair = {
+    sourceRunId: "run-source",
+    reviewModel: "gpt-5.6-sol",
+    blockingCount: 1,
+    taskInstruction: "검증된 criterion 결함만 수정",
+  } as const;
+  const binding = {
+    grantSha256: SHA_D,
+    manifestSha256: SHA_C,
+    sourceKind: "independent_review_repair" as const,
+    model: "claude-opus-5",
+    transport: "claude-cli" as const,
+    promptVersion: ANALYSIS_LAB_PROMPT_VERSION,
+    analysisMode: "matching_only" as const,
+    withApplicationRoundtrip: false,
+    roundtripModel: null,
+    targets: new Map([[GRANT_0, {
+      grantId: GRANT_0,
+      inputSha256: SHA_A,
+      attachmentManifestSha256: SHA_B,
+      reviewRepair,
+    }]]),
+  };
+  await withAnalysisLaunchBatchExecution(binding, async () => {
+    const active = currentAnalysisLaunchBatchExecutionBinding();
+    assert.ok(active);
+    assert.equal(active.analysisMode, "matching_only");
+    assert.equal(hasLaunchBatchExecutionViolation(GRANT_0, {
+      transport: "claude-cli",
+      model: "claude-opus-5",
+      withApplicationRoundtrip: false,
+      taskInstruction: reviewRepair.taskInstruction,
+      reviewRepair: { ...reviewRepair, auditModel: null, adjudicationModel: null },
+    }, active), false);
+    assert.equal(hasLaunchBatchExecutionViolation(GRANT_0, {
+      transport: "claude-cli",
+      model: "claude-opus-5",
+      withApplicationRoundtrip: true,
+      roundtripModel: "claude-opus-5",
+      taskInstruction: reviewRepair.taskInstruction,
+      reviewRepair: { ...reviewRepair, auditModel: null, adjudicationModel: null },
+    }, active), true);
+  });
+  assert.throws(() => withAnalysisLaunchBatchExecution({
+    ...binding,
+    targets: new Map([[GRANT_0, {
+      ...binding.targets.get(GRANT_0)!,
+      applicationRoundtripReuse: reuseBinding(3, reviewRepair.sourceRunId),
+    }]]),
+  }, async () => undefined), /applicationRoundtripReuse 결속/);
+  assert.throws(() => withAnalysisLaunchBatchExecution({
+    ...binding,
+    sourceKind: "authoring_guide_adoption",
+  }, async () => undefined), /matching-only source/);
+});
+
 test("launch capability는 manifest에 exact 결속된 독립 검수 복구 지시만 허용한다", async () => {
   const reviewRepair = {
     sourceRunId: "run-source",
@@ -1208,6 +1330,8 @@ test("independent review successor manifest는 v1 검수와 v2 failed primary pr
   const applicationRoundtripReuse = failedPrimaryReuseBinding(2, "run-failed-primary");
   const failedPrimaryManifest = createIndependentReviewRepairAnalysisLaunchManifest({
     aggregateSha256: SHA_D,
+    analysisMode: "primary_and_application",
+    withApplicationRoundtrip: true,
     targets: [{
       originalSequence: 2,
       grantId: GRANT_0,
@@ -1236,6 +1360,8 @@ test("independent review successor manifest는 v1 검수와 v2 failed primary pr
   assert.equal(failedPrimaryManifest.targets[0]?.reviewRepair, undefined);
   assert.throws(() => createIndependentReviewRepairAnalysisLaunchManifest({
     aggregateSha256: SHA_D,
+    analysisMode: "primary_and_application",
+    withApplicationRoundtrip: true,
     targets: [{
       originalSequence: 2,
       grantId: GRANT_0,

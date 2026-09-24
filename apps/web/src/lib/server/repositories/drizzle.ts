@@ -52,10 +52,22 @@ import {
   type CompanyProfileFieldUpdate,
 } from "@cunote/core";
 import { loadDeepAnalysisSourceBindings } from "../deep-analysis/prepareInput";
+import {
+  normalizeConfirmationAnswerType,
+  normalizeConfirmationOptions,
+  isConfirmationEvaluation,
+} from "../matches/grantConfirmationAnswers";
+import {
+  buildCompanyFactReuseIdentity,
+  isCompanyFactWithdrawal,
+  resolveCompanyFactAnswer,
+  type CompanyFactAnswerCandidate,
+} from "../matches/companyFactReuse";
 import type {
   CompanyRecord,
   CompanyRepository,
   ClaimEnrichmentCacheInput,
+  ReleaseEnrichmentCacheClaimInput,
   CreateCompanyInput,
   DeleteEnrichmentCacheInput,
   EnrichmentCacheEntry,
@@ -92,6 +104,11 @@ import {
   type PromotionServingRequestSnapshot,
 } from "@/lib/server/analysis-serving/promotionServing";
 import { projectMatchingCandidates } from "@/lib/server/analysis-serving/matchingCandidateProjection";
+import { loadPromotionStateShaByGrant } from "@/lib/server/productReadiness/grantReadinessLoader";
+import {
+  loadSourceRebindServingStates,
+  sourceRebindMatchesCurrent,
+} from "@/lib/server/productReadiness/sourceRebindServing";
 import {
   applyApplicationRepairAuthoringOverlays,
   resolveApplicationRepairAuthoringOverlays,
@@ -195,8 +212,9 @@ export async function loadPromotionServingRequestSnapshot(
         inArray(schema.analysisLabPromotionReleases.status, ["active", "canary_passed"]),
       ));
   const snapshot = buildPromotionServingRequestSnapshot({ items: itemRows, releases: releaseRows });
-  const promotionItemIds = uniqueStrings(snapshot.items.map(({ item }) => item.promotionItemId));
-  if (promotionItemIds.length === 0) return snapshot;
+  const matchingSnapshot = await applySourceRebindMatchingOverlays(session, snapshot);
+  const promotionItemIds = uniqueStrings(matchingSnapshot.items.map(({ item }) => item.promotionItemId));
+  if (promotionItemIds.length === 0) return matchingSnapshot;
 
   // Parent item 전체를 한 번에 읽고 status/release/receipt/current drift는 pure resolver가 닫는다.
   // prepared/failed/rolled_back 행을 SQL에서 숨기면 fallback 회귀를 검증할 수 없으므로 필터하지 않는다.
@@ -232,7 +250,7 @@ export async function loadPromotionServingRequestSnapshot(
       schema.analysisLabApplicationFieldRepairs.parentPromotionItemId,
       promotionItemIds,
     ));
-  if (repairRows.length === 0) return snapshot;
+  if (repairRows.length === 0) return matchingSnapshot;
   const currentSnapshots = await loadApplicationFieldRepairSnapshots(
     session,
     uniqueStrings(repairRows.map((row) => row.grantId)),
@@ -243,7 +261,50 @@ export async function loadPromotionServingRequestSnapshot(
       ? applicationFieldRepairServingStateSha256(currentSnapshots.get(row.grantId)!)
       : null,
   })));
-  return applyApplicationRepairAuthoringOverlays(snapshot, overlays);
+  return applyApplicationRepairAuthoringOverlays(matchingSnapshot, overlays);
+}
+
+/**
+ * immutable parent evidence는 그대로 두고, exact source-rebind successor가 현재 source/state와
+ * 모두 일치할 때만 매칭 projection이 소비하는 outer source revision을 전진시킨다.
+ */
+async function applySourceRebindMatchingOverlays(
+  session: CunoteDbSession,
+  snapshot: PromotionServingRequestSnapshot<PromotionServingHydrationItem>,
+): Promise<PromotionServingRequestSnapshot<PromotionServingHydrationItem>> {
+  const parentIds = uniqueStrings(snapshot.items.map(({ item }) => item.promotionItemId));
+  const states = await loadSourceRebindServingStates(session, parentIds);
+  if (states.size === 0) return snapshot;
+  const candidates = snapshot.items.filter(({ item }) => states.has(item.promotionItemId));
+  const grantIds = uniqueStrings(candidates.map(({ item }) => item.grantId));
+  const currentSources = await loadDeepAnalysisSourceBindings({ db: session, grantIds });
+  const currentStateByGrant = await loadPromotionStateShaByGrant(session, grantIds);
+  return {
+    ...snapshot,
+    items: snapshot.items.map(({ item, evidence }) => {
+      const state = states.get(item.promotionItemId);
+      const source = currentSources.get(item.grantId);
+      const currentStateSha256 = currentStateByGrant.get(item.grantId);
+      if (
+        !state
+        || !source
+        || !currentStateSha256
+        || evidence.sourceRevisionSha256 !== state.rootSourceRevisionSha256
+        || !sourceRebindMatchesCurrent({
+          state,
+          grantId: item.grantId,
+          currentStateSha256,
+          currentSourceRevisionSha256: source.sourceRevisionSha256,
+          currentSourceRawSha256: source.sourceRawSha256,
+          currentMaterialSourceRevisionSha256: source.materialSourceRevisionSha256,
+        })
+      ) return { item, evidence };
+      return {
+        item,
+        evidence: { ...evidence, sourceRevisionSha256: state.currentSourceRevisionSha256 },
+      };
+    }),
+  };
 }
 
 export interface PromotionServingHydrationItem extends PromotionServingItemBinding {
@@ -1114,8 +1175,15 @@ class DrizzleMatchRepository<TPayload> implements MatchRepository<TPayload> {
         questionSourceRawSha256: schema.grantConfirmationQuestions.sourceRawSha256,
         questionDefinitionSha256: schema.grantConfirmationQuestions.definitionSha256,
         questionVersion: schema.grantConfirmationQuestions.version,
+        questionReusable: schema.grantConfirmationQuestions.reusable,
+        questionConditionKey: schema.grantConfirmationQuestions.conditionKey,
+        questionAnswerType: schema.grantConfirmationQuestions.answerType,
+        questionOptions: schema.grantConfirmationQuestions.options,
         criterionGrantId: schema.grantCriteria.grantId,
+        criterionDimension: schema.grantCriteria.dimension,
         criterionKind: schema.grantCriteria.kind,
+        criterionOperator: schema.grantCriteria.operator,
+        criterionValue: schema.grantCriteria.value,
         disqualified: schema.companyGrantConfirmations.disqualified,
         evaluation: schema.companyGrantConfirmations.evaluation,
         answerCriterionId: schema.companyGrantConfirmations.evaluationCriterionId,
@@ -1158,6 +1226,7 @@ class DrizzleMatchRepository<TPayload> implements MatchRepository<TPayload> {
       ) continue;
       const list = byGrant.get(row.grantId) ?? [];
       if (isV2) {
+        if (row.questionReusable === "company_fact") continue;
         if (
           (row.evaluation !== "satisfied"
             && row.evaluation !== "unsatisfied"
@@ -1177,6 +1246,158 @@ class DrizzleMatchRepository<TPayload> implements MatchRepository<TPayload> {
         list.push({ criterion_id: criterionId, disqualified: row.disqualified });
       }
       byGrant.set(row.grantId, list);
+    }
+
+    const reusableTargets = await this.db.client
+      .select({
+        questionId: schema.grantConfirmationQuestions.id,
+        grantId: schema.grantConfirmationQuestions.grantId,
+        criterionId: schema.grantConfirmationQuestions.evaluationCriterionId,
+        evaluationContractVersion: schema.grantConfirmationQuestions.evaluationContractVersion,
+        questionSourceRevisionSha256: schema.grantConfirmationQuestions.sourceRevisionSha256,
+        questionSourceRawSha256: schema.grantConfirmationQuestions.sourceRawSha256,
+        reusable: schema.grantConfirmationQuestions.reusable,
+        conditionKey: schema.grantConfirmationQuestions.conditionKey,
+        answerType: schema.grantConfirmationQuestions.answerType,
+        options: schema.grantConfirmationQuestions.options,
+        criterionGrantId: schema.grantCriteria.grantId,
+        criterionDimension: schema.grantCriteria.dimension,
+        criterionKind: schema.grantCriteria.kind,
+        criterionOperator: schema.grantCriteria.operator,
+        criterionValue: schema.grantCriteria.value,
+      })
+      .from(schema.grantConfirmationQuestions)
+      .innerJoin(
+        schema.grantCriteria,
+        eq(schema.grantCriteria.id, schema.grantConfirmationQuestions.evaluationCriterionId),
+      )
+      .where(and(
+        inArray(schema.grantConfirmationQuestions.grantId, input.grantIds),
+        eq(schema.grantConfirmationQuestions.reusable, "company_fact"),
+        eq(schema.grantConfirmationQuestions.evaluationContractVersion, "confirmation-evaluation-v2"),
+        isNull(schema.grantConfirmationQuestions.invalidatedAt),
+      ));
+    if (reusableTargets.length === 0) return byGrant;
+
+    const reusableAnswerRows = await this.db.client
+      .select({
+        questionId: schema.grantConfirmationQuestions.id,
+        grantId: schema.grantConfirmationQuestions.grantId,
+        criterionId: schema.grantConfirmationQuestions.evaluationCriterionId,
+        evaluationContractVersion: schema.grantConfirmationQuestions.evaluationContractVersion,
+        questionSourceRevisionSha256: schema.grantConfirmationQuestions.sourceRevisionSha256,
+        questionSourceRawSha256: schema.grantConfirmationQuestions.sourceRawSha256,
+        questionDefinitionSha256: schema.grantConfirmationQuestions.definitionSha256,
+        questionVersion: schema.grantConfirmationQuestions.version,
+        reusable: schema.grantConfirmationQuestions.reusable,
+        conditionKey: schema.grantConfirmationQuestions.conditionKey,
+        answerType: schema.grantConfirmationQuestions.answerType,
+        options: schema.grantConfirmationQuestions.options,
+        criterionGrantId: schema.grantCriteria.grantId,
+        criterionDimension: schema.grantCriteria.dimension,
+        criterionKind: schema.grantCriteria.kind,
+        criterionOperator: schema.grantCriteria.operator,
+        criterionValue: schema.grantCriteria.value,
+        evaluation: schema.companyGrantConfirmations.evaluation,
+        answer: schema.companyGrantConfirmations.answer,
+        answerCriterionId: schema.companyGrantConfirmations.evaluationCriterionId,
+        answerSourceRevisionSha256: schema.companyGrantConfirmations.sourceRevisionSha256,
+        answerSourceRawSha256: schema.companyGrantConfirmations.sourceRawSha256,
+        answerDefinitionSha256: schema.companyGrantConfirmations.questionDefinitionSha256,
+        answerQuestionVersion: schema.companyGrantConfirmations.questionVersion,
+        answerRevision: schema.companyGrantConfirmations.answerRevision,
+        answeredAt: schema.companyGrantConfirmations.answeredAt,
+      })
+      .from(schema.companyGrantConfirmations)
+      .innerJoin(
+        schema.grantConfirmationQuestions,
+        eq(schema.companyGrantConfirmations.questionId, schema.grantConfirmationQuestions.id),
+      )
+      .innerJoin(
+        schema.grantCriteria,
+        eq(schema.grantCriteria.id, schema.grantConfirmationQuestions.evaluationCriterionId),
+      )
+      .where(and(
+        eq(schema.companyGrantConfirmations.companyId, input.companyId),
+        eq(schema.grantConfirmationQuestions.reusable, "company_fact"),
+        eq(schema.grantConfirmationQuestions.evaluationContractVersion, "confirmation-evaluation-v2"),
+        isNull(schema.grantConfirmationQuestions.invalidatedAt),
+      ));
+    const reusableSourceByGrant = await loadDeepAnalysisSourceBindings({
+      db: this.db.client,
+      grantIds: [...new Set([
+        ...reusableTargets.map((row) => row.grantId),
+        ...reusableAnswerRows.map((row) => row.grantId),
+      ])],
+    });
+    const candidates = reusableAnswerRows.flatMap((row): CompanyFactAnswerCandidate[] => {
+      const currentSource = reusableSourceByGrant.get(row.grantId);
+      const evaluation = isCompanyFactWithdrawal(row.answer) ? "withdrawn" : row.evaluation;
+      if (
+        (evaluation !== "withdrawn" && !isConfirmationEvaluation(evaluation))
+        || !row.criterionId
+        || row.criterionGrantId !== row.grantId
+        || row.answerCriterionId !== row.criterionId
+        || row.answerSourceRevisionSha256 !== row.questionSourceRevisionSha256
+        || row.answerSourceRawSha256 !== row.questionSourceRawSha256
+        || row.answerDefinitionSha256 !== row.questionDefinitionSha256
+        || row.answerQuestionVersion !== row.questionVersion
+        || row.questionSourceRawSha256 !== currentSource?.sourceRawSha256
+        || row.questionSourceRevisionSha256 !== currentSource?.sourceRevisionSha256
+      ) return [];
+      const identity = buildCompanyFactReuseIdentity({
+        questionId: row.questionId,
+        grantId: row.grantId,
+        reusable: row.reusable,
+        conditionKey: row.conditionKey,
+        evaluationContractVersion: row.evaluationContractVersion,
+        answerType: normalizeConfirmationAnswerType(row.answerType),
+        options: normalizeConfirmationOptions(row.options, row.evaluationContractVersion),
+        criterion: {
+          dimension: row.criterionDimension,
+          kind: row.criterionKind,
+          operator: row.criterionOperator,
+          value: row.criterionValue,
+        },
+      });
+      if (!identity) return [];
+      return [{
+        questionId: row.questionId,
+        grantId: row.grantId,
+        identity,
+        evaluation,
+        answerRevision: row.answerRevision,
+        answeredAt: row.answeredAt,
+      }];
+    });
+    for (const target of reusableTargets) {
+      if (
+        !target.criterionId
+        || target.criterionGrantId !== target.grantId
+        || target.questionSourceRawSha256 !== reusableSourceByGrant.get(target.grantId)?.sourceRawSha256
+        || target.questionSourceRevisionSha256 !== reusableSourceByGrant.get(target.grantId)?.sourceRevisionSha256
+      ) continue;
+      const identity = buildCompanyFactReuseIdentity({
+        questionId: target.questionId,
+        grantId: target.grantId,
+        reusable: target.reusable,
+        conditionKey: target.conditionKey,
+        evaluationContractVersion: target.evaluationContractVersion,
+        answerType: normalizeConfirmationAnswerType(target.answerType),
+        options: normalizeConfirmationOptions(target.options, target.evaluationContractVersion),
+        criterion: {
+          dimension: target.criterionDimension,
+          kind: target.criterionKind,
+          operator: target.criterionOperator,
+          value: target.criterionValue,
+        },
+      });
+      if (!identity) continue;
+      const resolved = resolveCompanyFactAnswer({ identity, candidates });
+      if (!resolved) continue;
+      const list = byGrant.get(target.grantId) ?? [];
+      list.push({ criterion_id: target.criterionId, evaluation: resolved.evaluation });
+      byGrant.set(target.grantId, list);
     }
     return byGrant;
   }
@@ -1637,6 +1858,20 @@ class DrizzleEnrichmentCacheRepository implements EnrichmentCacheRepository {
       })
       .returning();
     return row ? toEnrichmentCacheEntry(row) : null;
+  }
+
+  async releaseClaim(input: ReleaseEnrichmentCacheClaimInput): Promise<boolean> {
+    const rows = await this.db.client
+      .delete(schema.companyEnrichmentCache)
+      .where(and(
+        eq(schema.companyEnrichmentCache.provider, input.provider),
+        eq(schema.companyEnrichmentCache.bizNo, input.bizNo),
+        eq(schema.companyEnrichmentCache.scope, input.scope),
+        sql`${schema.companyEnrichmentCache.canonicalPayload}->>'state' = 'attempt_reserved'`,
+        sql`${schema.companyEnrichmentCache.canonicalPayload}->>'ownerToken' = ${input.ownerToken}`,
+      ))
+      .returning({ provider: schema.companyEnrichmentCache.provider });
+    return rows.length === 1;
   }
 
   async listByBizNo(bizNo: string): Promise<EnrichmentCacheEntry[]> {

@@ -28,6 +28,8 @@ export interface ConfirmationQuestionDraftItem {
   polarity: "criterion_satisfaction" | "exclusion_membership";
   criterionSha256: string;
   sourceSpan: string;
+  /** 새 packet의 원 criterion 정규화 값. 없는 역사 packet은 회사 사실 공유에 쓸 수 없다. */
+  normalizedCriterion?: { dimension: string; kind: ConfirmationQuestionDraftCriterionKind; operator: string; value: unknown };
   resolutionScope: "per_notice";
   answerType: "single";
   prompt: string;
@@ -74,12 +76,62 @@ export interface ConfirmationQuestionDraftPacket
 
 export interface ManualConfirmationDraftInput {
   questionAuthorEmail: string;
+  intent?: "replace" | "withdraw_all";
+  withdrawnCriterionIndexes?: number[];
   items: Array<{
     criterionIndex: number;
-    resolutionScope: "per_notice";
+    resolutionScope: "per_notice" | "company_fact";
+    /** company_fact일 때 검수자가 확정한 표준 사실 키. */
+    conditionKey?: string;
+    companyFactReview?: CompanyFactReview;
     prompt: string;
     options: ConfirmationQuestionDraftOption[];
   }>;
+}
+
+/** 사람이 새 사실의 의미를 확정한 기록. scope/date는 원 criterion의 구조화 값과 정확히 같아야 한다. */
+export interface CompanyFactReview {
+  meaning: string;
+  definitionKey: string;
+  definitionSource: "new_review" | "existing_reviewed";
+  existingDefinition?: {
+    grantId: string;
+    runId: string;
+    revision: number;
+    artifactSha256: string;
+    criterionIndex: number;
+  };
+  scopeField: string;
+  scopeValue: string | string[];
+  asOfField: string;
+  asOfDate: string;
+  reviewArtifactSha256: string;
+}
+
+export function normalizedCompanyFactBoundary(value: unknown): Pick<CompanyFactReview, "scopeField" | "scopeValue" | "asOfField" | "asOfDate"> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  // Matching identity intentionally ignores note when structured fields exist. A nonempty note
+  // could hide a scope/date qualifier, so new shared facts require a fully structured value.
+  if (typeof record.note === "string" && record.note.trim().length > 0) return null;
+  const scopeFields = ["fact_scope", "facility_scope", "facilityTypes", "scope"]
+    .filter((field) => Object.hasOwn(record, field));
+  const dateFields = ["basis_date", "basisDate", "as_of_date", "asOfDate"]
+    .filter((field) => Object.hasOwn(record, field));
+  if (scopeFields.length !== 1 || dateFields.length !== 1) return null;
+  const scopeField = scopeFields[0]!;
+  const asOfField = dateFields[0]!;
+  const scopeValue = record[scopeField];
+  const asOfDate = record[asOfField];
+  const validScope = typeof scopeValue === "string"
+    ? scopeValue.trim() === scopeValue && scopeValue.length > 0
+    : Array.isArray(scopeValue) && scopeValue.length > 0
+      && scopeValue.every((item) => typeof item === "string" && item.trim() === item && item.length > 0)
+      && new Set(scopeValue).size === scopeValue.length;
+  if (!validScope || typeof asOfDate !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(asOfDate)
+    || Number.isNaN(Date.parse(`${asOfDate}T00:00:00.000Z`))
+    || new Date(`${asOfDate}T00:00:00.000Z`).toISOString().slice(0, 10) !== asOfDate) return null;
+  return { scopeField, scopeValue: scopeValue as string | string[], asOfField, asOfDate };
 }
 
 /**
@@ -155,16 +207,26 @@ export function parseConfirmationQuestionManualInputEnvelope(
   }
   const draftPacket = parseConfirmationQuestionDraftPacket(envelope.draftPacket);
   const manualInput = record(envelope.manualInput, "manualInput");
-  exactKeys(manualInput, ["questionAuthorEmail", "items"], "manualInput");
-  if (!Array.isArray(manualInput.items) || manualInput.items.length === 0) {
+  const revision = Object.hasOwn(manualInput, "intent") || Object.hasOwn(manualInput, "withdrawnCriterionIndexes");
+  exactKeys(manualInput, ["questionAuthorEmail", "items", ...(revision ? ["intent", "withdrawnCriterionIndexes"] : [])], "manualInput");
+  if (revision && manualInput.intent !== "replace" && manualInput.intent !== "withdraw_all") {
+    throw new Error("manual input revision intent가 올바르지 않습니다.");
+  }
+  if (!Array.isArray(manualInput.items) || (manualInput.items.length === 0 && manualInput.intent !== "withdraw_all")) {
     throw new Error("manual input envelope에는 질문이 하나 이상 필요합니다.");
   }
+  const withdrawnCriterionIndexes = revision
+    ? parseNonnegativeIndexes(manualInput.withdrawnCriterionIndexes, "manualInput.withdrawnCriterionIndexes")
+    : null;
   const packetItems = new Map(draftPacket.items.map((item) => [item.criterionIndex, item]));
   const seen = new Set<number>();
   const items = manualInput.items.map((rawItem, index) => {
     const label = `manual input items[${index}]`;
     const value = record(rawItem, label);
-    exactKeys(value, ["criterionIndex", "resolutionScope", "prompt", "options"], label);
+    const companyFact = value.resolutionScope === "company_fact";
+    exactKeys(value, companyFact
+      ? ["criterionIndex", "resolutionScope", "conditionKey", "companyFactReview", "prompt", "options"]
+      : ["criterionIndex", "resolutionScope", "prompt", "options"], label);
     if (!Number.isSafeInteger(value.criterionIndex) || (value.criterionIndex as number) < 0) {
       throw new Error(`${label}.criterionIndex가 올바르지 않습니다.`);
     }
@@ -173,9 +235,15 @@ export function parseConfirmationQuestionManualInputEnvelope(
     seen.add(criterionIndex);
     const packetItem = packetItems.get(criterionIndex);
     if (!packetItem) throw new Error(`manual input criterionIndex ${criterionIndex}가 draft packet에 없습니다.`);
-    if (value.resolutionScope !== "per_notice") {
-      throw new Error(`${label}.resolutionScope는 per_notice여야 합니다.`);
+    if (value.resolutionScope !== "per_notice" && !companyFact) {
+      throw new Error(`${label}.resolutionScope가 올바르지 않습니다.`);
     }
+    const conditionKey = companyFact
+      ? requiredConditionKey(value.conditionKey, `${label}.conditionKey`)
+      : null;
+    const companyFactReview = companyFact
+      ? parseCompanyFactReview(value.companyFactReview, packetItem, draftPacket.source.reviewArtifactSha256, conditionKey!, label)
+      : null;
     if (!Array.isArray(value.options) || value.options.length !== 3) {
       throw new Error(`${label}.options는 고정 3상태여야 합니다.`);
     }
@@ -191,7 +259,9 @@ export function parseConfirmationQuestionManualInputEnvelope(
     }
     return {
       criterionIndex,
-      resolutionScope: "per_notice" as const,
+      resolutionScope: companyFact ? "company_fact" as const : "per_notice" as const,
+      ...(conditionKey ? { conditionKey } : {}),
+      ...(companyFactReview ? { companyFactReview } : {}),
       prompt: requiredText(value.prompt, `${label}.prompt`),
       options,
     };
@@ -204,9 +274,22 @@ export function parseConfirmationQuestionManualInputEnvelope(
     draftPacket,
     manualInput: {
       questionAuthorEmail: requiredText(manualInput.questionAuthorEmail, "questionAuthorEmail"),
+      ...(revision ? {
+        intent: manualInput.intent as "replace" | "withdraw_all",
+        withdrawnCriterionIndexes: withdrawnCriterionIndexes!,
+      } : {}),
       items,
     },
   };
+}
+
+function parseNonnegativeIndexes(raw: unknown, label: string): number[] {
+  if (!Array.isArray(raw) || raw.some((value) => !Number.isSafeInteger(value) || value < 0)) {
+    throw new Error(`${label}가 올바르지 않습니다.`);
+  }
+  const sorted = [...raw as number[]].sort((left, right) => left - right);
+  if (new Set(sorted).size !== sorted.length) throw new Error(`${label}에 중복이 있습니다.`);
+  return sorted;
 }
 
 /** Node와 브라우저가 같은 content hash 입력을 만들기 위한 순수 canonical JSON. */
@@ -318,6 +401,7 @@ function parseItem(raw: unknown, itemIndex: number): ConfirmationQuestionDraftIt
     "answerType",
     "prompt",
     "options",
+    ...(Object.hasOwn(value, "normalizedCriterion") ? ["normalizedCriterion"] : []),
   ], label);
   if (!Number.isSafeInteger(value.criterionIndex) || (value.criterionIndex as number) < 0) {
     throw new Error(`${label}.criterionIndex가 올바르지 않습니다.`);
@@ -358,10 +442,74 @@ function parseItem(raw: unknown, itemIndex: number): ConfirmationQuestionDraftIt
     polarity: expectedPolarity,
     criterionSha256: requiredSha256(value.criterionSha256, `${label}.criterionSha256`),
     sourceSpan: requiredText(value.sourceSpan, `${label}.sourceSpan`),
+    ...(Object.hasOwn(value, "normalizedCriterion") ? {
+      normalizedCriterion: parseNormalizedCriterion(value.normalizedCriterion, criterionKind, label),
+    } : {}),
     resolutionScope: "per_notice",
     answerType: "single",
     prompt: requiredText(value.prompt, `${label}.prompt`),
     options: options as ConfirmationQuestionDraftItem["options"],
+  };
+}
+
+function parseNormalizedCriterion(raw: unknown, kind: ConfirmationQuestionDraftCriterionKind, label: string): NonNullable<ConfirmationQuestionDraftItem["normalizedCriterion"]> {
+  const value = record(raw, `${label}.normalizedCriterion`);
+  exactKeys(value, ["dimension", "kind", "operator", "value"], `${label}.normalizedCriterion`);
+  if (value.kind !== kind) throw new Error(`${label}.normalizedCriterion kind가 다릅니다.`);
+  return {
+    dimension: requiredText(value.dimension, `${label}.normalizedCriterion.dimension`),
+    kind,
+    operator: requiredText(value.operator, `${label}.normalizedCriterion.operator`),
+    value: value.value,
+  };
+}
+
+function parseCompanyFactReview(
+  raw: unknown,
+  packetItem: ConfirmationQuestionDraftItem,
+  reviewArtifactSha256: string,
+  definitionKey: string,
+  label: string,
+): CompanyFactReview {
+  const value = record(raw, `${label}.companyFactReview`);
+  if (value.definitionSource !== "new_review" && value.definitionSource !== "existing_reviewed") {
+    throw new Error(`${label}.companyFactReview.definitionSource가 올바르지 않습니다.`);
+  }
+  const existing = value.definitionSource === "existing_reviewed";
+  exactKeys(value, ["meaning", "definitionKey", "definitionSource", "scopeField", "scopeValue", "asOfField", "asOfDate", "reviewArtifactSha256", ...(existing ? ["existingDefinition"] : [])], `${label}.companyFactReview`);
+  const boundary = normalizedCompanyFactBoundary(packetItem.normalizedCriterion?.value);
+  if (!boundary) throw new Error(`${label}의 정규화 scope/기준일이 없어 회사 사실 공유를 보류합니다.`);
+  if (value.reviewArtifactSha256 !== reviewArtifactSha256
+    || value.definitionKey !== definitionKey
+    || value.scopeField !== boundary.scopeField
+    || canonicalConfirmationQuestionDraftJson(value.scopeValue) !== canonicalConfirmationQuestionDraftJson(boundary.scopeValue)
+    || value.asOfField !== boundary.asOfField
+    || value.asOfDate !== boundary.asOfDate) {
+    throw new Error(`${label}의 회사 사실 검수 근거·scope·기준일이 draft packet과 다릅니다.`);
+  }
+  return {
+    meaning: requiredText(value.meaning, `${label}.companyFactReview.meaning`),
+    definitionKey: requiredConditionKey(value.definitionKey, `${label}.companyFactReview.definitionKey`),
+    definitionSource: existing ? "existing_reviewed" : "new_review",
+    ...(existing ? { existingDefinition: parseExistingDefinition(value.existingDefinition, label) } : {}),
+    ...boundary,
+    reviewArtifactSha256,
+  };
+}
+
+function parseExistingDefinition(raw: unknown, label: string): NonNullable<CompanyFactReview["existingDefinition"]> {
+  const value = record(raw, `${label}.companyFactReview.existingDefinition`);
+  exactKeys(value, ["grantId", "runId", "revision", "artifactSha256", "criterionIndex"], `${label}.companyFactReview.existingDefinition`);
+  if (!Number.isSafeInteger(value.revision) || (value.revision as number) < 1
+    || !Number.isSafeInteger(value.criterionIndex) || (value.criterionIndex as number) < 0) {
+    throw new Error(`${label}.companyFactReview 기존 정의 selector가 올바르지 않습니다.`);
+  }
+  return {
+    grantId: requiredText(value.grantId, `${label}.existingDefinition.grantId`),
+    runId: requiredText(value.runId, `${label}.existingDefinition.runId`),
+    revision: value.revision as number,
+    artifactSha256: requiredSha256(value.artifactSha256, `${label}.existingDefinition.artifactSha256`),
+    criterionIndex: value.criterionIndex as number,
   };
 }
 
@@ -410,6 +558,13 @@ function requiredText(value: unknown, label: string): string {
 function requiredSha256(value: unknown, label: string): string {
   if (typeof value !== "string" || !/^[0-9a-f]{64}$/.test(value)) {
     throw new Error(`${label}가 SHA-256 형식이 아닙니다.`);
+  }
+  return value;
+}
+
+function requiredConditionKey(value: unknown, label: string): string {
+  if (typeof value !== "string" || !/^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$/.test(value)) {
+    throw new Error(`${label}가 표준 사실 키 형식이 아닙니다.`);
   }
   return value;
 }

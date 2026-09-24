@@ -33,6 +33,7 @@ const webNextEnvPath = join(snapshotRoot, "apps/web/next-env.d.ts");
 const password = "private-browser-password-123456789";
 const grantId = "40000000-0000-4000-8000-000000000001";
 const servingGrantId = "40000000-0000-4000-8000-000000000002";
+const migrationGrantId = "40000000-0000-4000-8000-000000000004";
 
 const marker = {
   schema: "cunote-product-uat-runtime-owner-v1",
@@ -63,6 +64,9 @@ const fixtureReceipt = {
   schema: "cunote-local-product-uat-confirmation-fixture-receipt-v1",
   grantId,
   servingGrantId,
+  migrationGrantId,
+  migration: { authority: "isolated_local_fixture_not_service_migration_approval" },
+  migratedQuestionRoundTrip: { status: "passed", relatedGrantCount: 4 },
   publicationAuthority: "isolated_publisher_fixture_not_release_approval",
   finalState: { activePrompts: ["기존 제외 질문", "최초 필수 질문"] },
   naturalUiReadiness: {
@@ -82,6 +86,7 @@ const validConnection = {
   confirmationFixtureReceiptPath: fixtureReceiptPath,
   syntheticGrantId: grantId,
   syntheticServingGrantId: servingGrantId,
+  syntheticMigrationGrantId: migrationGrantId,
 };
 
 try {

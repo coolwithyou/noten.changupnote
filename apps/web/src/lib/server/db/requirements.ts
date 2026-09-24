@@ -57,6 +57,7 @@ export const REQUIRED_TABLES = [
   "company_grant_confirmations",
   "analysis_lab_promotion_releases",
   "analysis_lab_promotion_items",
+  "analysis_lab_source_rebind_items",
 ] as const;
 
 export const RLS_TABLES = [
@@ -86,4 +87,5 @@ export const RLS_TABLES = [
   "grant_document_field_agent_runs",
   "grant_document_field_agent_suggestions",
   "generative_usage_events",
+  "analysis_lab_source_rebind_items",
 ] as const;

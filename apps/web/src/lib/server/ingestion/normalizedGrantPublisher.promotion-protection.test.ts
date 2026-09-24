@@ -947,6 +947,7 @@ const countOps = (ops: RecordedOp[], op: RecordedOp["op"], table: unknown) =>
   assert.equal(countOps(ops, "insert", schema.grantRaw), 1, "grant_raw upsert 는 유지된다");
   assert.equal(result.promotionProtectedCount, 1, "요약 카운트에 보호 발동 수가 실려야 한다");
   assert.deepEqual(result.promotionProtectedSourceIds, ["PBLN_TEST_1"]);
+  assert.deepEqual(result.supplyCandidateGrantIds, [], "변화 없는 재수집은 공급 후속 작업을 다시 만들지 않는다");
   assert.deepEqual(
     result.revisionCounts,
     { new: 0, unchanged: 1, changed: 0 },

@@ -69,7 +69,7 @@ export interface MatchingConfirmationCriterionBinding {
   criterionId: string;
   contractVersion: "confirmation-evaluation-v2";
   evaluationKind: "three_state_single";
-  resolutionScope: "per_notice";
+  resolutionScope: "per_notice" | "company_fact";
   reviewState: "human_reviewed" | "analysis_launch_independent_review";
   runId: string;
   currentSourceBindingVerified: true;
@@ -1889,7 +1889,7 @@ function answerableQuestionCriterionIndex(
       criterionIds.has(binding.criterionId)
       && binding.contractVersion === "confirmation-evaluation-v2"
       && binding.evaluationKind === "three_state_single"
-      && binding.resolutionScope === "per_notice"
+      && (binding.resolutionScope === "per_notice" || binding.resolutionScope === "company_fact")
       && (binding.reviewState === "human_reviewed"
         || binding.reviewState === "analysis_launch_independent_review")
       && typeof binding.runId === "string"

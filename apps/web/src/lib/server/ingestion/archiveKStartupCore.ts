@@ -3,9 +3,8 @@
 // 이 모듈은 순수 코어다: argv/env 파싱과 loadMonorepoEnv 는 호출부(CLI · API 라우트)의 책임이며,
 // 여기서는 process.env 가 이미 주입돼 있다고 가정한다(Vercel 런타임 · CLI 양쪽 공통).
 // CLI 는 archive-kstartup.ts, 서버 라우트는 /api/cron/ingest-kstartup 이 이 함수를 호출한다.
-import { existsSync, readFileSync } from "node:fs";
-import { resolve } from "node:path";
 import { and, eq, inArray } from "drizzle-orm";
+import samplePayload from "../../../../../../samples/kstartup_announcement_sample.json";
 import type { NormalizedGrant } from "@cunote/contracts";
 import {
   deriveKStartupAuthoringMode,
@@ -32,6 +31,7 @@ import {
   KSTARTUP_DETAIL_REQUEST_DELAY_MS,
 } from "./kstartupDetailFetch";
 import { publishKStartupGrants } from "./kstartupPublisher";
+import { discoverGrantSupplyWork, type GrantSupplyWorkItem } from "../productReadiness/grantSupply";
 import { archiveGrantAttachments } from "./grantAttachmentArchive";
 import {
   mergeArchivedKStartupAttachments,
@@ -84,6 +84,8 @@ export interface ArchiveKStartupResult {
   attachmentArchiveTotals: AttachmentArchiveTotals;
   revisionRefresh: RevisionRefreshSummary;
   pages: ArchivePageSummary[];
+  supplyWorkItems: readonly GrantSupplyWorkItem[];
+  supplyDiscoveryErrors: readonly { page: number; message: string }[];
 }
 
 export interface RevisionRefreshSummary {
@@ -144,6 +146,8 @@ export async function archiveKStartup(input: ArchiveKStartupInput): Promise<Arch
   let totalCount: number | null = null;
   let fetchedRows = 0;
   const revisionRefresh = emptyRevisionRefreshSummary();
+  const supplyWorkBySourceId = new Map<string, GrantSupplyWorkItem>();
+  const supplyDiscoveryErrors: Array<{ page: number; message: string }> = [];
 
   for (let offset = 0; offset < input.pages; offset += 1) {
     const page = input.startPage + offset;
@@ -174,15 +178,39 @@ export async function archiveKStartup(input: ArchiveKStartupInput): Promise<Arch
     );
     await archiveEntryAttachments(publishableEntries, input, attachmentArchiveTotals);
 
+    let published: Awaited<ReturnType<typeof publishKStartupGrants>> | null = null;
     if (input.write && input.db) {
       if (publishableEntries.length > 0) {
-        const published = await publishKStartupGrants(input.db, publishableEntries, {
+        published = await publishKStartupGrants(input.db, publishableEntries, {
           page,
           collectedAt: input.collectedAt,
         });
         mergeRevisionRefreshSummary(revisionRefresh, published);
       } else {
         await updateSourceCursor(input.db, page, input.collectedAt);
+      }
+      for (const item of published?.supplyWorkItems ?? []) {
+        supplyWorkBySourceId.set(item.sourceId, item);
+      }
+      if (published?.supplyAssessmentError) {
+        supplyDiscoveryErrors.push({ page, message: published.supplyAssessmentError });
+      }
+      const publishedIds = new Set(publishableEntries.map((entry) => entry.raw.source_id));
+      const existingIds = new Set(existingHashes.map((row) => row.sourceId));
+      const unchangedIds = entries.map((entry) => entry.raw.source_id)
+        .filter((sourceId) => existingIds.has(sourceId) && !publishedIds.has(sourceId));
+      if (unchangedIds.length > 0) {
+        try {
+          const resumed = await discoverGrantSupplyWork({
+            db: input.db, source: "kstartup", sourceIds: unchangedIds,
+          });
+          for (const item of resumed.items) supplyWorkBySourceId.set(item.sourceId, item);
+        } catch (error) {
+          supplyDiscoveryErrors.push({
+            page,
+            message: error instanceof Error ? error.message : String(error),
+          });
+        }
       }
     }
 
@@ -245,6 +273,8 @@ export async function archiveKStartup(input: ArchiveKStartupInput): Promise<Arch
     attachmentArchiveTotals,
     revisionRefresh: finalizeRevisionRefreshSummary(revisionRefresh),
     pages,
+    supplyWorkItems: [...supplyWorkBySourceId.values()].sort((a, b) => a.sourceId.localeCompare(b.sourceId)),
+    supplyDiscoveryErrors,
   };
 }
 
@@ -384,8 +414,7 @@ async function readLivePayload(page: number, perPage: number): Promise<KStartupA
 }
 
 function readSamplePayload(limit: number): KStartupApiResponse {
-  const path = findProjectFile("samples/kstartup_announcement_sample.json");
-  const parsed = JSON.parse(readFileSync(path, "utf8")) as KStartupApiResponse;
+  const parsed = samplePayload as KStartupApiResponse;
   const safeLimit = Math.min(parsed.data.length, limit);
   return {
     ...parsed,
@@ -505,14 +534,4 @@ function addTotals(totals: ArchiveTotals, plan: GrantArchivePlan, publishedCount
 
 function readTotalCount(payload: KStartupApiResponse, fallback: number | null): number | null {
   return payload.totalCount ?? payload.matchCount ?? fallback;
-}
-
-function findProjectFile(relativePath: string): string {
-  const candidates = [
-    resolve(process.cwd(), relativePath),
-    resolve(process.cwd(), "../..", relativePath),
-  ];
-  const found = candidates.find((candidate) => existsSync(candidate));
-  if (!found) throw new Error(`Missing project file: ${relativePath}`);
-  return found;
 }

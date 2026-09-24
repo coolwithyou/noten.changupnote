@@ -1,6 +1,13 @@
 import { mkdtempSync } from "node:fs";
 import { execFileSync, spawnSync } from "node:child_process";
 
+const defaultTest = "apps/web/src/lib/server/repositories/companyWritePostgres.integration.test.ts";
+const supplyTest = "apps/web/src/lib/server/productReadiness/grantSupplyPostgres.integration.test.ts";
+const selectedTest = process.argv[2] ?? defaultTest;
+if (selectedTest !== defaultTest && selectedTest !== supplyTest) {
+  throw new Error("허용된 격리 PostgreSQL 통합 테스트만 실행할 수 있습니다.");
+}
+
 // 새 전용 cluster만 사용한다. 기존 DATABASE_URL/PGHOST나 TCP 서버는 접근하지 않는다.
 const directory = mkdtempSync("/tmp/cunote-product-pg-");
 const data = `${directory}/data`;
@@ -13,12 +20,12 @@ try {
   execFileSync("initdb", ["-D", data, "-U", "postgres", "--auth-local=trust", "--auth-host=reject", "--no-locale", "--encoding=UTF8"], { env, stdio: "pipe" });
   execFileSync("pg_ctl", ["-D", data, "-l", `${directory}/postgres.log`, "-o", `-h '' -k ${directory} -c max_connections=20`, "-w", "start"], { env, stdio: "pipe" });
   started = true;
-  const result = spawnSync("pnpm", ["exec", "tsx", "--tsconfig", "apps/web/tsconfig.json", "apps/web/src/lib/server/repositories/companyWritePostgres.integration.test.ts"], {
+  const result = spawnSync("pnpm", ["exec", "tsx", "--tsconfig", "apps/web/tsconfig.json", selectedTest], {
     env: { ...env, CUNOTE_PRODUCT_TEST_SOCKET: directory }, stdio: "inherit", timeout: 120_000,
   });
   if (result.error) throw result.error;
   process.exitCode = result.status ?? 1;
-  if (process.exitCode === 0) {
+  if (process.exitCode === 0 && selectedTest === defaultTest) {
     const adminResult = spawnSync("pnpm", ["exec", "tsx", "--tsconfig", "apps/admin/tsconfig.json", "apps/admin/src/lib/server/admin/sourceCorrectionsPostgres.integration.test.ts"], {
       env: { ...env, CUNOTE_PRODUCT_TEST_SOCKET: directory }, stdio: "inherit", timeout: 120_000,
     });

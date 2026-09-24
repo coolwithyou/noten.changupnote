@@ -237,6 +237,13 @@ const result = await withIsolatedProductUatPostgres(async (postgresRuntime) => {
       grantId: initialConfirmationFixture.fixture.grantId,
       companyId: LOCAL_UAT_IDS.companyA,
     });
+    const migratedConfirmationRoundTrip = await verifyMigratedConfirmationRoundTrip({
+      jar: ownerAuthentication.jar,
+      baseUrl: webUrl,
+      grantId: initialConfirmationFixture.fixture.migrationGrantId,
+      relatedGrantIds: initialConfirmationFixture.fixture.migrationRelated.map((item) => item.grantId),
+      companyId: LOCAL_UAT_IDS.companyA,
+    });
     const confirmationScenarios = await verifyConfirmationScenarios({
       baseUrl: webUrl,
       grantId: initialConfirmationFixture.fixture.grantId,
@@ -276,6 +283,9 @@ const result = await withIsolatedProductUatPostgres(async (postgresRuntime) => {
       grantId: initialConfirmationFixture.fixture.grantId,
       servingGrantId: initialConfirmationFixture.fixture.servingGrantId,
       correctionGrantId: initialConfirmationFixture.fixture.correctionGrantId,
+      migrationGrantId: initialConfirmationFixture.fixture.migrationGrantId,
+      migration: initialConfirmationFixture.migration,
+      migratedQuestionRoundTrip: migratedConfirmationRoundTrip,
       servingRegistry: initialConfirmationFixture.servingRegistry,
       publicationAuthority: "isolated_publisher_fixture_not_release_approval",
       scenarios: confirmationScenarios.proof,
@@ -301,6 +311,7 @@ const result = await withIsolatedProductUatPostgres(async (postgresRuntime) => {
       sourceCorrectionFixtureReceiptPath: sourceCorrectionFixture.receiptPath,
       syntheticGrantId: initialConfirmationFixture.fixture.grantId,
       syntheticServingGrantId: initialConfirmationFixture.fixture.servingGrantId,
+      syntheticMigrationGrantId: initialConfirmationFixture.fixture.migrationGrantId,
       correctionGrantId: initialConfirmationFixture.fixture.correctionGrantId,
       activeConfirmationQuestions: confirmationScenarios.finalState.activePrompts,
     }, null, 2)}\n`, { flag: "wx", mode: 0o600 });
@@ -344,6 +355,7 @@ const result = await withIsolatedProductUatPostgres(async (postgresRuntime) => {
       confirmationAcceptance: {
         fixturePublication: "isolated_publisher_fixture_not_release_approval",
         initialOwnerRoundTrip: initialConfirmationRoundTrip.proof,
+        migratedQuestionRoundTrip: migratedConfirmationRoundTrip,
         scenarios: confirmationScenarios.proof,
         naturalUiReadiness: confirmationScenarios.naturalUiReadiness,
         fixtureReceiptPath: confirmationFixtureReceiptPath,
@@ -618,6 +630,102 @@ async function verifyInitialConfirmationRoundTrip({ jar, baseUrl, grantId, compa
       legacyDisqualified: false,
     },
     internal: { required, legacy },
+  };
+}
+
+async function verifyMigratedConfirmationRoundTrip({
+  jar,
+  baseUrl,
+  grantId,
+  relatedGrantIds,
+  companyId,
+}) {
+  const endpoint = confirmationEndpoint(baseUrl, grantId, companyId);
+  const initial = await readConfirmations(jar, endpoint);
+  assert.equal(initial.canSubmit, true);
+  assert.equal(initial.questions.length, 1);
+  assert.equal(initial.answers.length, 0);
+  const question = initial.questions[0];
+  assert.equal(question?.prompt, "현재 시흥시에 등록된 사업장이 있나요?");
+  assert.ok(question?.binding);
+
+  const first = await submitConfirmations(jar, endpoint, [{
+    questionId: question.id,
+    values: ["yes"],
+    binding: question.binding,
+    expectedAnswerRevision: 0,
+    expectedCompanyFactRevision: null,
+  }]);
+  assert.equal(first.status, 200);
+  const firstSaved = first.body?.data?.saved?.[0];
+  assert.equal(firstSaved?.evaluation, "satisfied");
+  assert.equal(firstSaved?.answerRevision, 1);
+  assert.match(firstSaved?.companyFactRevision ?? "", /^[a-f0-9]{64}$/);
+  assert.equal(first.body?.data?.refresh?.plannedCount, 4);
+
+  for (const relatedGrantId of relatedGrantIds) {
+    const projected = await readConfirmations(
+      jar,
+      confirmationEndpoint(baseUrl, relatedGrantId, companyId),
+    );
+    assert.equal(projected.answers[0]?.evaluation, "satisfied");
+    assert.equal(projected.answers[0]?.reusedFromCompanyFact, true);
+    assert.equal(projected.answers[0]?.companyFactRevision, firstSaved.companyFactRevision);
+  }
+
+  const changed = await submitConfirmations(jar, endpoint, [{
+    questionId: question.id,
+    values: ["no"],
+    binding: question.binding,
+    expectedAnswerRevision: firstSaved.answerRevision,
+    expectedCompanyFactRevision: firstSaved.companyFactRevision,
+  }]);
+  assert.equal(changed.status, 200);
+  const changedSaved = changed.body?.data?.saved?.[0];
+  assert.equal(changedSaved?.evaluation, "unsatisfied");
+  assert.equal(changedSaved?.answerRevision, 2);
+  assert.notEqual(changedSaved?.companyFactRevision, firstSaved.companyFactRevision);
+  assert.equal(changed.body?.data?.refresh?.plannedCount, 4);
+
+  const withdrawal = await jar.fetch(endpoint, {
+    method: "DELETE",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      questionId: question.id,
+      binding: question.binding,
+      expectedAnswerRevision: changedSaved.answerRevision,
+      expectedCompanyFactRevision: changedSaved.companyFactRevision,
+    }),
+  });
+  assert.equal(withdrawal.status, 200);
+  const withdrawn = await withdrawal.json();
+  assert.equal(withdrawn?.ok, true);
+  assert.equal(withdrawn?.data?.saved?.length, 0);
+  assert.equal(withdrawn?.data?.refresh?.plannedCount, 4);
+  const reentered = await readConfirmations(jar, endpoint);
+  assert.equal(reentered.questions[0]?.id, question.id);
+  assert.equal(reentered.answers.length, 1);
+  assert.deepEqual(reentered.answers[0]?.values, []);
+  assert.equal(reentered.answers[0]?.companyFactRevision, undefined);
+  for (const relatedGrantId of relatedGrantIds) {
+    const projected = await readConfirmations(
+      jar,
+      confirmationEndpoint(baseUrl, relatedGrantId, companyId),
+    );
+    assert.equal(projected.answers.length, 0);
+  }
+  return {
+    status: "passed",
+    grantId,
+    migratedQuestionId: question.id,
+    relatedGrantCount: 4,
+    firstEvaluation: firstSaved.evaluation,
+    changedEvaluation: changedSaved.evaluation,
+    answerRevisionAfterChange: changedSaved.answerRevision,
+    companyFactRevisionChanged: true,
+    withdrawalExactBinding: true,
+    reentryQuestionStable: true,
+    reentryWithdrawnValues: reentered.answers[0].values,
   };
 }
 

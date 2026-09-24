@@ -18,6 +18,7 @@ export async function POST(request: Request) {
     const result = await loadProductCompanyPreview(body.bizNo ?? "", {
       asOf: new Date(),
       publicRequestKey,
+      ...(body.refresh === true ? { refresh: true } : {}),
     });
     return NextResponse.json<ActionResult<CompanyPreviewResult>>({ ok: true, data: result });
   } catch (error) {

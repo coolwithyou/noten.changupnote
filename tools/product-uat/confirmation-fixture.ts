@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { readFileSync, realpathSync, writeFileSync } from "node:fs";
 import postgres from "postgres";
+import { canonicalLegacyQuestionMigrationReviewJson } from "../../packages/contracts/src/legacy-question-migration-review";
 import { drizzle } from "../../apps/web/node_modules/drizzle-orm/postgres-js/index.js";
 import * as schema from "../../apps/web/src/lib/server/db/schema";
 import { acquireGrantPublicationLock } from "../../apps/web/src/lib/server/ingestion/grantPublicationLock";
@@ -15,7 +16,12 @@ import {
 } from "../../apps/web/src/lib/server/analysis-lab/manual-confirmation-evaluations";
 import type { LabConfirmationsFile } from "../../apps/web/src/lib/server/analysis-lab/confirmations";
 import type { LabCriterion, LabReview, LabRun } from "../../apps/web/src/lib/server/analysis-lab/lab-contract";
-import { planGrantPromotion, type GrantPromotionPlan } from "../../apps/web/src/lib/server/analysis-lab/promote";
+import {
+  planGrantPromotion,
+  questionDefinitionSha256,
+  sourceSpanHash,
+  type GrantPromotionPlan,
+} from "../../apps/web/src/lib/server/analysis-lab/promote";
 import { createDrizzlePromotionPort } from "../../apps/web/src/lib/server/analysis-lab/promote-cli";
 import { restoreBeforeSnapshot } from "../../apps/web/src/lib/server/analysis-lab/promotion-rollback";
 import {
@@ -32,6 +38,17 @@ import {
   type PromotionReleasePlanItem,
   type PromotionSourceArtifact,
 } from "../../apps/web/src/lib/server/analysis-serving/promotionReleaseContract";
+import {
+  applyLegacyQuestionMigrationRelease,
+  approveLegacyQuestionMigrationRelease,
+  prepareLegacyQuestionMigrationReleaseLedger,
+} from "../../apps/web/src/lib/server/productReadiness/legacyQuestionMigrationRelease";
+import {
+  LEGACY_QUESTION_MIGRATION_RELEASE_PLAN_SCHEMA,
+  LEGACY_QUESTION_MIGRATION_RELEASE_PROMPT_VERSION,
+  type LegacyQuestionMigrationReleasePlan,
+  type LegacyQuestionMigrationReleasePlanBody,
+} from "../../apps/web/src/lib/server/productReadiness/legacyQuestionMigrationReleasePlan";
 
 const FIXTURE = {
   grantId: "40000000-0000-4000-8000-000000000001",
@@ -43,9 +60,25 @@ const FIXTURE = {
   correctionGrantId: "40000000-0000-4000-8000-000000000003",
   correctionSourceId: "local-product-uat-source-correction",
   correctionTitle: "격리 공식 원천 정정 인수 공고",
+  migrationGrantId: "40000000-0000-4000-8000-000000000004",
+  migrationSourceId: "local-product-uat-legacy-question-migration",
+  migrationTitle: "격리 이관 질문 인수 공고",
+  migrationLegacyQuestionId: "40000000-0000-4000-8000-000000000104",
+  migrationReleaseId: "local-product-uat-legacy-question-migration-r1",
+  migrationRelated: [
+    { grantId: "40000000-0000-4000-8000-000000000005", sourceId: "local-product-uat-migration-related-1" },
+    { grantId: "40000000-0000-4000-8000-000000000006", sourceId: "local-product-uat-migration-related-2" },
+    { grantId: "40000000-0000-4000-8000-000000000007", sourceId: "local-product-uat-migration-related-3" },
+  ],
   servingReleaseId: "local-product-uat-serving-r1",
   rollbackPath: "confirmation-before-r2-snapshot.json",
 } as const;
+
+const MIGRATION_OPTIONS = [
+  { value: "yes", label: "해당해요", evaluation: "satisfied" as const },
+  { value: "no", label: "해당하지 않아요", evaluation: "unsatisfied" as const },
+  { value: "unknown", label: "확인할 수 없어요", evaluation: "unknown" as const },
+] as const;
 
 const action = readAction(process.argv.slice(2));
 const socket = requiredEnv("PGHOST");
@@ -82,41 +115,68 @@ try {
 }
 
 async function publishInitialFixture() {
-  const existing = await sql`select id from grants where id in (${FIXTURE.grantId},${FIXTURE.servingGrantId},${FIXTURE.correctionGrantId})`;
+  const fixtureGrantIds = [
+    FIXTURE.grantId,
+    FIXTURE.servingGrantId,
+    FIXTURE.correctionGrantId,
+    FIXTURE.migrationGrantId,
+    ...FIXTURE.migrationRelated.map((item) => item.grantId),
+  ];
+  const existing = await sql`select id from grants where id in ${sql(fixtureGrantIds)}`;
   assert.equal(existing.length, 0, "r1 fixture는 새 격리 DB에 한 번만 발행한다");
   await sql`insert into grants(id,source,source_id,title,status,serving_state,overall_confidence)
     values
       (${FIXTURE.grantId},'bizinfo',${FIXTURE.sourceId},${FIXTURE.title},'open','visible',1),
       (${FIXTURE.servingGrantId},'bizinfo',${FIXTURE.servingSourceId},${FIXTURE.servingTitle},'open','visible',1),
-      (${FIXTURE.correctionGrantId},'bizinfo',${FIXTURE.correctionSourceId},${FIXTURE.correctionTitle},'open','visible',1)`;
+      (${FIXTURE.correctionGrantId},'bizinfo',${FIXTURE.correctionSourceId},${FIXTURE.correctionTitle},'open','visible',1),
+      (${FIXTURE.migrationGrantId},'bizinfo',${FIXTURE.migrationSourceId},${FIXTURE.migrationTitle},'open','visible',1),
+      (${FIXTURE.migrationRelated[0].grantId},'bizinfo',${FIXTURE.migrationRelated[0].sourceId},'격리 이관 관련 공고 1','open','visible',1),
+      (${FIXTURE.migrationRelated[1].grantId},'bizinfo',${FIXTURE.migrationRelated[1].sourceId},'격리 이관 관련 공고 2','open','visible',1),
+      (${FIXTURE.migrationRelated[2].grantId},'bizinfo',${FIXTURE.migrationRelated[2].sourceId},'격리 이관 관련 공고 3','open','visible',1)`;
   await sql`insert into grant_raw(source,source_id,payload,attachments,raw_hash,status)
     values
       ('bizinfo',${FIXTURE.sourceId},'{}','[]',${"c".repeat(64)},'normalized'),
       ('bizinfo',${FIXTURE.servingSourceId},'{}','[]',${"d".repeat(64)},'normalized'),
-      ('bizinfo',${FIXTURE.correctionSourceId},'{}','[]',${"e".repeat(64)},'normalized')`;
+      ('bizinfo',${FIXTURE.correctionSourceId},'{}','[]',${"e".repeat(64)},'normalized'),
+      ('bizinfo',${FIXTURE.migrationSourceId},'{}','[]',${"f".repeat(64)},'normalized'),
+      ('bizinfo',${FIXTURE.migrationRelated[0].sourceId},'{}','[]',${"7".repeat(64)},'normalized'),
+      ('bizinfo',${FIXTURE.migrationRelated[1].sourceId},'{}','[]',${"8".repeat(64)},'normalized'),
+      ('bizinfo',${FIXTURE.migrationRelated[2].sourceId},'{}','[]',${"9".repeat(64)},'normalized')`;
   const plans = await buildPlans();
   const before = new Map([
     [FIXTURE.grantId, await loadPromotionGrantSnapshot(db, FIXTURE.grantId, [])],
     [FIXTURE.servingGrantId, await loadPromotionGrantSnapshot(db, FIXTURE.servingGrantId, [])],
     [FIXTURE.correctionGrantId, await loadPromotionGrantSnapshot(db, FIXTURE.correctionGrantId, [])],
+    [FIXTURE.migrationGrantId, await loadPromotionGrantSnapshot(db, FIXTURE.migrationGrantId, [])],
   ]);
   const publication = {
     confirmation: await createDrizzlePromotionPort(db, []).publishGrant(plans.r1),
     serving: await createDrizzlePromotionPort(db, []).publishGrant(plans.serving),
     correction: await createDrizzlePromotionPort(db, []).publishGrant(plans.correction),
+    migration: await createDrizzlePromotionPort(db, []).publishGrant(plans.migration),
   };
+  const migrationSeed = await seedLegacyMigrationQuestions();
   const after = new Map([
     [FIXTURE.grantId, await loadPromotionGrantSnapshot(db, FIXTURE.grantId, [])],
     [FIXTURE.servingGrantId, await loadPromotionGrantSnapshot(db, FIXTURE.servingGrantId, [])],
     [FIXTURE.correctionGrantId, await loadPromotionGrantSnapshot(db, FIXTURE.correctionGrantId, [])],
+    [FIXTURE.migrationGrantId, await loadPromotionGrantSnapshot(db, FIXTURE.migrationGrantId, [])],
   ]);
   const servingRegistry = await publishServingRegistry({
-    plans: [plans.r1, plans.serving, plans.correction],
+    plans: [plans.r1, plans.serving, plans.correction, plans.migration],
     sourceArtifacts: plans.releaseSources,
     before,
     after,
   });
-  return { fixture: FIXTURE, publication, servingRegistry, state: await inspectFixture() };
+  const migration = await publishLegacyMigration(migrationSeed);
+  return {
+    fixture: FIXTURE,
+    publication,
+    servingRegistry,
+    migration,
+    state: await inspectFixture(),
+    migrationState: await inspectMigrationFixture(),
+  };
 }
 
 async function publishRevision2() {
@@ -207,7 +267,7 @@ async function publishServingRegistry(input: {
     gitCommit: "0".repeat(40),
     buildDigest: "1".repeat(40),
     cohortLabel: "local-product-uat-serving",
-    canaryGrantIds: [FIXTURE.grantId, FIXTURE.servingGrantId, FIXTURE.correctionGrantId],
+    canaryGrantIds: input.plans.map((plan) => plan.grantId),
     sourceArtifacts: input.sourceArtifacts,
     plans: planItems,
   });
@@ -226,6 +286,7 @@ async function publishServingRegistry(input: {
     "60000000-0000-4000-8000-000000000002",
     "60000000-0000-4000-8000-000000000003",
     "60000000-0000-4000-8000-000000000004",
+    "60000000-0000-4000-8000-000000000005",
   ];
   for (const [index, plan] of input.plans.entries()) {
     const before = input.before.get(plan.grantId);
@@ -245,6 +306,212 @@ async function publishServingRegistry(input: {
     manifestSha256: manifest.manifestSha256,
     servingProvenance: manifest.servingProvenance,
     appliedGrantIds: input.plans.map((plan) => plan.grantId).sort(),
+  };
+}
+
+async function seedLegacyMigrationQuestions(): Promise<{
+  criterionId: string;
+  criterionStableKey: string;
+  sourceRevisionSha256: string;
+  sourceRawSha256: string;
+}> {
+  const [criterionRow] = await sql<Array<{ id: string; stable_key: string | null }>>`select id,stable_key from grant_criteria
+    where grant_id=${FIXTURE.migrationGrantId}`;
+  assert.ok(criterionRow?.stable_key);
+  await sql`insert into grant_confirmation_questions
+    (id,grant_id,grant_criteria_id,criterion_stable_key,definition_sha256,version,prompt,options,
+     answer_type,reusable,prompt_ver,provenance)
+    values (${FIXTURE.migrationLegacyQuestionId},${FIXTURE.migrationGrantId},${criterionRow.id},
+      ${criterionRow.stable_key},'legacy-local-uat-v0',1,
+      '귀사는 시흥시에 소재하나요?',${JSON.stringify(MIGRATION_OPTIONS)}::jsonb,
+      'single','per_notice','legacy-local-uat-v0','{}')`;
+  const mainSource = await loadDeepAnalysisSourceBinding({ db, grantId: FIXTURE.migrationGrantId });
+  assert.ok(mainSource);
+  for (const [index, related] of FIXTURE.migrationRelated.entries()) {
+    const criterionId = `40000000-0000-4000-8000-00000000020${index + 1}`;
+    await sql`insert into grant_criteria
+      (id,grant_id,dimension,operator,value,kind,confidence,source_span,stable_key,needs_review)
+      values (${criterionId},${related.grantId},'region','text_only','{"note":"시흥 소재 여부"}',
+        'required',1,'시흥시에 소재한 기업',${criterionRow.stable_key},false)`;
+    const source = await loadDeepAnalysisSourceBinding({ db, grantId: related.grantId });
+    assert.ok(source);
+    const definitionSha256 = questionDefinitionSha256({
+      prompt: "현재 시흥시에 등록된 사업장이 있나요?",
+      options: [...MIGRATION_OPTIONS],
+      answerType: "single",
+      reusable: "company_fact",
+      conditionKey: "siheung_registered_business_location",
+      evaluationContractVersion: "confirmation-evaluation-v2",
+      sourceRevisionSha256: source.sourceRevisionSha256,
+      sourceRawSha256: source.sourceRawSha256,
+    });
+    await sql`insert into grant_confirmation_questions
+      (grant_id,evaluation_criterion_id,evaluation_contract_version,source_revision_sha256,
+       source_raw_sha256,criterion_stable_key,definition_sha256,version,prompt,options,answer_type,
+       reusable,condition_key,prompt_ver,provenance)
+      values (${related.grantId},${criterionId},'confirmation-evaluation-v2',
+        ${source.sourceRevisionSha256},${source.sourceRawSha256},
+        ${criterionRow.stable_key},${definitionSha256},1,
+        '현재 시흥시에 등록된 사업장이 있나요?',${JSON.stringify(MIGRATION_OPTIONS)}::jsonb,
+        'single','company_fact','siheung_registered_business_location','local-uat-related-v1','{}')`;
+  }
+  return {
+    criterionId: criterionRow.id,
+    criterionStableKey: criterionRow.stable_key,
+    sourceRevisionSha256: mainSource.sourceRevisionSha256,
+    sourceRawSha256: mainSource.sourceRawSha256,
+  };
+}
+
+async function publishLegacyMigration(seed: {
+  criterionId: string;
+  criterionStableKey: string;
+  sourceRevisionSha256: string;
+  sourceRawSha256: string;
+}) {
+  const definitionSha256 = questionDefinitionSha256({
+    prompt: "현재 시흥시에 등록된 사업장이 있나요?",
+    options: [...MIGRATION_OPTIONS],
+    answerType: "single",
+    reusable: "company_fact",
+    conditionKey: "siheung_registered_business_location",
+    evaluationContractVersion: "confirmation-evaluation-v2",
+    sourceRevisionSha256: seed.sourceRevisionSha256,
+    sourceRawSha256: seed.sourceRawSha256,
+  });
+  const body: LegacyQuestionMigrationReleasePlanBody = {
+    schema: LEGACY_QUESTION_MIGRATION_RELEASE_PLAN_SCHEMA,
+    authority: {
+      status: "offline_write_plan_only",
+      serviceDatabaseWritesMade: 0,
+      migrationAuthorized: false,
+      releaseAuthorized: false,
+      promotionAuthorized: false,
+      liveQuestionWriteAuthorized: false,
+    },
+    source: {
+      draftSetContentSha256: "1".repeat(64),
+      decisionSetContentSha256: "2".repeat(64),
+      currentManifestContentSha256: "3".repeat(64),
+      currentShadowSnapshotSha256: "4".repeat(64),
+    },
+    operations: [{
+      grantId: FIXTURE.migrationGrantId,
+      criterionId: seed.criterionId,
+      criterionStableKey: seed.criterionStableKey,
+      legacyQuestion: {
+        id: FIXTURE.migrationLegacyQuestionId,
+        version: 1,
+        definitionSha256: "legacy-local-uat-v0",
+        expectedAnswerCount: 0,
+      },
+      question: {
+        definitionSha256,
+        sourceRevisionSha256: seed.sourceRevisionSha256,
+        sourceRawSha256: seed.sourceRawSha256,
+        criterionStableKey: seed.criterionStableKey,
+        criterionRef: {
+          dimension: "region",
+          kind: "required",
+          sourceSpanHash: sourceSpanHash("시흥시에 소재한 기업")!,
+        },
+        prompt: "현재 시흥시에 등록된 사업장이 있나요?",
+        options: MIGRATION_OPTIONS,
+        answerType: "single",
+        reusable: "company_fact",
+        conditionKey: "siheung_registered_business_location",
+        evaluationContractVersion: "confirmation-evaluation-v2",
+        promptVer: LEGACY_QUESTION_MIGRATION_RELEASE_PROMPT_VERSION,
+        supersedesQuestionId: FIXTURE.migrationLegacyQuestionId,
+        minimumVersion: 2,
+        provenance: {
+          schema: "legacy-question-migration-provenance-v1",
+          draftSetContentSha256: "1".repeat(64),
+          decisionSetContentSha256: "2".repeat(64),
+          packetContentSha256: "5".repeat(64),
+          candidateSha256: "6".repeat(64),
+          reviewerEmail: "local-uat-reviewer@example.invalid",
+          reviewedAt: "2026-09-08T00:05:02.000Z",
+        },
+      },
+      retireLegacy: {
+        questionId: FIXTURE.migrationLegacyQuestionId,
+        invalidationReason: "legacy_question_migrated_to_v2",
+      },
+    }],
+    holds: [],
+    inheritedNextWorkCount: 0,
+  };
+  const plan: LegacyQuestionMigrationReleasePlan = {
+    ...body,
+    contentSha256: createHash("sha256")
+      .update(canonicalLegacyQuestionMigrationReviewJson(body))
+      .digest("hex"),
+  };
+  const prepared = await prepareLegacyQuestionMigrationReleaseLedger({
+    db,
+    plan,
+    releaseId: FIXTURE.migrationReleaseId,
+    createdBy: "local-uat-migration-preparer",
+    gitCommit: "0".repeat(40),
+    buildDigest: "1".repeat(40),
+  });
+  await approveLegacyQuestionMigrationRelease({
+    db,
+    plan,
+    releaseId: FIXTURE.migrationReleaseId,
+    approvedBy: "local-uat-migration-approver",
+    approvalArtifactSha256: "a".repeat(64),
+  });
+  const applied = await applyLegacyQuestionMigrationRelease({
+    db,
+    plan,
+    releaseId: FIXTURE.migrationReleaseId,
+    executedBy: "local-uat-migration-executor",
+  });
+  const [ledger] = await sql<Array<{
+    parent_promotion_item_id: string;
+    migrated_question_id: string;
+    before_serving_sha256: string;
+    serving_state_sha256: string;
+  }>>`select parent_promotion_item_id,migrated_question_id,before_serving_sha256,serving_state_sha256
+    from analysis_lab_legacy_question_migration_items where release_db_id=${prepared.releaseDbId}`;
+  assert.ok(ledger);
+  return {
+    authority: "isolated_local_fixture_not_service_migration_approval",
+    releaseId: FIXTURE.migrationReleaseId,
+    releaseDbId: prepared.releaseDbId,
+    itemCount: applied.itemCount,
+    parentPromotionItemId: ledger.parent_promotion_item_id,
+    migratedQuestionId: ledger.migrated_question_id,
+    beforeServingSha256: ledger.before_serving_sha256,
+    servingStateSha256: ledger.serving_state_sha256,
+  };
+}
+
+async function inspectMigrationFixture() {
+  const questions = await sql<Array<{
+    id: string;
+    prompt: string;
+    evaluation_contract_version: string | null;
+    reusable: string;
+    condition_key: string | null;
+    invalidated_at: Date | null;
+  }>>`select id,prompt,evaluation_contract_version,reusable,condition_key,invalidated_at
+    from grant_confirmation_questions where grant_id=${FIXTURE.migrationGrantId} order by created_at,id`;
+  const answers = await sql<Array<{
+    question_id: string;
+    evaluation: string | null;
+    answer_revision: number;
+  }>>`select question_id,evaluation,answer_revision
+    from company_grant_confirmations where grant_id=${FIXTURE.migrationGrantId} order by question_id`;
+  return {
+    grantId: FIXTURE.migrationGrantId,
+    activeQuestions: questions.filter((question) => question.invalidated_at === null),
+    retiredLegacyQuestionCount: questions.filter((question) => question.invalidated_at !== null).length,
+    answers,
+    relatedGrantIds: FIXTURE.migrationRelated.map((item) => item.grantId),
+    ledgerSha256: sha256Canonical({ questions, answers }),
   };
 }
 
@@ -303,14 +570,16 @@ async function buildPlans(): Promise<{
   withdraw: GrantPromotionPlan;
   serving: GrantPromotionPlan;
   correction: GrantPromotionPlan;
+  migration: GrantPromotionPlan;
   releaseSources: PromotionSourceArtifact[];
 }> {
-  const [source, servingSource, correctionSource] = await Promise.all([
+  const [source, servingSource, correctionSource, migrationSource] = await Promise.all([
     loadDeepAnalysisSourceBinding({ db, grantId: FIXTURE.grantId }),
     loadDeepAnalysisSourceBinding({ db, grantId: FIXTURE.servingGrantId }),
     loadDeepAnalysisSourceBinding({ db, grantId: FIXTURE.correctionGrantId }),
+    loadDeepAnalysisSourceBinding({ db, grantId: FIXTURE.migrationGrantId }),
   ]);
-  assert.ok(source && servingSource && correctionSource);
+  assert.ok(source && servingSource && correctionSource && migrationSource);
   const criteria: LabCriterion[] = [
     criterion("required", "필수 확인", "필수 조건을 직접 확인해야 합니다"),
     criterion("exclusion", "제외 확인", "현재 참여 제한 대상은 제외합니다"),
@@ -519,6 +788,40 @@ async function buildPlans(): Promise<{
     manualEvaluationSidecar: null,
     sourceRawSha256: correctionSource.sourceRawSha256,
   });
+  const migrationCriteria: LabCriterion[] = [{
+    dimension: "region",
+    kind: "required",
+    operator: "text_only",
+    value: { note: "시흥 소재 여부" },
+    confidence: 1,
+    sourceSpan: "시흥시에 소재한 기업",
+    spanVerified: true,
+    note: null,
+  }];
+  const migrationRun: LabRun = {
+    ...run,
+    runId: "run-2026-09-08T000000.000Z-localuat-legacy-migration",
+    grantId: FIXTURE.migrationGrantId,
+    sourceId: FIXTURE.migrationSourceId,
+    title: FIXTURE.migrationTitle,
+    inputSha256: createHash("sha256").update("local-product-uat-legacy-question-migration").digest("hex"),
+    sourceRevisionSha256: migrationSource.sourceRevisionSha256,
+    criteria: migrationCriteria,
+  };
+  const migrationReview: LabReview = {
+    ...review,
+    grantId: FIXTURE.migrationGrantId,
+    runId: migrationRun.runId,
+    criterionReviews: [{ criterionIndex: 0, verdict: "correct", note: null }],
+  };
+  const migrationPlan = planGrantPromotion({
+    run: migrationRun,
+    review: migrationReview,
+    origin: "human",
+    sidecar: null,
+    manualEvaluationSidecar: null,
+    sourceRawSha256: migrationSource.sourceRawSha256,
+  });
   const confirmationR1 = plan(selected1);
   const releaseSources: PromotionSourceArtifact[] = [
     releaseSourceArtifact({
@@ -542,6 +845,13 @@ async function buildPlans(): Promise<{
       confirmationSidecarSha256: null,
       plan: correctionPlan,
     }),
+    releaseSourceArtifact({
+      run: migrationRun,
+      review: migrationReview,
+      sourceRevisionSha256: migrationSource.sourceRevisionSha256,
+      confirmationSidecarSha256: null,
+      plan: migrationPlan,
+    }),
   ];
   return {
     r1: confirmationR1,
@@ -549,6 +859,7 @@ async function buildPlans(): Promise<{
     withdraw: plan(selected(withdrawal)),
     serving: servingPlan,
     correction: correctionPlan,
+    migration: migrationPlan,
     releaseSources,
   };
 }

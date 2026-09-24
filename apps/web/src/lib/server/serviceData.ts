@@ -78,6 +78,17 @@ import {
   reservePublicLookupBudget,
 } from "./publicLookupProtection";
 import {
+  claimPopbillPaidLookupLease,
+  classifyPublicPreviewRefresh,
+  executePublicPreviewRefresh,
+  PUBLIC_PREVIEW_REFRESH_COOLDOWN_MS,
+  PUBLIC_PREVIEW_REFRESH_COOLDOWN_SCOPE,
+  PUBLIC_PREVIEW_REFRESH_PROVIDER,
+  releasePopbillPaidLookupLease,
+  samePublicPreviewCompanyName,
+  type PublicPreviewRefreshResult,
+} from "./publicPreviewRefresh";
+import {
   buildMatchingProfileView,
   ProductProfileResolutionError,
   resolveProductCompanyProfile as resolveProductCompanyProfileWithDependencies,
@@ -133,6 +144,7 @@ type PopbillCredentials = ReturnType<typeof readPopbillEnvConfig>["credentials"]
 interface CompanyProfileResolution {
   profile: CompanyProfile;
   evidence: CompanyEvidence | null;
+  refreshResult?: PublicPreviewRefreshResult;
 }
 
 interface ProductCompanyPreviewDependencies {
@@ -144,12 +156,23 @@ interface ProductCompanyPreviewDependencies {
     bizNo: string,
     options: { asOf?: Date; publicRequestKey?: string },
   ) => Promise<CompanyProfileResolution>;
+  /** 재조회 생략 판단용. 팝빌을 호출하지 않는다. */
+  readRefreshContext?: (
+    bizNo: string,
+    now: Date,
+  ) => Promise<{ liveCheckedAt: Date | null; cooldownExpiresAt: Date | null }>;
+  /** refresh:true 전용 라이브. 캐시 우선 획득과 분리해 호출 횟수를 센다. */
+  refreshPublicBase?: (
+    bizNo: string,
+    options: { asOf?: Date; publicRequestKey?: string },
+  ) => Promise<CompanyProfileResolution>;
 }
 
 interface PopbillCompanyResolution {
   profile: CompanyProfile;
   facts: CompanyEnrichmentFacts;
   evidence: CompanyEvidence;
+  refreshResult?: PublicPreviewRefreshResult;
 }
 
 interface PopbillLookupInput {
@@ -158,6 +181,8 @@ interface PopbillLookupInput {
   asOf: Date;
   now: Date;
   publicRequestKey?: string;
+  /** 이번 요청만 캐시 히트를 답으로 쓰지 않는다. 캐시 행은 지우지 않는다. */
+  refresh?: boolean;
 }
 
 type NtsPreGateResult = {
@@ -318,7 +343,7 @@ async function loadCompanyProfileFromSource(bizNo?: string): Promise<CompanyProf
 
 export async function loadCompanyProfileFromSourceWithEvidence(
   bizNo?: string,
-  options: { asOf?: Date; publicRequestKey?: string } = {},
+  options: { asOf?: Date; publicRequestKey?: string; refresh?: boolean } = {},
 ): Promise<CompanyProfileResolution> {
   await loadEnvInDevelopment();
 
@@ -333,10 +358,12 @@ export async function loadCompanyProfileFromSourceWithEvidence(
       asOf,
       now: new Date(),
       ...(options.publicRequestKey ? { publicRequestKey: options.publicRequestKey } : {}),
+      ...(options.refresh ? { refresh: true } : {}),
     });
     return {
       profile: result.profile,
       evidence: result.evidence,
+      ...(result.refreshResult ? { refreshResult: result.refreshResult } : {}),
     };
   } catch (error) {
     if (requestedBizNo) {
@@ -604,7 +631,7 @@ export async function enrichServiceCompany(input: {
 
 function loadPopbillCompanyProfile(input: PopbillLookupInput): Promise<PopbillCompanyResolution> {
   // 동일 사업자번호 동시 요청은 진행 중인 조회 하나에 합류시켜 팝빌 중복 호출(중복 과금)을 방지한다.
-  const key = `${ENRICHMENT_CACHE_PROVIDER}:${ENRICHMENT_CACHE_SCOPE}:${input.bizNo}`;
+  const key = `${ENRICHMENT_CACHE_PROVIDER}:${ENRICHMENT_CACHE_SCOPE}:${input.refresh ? "refresh" : "lookup"}:${input.bizNo}`;
   const existing = inflightPopbillLookups.get(key);
   if (existing) return existing;
 
@@ -619,7 +646,79 @@ async function fetchPopbillCompanyProfile(input: PopbillLookupInput): Promise<Po
   // 팝빌 해석(캐시 히트·라이브 어느 경로든)을 마친 뒤, 공통 후처리로 SMPP 확인서 보강을 겹친다.
   // SMPP 정보는 팝빌에 아예 없으므로 NTS(캐시 히트 한정)와 달리 두 경로 모두 적용한다.
   const base = await resolvePopbillCompanyResolution(input);
-  return applySmppCertificates({ bizNo: input.bizNo, now: input.now, resolution: base });
+  const enriched = await applySmppCertificates({ bizNo: input.bizNo, now: input.now, resolution: base });
+  if (!base.refreshResult || enriched.refreshResult) return enriched;
+  return { ...enriched, refreshResult: base.refreshResult };
+}
+
+/**
+ * 공개 재조회. 30일 정산된 popbill_guard는 claim이 거절하므로 가드를 지우지 않고
+ * 별도 lease로 이번 라이브만 돌린다. 성공한 runLive가 guard를 다시 put한다.
+ * 실패하면 캐시 행을 그대로 두고 이전 프로필을 돌려준다.
+ */
+async function resolvePopbillPublicRefresh(input: PopbillLookupInput): Promise<PopbillCompanyResolution> {
+  const cache = resolveServiceRepositories().enrichmentCache;
+  let ntsPreGate: NtsPreGateResult = null;
+  const outcome = await executePublicPreviewRefresh({
+    bizNo: input.bizNo,
+    now: input.now,
+    cache,
+    popbillProvider: ENRICHMENT_CACHE_PROVIDER,
+    popbillScope: ENRICHMENT_CACHE_SCOPE,
+    guardProvider: POPBILL_LOOKUP_GUARD_PROVIDER,
+    guardScope: POPBILL_LOOKUP_GUARD_SCOPE,
+    readCached: () => readCachedPopbillResolution(input),
+    reserveBudget: () => reservePublicPreviewRefreshBudget(input),
+    preLiveLookup: async () => {
+      ntsPreGate = await applyNtsPreGateBeforePopbill({ bizNo: input.bizNo, now: input.now });
+    },
+    liveLookup: () => runLivePopbillLookup(input, ntsPreGate),
+    isTerminalError: isTerminalPublicPreviewRefreshError,
+  });
+  if (!outcome.resolution) {
+    if (outcome.refreshResult === "rate_limited") {
+      throw new ServiceDataError(
+        "popbill_public_refresh_rate_limited",
+        "오늘은 이미 최신 정보를 확인했어요.",
+        429,
+        "bizNo",
+      );
+    }
+    throw new ServiceDataError(
+      "popbill_lookup_failed",
+      "사업자 정보를 즉시 확인하지 못했습니다. 사업자번호를 다시 확인하거나 잠시 후 다시 시도해주세요.",
+      503,
+      "bizNo",
+    );
+  }
+  return { ...outcome.resolution, refreshResult: outcome.refreshResult };
+}
+
+async function reservePublicPreviewRefreshBudget(input: PopbillLookupInput): Promise<void> {
+  if (!input.publicRequestKey) return;
+  try {
+    assertPublicLookupClientRate({ clientKey: input.publicRequestKey, now: input.now });
+    await reservePublicLookupBudget({
+      cache: resolveServiceRepositories().enrichmentCache,
+      clientKey: input.publicRequestKey,
+      reservationKey: input.bizNo,
+      now: input.now,
+    });
+  } catch (error) {
+    if (error instanceof PublicLookupProtectionError) {
+      throw new ServiceDataError(error.code, error.message, error.status, "bizNo");
+    }
+    throw error;
+  }
+}
+
+function isTerminalPublicPreviewRefreshError(error: unknown): boolean {
+  return error instanceof ServiceDataError && (
+    error.code === "invalid_biz_no" ||
+    error.code === "biz_no_closed" ||
+    error.code === "biz_no_not_registered" ||
+    error.code.startsWith("public_lookup_")
+  );
 }
 
 async function resolvePopbillCompanyResolution(input: PopbillLookupInput): Promise<PopbillCompanyResolution> {
@@ -632,6 +731,8 @@ async function resolvePopbillCompanyResolution(input: PopbillLookupInput): Promi
       "bizNo",
     );
   }
+
+  if (input.refresh) return resolvePopbillPublicRefresh(input);
 
   // 가드 2: 캐시 조회(DB read)가 실패하면 캐시 저장도 불가하므로, 과금을 막기 위해 팝빌 호출을 차단한다.
   const cached = await readCachedPopbillResolution(input);
@@ -662,24 +763,22 @@ async function resolvePopbillCompanyResolution(input: PopbillLookupInput): Promi
   // 호출하지 않는 요청이 명시적 해제 없는 guard를 남기지 않도록 한다.
   const ntsPreGate = await applyNtsPreGateBeforePopbill({ bizNo: input.bizNo, now: input.now });
 
-  // Supabase transaction pooler에서도 안전하도록 session lock 대신 PK upsert 조건을 쓴다.
-  // 행이 없거나 만료된 경우에만 단일 SQL로 lease를 획득하므로 여러 Node 인스턴스가
-  // 동시에 miss를 보더라도 유료 호출은 하나만 시작한다.
-  const claimed = await claimPopbillLiveLookup(input);
-  if (!claimed) {
-    // 다른 인스턴스가 첫 cache read 직후 저장을 끝낸 경합이면 그 결과를 즉시 재사용한다.
+  const cache = resolveServiceRepositories().enrichmentCache;
+  let lookupLeaseOwner: string | null;
+  try {
+    lookupLeaseOwner = await claimPopbillPaidLookupLease(cache, input.bizNo, input.now);
+  } catch (error) {
+    console.warn(`Popbill 조회 차단: 공통 유료 조회 lease 획득 실패 - ${errorMessage(error)}`);
+    throw new ServiceDataError(
+      "popbill_cache_unavailable",
+      "사업자 정보 중복조회 방지 상태를 저장하지 못해 조회를 진행할 수 없습니다. 잠시 후 다시 시도해주세요.",
+      503,
+      "bizNo",
+    );
+  }
+  if (!lookupLeaseOwner) {
     const raced = await readCachedPopbillResolution(input);
-    if (raced) {
-      await settlePopbillLiveLookupGuard({
-        bizNo: input.bizNo,
-        now: input.now,
-        expiresAt: parseProviderCheckedAt(raced.evidence.cachedUntil),
-        state: "cache_race_resolved",
-      }).catch((error) => {
-        console.warn(`Popbill 조회 guard 정산 실패(종료 경합): ${errorMessage(error)}`);
-      });
-      return raced;
-    }
+    if (raced) return raced;
     throw new ServiceDataError(
       "popbill_lookup_busy",
       "같은 사업자정보 조회가 진행 중입니다. 잠시 후 다시 확인해주세요.",
@@ -688,29 +787,64 @@ async function resolvePopbillCompanyResolution(input: PopbillLookupInput): Promi
     );
   }
 
-  // lease 획득 직전에 다른 요청이 실제 캐시를 저장했을 수 있으므로 과금 직전 한 번 더 확인한다.
-  let rechecked: PopbillCompanyResolution | null;
   try {
-    rechecked = await readCachedPopbillResolution(input);
-  } catch (error) {
-    // provider 호출 전 캐시 재확인에서 끝난 요청이므로 이 요청의 guard는 해제할 수 있다.
-    await releasePopbillLiveLookupGuard(input.bizNo).catch((releaseError) => {
-      console.warn(`Popbill 조회 guard 해제 실패(캐시 재확인): ${errorMessage(releaseError)}`);
-    });
-    throw error;
-  }
-  if (rechecked) {
-    await settlePopbillLiveLookupGuard({
-      bizNo: input.bizNo,
-      now: input.now,
-      expiresAt: parseProviderCheckedAt(rechecked.evidence.cachedUntil),
-      state: "cache_race_resolved",
+    // Supabase transaction pooler에서도 안전하도록 session lock 대신 PK upsert 조건을 쓴다.
+    // 행이 없거나 만료된 경우에만 단일 SQL로 lease를 획득하므로 여러 Node 인스턴스가
+    // 동시에 miss를 보더라도 유료 호출은 하나만 시작한다.
+    const claimed = await claimPopbillLiveLookup(input);
+    if (!claimed) {
+      // 다른 인스턴스가 첫 cache read 직후 저장을 끝낸 경합이면 그 결과를 즉시 재사용한다.
+      const raced = await readCachedPopbillResolution(input);
+      if (raced) {
+        await settlePopbillLiveLookupGuard({
+          bizNo: input.bizNo,
+          now: input.now,
+          expiresAt: parseProviderCheckedAt(raced.evidence.cachedUntil),
+          state: "cache_race_resolved",
+        }).catch((error) => {
+          console.warn(`Popbill 조회 guard 정산 실패(종료 경합): ${errorMessage(error)}`);
+        });
+        return raced;
+      }
+      throw new ServiceDataError(
+        "popbill_lookup_busy",
+        "같은 사업자정보 조회가 진행 중입니다. 잠시 후 다시 확인해주세요.",
+        503,
+        "bizNo",
+      );
+    }
+
+    // lease 획득 직전에 다른 요청이 실제 캐시를 저장했을 수 있으므로 과금 직전 한 번 더 확인한다.
+    let rechecked: PopbillCompanyResolution | null;
+    try {
+      rechecked = await readCachedPopbillResolution(input);
+    } catch (error) {
+      // provider 호출 전 캐시 재확인에서 끝난 요청이므로 이 요청의 guard는 해제할 수 있다.
+      await releasePopbillLiveLookupGuard(input.bizNo).catch((releaseError) => {
+        console.warn(`Popbill 조회 guard 해제 실패(캐시 재확인): ${errorMessage(releaseError)}`);
+      });
+      throw error;
+    }
+    if (rechecked) {
+      await settlePopbillLiveLookupGuard({
+        bizNo: input.bizNo,
+        now: input.now,
+        expiresAt: parseProviderCheckedAt(rechecked.evidence.cachedUntil),
+        state: "cache_race_resolved",
+      }).catch((error) => {
+        console.warn(`Popbill 조회 guard 정산 실패(캐시 경합): ${errorMessage(error)}`);
+      });
+      return rechecked;
+    }
+    return await runLivePopbillLookup(input, ntsPreGate);
+  } finally {
+    await releasePopbillPaidLookupLease(cache, input.bizNo, lookupLeaseOwner).then((released) => {
+      if (!released) console.warn("Popbill 공통 유료 조회 lease 소유자가 변경되어 해제하지 않았습니다.");
     }).catch((error) => {
-      console.warn(`Popbill 조회 guard 정산 실패(캐시 경합): ${errorMessage(error)}`);
+      // DB 해제가 불명확하면 lease를 그대로 두어 다음 유료 호출을 차단한다.
+      console.warn(`Popbill 공통 유료 조회 lease 해제 실패: ${errorMessage(error)}`);
     });
-    return rechecked;
   }
-  return runLivePopbillLookup(input, ntsPreGate);
 }
 
 async function readCachedPopbillResolution(
@@ -1580,6 +1714,8 @@ export async function loadProductCompanyPreview(
     asOf?: Date;
     publicRequestKey?: string;
     allowVirtual?: boolean;
+    /** 같은 번호의 상호 변경 재조회. 가상 기업은 이 값을 무시한다. */
+    refresh?: boolean;
     dependencies?: ProductCompanyPreviewDependencies;
   } = {},
 ): Promise<CompanyPreviewResult> {
@@ -1609,6 +1745,13 @@ export async function loadProductCompanyPreview(
     resolveAnonymous: resolveAnonymousProductCompanyProfile,
     acquirePublicBase: loadCompanyProfileFromSourceWithEvidence,
   };
+  if (options.refresh) {
+    return loadRefreshedProductCompanyPreview(bizNo, {
+      asOf,
+      dependencies,
+      ...(options.publicRequestKey ? { publicRequestKey: options.publicRequestKey } : {}),
+    });
+  }
   let acquisitionEvidence: CompanyEvidence | null = null;
   let resolution: ResolvedProductCompanyProfile;
   try {
@@ -1638,14 +1781,171 @@ export async function loadProductCompanyPreview(
     }
     resolution = await dependencies.resolveAnonymous({ bizNo }, { asOf });
   }
-  const profile = resolution.profile;
+  return previewFromResolvedProfile(bizNo, resolution, acquisitionEvidence);
+}
+
+async function loadRefreshedProductCompanyPreview(
+  bizNo: string,
+  options: {
+    asOf: Date;
+    publicRequestKey?: string;
+    dependencies: ProductCompanyPreviewDependencies;
+  },
+): Promise<CompanyPreviewResult> {
+  const { asOf, dependencies } = options;
+  const previous = await readPreviousCompanyPreview(bizNo, asOf, dependencies.resolveAnonymous);
+  const readRefreshContext = dependencies.readRefreshContext ?? readPublicPreviewRefreshContext;
+  const refreshPublicBase = dependencies.refreshPublicBase ?? refreshCompanyProfileFromSource;
+
+  let decision: "already_fresh" | "rate_limited" | "live";
+  try {
+    const context = await readRefreshContext(bizNo, asOf);
+    decision = classifyPublicPreviewRefresh({
+      now: asOf,
+      liveCheckedAt: context.liveCheckedAt,
+      cooldownExpiresAt: context.cooldownExpiresAt,
+    });
+  } catch (error) {
+    if (previous && !isTerminalPublicPreviewRefreshError(error)) {
+      return { ...previous, refreshResult: "failed" };
+    }
+    throw error;
+  }
+
+  if ((decision === "already_fresh" || decision === "rate_limited") && previous) {
+    return { ...previous, refreshResult: decision };
+  }
+
+  try {
+    const acquired = await refreshPublicBase(bizNo, {
+      asOf,
+      ...(options.publicRequestKey ? { publicRequestKey: options.publicRequestKey } : {}),
+    });
+    const refreshResult = acquired.refreshResult ?? (
+      samePublicPreviewCompanyName(previous?.name, acquired.profile.name) ? "unchanged" : "updated"
+    );
+    if (
+      refreshResult === "failed" ||
+      refreshResult === "already_fresh" ||
+      refreshResult === "rate_limited"
+    ) {
+      if (previous) return { ...previous, refreshResult };
+      return buildCompanyPreviewResult({
+        bizNo,
+        profile: acquired.profile,
+        ...(acquired.evidence?.checkedAt ? { checkedAt: acquired.evidence.checkedAt } : {}),
+        ...(acquired.evidence?.cacheStatus ? { cacheStatus: acquired.evidence.cacheStatus } : {}),
+        refreshResult,
+      });
+    }
+    if (acquired.evidence?.cacheStatus === "none") {
+      return buildCompanyPreviewResult({
+        bizNo,
+        profile: acquired.profile,
+        checkedAt: acquired.evidence.checkedAt,
+        cacheStatus: "none",
+        refreshResult,
+      });
+    }
+    try {
+      const resolution = await dependencies.resolveAnonymous({ bizNo }, { asOf });
+      return {
+        ...previewFromResolvedProfile(bizNo, resolution, acquired.evidence),
+        refreshResult,
+      };
+    } catch (error) {
+      console.warn(`재조회 결과 재해석 실패(라이브 결과 유지): ${errorMessage(error)}`);
+      return buildCompanyPreviewResult({
+        bizNo,
+        profile: acquired.profile,
+        ...(acquired.evidence?.checkedAt ? { checkedAt: acquired.evidence.checkedAt } : {}),
+        ...(acquired.evidence?.cacheStatus ? { cacheStatus: acquired.evidence.cacheStatus } : {}),
+        refreshResult,
+      });
+    }
+  } catch (error) {
+    if (previous && !isTerminalPublicPreviewRefreshError(error)) {
+      return { ...previous, refreshResult: "failed" };
+    }
+    throw error;
+  }
+}
+
+async function readPreviousCompanyPreview(
+  bizNo: string,
+  asOf: Date,
+  resolveAnonymous: ProductCompanyPreviewDependencies["resolveAnonymous"],
+): Promise<CompanyPreviewResult | null> {
+  try {
+    return previewFromResolvedProfile(bizNo, await resolveAnonymous({ bizNo }, { asOf }), null);
+  } catch (error) {
+    if (error instanceof ProductProfileResolutionError && error.code === "product_profile_unavailable") {
+      return null;
+    }
+    throw error;
+  }
+}
+
+async function readPublicPreviewRefreshContext(
+  bizNo: string,
+  now: Date,
+): Promise<{ liveCheckedAt: Date | null; cooldownExpiresAt: Date | null }> {
+  const cache = resolveServiceRepositories().enrichmentCache;
+  try {
+    const [live, cooldown] = await Promise.all([
+      cache.getFresh({
+        provider: ENRICHMENT_CACHE_PROVIDER,
+        bizNo,
+        scope: ENRICHMENT_CACHE_SCOPE,
+        now,
+      }),
+      cache.getFresh({
+        provider: PUBLIC_PREVIEW_REFRESH_PROVIDER,
+        bizNo,
+        scope: PUBLIC_PREVIEW_REFRESH_COOLDOWN_SCOPE,
+        now,
+      }),
+    ]);
+    return {
+      liveCheckedAt: live?.checkedAt ?? live?.fetchedAt ?? null,
+      cooldownExpiresAt: cooldown
+        ? cooldown.expiresAt ?? new Date(now.getTime() + PUBLIC_PREVIEW_REFRESH_COOLDOWN_MS)
+        : null,
+    };
+  } catch (error) {
+    console.warn(`공개 재조회 상태 조회 실패: ${errorMessage(error)}`);
+    throw new ServiceDataError(
+      "popbill_cache_unavailable",
+      "사업자 정보 캐시 저장소(DB)에 접속할 수 없어 조회를 진행할 수 없습니다. 잠시 후 다시 시도해주세요.",
+      503,
+      "bizNo",
+    );
+  }
+}
+
+function refreshCompanyProfileFromSource(
+  bizNo: string,
+  options: { asOf?: Date; publicRequestKey?: string },
+): Promise<CompanyProfileResolution> {
+  return loadCompanyProfileFromSourceWithEvidence(bizNo, {
+    ...(options.asOf ? { asOf: options.asOf } : {}),
+    ...(options.publicRequestKey ? { publicRequestKey: options.publicRequestKey } : {}),
+    refresh: true,
+  });
+}
+
+function previewFromResolvedProfile(
+  bizNo: string,
+  resolution: ResolvedProductCompanyProfile,
+  acquisitionEvidence: CompanyEvidence | null,
+): CompanyPreviewResult {
   const checkedAt = resolution.view.rows
     .flatMap((row) => row.asOf ? [row.asOf] : [])
     .sort()
     .at(-1);
   return buildCompanyPreviewResult({
     bizNo,
-    profile,
+    profile: resolution.profile,
     ...(checkedAt ? { checkedAt } : {}),
     ...(resolution.sourceReceipts.some((receipt) => receipt.state === "consumed")
       ? { cacheStatus: acquisitionEvidence?.cacheStatus ?? "hit" }
@@ -1687,6 +1987,7 @@ function buildCompanyPreviewResult(input: {
   profile: CompanyProfile;
   checkedAt?: string | null;
   cacheStatus?: string;
+  refreshResult?: PublicPreviewRefreshResult;
 }): CompanyPreviewResult {
   const profile = input.profile;
   const businessStatus: NonNullable<CompanyPreviewResult["businessStatus"]> = {};
@@ -1706,6 +2007,7 @@ function buildCompanyPreviewResult(input: {
   if (regionLabel) result.regionLabel = regionLabel;
   if (input.checkedAt) result.checkedAt = input.checkedAt;
   if (input.cacheStatus) result.cacheStatus = input.cacheStatus;
+  if (input.refreshResult) result.refreshResult = input.refreshResult;
   return result;
 }
 
