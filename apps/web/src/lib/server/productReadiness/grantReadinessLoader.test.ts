@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import test from "node:test";
 import {
   buildGrantReadinessReport,
@@ -65,6 +66,27 @@ test("검수 조건에서 질문 수요를 도출하고 current reviewed v2 질�
   const input = normalizeGrantReadinessEvidence(fixture());
   assert.equal(classifyGrantReadiness(input).category, "A");
   assert.deepEqual(input.analysis.eligibleQuestionCriterionStableKeys, ["criterion:location"]);
+});
+
+test("첨부 없는 lab 발행의 정식 빈 manifest 해시는 첨부 변경으로 판정하지 않는다", () => {
+  const emptyManifestSha256 = createHash("sha256")
+    .update(JSON.stringify({ schemaVersion: 1, attachments: [] }), "utf8")
+    .digest("hex");
+  assert.equal(emptyManifestSha256, "1449f91a3bb5f5a533ad9eda3b9c5270090d17d618f6f47ef712cfde4de7d7a9");
+  const input = normalizeGrantReadinessEvidence(fixture({
+    source: { ...fixture().source, hasAttachments: false, attachmentStatus: "not_required" },
+    promotion: { ...fixture().promotion!, attachmentManifestSha256: emptyManifestSha256 },
+  }));
+  assert.equal(input.analysis.attachmentManifestSha256, null);
+  assert.equal(classifyGrantReadiness(input).category, "A");
+});
+
+test("첨부 없는 공고의 알 수 없는 비어 있지 않은 manifest 해시는 계속 변경으로 보류한다", () => {
+  const input = normalizeGrantReadinessEvidence(fixture({
+    source: { ...fixture().source, hasAttachments: false, attachmentStatus: "not_required" },
+    promotion: { ...fixture().promotion!, attachmentManifestSha256: attachments },
+  }));
+  assert.deepEqual(classifyGrantReadiness(input).blockerCodes, ["attachment_manifest_changed"]);
 });
 
 test("DB 조건이 있으면 발행 전에도 분석 존재로 보며, 조건도 없을 때만 분석 없음이다", () => {

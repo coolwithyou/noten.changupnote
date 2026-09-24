@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { and, desc, eq, gte, inArray, isNull, lte, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
@@ -48,6 +49,10 @@ const ACCEPTED_REVIEW_STATES = new Set([
   "human_reviewed",
   "analysis_launch_independent_review",
 ]);
+// analysis-lab/input.ts seals an empty attachment list as a hash, not null.
+const EMPTY_LAB_ATTACHMENT_MANIFEST_SHA256 = createHash("sha256")
+  .update('{"schemaVersion":1,"attachments":[]}', "utf8")
+  .digest("hex");
 
 export interface GrantReadinessInventoryRow {
   readonly id: string;
@@ -214,7 +219,9 @@ export function normalizeGrantReadinessEvidence(row: GrantReadinessEvidenceRow):
       // current source revision cryptographically commits this raw hash; when it
       // differs, revision drift remains the primary fail-closed evidence.
       sourceRawSha256: row.source.rawSha256,
-      attachmentManifestSha256: promotion?.attachmentManifestSha256 ?? null,
+      attachmentManifestSha256: attachmentStatus === "not_required"
+        && promotion?.attachmentManifestSha256 === EMPTY_LAB_ATTACHMENT_MANIFEST_SHA256
+        ? null : promotion?.attachmentManifestSha256 ?? null,
       structure: promotionMatchesCurrent && stableCriteriaMatch ? "complete" : "incomplete",
       criteriaReview: criteriaReviewVerified
         && resolutionReviewComplete
