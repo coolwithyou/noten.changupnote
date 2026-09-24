@@ -83,6 +83,9 @@ export interface ExecutePublicPreviewRefreshInput<T extends PublicPreviewRefresh
   readCached: () => Promise<T | null>;
   /** 라이브 직전에만 호출한다. 1시간·24시간 생략 경로에서는 예산을 쓰지 않는다. */
   reserveBudget: () => Promise<void>;
+  /** 무료 사전 검사. 실패하면 유료 호출이 시작되지 않았으므로 lease를 해제할 수 있다. */
+  preLiveLookup?: () => Promise<void>;
+  /** 이 함수 진입 직후부터 유료 SDK 호출 결과를 알 수 없으면 lease를 유지한다. */
   liveLookup: () => Promise<T>;
   /** true면 이전 상호로 삼키지 않고 그대로 던진다. 폐업·미등록·공개 조회 한도. */
   isTerminalError?: (error: unknown) => boolean;
@@ -174,9 +177,13 @@ export async function executePublicPreviewRefresh<T extends PublicPreviewRefresh
   }
 
   let previous: T | null = null;
+  let paidCallStarted = false;
+  let cooldownStored = false;
   try {
     previous = await input.readCached();
     await input.reserveBudget();
+    await input.preLiveLookup?.();
+    paidCallStarted = true;
     const live = await input.liveLookup();
     const refreshResult = samePublicPreviewCompanyName(previous?.profile.name, live.profile.name)
       ? "unchanged"
@@ -196,6 +203,7 @@ export async function executePublicPreviewRefresh<T extends PublicPreviewRefresh
         fetchedAt: input.now,
         expiresAt: new Date(input.now.getTime() + PUBLIC_PREVIEW_REFRESH_COOLDOWN_MS),
       });
+      cooldownStored = true;
     } catch (error) {
       console.warn(`공개 재조회 쿨다운 기록 실패: ${errorMessage(error)}`);
     }
@@ -204,11 +212,16 @@ export async function executePublicPreviewRefresh<T extends PublicPreviewRefresh
     if (input.isTerminalError?.(error)) throw error;
     return { refreshResult: "failed", resolution: previous };
   } finally {
-    await releasePopbillPaidLookupLease(input.cache, input.bizNo, ownerToken).then((released) => {
-      if (!released) console.warn("공개 재조회 lease 소유자가 변경되어 해제하지 않았습니다.");
-    }).catch((error) => {
-      console.warn(`공개 재조회 lease 해제 실패: ${errorMessage(error)}`);
-    });
+    if (!paidCallStarted || cooldownStored) {
+      await releasePopbillPaidLookupLease(input.cache, input.bizNo, ownerToken).then((released) => {
+        if (!released) console.warn("공개 재조회 lease 소유자가 변경되어 해제하지 않았습니다.");
+      }).catch((error) => {
+        console.warn(`공개 재조회 lease 해제 실패: ${errorMessage(error)}`);
+      });
+    } else {
+      // SDK promise timeout은 실제 provider 요청 취소를 증명하지 못한다. 쿨다운도 없으면 재과금을 차단한다.
+      console.warn("공개 재조회 유료 호출 또는 쿨다운 정산이 불명확해 lease를 유지합니다.");
+    }
   }
 }
 

@@ -233,9 +233,83 @@ assert.equal(failed.liveCalls, 1);
 assert.equal(failed.budgetCalls, 1);
 assert.equal(failed.cache.profileName(), "옛상호");
 assert.equal(failed.cache.has(PUBLIC_PREVIEW_REFRESH_PROVIDER, PUBLIC_PREVIEW_REFRESH_COOLDOWN_SCOPE), false);
+assert.equal(failed.cache.has(PUBLIC_PREVIEW_REFRESH_PROVIDER, PUBLIC_PREVIEW_REFRESH_LEASE_SCOPE), true,
+  "유료 SDK 오류 뒤 결과가 불명확하면 공통 lease를 유지한다");
 assert.equal(failed.cache.has(ntsProvider, ntsScope), true);
 assert.equal(failed.cache.has(smppProvider, smppScope), true);
 assert.equal(failed.cache.deletes.some((entry) => entry.provider === popbillProvider), false);
+const failedRetry = await executePublicPreviewRefresh({
+  bizNo,
+  now: new Date(now.getTime() + 3 * 60_000),
+  cache: failed.cache,
+  popbillProvider,
+  popbillScope,
+  guardProvider,
+  guardScope,
+  readCached: async () => ({ profile: { name: failed.cache.profileName() } }),
+  reserveBudget: async () => { failed.budgetCalls += 1; },
+  liveLookup: async () => {
+    failed.liveCalls += 1;
+    return { profile: { name: "재시도 상호" } };
+  },
+});
+assert.equal(failedRetry.refreshResult, "failed");
+assert.equal(failed.liveCalls, 1, "유료 SDK 오류 직후 재시도는 두 번째 유료 호출을 시작하지 않는다");
+assert.equal(failed.budgetCalls, 1);
+
+const preLiveCache = seedCache({
+  liveCheckedAt: new Date(now.getTime() - 10 * 24 * 60 * 60 * 1000),
+  name: "옛상호",
+  guardState: "cache_stored",
+  guardExpiresAt: new Date(now.getTime() + 20 * 24 * 60 * 60 * 1000),
+});
+let preLivePaidCalls = 0;
+const preLiveFailure = await executePublicPreviewRefresh({
+  bizNo,
+  now,
+  cache: preLiveCache,
+  popbillProvider,
+  popbillScope,
+  guardProvider,
+  guardScope,
+  readCached: async () => ({ profile: { name: "옛상호" } }),
+  reserveBudget: async () => {},
+  preLiveLookup: async () => { throw new Error("NTS unavailable before paid call"); },
+  liveLookup: async () => {
+    preLivePaidCalls += 1;
+    return { profile: { name: "새상호" } };
+  },
+});
+assert.equal(preLiveFailure.refreshResult, "failed");
+assert.equal(preLivePaidCalls, 0);
+assert.equal(preLiveCache.has(PUBLIC_PREVIEW_REFRESH_PROVIDER, PUBLIC_PREVIEW_REFRESH_LEASE_SCOPE), false,
+  "유료 호출 전 무료 사전 검사 실패는 lease를 해제한다");
+
+class CooldownWriteFailureCache extends MemoryCache {
+  override async put(input: WriteEnrichmentCacheInput): Promise<EnrichmentCacheEntry> {
+    if (input.provider === PUBLIC_PREVIEW_REFRESH_PROVIDER &&
+        input.scope === PUBLIC_PREVIEW_REFRESH_COOLDOWN_SCOPE) {
+      throw new Error("cooldown DB write failed");
+    }
+    return super.put(input);
+  }
+}
+const cooldownWriteFailureCache = new CooldownWriteFailureCache();
+const cooldownWriteFailure = await executePublicPreviewRefresh({
+  bizNo,
+  now,
+  cache: cooldownWriteFailureCache,
+  popbillProvider,
+  popbillScope,
+  guardProvider,
+  guardScope,
+  readCached: async () => ({ profile: { name: "옛상호" } }),
+  reserveBudget: async () => {},
+  liveLookup: async () => ({ profile: { name: "새상호" } }),
+});
+assert.equal(cooldownWriteFailure.refreshResult, "updated");
+assert.equal(cooldownWriteFailureCache.has(PUBLIC_PREVIEW_REFRESH_PROVIDER, PUBLIC_PREVIEW_REFRESH_LEASE_SCOPE), true,
+  "유료 호출이 성공해도 쿨다운 저장 실패 시 중복 유료 호출을 막는 lease를 유지한다");
 
 let overlapLive = 0;
 const overlapCache = seedCache({

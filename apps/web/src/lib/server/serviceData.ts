@@ -658,6 +658,7 @@ async function fetchPopbillCompanyProfile(input: PopbillLookupInput): Promise<Po
  */
 async function resolvePopbillPublicRefresh(input: PopbillLookupInput): Promise<PopbillCompanyResolution> {
   const cache = resolveServiceRepositories().enrichmentCache;
+  let ntsPreGate: NtsPreGateResult = null;
   const outcome = await executePublicPreviewRefresh({
     bizNo: input.bizNo,
     now: input.now,
@@ -668,10 +669,10 @@ async function resolvePopbillPublicRefresh(input: PopbillLookupInput): Promise<P
     guardScope: POPBILL_LOOKUP_GUARD_SCOPE,
     readCached: () => readCachedPopbillResolution(input),
     reserveBudget: () => reservePublicPreviewRefreshBudget(input),
-    liveLookup: async () => {
-      const ntsPreGate = await applyNtsPreGateBeforePopbill({ bizNo: input.bizNo, now: input.now });
-      return runLivePopbillLookup(input, ntsPreGate);
+    preLiveLookup: async () => {
+      ntsPreGate = await applyNtsPreGateBeforePopbill({ bizNo: input.bizNo, now: input.now });
     },
+    liveLookup: () => runLivePopbillLookup(input, ntsPreGate),
     isTerminalError: isTerminalPublicPreviewRefreshError,
   });
   if (!outcome.resolution) {
