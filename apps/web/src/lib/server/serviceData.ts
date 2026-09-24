@@ -78,11 +78,13 @@ import {
   reservePublicLookupBudget,
 } from "./publicLookupProtection";
 import {
+  claimPopbillPaidLookupLease,
   classifyPublicPreviewRefresh,
   executePublicPreviewRefresh,
   PUBLIC_PREVIEW_REFRESH_COOLDOWN_MS,
   PUBLIC_PREVIEW_REFRESH_COOLDOWN_SCOPE,
   PUBLIC_PREVIEW_REFRESH_PROVIDER,
+  releasePopbillPaidLookupLease,
   samePublicPreviewCompanyName,
   type PublicPreviewRefreshResult,
 } from "./publicPreviewRefresh";
@@ -760,24 +762,22 @@ async function resolvePopbillCompanyResolution(input: PopbillLookupInput): Promi
   // 호출하지 않는 요청이 명시적 해제 없는 guard를 남기지 않도록 한다.
   const ntsPreGate = await applyNtsPreGateBeforePopbill({ bizNo: input.bizNo, now: input.now });
 
-  // Supabase transaction pooler에서도 안전하도록 session lock 대신 PK upsert 조건을 쓴다.
-  // 행이 없거나 만료된 경우에만 단일 SQL로 lease를 획득하므로 여러 Node 인스턴스가
-  // 동시에 miss를 보더라도 유료 호출은 하나만 시작한다.
-  const claimed = await claimPopbillLiveLookup(input);
-  if (!claimed) {
-    // 다른 인스턴스가 첫 cache read 직후 저장을 끝낸 경합이면 그 결과를 즉시 재사용한다.
+  const cache = resolveServiceRepositories().enrichmentCache;
+  let lookupLeaseOwner: string | null;
+  try {
+    lookupLeaseOwner = await claimPopbillPaidLookupLease(cache, input.bizNo, input.now);
+  } catch (error) {
+    console.warn(`Popbill 조회 차단: 공통 유료 조회 lease 획득 실패 - ${errorMessage(error)}`);
+    throw new ServiceDataError(
+      "popbill_cache_unavailable",
+      "사업자 정보 중복조회 방지 상태를 저장하지 못해 조회를 진행할 수 없습니다. 잠시 후 다시 시도해주세요.",
+      503,
+      "bizNo",
+    );
+  }
+  if (!lookupLeaseOwner) {
     const raced = await readCachedPopbillResolution(input);
-    if (raced) {
-      await settlePopbillLiveLookupGuard({
-        bizNo: input.bizNo,
-        now: input.now,
-        expiresAt: parseProviderCheckedAt(raced.evidence.cachedUntil),
-        state: "cache_race_resolved",
-      }).catch((error) => {
-        console.warn(`Popbill 조회 guard 정산 실패(종료 경합): ${errorMessage(error)}`);
-      });
-      return raced;
-    }
+    if (raced) return raced;
     throw new ServiceDataError(
       "popbill_lookup_busy",
       "같은 사업자정보 조회가 진행 중입니다. 잠시 후 다시 확인해주세요.",
@@ -786,29 +786,64 @@ async function resolvePopbillCompanyResolution(input: PopbillLookupInput): Promi
     );
   }
 
-  // lease 획득 직전에 다른 요청이 실제 캐시를 저장했을 수 있으므로 과금 직전 한 번 더 확인한다.
-  let rechecked: PopbillCompanyResolution | null;
   try {
-    rechecked = await readCachedPopbillResolution(input);
-  } catch (error) {
-    // provider 호출 전 캐시 재확인에서 끝난 요청이므로 이 요청의 guard는 해제할 수 있다.
-    await releasePopbillLiveLookupGuard(input.bizNo).catch((releaseError) => {
-      console.warn(`Popbill 조회 guard 해제 실패(캐시 재확인): ${errorMessage(releaseError)}`);
-    });
-    throw error;
-  }
-  if (rechecked) {
-    await settlePopbillLiveLookupGuard({
-      bizNo: input.bizNo,
-      now: input.now,
-      expiresAt: parseProviderCheckedAt(rechecked.evidence.cachedUntil),
-      state: "cache_race_resolved",
+    // Supabase transaction pooler에서도 안전하도록 session lock 대신 PK upsert 조건을 쓴다.
+    // 행이 없거나 만료된 경우에만 단일 SQL로 lease를 획득하므로 여러 Node 인스턴스가
+    // 동시에 miss를 보더라도 유료 호출은 하나만 시작한다.
+    const claimed = await claimPopbillLiveLookup(input);
+    if (!claimed) {
+      // 다른 인스턴스가 첫 cache read 직후 저장을 끝낸 경합이면 그 결과를 즉시 재사용한다.
+      const raced = await readCachedPopbillResolution(input);
+      if (raced) {
+        await settlePopbillLiveLookupGuard({
+          bizNo: input.bizNo,
+          now: input.now,
+          expiresAt: parseProviderCheckedAt(raced.evidence.cachedUntil),
+          state: "cache_race_resolved",
+        }).catch((error) => {
+          console.warn(`Popbill 조회 guard 정산 실패(종료 경합): ${errorMessage(error)}`);
+        });
+        return raced;
+      }
+      throw new ServiceDataError(
+        "popbill_lookup_busy",
+        "같은 사업자정보 조회가 진행 중입니다. 잠시 후 다시 확인해주세요.",
+        503,
+        "bizNo",
+      );
+    }
+
+    // lease 획득 직전에 다른 요청이 실제 캐시를 저장했을 수 있으므로 과금 직전 한 번 더 확인한다.
+    let rechecked: PopbillCompanyResolution | null;
+    try {
+      rechecked = await readCachedPopbillResolution(input);
+    } catch (error) {
+      // provider 호출 전 캐시 재확인에서 끝난 요청이므로 이 요청의 guard는 해제할 수 있다.
+      await releasePopbillLiveLookupGuard(input.bizNo).catch((releaseError) => {
+        console.warn(`Popbill 조회 guard 해제 실패(캐시 재확인): ${errorMessage(releaseError)}`);
+      });
+      throw error;
+    }
+    if (rechecked) {
+      await settlePopbillLiveLookupGuard({
+        bizNo: input.bizNo,
+        now: input.now,
+        expiresAt: parseProviderCheckedAt(rechecked.evidence.cachedUntil),
+        state: "cache_race_resolved",
+      }).catch((error) => {
+        console.warn(`Popbill 조회 guard 정산 실패(캐시 경합): ${errorMessage(error)}`);
+      });
+      return rechecked;
+    }
+    return await runLivePopbillLookup(input, ntsPreGate);
+  } finally {
+    await releasePopbillPaidLookupLease(cache, input.bizNo, lookupLeaseOwner).then((released) => {
+      if (!released) console.warn("Popbill 공통 유료 조회 lease 소유자가 변경되어 해제하지 않았습니다.");
     }).catch((error) => {
-      console.warn(`Popbill 조회 guard 정산 실패(캐시 경합): ${errorMessage(error)}`);
+      // DB 해제가 불명확하면 lease를 그대로 두어 다음 유료 호출을 차단한다.
+      console.warn(`Popbill 공통 유료 조회 lease 해제 실패: ${errorMessage(error)}`);
     });
-    return rechecked;
   }
-  return runLivePopbillLookup(input, ntsPreGate);
 }
 
 async function readCachedPopbillResolution(

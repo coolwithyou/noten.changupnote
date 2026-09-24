@@ -298,6 +298,44 @@ const permanentGuardRetry = await repositories.enrichmentCache.claim({
   now: new Date("2036-06-26T01:00:00.000Z"),
 });
 assert.equal(permanentGuardRetry, null, "a permanent guard must require explicit settlement or deletion");
+const ownerBoundLease = {
+  ...leaseInput,
+  provider: "popbill_public_refresh",
+  canonicalPayload: { state: "attempt_reserved", ownerToken: "old-owner" },
+  expiresAt: null,
+};
+assert.ok(await repositories.enrichmentCache.claim(ownerBoundLease));
+assert.equal(await repositories.enrichmentCache.claim({
+  ...ownerBoundLease,
+  canonicalPayload: { state: "attempt_reserved", ownerToken: "new-owner" },
+  now: new Date("2036-06-26T01:00:00.000Z"),
+}), null, "an active paid lookup remains blocked regardless of elapsed time");
+await repositories.enrichmentCache.deleteByBizNo({
+  bizNo: ownerBoundLease.bizNo,
+  provider: ownerBoundLease.provider,
+  scope: ownerBoundLease.scope,
+});
+assert.ok(await repositories.enrichmentCache.claim({
+  ...ownerBoundLease,
+  canonicalPayload: { state: "attempt_reserved", ownerToken: "new-owner" },
+}));
+assert.equal(await repositories.enrichmentCache.releaseClaim({
+  provider: ownerBoundLease.provider,
+  bizNo: ownerBoundLease.bizNo,
+  scope: ownerBoundLease.scope,
+  ownerToken: "old-owner",
+}), false, "a stale owner must not release a replacement lease");
+assert.equal((await repositories.enrichmentCache.getFresh({
+  provider: ownerBoundLease.provider,
+  bizNo: ownerBoundLease.bizNo,
+  scope: ownerBoundLease.scope,
+}))?.canonicalPayload?.ownerToken, "new-owner", "stale release must preserve the new owner");
+assert.equal(await repositories.enrichmentCache.releaseClaim({
+  provider: ownerBoundLease.provider,
+  bizNo: ownerBoundLease.bizNo,
+  scope: ownerBoundLease.scope,
+  ownerToken: "new-owner",
+}), true);
 
 console.log(JSON.stringify({
   ok: true,

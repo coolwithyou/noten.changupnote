@@ -1,19 +1,19 @@
+import { randomUUID } from "node:crypto";
 import type {
   ClaimEnrichmentCacheInput,
-  DeleteEnrichmentCacheInput,
   EnrichmentCacheEntry,
   ReadEnrichmentCacheInput,
+  ReleaseEnrichmentCacheClaimInput,
   WriteEnrichmentCacheInput,
 } from "@cunote/core";
 
-/** 랜딩 공개 재조회의 24시간 쿨다운. 팝빌 본캐시·30일 guard와 PK가 겹치지 않는다. */
+/** 랜딩 공개 재조회의 24시간 쿨다운과 모든 유료 Popbill 경로의 공통 lease. */
 export const PUBLIC_PREVIEW_REFRESH_PROVIDER = "popbill_public_refresh";
 export const PUBLIC_PREVIEW_REFRESH_COOLDOWN_SCOPE = "checkBizInfo-24h";
 export const PUBLIC_PREVIEW_REFRESH_LEASE_SCOPE = "checkBizInfo-live-attempt";
 
 export const PUBLIC_PREVIEW_ALREADY_FRESH_MS = 60 * 60 * 1000;
 export const PUBLIC_PREVIEW_REFRESH_COOLDOWN_MS = 24 * 60 * 60 * 1000;
-const PUBLIC_PREVIEW_REFRESH_LEASE_MS = 2 * 60 * 1000;
 
 export type PublicPreviewRefreshResult =
   | "updated"
@@ -26,7 +26,46 @@ export interface PublicPreviewRefreshCache {
   getFresh(input: ReadEnrichmentCacheInput): Promise<EnrichmentCacheEntry | null>;
   put(input: WriteEnrichmentCacheInput): Promise<EnrichmentCacheEntry>;
   claim(input: ClaimEnrichmentCacheInput): Promise<EnrichmentCacheEntry | null>;
-  deleteByBizNo(input: DeleteEnrichmentCacheInput): Promise<number>;
+  releaseClaim(input: ReleaseEnrichmentCacheClaimInput): Promise<boolean>;
+}
+
+/** 만료로 재선점하지 않는 공통 유료 조회 lease. 비정상 종료 시에는 수동 복구 전까지 fail-closed한다. */
+export async function claimPopbillPaidLookupLease(
+  cache: Pick<PublicPreviewRefreshCache, "claim">,
+  bizNo: string,
+  now: Date,
+): Promise<string | null> {
+  const ownerToken = randomUUID();
+  const claimed = await cache.claim({
+    provider: PUBLIC_PREVIEW_REFRESH_PROVIDER,
+    bizNo,
+    scope: PUBLIC_PREVIEW_REFRESH_LEASE_SCOPE,
+    canonicalPayload: { state: "attempt_reserved", ownerToken, reservedAt: now.toISOString() },
+    providerResultCode: "reserved",
+    providerResultMessage: "Popbill paid lookup lease",
+    checkedAt: now,
+    fetchedAt: now,
+    now,
+    expiresAt: null,
+  });
+  if (!claimed) return null;
+  if (claimed.canonicalPayload?.ownerToken !== ownerToken) {
+    throw new Error("Popbill 유료 조회 lease 소유자 검증에 실패했습니다.");
+  }
+  return ownerToken;
+}
+
+export function releasePopbillPaidLookupLease(
+  cache: Pick<PublicPreviewRefreshCache, "releaseClaim">,
+  bizNo: string,
+  ownerToken: string,
+): Promise<boolean> {
+  return cache.releaseClaim({
+    provider: PUBLIC_PREVIEW_REFRESH_PROVIDER,
+    bizNo,
+    scope: PUBLIC_PREVIEW_REFRESH_LEASE_SCOPE,
+    ownerToken,
+  });
 }
 
 export interface PublicPreviewRefreshProfile {
@@ -87,7 +126,7 @@ function normalizePublicPreviewCompanyName(value: string | null | undefined): st
 /**
  * 이번 요청만 팝빌 캐시 읽기 결과를 답으로 쓰지 않는다.
  * 캐시 행과 30일 popbill_guard는 지우지 않는다. claim은 정산된 guard를 거절하므로
- * 재조회 lease를 따로 잡고, 성공 후에만 24시간 쿨다운을 남긴다.
+ * 공통 유료 조회 lease를 잡고, 성공 후에만 24시간 쿨다운을 남긴다.
  * 진행 중인 guard(attempt_reserved)는 건드리지 않아 같은 번호의 다른 라이브와 겹치지 않는다.
  */
 export async function executePublicPreviewRefresh<T extends PublicPreviewRefreshProfile>(
@@ -128,22 +167,8 @@ export async function executePublicPreviewRefresh<T extends PublicPreviewRefresh
     return { refreshResult: "failed", resolution };
   }
 
-  const claimed = await input.cache.claim({
-    provider: PUBLIC_PREVIEW_REFRESH_PROVIDER,
-    bizNo: input.bizNo,
-    scope: PUBLIC_PREVIEW_REFRESH_LEASE_SCOPE,
-    canonicalPayload: {
-      state: "attempt_reserved",
-      reservedAt: input.now.toISOString(),
-    },
-    providerResultCode: "reserved",
-    providerResultMessage: "Public preview refresh lease",
-    checkedAt: input.now,
-    fetchedAt: input.now,
-    now: input.now,
-    expiresAt: new Date(input.now.getTime() + PUBLIC_PREVIEW_REFRESH_LEASE_MS),
-  });
-  if (!claimed) {
+  const ownerToken = await claimPopbillPaidLookupLease(input.cache, input.bizNo, input.now);
+  if (!ownerToken) {
     const resolution = await readCachedOrNull(input);
     return { refreshResult: "failed", resolution };
   }
@@ -179,10 +204,8 @@ export async function executePublicPreviewRefresh<T extends PublicPreviewRefresh
     if (input.isTerminalError?.(error)) throw error;
     return { refreshResult: "failed", resolution: previous };
   } finally {
-    await input.cache.deleteByBizNo({
-      bizNo: input.bizNo,
-      provider: PUBLIC_PREVIEW_REFRESH_PROVIDER,
-      scope: PUBLIC_PREVIEW_REFRESH_LEASE_SCOPE,
+    await releasePopbillPaidLookupLease(input.cache, input.bizNo, ownerToken).then((released) => {
+      if (!released) console.warn("공개 재조회 lease 소유자가 변경되어 해제하지 않았습니다.");
     }).catch((error) => {
       console.warn(`공개 재조회 lease 해제 실패: ${errorMessage(error)}`);
     });

@@ -133,6 +133,29 @@ try {
   await verifyPromotionServingSnapshotPostgres({ admin, socket });
   await verifyServingMonitorPostgres({ admin, socket });
   await verifyPremisesPostgres({ admin, client });
+  const paidLease = createDrizzleRepositories({ dialect: "drizzle", client: drizzle(client, { schema }) }).enrichmentCache;
+  const leaseKey = { provider: "popbill_public_refresh", bizNo: "0000000000", scope: "checkBizInfo-live-attempt" };
+  const leaseNow = new Date("2026-09-24T00:00:00.000Z");
+  const oldOwner = crypto.randomUUID();
+  const newOwner = crypto.randomUUID();
+  const claimLease = (ownerToken: string, at: Date) => paidLease.claim({
+    ...leaseKey,
+    canonicalPayload: { state: "attempt_reserved", ownerToken },
+    fetchedAt: at,
+    now: at,
+    expiresAt: null,
+  });
+  assert.ok(await claimLease(oldOwner, leaseNow));
+  assert.equal(await claimLease(newOwner, new Date("2026-09-24T00:03:00.000Z")), null,
+    "an in-flight paid lookup cannot be reclaimed by elapsed time");
+  assert.equal(await paidLease.deleteByBizNo(leaseKey), 1, "explicit operator recovery replaces a stalled claim");
+  assert.ok(await claimLease(newOwner, new Date("2026-09-24T00:03:00.000Z")));
+  assert.equal(await paidLease.releaseClaim({ ...leaseKey, ownerToken: oldOwner }), false,
+    "old owner cannot delete a reclaimed PostgreSQL lease");
+  assert.equal((await paidLease.getFresh({ ...leaseKey, now: leaseNow }))?.canonicalPayload?.ownerToken, newOwner);
+  assert.equal(await paidLease.releaseClaim({ ...leaseKey, ownerToken: newOwner }), true);
+  assert.equal(await paidLease.getFresh({ ...leaseKey, now: leaseNow }), null);
+  console.log("PASS: paid Popbill lease release uses PostgreSQL owner CAS after explicit reclaim");
   await verifyApplicationFieldRepairPostgres({
     admin,
     client,

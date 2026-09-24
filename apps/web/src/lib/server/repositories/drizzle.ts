@@ -67,6 +67,7 @@ import type {
   CompanyRecord,
   CompanyRepository,
   ClaimEnrichmentCacheInput,
+  ReleaseEnrichmentCacheClaimInput,
   CreateCompanyInput,
   DeleteEnrichmentCacheInput,
   EnrichmentCacheEntry,
@@ -1857,6 +1858,20 @@ class DrizzleEnrichmentCacheRepository implements EnrichmentCacheRepository {
       })
       .returning();
     return row ? toEnrichmentCacheEntry(row) : null;
+  }
+
+  async releaseClaim(input: ReleaseEnrichmentCacheClaimInput): Promise<boolean> {
+    const rows = await this.db.client
+      .delete(schema.companyEnrichmentCache)
+      .where(and(
+        eq(schema.companyEnrichmentCache.provider, input.provider),
+        eq(schema.companyEnrichmentCache.bizNo, input.bizNo),
+        eq(schema.companyEnrichmentCache.scope, input.scope),
+        sql`${schema.companyEnrichmentCache.canonicalPayload}->>'state' = 'attempt_reserved'`,
+        sql`${schema.companyEnrichmentCache.canonicalPayload}->>'ownerToken' = ${input.ownerToken}`,
+      ))
+      .returning({ provider: schema.companyEnrichmentCache.provider });
+    return rows.length === 1;
   }
 
   async listByBizNo(bizNo: string): Promise<EnrichmentCacheEntry[]> {

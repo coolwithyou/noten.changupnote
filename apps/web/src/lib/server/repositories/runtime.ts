@@ -24,6 +24,7 @@ import type {
   ApplyLedgerEntryInput,
   CaptureHoldResult,
   ClaimEnrichmentCacheInput,
+  ReleaseEnrichmentCacheClaimInput,
   CompanyRecord,
   CompanyRepository,
   CreateCompanyInput,
@@ -336,6 +337,14 @@ class RuntimeEnrichmentCacheRepository implements EnrichmentCacheRepository {
       return null;
     }
     return this.put(input);
+  }
+
+  async releaseClaim(input: ReleaseEnrichmentCacheClaimInput): Promise<boolean> {
+    const key = enrichmentCacheKey(input);
+    const current = this.entries.get(key);
+    if (current?.canonicalPayload?.state !== "attempt_reserved" ||
+        current.canonicalPayload.ownerToken !== input.ownerToken) return false;
+    return this.entries.delete(key);
   }
 
   async listByBizNo(bizNo: string): Promise<EnrichmentCacheEntry[]> {

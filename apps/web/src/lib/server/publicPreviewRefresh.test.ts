@@ -4,14 +4,17 @@ import type {
   DeleteEnrichmentCacheInput,
   EnrichmentCacheEntry,
   ReadEnrichmentCacheInput,
+  ReleaseEnrichmentCacheClaimInput,
   WriteEnrichmentCacheInput,
 } from "@cunote/core";
 import {
+  claimPopbillPaidLookupLease,
   classifyPublicPreviewRefresh,
   executePublicPreviewRefresh,
   PUBLIC_PREVIEW_REFRESH_COOLDOWN_SCOPE,
   PUBLIC_PREVIEW_REFRESH_LEASE_SCOPE,
   PUBLIC_PREVIEW_REFRESH_PROVIDER,
+  releasePopbillPaidLookupLease,
   type PublicPreviewRefreshCache,
 } from "./publicPreviewRefresh";
 
@@ -28,6 +31,7 @@ const smppScope = "certs";
 
 class MemoryCache implements PublicPreviewRefreshCache {
   readonly deletes: Array<{ provider?: string; scope?: string }> = [];
+  readonly releases: Array<{ provider: string; scope: string; released: boolean }> = [];
   private readonly entries = new Map<string, EnrichmentCacheEntry>();
 
   async getFresh(input: ReadEnrichmentCacheInput): Promise<EnrichmentCacheEntry | null> {
@@ -58,6 +62,16 @@ class MemoryCache implements PublicPreviewRefreshCache {
       return null;
     }
     return this.put(input);
+  }
+
+  async releaseClaim(input: ReleaseEnrichmentCacheClaimInput): Promise<boolean> {
+    const key = keyOf(input);
+    const current = this.entries.get(key);
+    const released = current?.canonicalPayload?.state === "attempt_reserved" &&
+      current.canonicalPayload.ownerToken === input.ownerToken;
+    if (released) this.entries.delete(key);
+    this.releases.push({ provider: input.provider, scope: input.scope, released });
+    return released;
   }
 
   async deleteByBizNo(input: DeleteEnrichmentCacheInput): Promise<number> {
@@ -166,9 +180,11 @@ assert.equal(settled.cache.has(ntsProvider, ntsScope), true);
 assert.equal(settled.cache.has(smppProvider, smppScope), true);
 assert.equal(settled.cache.has(PUBLIC_PREVIEW_REFRESH_PROVIDER, PUBLIC_PREVIEW_REFRESH_COOLDOWN_SCOPE), true);
 assert.equal(settled.cache.has(PUBLIC_PREVIEW_REFRESH_PROVIDER, PUBLIC_PREVIEW_REFRESH_LEASE_SCOPE), false);
-assert.deepEqual(settled.cache.deletes, [{
+assert.deepEqual(settled.cache.deletes, []);
+assert.deepEqual(settled.cache.releases, [{
   provider: PUBLIC_PREVIEW_REFRESH_PROVIDER,
   scope: PUBLIC_PREVIEW_REFRESH_LEASE_SCOPE,
+  released: true,
 }]);
 
 const againAt = new Date(now.getTime() + 2 * 60 * 60 * 1000);
@@ -265,11 +281,65 @@ const second = executePublicPreviewRefresh({
 });
 await new Promise((resolve) => setTimeout(resolve, 0));
 assert.equal(overlapLive, 1, "겹친 재조회는 라이브 1회만");
+assert.equal(
+  await claimPopbillPaidLookupLease(overlapCache, bizNo, new Date(now.getTime() + 3 * 60_000)),
+  null,
+  "공개 재조회 중 일반 조회는 2분이 지나도 유료 조회 lease를 재선점하지 못한다",
+);
 releaseLive();
 const [firstResult, secondResult] = await Promise.all([first, second]);
 assert.equal(firstResult.refreshResult, "updated");
 assert.equal(secondResult.refreshResult, "failed");
 assert.equal(overlapLive, 1);
+
+const sharedLeaseCache = seedCache({
+  liveCheckedAt: new Date(now.getTime() - 10 * 24 * 60 * 60 * 1000),
+  name: "옛상호",
+  guardState: "cache_stored",
+  guardExpiresAt: new Date(now.getTime() + 20 * 24 * 60 * 60 * 1000),
+});
+const ordinaryOwner = await claimPopbillPaidLookupLease(sharedLeaseCache, bizNo, now);
+assert.ok(ordinaryOwner);
+let crossedLiveCalls = 0;
+const crossed = await executePublicPreviewRefresh({
+  bizNo,
+  now: new Date(now.getTime() + 3 * 60_000),
+  cache: sharedLeaseCache,
+  popbillProvider,
+  popbillScope,
+  guardProvider,
+  guardScope,
+  readCached: async () => ({ profile: { name: "옛상호" } }),
+  reserveBudget: async () => {},
+  liveLookup: async () => {
+    crossedLiveCalls += 1;
+    return { profile: { name: "새상호" } };
+  },
+});
+assert.equal(crossed.refreshResult, "failed");
+assert.equal(crossedLiveCalls, 0, "일반 조회가 진행 중이면 공개 재조회 유료 호출을 차단한다");
+assert.equal(await releasePopbillPaidLookupLease(sharedLeaseCache, bizNo, ordinaryOwner), true);
+
+const reclaimedCache = new MemoryCache();
+const staleOwner = await claimPopbillPaidLookupLease(reclaimedCache, bizNo, now);
+assert.ok(staleOwner);
+assert.equal(
+  await claimPopbillPaidLookupLease(reclaimedCache, bizNo, new Date(now.getTime() + 3 * 60_000)),
+  null,
+  "느린 SDK 호출은 TTL 경과만으로 재선점되지 않는다",
+);
+assert.equal(await reclaimedCache.deleteByBizNo({
+  bizNo,
+  provider: PUBLIC_PREVIEW_REFRESH_PROVIDER,
+  scope: PUBLIC_PREVIEW_REFRESH_LEASE_SCOPE,
+}), 1, "운영자의 명시적 복구로만 이전 lease를 제거한다");
+const newOwner = await claimPopbillPaidLookupLease(reclaimedCache, bizNo, new Date(now.getTime() + 3 * 60_000));
+assert.ok(newOwner);
+assert.notEqual(newOwner, staleOwner);
+assert.equal(await releasePopbillPaidLookupLease(reclaimedCache, bizNo, staleOwner), false);
+assert.equal(reclaimedCache.has(PUBLIC_PREVIEW_REFRESH_PROVIDER, PUBLIC_PREVIEW_REFRESH_LEASE_SCOPE), true);
+assert.equal(await claimPopbillPaidLookupLease(reclaimedCache, bizNo, new Date(now.getTime() + 4 * 60_000)), null);
+assert.equal(await releasePopbillPaidLookupLease(reclaimedCache, bizNo, newOwner), true);
 
 console.log("publicPreviewRefresh.test.ts: all assertions passed");
 
