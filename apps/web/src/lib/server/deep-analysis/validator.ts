@@ -31,7 +31,7 @@ import {
 import { resolveExclusiveBizAgeUpperBound } from "./biz-age-boundary";
 import { resolveTargetTypeListSemantics } from "./target-type-list-semantics";
 
-export const DEEP_ANALYSIS_VALIDATOR_VERSION = "deep-analysis-validator-v24" as const;
+export const DEEP_ANALYSIS_VALIDATOR_VERSION = "deep-analysis-validator-v25" as const;
 
 export type DeepAnalysisValidationIssueCode =
   | "raw_contract_invalid"
@@ -1601,7 +1601,11 @@ function validateCrossAxisCoverage(
     });
   }
   if (/\(재\)창업자/u.test(sourceSpan)) {
-    if (dimensions.includes("industry") && !/(?:업종|산업|사업\s*분야|KSIC)/iu.test(sourceSpan)) {
+    if (
+      dimensions.includes("industry")
+      && /^(?:[^\s]+\s*내\s*)?예비\s*[·ㆍ]\s*초기\s*\(재\)창업자(?:\s*및\s*기술창업기업)?$/u
+        .test(sourceSpan.trim())
+    ) {
       issues.push({
         code: "semantic_misattribution",
         path: `$.criteria[${index}].value.covered_dimensions`,

@@ -1905,6 +1905,10 @@ for (const [sourceText, value, foundAxes] of [
     note: "예비·초기 창업자와 재창업자이며 ICT 업종을 영위",
     covered_dimensions: ["industry", "target_type"],
   }, ["other", "industry", "target_type"]],
+  ["소프트웨어 개발 (재)창업자", {
+    note: "소프트웨어 개발 창업자와 재창업자",
+    covered_dimensions: ["industry", "target_type"],
+  }, ["other", "industry", "target_type"]],
   ["매출액 10억원 이하의 수출 영세업체 우대", {
     note: "매출액 10억원 이하의 수출 영세업체 우대",
     covered_dimensions: ["revenue"],
