@@ -99,6 +99,46 @@ function zipCoverageFixture(input: {
 }
 
 async function run() {
+  // K-Startup 포털 검색 필터는 자격 원문이 아니다. 본문과 첨부의 명시 조건은 보존한다.
+  {
+    const payload = {
+      biz_pbanc_nm: "입주기업 모집",
+      aply_trgt_ctnt: "공고일 기준 창업 7년 이내 기업, 서울 소재 제한 없음",
+      biz_enyy: "예비창업자,1년미만,2년미만,3년미만,5년미만,7년미만",
+      biz_trgt_age: "만 20세 미만,만 20세 이상 ~ 만 39세 이하,만 40세 이상",
+      supt_regin: "전국",
+    };
+    const before = structuredClone(payload);
+    const archives = [archive({
+      filename: "공고문.txt",
+      markdownStorageKey: "md/공고문",
+      markdownSha256: sha256("입주 후 30일 이내 주소 이전 필수"),
+      markdownBytes: "입주 후 30일 이내 주소 이전 필수".length,
+      conversionStatus: "converted",
+    })];
+    const storage = fakeStorage({ "md/공고문": "입주 후 30일 이내 주소 이전 필수" });
+    const withFilters = await assembleLabInput({ grant: GRANT, payload, archives }, { storage });
+    const withoutFilters = await assembleLabInput({
+      grant: GRANT,
+      payload: { biz_pbanc_nm: payload.biz_pbanc_nm, aply_trgt_ctnt: payload.aply_trgt_ctnt },
+      archives,
+    }, { storage });
+    assert.deepEqual(payload, before, "원본 payload를 수정하지 않는다");
+    assert.equal(withFilters.inputSha256, withoutFilters.inputSha256);
+    assert.equal(withFilters.text, withoutFilters.text);
+    assert.doesNotMatch(withFilters.text, /source_field: (biz_enyy|biz_trgt_age|supt_regin)/);
+    assert.doesNotMatch(withFilters.text, /예비창업자,1년미만|만 20세 미만/);
+    assert.match(withFilters.text, /공고일 기준 창업 7년 이내 기업, 서울 소재 제한 없음/);
+    assert.match(withFilters.text, /입주 후 30일 이내 주소 이전 필수/);
+
+    const filterOnly = await assembleLabInput({
+      grant: GRANT,
+      payload: { biz_enyy: "3년미만", biz_trgt_age: "만 39세 이하", supt_regin: "서울" },
+      archives: [],
+    }, { storage: fakeStorage({}) });
+    assert.doesNotMatch(filterOnly.text, /3년미만|만 39세 이하|지원지역: 서울/);
+  }
+
   // ⓪ archive 변환 포인터가 비어도 같은 원본의 검증된 surface markdown을 재사용한다.
   {
     const hydrated = applyLabVerifiedConversionArtifacts([
