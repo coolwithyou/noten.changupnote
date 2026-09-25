@@ -27,7 +27,24 @@ export const MATCHING_MATERIAL_SOURCE_BINDING_SCHEMA = "analysis-matching-materi
 export const MISSING_WORKSPACE_FIELDS_POLICY = "open-visible-current-period-missing-fields-v1" as const;
 export const TERMINAL_REPAIR_POLICY = "open-visible-current-period-terminal-repair-v1" as const;
 export const MATCHING_CAMPAIGN_POLICY = "open-visible-current-period-matching-campaign-v1" as const;
-export type CurrentInventoryPolicy = "open-visible-current-period-unseen-v1" | typeof MISSING_WORKSPACE_FIELDS_POLICY | typeof TERMINAL_REPAIR_POLICY | typeof MATCHING_CAMPAIGN_POLICY;
+export const ARTIFACT_LOSS_RECOVERY_POLICY = "open-visible-current-period-artifact-loss-reanalysis-v1" as const;
+export interface ArtifactLossRecoveryAttestation {
+  readonly schema: "analysis-artifact-loss-reanalysis-attestation-v1";
+  readonly evidenceStatus: "session-transcript-only";
+  readonly sessionTranscriptSha256: string;
+  readonly priorManifestSha256: string;
+  readonly priorGrantSha256: string;
+  readonly priorTerminalReceiptSha256: string;
+  readonly targets: readonly {
+    readonly grantId: string;
+    readonly priorSequence: number;
+    readonly priorRunId: string;
+    readonly priorSourceRevisionSha256: string;
+    readonly priorInputSha256: string;
+    readonly priorAttachmentManifestSha256: string;
+  }[];
+}
+export type CurrentInventoryPolicy = "open-visible-current-period-unseen-v1" | typeof MISSING_WORKSPACE_FIELDS_POLICY | typeof TERMINAL_REPAIR_POLICY | typeof MATCHING_CAMPAIGN_POLICY | typeof ARTIFACT_LOSS_RECOVERY_POLICY;
 export interface CurrentLaunchInventory {
   readonly schema: typeof CURRENT_INVENTORY_SCHEMA;
   readonly seriesId: string;
@@ -35,6 +52,7 @@ export interface CurrentLaunchInventory {
   readonly model: string;
   readonly policy: CurrentInventoryPolicy;
   readonly historicalGrantIdsSha256: string;
+  readonly artifactLossRecovery?: ArtifactLossRecoveryAttestation;
   readonly targets: readonly (AnalysisLaunchPlanTarget & {
     readonly sourceRevisionSha256: string;
     readonly matchingMaterialSourceBinding?: {
@@ -52,7 +70,7 @@ export function validateCurrentLaunchInventory(value: unknown): CurrentLaunchInv
   if (!value || typeof value !== "object") throw new Error("current inventory가 없습니다.");
   const inventory = value as CurrentLaunchInventory;
   if (inventory.schema !== CURRENT_INVENTORY_SCHEMA
-    || (inventory.policy !== "open-visible-current-period-unseen-v1" && inventory.policy !== MISSING_WORKSPACE_FIELDS_POLICY && inventory.policy !== TERMINAL_REPAIR_POLICY && inventory.policy !== MATCHING_CAMPAIGN_POLICY)
+    || (inventory.policy !== "open-visible-current-period-unseen-v1" && inventory.policy !== MISSING_WORKSPACE_FIELDS_POLICY && inventory.policy !== TERMINAL_REPAIR_POLICY && inventory.policy !== MATCHING_CAMPAIGN_POLICY && inventory.policy !== ARTIFACT_LOSS_RECOVERY_POLICY)
     || typeof inventory.seriesId !== "string"
     || !/^current-[a-z0-9][a-z0-9-]{0,70}$/u.test(inventory.seriesId)
     || typeof inventory.model !== "string" || !inventory.model.trim()
@@ -69,6 +87,9 @@ export function validateCurrentLaunchInventory(value: unknown): CurrentLaunchInv
   }
   if ((inventory.policy === MATCHING_CAMPAIGN_POLICY) !== inventory.seriesId.startsWith("current-matching-campaign-")) {
     throw new Error("matching campaign은 독립된 campaign inventory로 봉인해야 합니다.");
+  }
+  if ((inventory.policy === ARTIFACT_LOSS_RECOVERY_POLICY) !== inventory.seriesId.startsWith("current-artifact-loss-")) {
+    throw new Error("artifact loss recovery는 독립된 inventory로 봉인해야 합니다.");
   }
   const ids = new Set<string>();
   let matchingMaterialBindingCount = 0;
@@ -91,6 +112,35 @@ export function validateCurrentLaunchInventory(value: unknown): CurrentLaunchInv
   }
   if (matchingMaterialBindingCount !== 0 && matchingMaterialBindingCount !== inventory.targets.length) {
     throw new Error("current inventory matching material 결속은 전체 target에 필요합니다.");
+  }
+  if (inventory.policy === ARTIFACT_LOSS_RECOVERY_POLICY
+    && matchingMaterialBindingCount !== inventory.targets.length) {
+    throw new Error("artifact loss recovery는 전체 matching material 결속이 필요합니다.");
+  }
+  const recovery = inventory.artifactLossRecovery;
+  if ((inventory.policy === ARTIFACT_LOSS_RECOVERY_POLICY) !== Boolean(recovery)) {
+    throw new Error("artifact loss recovery attestation 결속이 다릅니다.");
+  }
+  if (recovery && (recovery.schema !== "analysis-artifact-loss-reanalysis-attestation-v1"
+    || recovery.evidenceStatus !== "session-transcript-only"
+    || !SHA.test(recovery.sessionTranscriptSha256)
+    || !SHA.test(recovery.priorManifestSha256)
+    || !SHA.test(recovery.priorGrantSha256)
+    || !SHA.test(recovery.priorTerminalReceiptSha256)
+    || !Array.isArray(recovery.targets)
+    || recovery.targets.length !== inventory.targets.length
+    || recovery.targets.some((item, index) =>
+      item.grantId !== inventory.targets[index]?.grantId
+      || !Number.isSafeInteger(item.priorSequence) || item.priorSequence < 0
+      || !/^run-[0-9TZ.\-]{10,40}-[a-f0-9]{6}$/u.test(item.priorRunId)
+      || !SHA.test(item.priorSourceRevisionSha256)
+      || !SHA.test(item.priorInputSha256)
+      || !SHA.test(item.priorAttachmentManifestSha256)
+      || item.priorSourceRevisionSha256 !== inventory.targets[index]?.sourceRevisionSha256
+      || item.priorInputSha256 !== inventory.targets[index]?.inputSha256
+      || item.priorAttachmentManifestSha256 !== inventory.targets[index]?.attachmentManifestSha256)
+    || new Set(recovery.targets.map(item => item.priorSequence)).size !== recovery.targets.length)) {
+    throw new Error("artifact loss recovery의 과거 관측과 현재 material 결속이 다릅니다.");
   }
   return inventory;
 }
@@ -132,6 +182,10 @@ export function buildCurrentInventoryLaunchManifest(input: {
 }): AnalysisLaunchManifest {
   const inventory = validateCurrentLaunchInventory(input.inventory);
   const analysisMode = input.analysisMode ?? "primary_and_application";
+  if (inventory.policy === ARTIFACT_LOSS_RECOVERY_POLICY
+    && (analysisMode !== "matching_only" || input.completedLaunch || input.terminalRepair)) {
+    throw new Error("artifact loss recovery는 matching-only 신규 실행만 허용합니다.");
+  }
   if ((inventory.policy === TERMINAL_REPAIR_POLICY) !== Boolean(input.terminalRepair)) throw new Error("terminal repair ancestry가 필요합니다.");
   if (sha(encodeCanonical(inventory)) !== input.inventorySha256) throw new Error("current inventory SHA가 다릅니다.");
   const projectedTargets = completedLaunchProjectionTargets(inventory, input.completedLaunch);
@@ -270,6 +324,12 @@ export function assertCurrentInventoryManifestBinding(
   manifest: AnalysisLaunchManifest,
   inventory: CurrentLaunchInventory,
 ): void {
+  if (inventory.policy === ARTIFACT_LOSS_RECOVERY_POLICY
+    && (manifest.execution.analysisMode !== "matching_only"
+      || manifest.execution.withApplicationRoundtrip
+      || manifest.source.completedLaunch || manifest.source.terminalRepair)) {
+    throw new Error("artifact loss recovery는 matching-only 신규 실행만 허용합니다.");
+  }
   const expectedTargets = completedLaunchProjectionTargets(inventory, manifest.source.completedLaunch);
   if (manifest.source.planSha256 !== manifest.source.planArtifactSha256
     || manifest.source.seriesId !== inventory.seriesId || manifest.execution.model !== inventory.model
