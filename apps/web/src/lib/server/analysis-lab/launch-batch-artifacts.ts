@@ -907,7 +907,10 @@ function normalizeAnalysisLaunchManifestForPurpose(
     });
   const supportedCurrentOfflineContract = purpose === "completed-receipt-offline-consumer"
     && !liveSourcePolicyRejected
-    && execution.model === APPLICATION_ROUNDTRIP_ADOPTED_MODEL
+    && (execution.model === APPLICATION_ROUNDTRIP_ADOPTED_MODEL
+      || (sourceKind === "current_inventory"
+        && analysisMode === "matching_only"
+        && execution.model === "claude-opus-4-8"))
     && execution.promptVersion === ANALYSIS_LAB_PROMPT_VERSION
     && execution.validatorVersion === DEEP_ANALYSIS_VALIDATOR_VERSION
     && (withApplicationRoundtrip
