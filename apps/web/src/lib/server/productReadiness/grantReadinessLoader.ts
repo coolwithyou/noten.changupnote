@@ -1,3 +1,4 @@
+import { includeDeclaredAttachments, declaredArchiveCoverage } from "../deep-analysis/declaredAttachments";
 import { createHash } from "node:crypto";
 import { and, desc, eq, gte, inArray, isNull, lte, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
@@ -284,6 +285,7 @@ export async function loadCurrentGrantReadiness(input: {
       sourceId: schema.grantRaw.sourceId,
       rawHash: schema.grantRaw.rawHash,
       attachments: schema.grantRaw.attachments,
+      payload: schema.grantRaw.payload,
       collectedAt: schema.grantRaw.collectedAt,
     }).from(schema.grantRaw).where(and(
       inArray(schema.grantRaw.source, sources),
@@ -301,6 +303,10 @@ export async function loadCurrentGrantReadiness(input: {
     input.db.select({
       source: schema.grantAttachmentArchives.source,
       sourceId: schema.grantAttachmentArchives.sourceId,
+      filename: schema.grantAttachmentArchives.filename,
+      sourceUri: schema.grantAttachmentArchives.sourceUri,
+      storageKey: schema.grantAttachmentArchives.storageKey,
+      sha256: schema.grantAttachmentArchives.sha256,
     }).from(schema.grantAttachmentArchives).where(and(
       inArray(schema.grantAttachmentArchives.source, sources),
       inArray(schema.grantAttachmentArchives.sourceId, sourceIds),
@@ -381,7 +387,6 @@ export async function loadCurrentGrantReadiness(input: {
     if (!parsed || parsed.currentRawSha256 !== event.rawHash) return [];
     return [[sourceRevisionKey(event.source, event.sourceId, event.rawHash), parsed] as const];
   }));
-  const archiveSourceKeys = new Set(archiveRows.map((archive) => sourceKey(archive.source, archive.sourceId)));
   const criteriaByGrant = groupBy(criteria, (criterion) => criterion.grantId);
   const promotionByGrant = await loadCurrentValidPromotions(input.db, promotionRows, sourceBindings);
   const servingRunIdsByGrant = new Map([...promotionByGrant].map(([grantId, promotion]) => [
@@ -417,9 +422,10 @@ export async function loadCurrentGrantReadiness(input: {
   return inventory.map((grant) => {
     const raw = rawBySource.get(sourceKey(grant.source, grant.sourceId));
     const binding = sourceBindings.get(grant.id);
-    const hasAttachments = hasDeclaredAttachments(raw?.attachments)
-      || archiveSourceKeys.has(sourceKey(grant.source, grant.sourceId));
-    const hasArchivedAttachments = archiveSourceKeys.has(sourceKey(grant.source, grant.sourceId));
+    const declared = includeDeclaredAttachments(grant.source, raw?.payload, raw?.attachments ?? []);
+    const attachmentStatus = declaredArchiveCoverage(declared,
+      archiveRows.filter(a => a.source === grant.source && a.sourceId === grant.sourceId));
+    const hasAttachments = attachmentStatus !== "not_required";
     const evidence: GrantReadinessEvidenceRow = {
       grant,
       source: {
@@ -427,7 +433,7 @@ export async function loadCurrentGrantReadiness(input: {
         rawSha256: raw?.rawHash ?? null,
         collectedAt: raw?.collectedAt ?? null,
         hasAttachments,
-        attachmentStatus: !hasAttachments ? "not_required" : hasArchivedAttachments ? "complete" : "missing",
+        attachmentStatus,
         attachmentManifestSha256: null,
         sourceRevisionSha256: binding?.sourceRevisionSha256 ?? null,
         materialSourceRevisionSha256: binding?.materialSourceRevisionSha256 ?? null,
@@ -723,9 +729,6 @@ function uniqueNonEmpty(values: readonly (string | null)[]): string[] {
   return [...new Set(values.filter((value): value is string => typeof value === "string" && value.trim().length > 0))].sort();
 }
 
-function hasDeclaredAttachments(value: unknown): boolean {
-  return Array.isArray(value) && value.length > 0;
-}
 
 function groupBy<T>(rows: readonly T[], key: (row: T) => string): Map<string, T[]> {
   const result = new Map<string, T[]>();
