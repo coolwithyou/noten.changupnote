@@ -1,0 +1,23 @@
+import assert from 'node:assert/strict';
+import {includeDeclaredAttachments} from './declaredAttachments';
+import {assembleLabInput} from '../analysis-lab/input';
+const payload={pblancId:'test',printFileNm:'모집공고.pdf',printFlpthNm:'https://www.bizinfo.go.kr/notice.pdf'};
+assert.deepEqual(includeDeclaredAttachments('bizinfo',payload,[]),[{filename:'모집공고.pdf',url:payload.printFlpthNm}]);
+assert.equal(includeDeclaredAttachments('bizinfo',payload,[{filename:'이름이 바뀐 공고.pdf',url:payload.printFlpthNm}]).length,1,'same source URL must not duplicate a recovered archive');
+assert.equal(includeDeclaredAttachments('bizinfo',payload,[{filename:'모집공고.pdf',url:'https://www.bizinfo.go.kr/old.pdf'}]).length,2,'same filename does not prove a changed source was loaded');
+assert.equal(includeDeclaredAttachments('kstartup',{detail:{attachments:[{filename:'공고.png',url:'https://example.com/notice.png'}]}},[]).length,1);
+const grant={source:'bizinfo',sourceId:'test',title:'실사례 회귀',agencyOperator:null,agencyJurisdiction:null,applyStart:null,applyEnd:null,applyMethod:null,supportAmount:null,benefits:null};
+const before=await assembleLabInput({grant,payload:null,archives:[]},{storage:null});
+const after=await assembleLabInput({grant,payload,archives:[]},{storage:null});
+assert.match(after.text,/모집공고.pdf/);
+assert.equal(after.attachmentPreparationReport?.[0]?.recovery.mode,'source_reacquisition');
+assert.notEqual(after.inputSha256,before.inputSha256);
+assert.notEqual(after.attachmentManifestSha256,before.attachmentManifestSha256);
+console.log('declared source inventory regressions passed');
+
+const {declaredArchiveCoverage}=await import('./declaredAttachments');
+const archive={filename:'양식.hwp',sourceUri:'https://example.com/form',storageKey:'archive/form',sha256:'a'.repeat(64)};
+assert.equal(declaredArchiveCoverage([{filename:'양식.hwp',url:archive.sourceUri},{filename:'공고.pdf',url:'https://example.com/notice'}],[archive]),'missing','one archived form cannot prove complete notice coverage');
+assert.equal(declaredArchiveCoverage([{filename:'양식.hwp',url:archive.sourceUri}],[archive]),'complete');
+assert.equal(declaredArchiveCoverage([],[{...archive,sha256:null}]),'missing');
+assert.equal(declaredArchiveCoverage([],[]),'not_required');

@@ -1,3 +1,4 @@
+import { readLegacyMaterialHistories } from "./legacy-material-history";
 import { createHash } from "node:crypto";
 import { access, readdir } from "node:fs/promises";
 import { join } from "node:path";
@@ -737,11 +738,12 @@ export async function readVerifiedCurrentLaunchHistory(
     });
   }
 
+  const legacyMaterial = await readLegacyMaterialHistories(root, new Set(current.filter(t => !result.has(t.grantId) && historical.has(t.grantId)).map(t => t.grantId)));
   for (const target of current) {
     if (!result.has(target.grantId) && historical.has(target.grantId)) {
       result.set(target.grantId, {
         grantId: target.grantId,
-        history: { kind: "legacy", evidence: "deep_repair_history" },
+        history: legacyMaterial.get(target.grantId) ?? { kind: "legacy", evidence: "deep_repair_history" },
         manifest: null,
         manifestSha256: null,
         grantSha256: null,

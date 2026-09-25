@@ -1,3 +1,4 @@
+import { includeDeclaredAttachments } from "./declaredAttachments";
 import { and, eq, inArray } from "drizzle-orm";
 import type { CunoteDbSession } from "@/lib/server/db/client";
 import * as schema from "@/lib/server/db/schema";
@@ -47,7 +48,7 @@ export async function prepareDeepAnalysisInput(input: {
   ));
 
   const inventory = applyVerifiedConversionArtifacts(
-    mergeAttachmentInventory(raw?.attachments ?? [], archives),
+    mergeAttachmentInventory(includeDeclaredAttachments(grant.source, raw?.payload, raw?.attachments ?? []), archives),
     convertedArtifacts,
   );
   const hydrated = await Promise.all(inventory.map(async (attachment) => {
@@ -158,6 +159,7 @@ export async function loadDeepAnalysisSourceBindings(input: {
     source: schema.grantRaw.source,
     sourceId: schema.grantRaw.sourceId,
     rawHash: schema.grantRaw.rawHash,
+    payload: schema.grantRaw.payload,
     attachments: schema.grantRaw.attachments,
   }).from(schema.grantRaw).where(and(
     inArray(schema.grantRaw.source, sources),
@@ -190,7 +192,7 @@ export async function loadDeepAnalysisSourceBindings(input: {
     if (!raw?.rawHash) continue;
     const inventory = applyVerifiedConversionArtifacts(
       mergeAttachmentInventory(
-        raw.attachments ?? [],
+        includeDeclaredAttachments(grant.source, raw.payload, raw.attachments ?? []),
         archiveRows.filter((archive) => `${archive.source}\u0000${archive.sourceId}` === key),
       ),
       convertedArtifacts.filter((artifact) => artifact.grantId === grant.id),
@@ -275,7 +277,8 @@ function mergeAttachmentInventory(
     const sourceUri = textValue(raw.source_uri) ?? textValue(raw.url) ?? "";
     const exact = archiveByExactKey.get(attachmentKey(filename, sourceUri));
     const filenameCandidates = archiveByFilename.get(filename) ?? [];
-    const archive = exact ?? (filenameCandidates.length === 1 ? filenameCandidates[0] : undefined);
+    const archive = exact ?? (filenameCandidates.length === 1
+      && (!sourceUri || !filenameCandidates[0]!.sourceUri) ? filenameCandidates[0] : undefined);
     if (archive) consumed.add(archive.id);
     return toInputAttachment({
       id: archive?.id ?? `raw:${index}:${sha256Hex(`${filename}\u0000${sourceUri}`).slice(0, 16)}`,
@@ -316,7 +319,7 @@ function applyVerifiedConversionArtifacts(
       && artifact.sourceAttachment === attachment.storageKey
     ));
     const titleMatches = artifacts.filter((artifact) => artifact.title === attachment.filename);
-    const artifact = exact ?? (titleMatches.length === 1 ? titleMatches[0] : undefined);
+    const artifact = exact ?? (attachment.storageKey && titleMatches.length === 1 ? titleMatches[0] : undefined);
     if (!artifact?.sha256) return attachment;
     return {
       ...attachment,

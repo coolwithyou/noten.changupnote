@@ -10,6 +10,7 @@ import type { CriterionDimension } from "@cunote/contracts";
 import { htmlToText } from "@cunote/core";
 import { stripYamlFrontmatter } from "@/lib/server/chat/grounding";
 import type { DeepAnalysisInputAttachment } from "@/lib/server/deep-analysis/inputManifest";
+import { includeDeclaredAttachments } from "../deep-analysis/declaredAttachments";
 import { applyVerifiedAttachmentWaivers } from "@/lib/server/deep-analysis/prepareInput";
 import {
   createR2ObjectStorageFromEnv,
@@ -163,6 +164,14 @@ export async function assembleLabInput(
     preserveUnavailableArchiveFilenames?: ReadonlySet<string>;
   } = {},
 ): Promise<LabAssembledInputWithAttachmentManifest> {
+  // Archive rows alone are not a complete source inventory (e.g. BizInfo's
+  // printFileNm full notice). Missing declarations must enter the sealed input.
+  const declared = includeDeclaredAttachments(input.grant.source, input.payload,
+    input.archives.map(a => ({ filename: a.filename, url: a.sourceUri ?? null })));
+  const archives: LabInputArchive[] = [...input.archives, ...declared.slice(input.archives.length).map(a => ({
+    filename: String(a.filename), sourceUri: typeof a.url === "string" ? a.url : null,
+    markdownStorageKey: null, markdownBytes: null,
+  }))];
   const cap = labInputCharCap();
   const storage = deps.storage === undefined ? createR2ObjectStorageFromEnv() : deps.storage;
   const structured: DraftBlock = {
@@ -172,7 +181,7 @@ export async function assembleLabInput(
   // 첨부는 남은 캡 예산만큼만 R2 에서 읽는다 — 어차피 버릴 대용량 첨부를 전부 메모리에
   // 올리지 않기 위함(Codex 리뷰 M2). 못 읽은 첨부는 unavailable 로 돌려받아 아래에서 고지한다.
   const attachment = await loadAttachmentBlocks(
-    input.archives,
+    archives,
     Math.max(0, cap - structured.body.length),
     storage,
   );
@@ -212,7 +221,7 @@ export async function assembleLabInput(
   // 남았다면 parent의 "변환 안 됨"은 같은 내용을 중복 경고한다. cap 적용 뒤에 판정해
   // truncated/cap_exceeded child를 포함 완료로 오인하지 않는다.
   const coveredZipParents = await findCoveredZipParentIndexes(
-    input.archives,
+    archives,
     attachment.provenance,
     attachment.blocks,
     storage,
@@ -220,7 +229,7 @@ export async function assembleLabInput(
   );
   for (const index of coveredZipParents) {
     const provenance = attachment.provenance[index];
-    const archive = input.archives[index];
+    const archive = archives[index];
     if (!provenance || !archive?.sha256) continue;
     provenance.outcome = "covered_by_children";
     provenance.unavailableReason = null;
@@ -274,7 +283,7 @@ export async function assembleLabInput(
     inputSha256: createHash("sha256").update(text).digest("hex"),
     attachmentManifestSha256: hashAttachmentManifest(attachment.provenance),
     attachmentPreparationReport: buildAttachmentPreparationReport(
-      input.archives,
+      archives,
       attachment.provenance,
     ),
   };

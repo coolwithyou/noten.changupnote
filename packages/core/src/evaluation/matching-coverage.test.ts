@@ -1,0 +1,18 @@
+import assert from 'node:assert/strict';
+import {evaluateCoverage,selectCoverageSample,coverageCompanies,type CoveragePrediction} from './matching-coverage.js';
+const p:CoveragePrediction={pairId:'g::c',grantId:'g',companyId:'c',inputSha256:'a'.repeat(64),eligibility:'conditional',tier:'needs_core_review',candidate:false,unknownReasons:['criterion_text_only']};
+assert.equal(evaluateCoverage([p],[]).candidateRecall.value,null,'no gold labels means unmeasured, never perfect recall');
+const review={pairId:p.pairId,inputSha256:p.inputSha256,expected:'conditional' as const,sourceEvidence:'original notice section 2',reviewer:'independent-reviewer'};
+assert.equal(evaluateCoverage([p],[review]).candidateRecall.value,0,'unpublished conditional result is a missed candidate');
+assert.equal(evaluateCoverage([{...p,candidate:true,tier:'needs_profile_input'}],[review]).candidateRecall.value,1);
+assert.throws(()=>evaluateCoverage([p],[{...review,inputSha256:'b'.repeat(64)}]),/binding mismatch/);
+assert.throws(()=>evaluateCoverage([p],[review,review]),/duplicate/);
+assert.equal(evaluateCoverage([{...p,eligibility:'eligible',candidate:true}],[{...review,expected:'ineligible'}]).falseEligiblePairs.length,1);
+const rows=Array.from({length:20},(_,i)=>({id:String(i),source:i%2?'bizinfo':'kstartup',nextWork:i%3?'review':'analyze'}));
+const sample=selectCoverageSample(rows,10,'fixed');
+assert.deepEqual(sample,selectCoverageSample([...rows].reverse(),10,'fixed'),'sampling cannot depend on query order');
+assert.equal(new Set(sample.map(r=>r.id)).size,10);
+assert.equal(new Set(sample.map(r=>`${r.source}:${r.nextWork}`)).size,4);
+assert.equal(coverageCompanies().length,10);
+assert.ok(coverageCompanies().every(c=>c.synthetic && c.profile.size===undefined && c.profile.certs===undefined),'fixtures preserve unknown business facts');
+console.log('matching-coverage tests passed');
