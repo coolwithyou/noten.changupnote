@@ -2174,6 +2174,44 @@ assert.equal(validateDeepAnalysisResult({
   ], axes(["prior_award"])),
 }).valid, true, "참여 중과 과거 참여를 함께 보존한 상태 범위는 통과한다");
 
+const tenantHistorySpan = "서울시 7대 창업거점시설(서울창업허브 공덕) 사무공간 입주수혜 이력이 있는 기업";
+const tenantCurrentPastLine = "서울창업허브 공덕에 현재 입주 중이거나 과거 입주한 이력이 있는 경우 지원하실 수 없습니다.";
+const tenantHistorySeal = sealDeepAnalysisInput({
+  grantId: "grant-tenant-history",
+  sourceRevisionSha256: "d".repeat(64),
+  structuredText: `${tenantHistorySpan}\n${tenantCurrentPastLine}`,
+  attachments: [],
+});
+const tenantHistoryCriterion = (states: string[]) => criterion({
+  dimension: "prior_award",
+  operator: "in",
+  kind: "exclusion",
+  value: { scope: "program", programs: ["서울창업허브 공덕"], states },
+  sourceSpan: tenantHistorySpan,
+});
+const completedOnlyTenant = validateDeepAnalysisResult({
+  seal: tenantHistorySeal,
+  result: result([tenantHistoryCriterion(["completed"])], axes(["prior_award"])),
+});
+assert.equal(completedOnlyTenant.valid, false);
+assert.equal(completedOnlyTenant.issues.some((issue) => (
+  issue.code === "canonical_contract_invalid" && issue.path === "$.criteria[0].value.states"
+)), true, "원문이 현재·과거 입주를 모두 제외하면 완료 이력만으로 좁힐 수 없다");
+assert.equal(validateDeepAnalysisResult({
+  seal: tenantHistorySeal,
+  result: result([tenantHistoryCriterion(["participating", "completed"])], axes(["prior_award"])),
+}).valid, true, "현재·과거 상태를 모두 보존하면 통과한다");
+const unrelatedCurrentSeal = sealDeepAnalysisInput({
+  grantId: "grant-unrelated-current",
+  sourceRevisionSha256: "d".repeat(64),
+  structuredText: `${tenantHistorySpan}\n서울창업허브 공덕 과거 입주자는 지원 불가, 현재 사업자등록은 필수`,
+  attachments: [],
+});
+assert.equal(validateDeepAnalysisResult({
+  seal: unrelatedCurrentSeal,
+  result: result([tenantHistoryCriterion(["completed"])], axes(["prior_award"])),
+}).valid, true, "현재 사업자등록 같은 별도 현재 문구를 현재 입주 이력으로 오인하지 않는다");
+
 const completeBusinessStatusSpan = "신청일 기준 사업자가 휴·폐업 중인 자";
 const completeBusinessStatusSeal = sealDeepAnalysisInput({
   grantId: "grant-complete-business-status",

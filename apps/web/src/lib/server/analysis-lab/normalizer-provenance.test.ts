@@ -12,7 +12,7 @@ assert.equal(KSTARTUP_LLM_EXTRACTOR_VERSION, "kstartup-llm-criteria-v1");
 assert.equal(ANALYSIS_LAB_PROMPT_VERSION, "lab-deep-v30");
 assert.equal(
   LLM_CRITERIA_NORMALIZATION_CONTRACT_VERSION,
-  "grant-llm-criteria-normalization-v3",
+  "grant-llm-criteria-normalization-v4",
 );
 
 // 공용 normalizer provenance는 additive다. 기존 자동 재분석 상태는 promptVersion만으로

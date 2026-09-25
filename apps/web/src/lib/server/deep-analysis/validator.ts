@@ -31,7 +31,7 @@ import {
 import { resolveExclusiveBizAgeUpperBound } from "./biz-age-boundary";
 import { resolveTargetTypeListSemantics } from "./target-type-list-semantics";
 
-export const DEEP_ANALYSIS_VALIDATOR_VERSION = "deep-analysis-validator-v25" as const;
+export const DEEP_ANALYSIS_VALIDATOR_VERSION = "deep-analysis-validator-v26" as const;
 
 export type DeepAnalysisValidationIssueCode =
   | "raw_contract_invalid"
@@ -1357,6 +1357,7 @@ function validateCriterion(
   validateCrossAxisCoverage(criterion, index, issues);
   validateExceptionCoverage(criterion, index, issues);
   validateMatcherSemanticCompleteness(criterion, index, issues);
+  validatePriorAwardCurrentPastCoverage(seal, criterion, index, issues);
   if (criterion.dimension === "biz_age" && isRecord(criterion.value)) {
     const exclusiveUpperBound = resolveExclusiveBizAgeUpperBound({
       dimension: criterion.dimension,
@@ -1544,6 +1545,38 @@ function validateCriterion(
     semanticSha256,
     evidenceRefs,
   };
+}
+
+function validatePriorAwardCurrentPastCoverage(
+  seal: DeepAnalysisInputSeal,
+  criterion: DeepAnalysisCriterion,
+  index: number,
+  issues: DeepAnalysisValidationIssue[],
+): void {
+  if (criterion.dimension !== "prior_award" || criterion.kind !== "exclusion" || criterion.operator !== "in") return;
+  const value = isRecord(criterion.value) ? criterion.value : {};
+  if (value.scope !== "program") return;
+  const states = stringArray(value.states);
+  if (!states.includes("completed") || states.includes("participating")) return;
+  const normalize = (text: string) => text.normalize("NFKC").replace(/\s+/gu, "");
+  const citedSpan = normalize(criterion.sourceSpan ?? "");
+  const citedPrograms = stringArray(value.programs)
+    .map(normalize)
+    .filter((program) => program.length >= 4 && citedSpan.includes(program));
+  if (citedPrograms.length === 0) return;
+  const currentAndPastExclusion = seal.chunks.some((chunk) => chunk.text.split(/\r?\n/u).some((line) => {
+    const text = normalize(line);
+    return citedPrograms.some((program) => text.includes(program))
+      && /현재입주중.{0,20}과거입주/u.test(text)
+      && /(?:지원|신청).{0,12}(?:불가|할수없|하실수없)/u.test(text);
+  }));
+  if (currentAndPastExclusion) {
+    issues.push({
+      code: "canonical_contract_invalid",
+      path: `$.criteria[${index}].value.states`,
+      message: "The cited program excludes both current and past tenants; completed-only omits participating. Preserve both states or the complete source as text_only.",
+    });
+  }
 }
 
 function validateCrossAxisCoverage(

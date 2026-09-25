@@ -234,6 +234,7 @@ function canonicalList(
     [canonicalKey]: entries,
     ...(options.codes && options.codes.length > 0 ? { codes: unique(options.codes) } : {}),
     ...(options.listSemantics ? { list_semantics: options.listSemantics } : {}),
+    ...(stringValue(value.note) ? { note: stringValue(value.note) } : {}),
   });
 }
 
