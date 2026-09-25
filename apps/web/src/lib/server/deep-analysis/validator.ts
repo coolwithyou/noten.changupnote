@@ -31,7 +31,7 @@ import {
 import { resolveExclusiveBizAgeUpperBound } from "./biz-age-boundary";
 import { resolveTargetTypeListSemantics } from "./target-type-list-semantics";
 
-export const DEEP_ANALYSIS_VALIDATOR_VERSION = "deep-analysis-validator-v23" as const;
+export const DEEP_ANALYSIS_VALIDATOR_VERSION = "deep-analysis-validator-v24" as const;
 
 export type DeepAnalysisValidationIssueCode =
   | "raw_contract_invalid"
@@ -1552,6 +1552,30 @@ function validateCrossAxisCoverage(
   issues: DeepAnalysisValidationIssue[],
 ): void {
   const value = isRecord(criterion.value) ? criterion.value : {};
+  const sourceSpan = criterion.sourceSpan?.normalize("NFKC") ?? "";
+  const valueNote = typeof value.note === "string" ? value.note.normalize("NFKC") : "";
+  if (
+    /\(재\)창업자/u.test(sourceSpan)
+    && /재창업자/u.test(valueNote)
+    && !/(?<!재)창업자/u.test(valueNote)
+  ) {
+    issues.push({
+      code: "semantic_misattribution",
+      path: `$.criteria[${index}].value.note`,
+      message: "'(재)창업자' includes ordinary founders and refounders; preserve both applicant types in the note.",
+    });
+  }
+  if (
+    criterion.dimension === "revenue"
+    && /영세/u.test(sourceSpan)
+    && !/(?:매출|매상|영업\s*수익|연\s*수입)/u.test(sourceSpan)
+  ) {
+    issues.push({
+      code: "semantic_misattribution",
+      path: `$.criteria[${index}].dimension`,
+      message: "'영세' alone does not state a revenue requirement or threshold.",
+    });
+  }
   if (value.covered_dimensions === undefined) return;
   const rawDimensions = value.covered_dimensions;
   const dimensions = stringArray(value.covered_dimensions);
@@ -1574,6 +1598,26 @@ function validateCrossAxisCoverage(
       path: `$.criteria[${index}].value.covered_dimensions`,
       message:
         "covered_dimensions is only valid as a non-empty unique 22-axis list on other/text_only criteria that preserve a cross-axis condition.",
+    });
+  }
+  if (/\(재\)창업자/u.test(sourceSpan)) {
+    if (dimensions.includes("industry") && !/(?:업종|산업|사업\s*분야|KSIC)/iu.test(sourceSpan)) {
+      issues.push({
+        code: "semantic_misattribution",
+        path: `$.criteria[${index}].value.covered_dimensions`,
+        message: "Founder status alone is not an applicant industry condition.",
+      });
+    }
+  }
+  if (
+    dimensions.includes("revenue")
+    && /영세/u.test(sourceSpan)
+    && !/(?:매출|매상|영업\s*수익|연\s*수입)/u.test(sourceSpan)
+  ) {
+    issues.push({
+      code: "semantic_misattribution",
+      path: `$.criteria[${index}].value.covered_dimensions`,
+      message: "'영세' alone does not state a revenue requirement or threshold.",
     });
   }
 }
