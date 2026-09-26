@@ -110,10 +110,14 @@ export function GrantOverviewView({
       ) : null}
 
       {discovery ? (
-        <div className="mt-5 rounded-2xl border border-border-subtle bg-surface-soft px-4 py-3.5 text-sm leading-6 text-text-secondary">
+        <section aria-label="공고 원문 검토 자료" className="mt-5 rounded-2xl border border-border-subtle bg-surface-soft px-4 py-3.5 text-sm leading-6 text-text-secondary">
           <strong className="block text-ink">지원 조건 확인이 필요한 공고예요</strong>
-          <span>현재는 제목·기관·일정 같은 기본 정보만 안내합니다. 자격과 제출 조건은 공고 원문에서 확인해 주세요.</span>
-        </div>
+          {sheet.discoverySourceEvidence ? (
+            <DiscoverySourceReview evidence={sheet.discoverySourceEvidence} />
+          ) : (
+            <p>현재는 제목·기관·일정 같은 기본 정보만 안내합니다. 자격과 제출 조건은 공고 원문에서 확인해 주세요.</p>
+          )}
+        </section>
       ) : null}
 
       {/* ② 핵심 3지표 */}
@@ -228,6 +232,73 @@ export function GrantOverviewView({
           도움받기
         </Link>
       </footer>
+    </div>
+  );
+}
+
+export function DiscoverySourceReview({ evidence }: {
+  evidence: NonNullable<ApplySheet["discoverySourceEvidence"]>;
+}) {
+  const { companyFacts } = evidence;
+  const hasCompanyFacts = companyFacts.bizAgeMonths !== null
+    || companyFacts.targetTypes.length > 0 || companyFacts.industries.length > 0;
+  return (
+    <div className="mt-2 flex flex-col gap-5">
+      <p>{hasCompanyFacts
+        ? "등록된 업력·업종과 공고 원문을 나란히 살펴볼 수 있는 검토 후보입니다. 아래 내용만으로 지원 자격이 확인된 것은 아닙니다."
+        : "공고 원문에서 검토할 조건을 확인할 수 있습니다. 아래 내용만으로 지원 자격이 확인된 것은 아닙니다."}</p>
+      {hasCompanyFacts ? (
+        <div>
+          <h2 className="font-bold text-ink">검토 이유 · 등록된 회사 정보</h2>
+          <p className="text-xs text-text-tertiary">서비스에 등록된 정보이며 자가 입력값은 공식 증빙으로 확인되지 않았습니다.</p>
+          <dl className="mt-2 flex flex-col gap-1">
+            {companyFacts.bizAgeMonths !== null ? (
+              <div className="flex gap-2"><dt className="shrink-0">업력</dt><dd className="font-semibold text-ink">약 {companyFacts.bizAgeMonths}개월</dd></div>
+            ) : null}
+            {companyFacts.targetTypes.length > 0 ? (
+              <div className="flex gap-2"><dt className="shrink-0">사업자 유형</dt><dd className="font-semibold text-ink">{companyFacts.targetTypes.join(", ")}</dd></div>
+            ) : null}
+            {companyFacts.industries.length > 0 ? (
+              <div className="flex gap-2"><dt className="shrink-0">등록 업종</dt><dd className="font-semibold text-ink">{companyFacts.industries.join(", ")}</dd></div>
+            ) : null}
+          </dl>
+        </div>
+      ) : null}
+      {evidence.excerpts.length > 0 ? (
+        <div>
+          <h2 className="font-bold text-ink">공고 원문에서 확인된 내용</h2>
+          <p className="text-xs text-text-tertiary">원문 일부를 발췌했습니다. 신청 전에는 전체 공고문과 첨부를 확인해 주세요.</p>
+          <div className="mt-2 flex flex-col gap-3">
+            {evidence.excerpts.map((excerpt, index) => (
+              <div key={`${excerpt.kind}-${index}`} className="rounded-xl border border-border-subtle bg-surface px-3 py-2.5">
+                <h3 className="font-semibold text-ink">{excerpt.label}</h3>
+                <blockquote className="mt-1 whitespace-pre-line break-words text-text-secondary">{excerpt.text}{excerpt.truncated ? "…" : ""}</blockquote>
+                <a href={excerpt.sourceUrl} target="_blank" rel="noopener noreferrer"
+                  className="mt-1 inline-block font-semibold text-brand underline-offset-2 hover:underline">
+                  {excerpt.sourceLabel}에서 전체 원문 보기
+                </a>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+      <div>
+        <h2 className="font-bold text-ink">남은 확인 사항</h2>
+        <ul className="mt-1 list-disc pl-5">
+          {evidence.reviewItems.map((item) => (
+            <li key={`${item.label}-${item.excerptIndex}`}>
+              {item.label} · <a href={evidence.excerpts[item.excerptIndex]?.sourceUrl} target="_blank"
+                rel="noopener noreferrer" className="font-semibold text-brand underline-offset-2 hover:underline">원문 확인</a>
+            </li>
+          ))}
+          {evidence.exclusionDetailsUnavailable ? (
+            <li>제외대상 세부 조건을 이 자료에서 확인하지 못했습니다. 전체 공고문을 확인해 주세요.</li>
+          ) : null}
+          {evidence.incompleteAttachments ? (
+            <li>일부 첨부 원문을 읽지 못해 조건이 더 있을 수 있습니다.</li>
+          ) : null}
+        </ul>
+      </div>
     </div>
   );
 }

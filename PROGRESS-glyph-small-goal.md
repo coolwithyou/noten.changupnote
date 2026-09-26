@@ -2,15 +2,57 @@
 
 ## 목표와 완료 조건
 
-글리프 프로필과 공고 원문을 대조해 검토할 기회가 실제로 있는지 설명하고,
-서울창업허브 성수 1건을 분석·검수·발행 검증하여 실제 계정에 근거 있는 조건을 제공한다.
-분석 완료를 운영 노출 완료로 간주하지 않는다. 회사의 미확인 사실을 대신 답하지 않는다.
+2026-09-26 사용자 승인으로 작업 방향을 전환했다. 기존 원문과 회사 정보를 활용해
+글리프가 성수를 검토할 이유·원문 근거·남은 확인 사항을 사용자 화면에서 볼 수 있게 만든다.
+후보 발견과 자격 확정을 구분하며, 분석·검수 HOLD를 통과로 바꾸지 않는다.
+회사·공고 ID를 하드코딩하거나 미확인 회사 사실을 대신 답하지 않는다.
+
+### 현재 작업 — 원문 근거가 있는 검토 후보
+
+- [x] 기존 discovery 목록·상세 경로를 재사용해 일반화 가능한 원문 근거 전달 구현.
+  검증: 현재 DB/R2 봉인 입력과 DTO/서비스 소비 경로 대조, 특정 공고 ID 분기 없음.
+- [x] 후보·회사 사실·원문 발췌·추가 확인 사항을 자격 확정과 구분하여 표시.
+  검증: 실제 상세 컴포넌트 SSR, 발견 근거 3건의 `satisfied=0`, 점수 숨김.
+- [x] 성수·언론홍보·로켓십·기간 종료로 누락/오확정 확인.
+  검증: 현재 Glyph 계정의 동일 서버 로더 읽기 전용 조회와 원문 fixture 테스트.
+- [ ] 실제 계정 화면 검증 및 변경 범위 검증·커밋.
+  검증: 실제 로그인·후보→상세 원문/회사 비교; 미실행 층은 명시.
+- 실행 서버: 2026-09-26 현재 창업노트 dev server 없음. AGENTS의 사용자 직접 실행 규칙에
+  따라 `cunote-coverage-review`에서 `pnpm dev:web` 시작과 주소를 비동기로 요청했다.
+  이 응답을 기다리며 구현·서버 없는 검증을 계속한다.
+- `2b7ce11e...` 보정 명세는 이번 작업의 실행 대상이 아니다. 추가 모델 호출·운영 DB 변경·
+  배포 없이 구현부터 완성한다. 운영 적용은 구체적인 결과가 준비된 뒤 승인 경계를 따른다.
+- 아래 9/25 실행/보정 기록은 역사이며 현재 진행 순서는 이 절이 우선한다.
+
+### 2026-09-26 로컬 인수 증거
+
+- `spike-out/glyph-small-goal-20260925/inspect-discovery-detail.ts`로 현재 Glyph 소유
+  회사 범위의 `loadServiceApplySheet`를 읽기 전용 실행했다. 성수 931ms, 언론홍보 333ms,
+  로켓십 732ms (각 1회, 로컬 서버 경로, 브라우저 지연 아님). 셋 모두
+  `discovery/needs_core_review/scoreDisplay=hidden/satisfied=0`.
+- 성수는 원본 신청대상, 공고문 자격, 신청 제외 조항의 발췌 3개 및 업력·등록·주소 이전·
+  입주 이력·제외조건 확인 항목 5개를 표시한다. 언론홍보는 첨부 수집 실패를 밝히고,
+  로켓십은 신청서 양식 대신 공고문에서 초기창업패키지 선정·졸업 조건을 제시한다.
+  이는 공고 원문 발췌의 표시 확인이지 Glyph의 지원 자격 확정이 아니다.
+- 2026-09-29 12:00 KST 가상 조회의 Glyph 후보 목록에서 성수는 제외됐다.
+  기존 후보 1,510건은 현재 지원 가능 건수로 해석하지 않는다.
+- 원문 근거는 현재 source revision이 목록 결속과 같을 때만 표시하고, 내용이나 첨부를
+  읽지 못하면 기존 기본 안내로 돌아간다. 독립 검수 HOLD 결과를 승격하지 않았다.
+- 현재 성수 source revision을 다른 SHA로 요청한 경우 원문 근거가 `null`로 거부됨을
+  실제 DB/R2 읽기 전용 경로에서 확인했다.
+- `pnpm exec tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/analysis-serving/discoverySourceEvidence.test.ts`,
+  `.../features/grant-overview/DiscoverySourceReview.render.test.tsx`,
+  `pnpm build:packages`, `pnpm --filter @cunote/web typecheck`, `pnpm verify:openapi`
+  (28 paths), `pnpm verify:package-runtime-freshness`, `git diff --check` PASS.
+- 실제 브라우저 Glyph 로그인 검증은 개발 서버가 없어 미실행이다. 4010/4011
+  LISTEN이 없음을 확인했고 사용자 직접 서버 실행 규칙에 따라 시작을 요청했다.
+  운영 DB 쓰기·모델 호출·배포는 실행하지 않았다.
 
 ## 재개 위치
 
 - checkout: `/Users/ffgg/noten.works/cunote-coverage-review`
 - branch: `codex/matching-coverage-artifact-recovery`; 메인 checkout의 별도 변경은 보존.
-- 실행/구현 소유: 기존 Sol agent `/root/coverage_resume_sol`. Root가 원문·코드·인수 검토.
+- 실행/구현 소유: Root. 기존 Sol agent는 서비스 인증 오류로 중단되어 Root가 작업을 인수했다.
 - 상세 계획·증거: [소규모 인수](docs/plans/2026-09-25-글리프-소규모-매칭-인수.md).
 - 영속 artifact: 메인 checkout `spike-out/glyph-small-goal-20260925/` 및
   `spike-out/analysis-lab/launch/`. 현재 checkout의 `spike-out` symlink는 커밋하지 않는다.

@@ -57,6 +57,7 @@ import type {
 } from "@cunote/core";
 import { createServiceRepositories, getRepositoryAdapterName } from "./repositories/factory";
 import { annotateHwpxTemplateAvailability } from "./documents/draftHwpxExport";
+import { loadDiscoverySourceEvidence } from "./analysis-serving/discoverySourceEvidence";
 import { buildBizInfoSampleEntries } from "./ingestion/bizinfoSample";
 import {
   annotateMatchCardConfirmationQuestions,
@@ -548,6 +549,24 @@ export async function loadServiceApplySheet(
     grant: { source: sheet.grant.source, sourceId: sheet.grant.sourceId },
     documents: sheet.applicationPrep.draftableDocuments,
   });
+  if (sheet.matchingEvidence?.level === "discovery"
+    && sheet.matchingEvidence.sourceRevisionSha256) {
+    try {
+      sheet.discoverySourceEvidence = await loadDiscoverySourceEvidence({
+        grantId: sheet.grant.id,
+        sourceRevisionSha256: sheet.matchingEvidence.sourceRevisionSha256,
+        sourceUrl: sheet.deepLink,
+        company: options.simulationProfile || options.virtualBizNo ? {} : company,
+      });
+    } catch (error) {
+      // 원문 근거를 읽지 못하면 discovery의 기존 기본 안내만 남긴다.
+      console.warn("Discovery source evidence unavailable", {
+        grantId: sheet.grant.id,
+        reason: error instanceof Error ? error.name : "unknown_error",
+      });
+      sheet.discoverySourceEvidence = null;
+    }
+  }
   return sheet;
 }
 
