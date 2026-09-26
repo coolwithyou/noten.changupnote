@@ -387,6 +387,8 @@ export interface RoadmapNode {
 
 export interface ApplySheet {
   matchingEvidence?: import("./index.js").MatchingEvidence;
+  /** 현재 원문에서 읽은 검토 자료. discovery 자격 판정·점수·질문 답변에 사용하지 않는다. */
+  discoverySourceEvidence?: DiscoverySourceEvidence | null;
   /** matcher가 계산한 실제 추천 검수 단계. 없는 legacy sheet는 상세 화면의 기존 판정을 유지한다. */
   recommendationTier?: MatchRecommendationTier;
   /** matcher 검수 단계에 따른 점수 노출 정책. */
@@ -404,6 +406,27 @@ export interface ApplySheet {
     applyEnd: string | null;
     dDay: number | null;
   };
+}
+
+export interface DiscoverySourceEvidence {
+  sourceRevisionSha256: string;
+  /** 회사가 입력·제공한 현재 값이며 공식 자격 확정값이 아니다. */
+  companyFacts: {
+    bizAgeMonths: number | null;
+    targetTypes: string[];
+    industries: string[];
+  };
+  excerpts: Array<{
+    kind: "target" | "exclusion" | "attachment_target" | "attachment_exclusion";
+    label: string;
+    text: string;
+    sourceLabel: string;
+    sourceUrl: string;
+    truncated: boolean;
+  }>;
+  reviewItems: Array<{ label: string; excerptIndex: number }>;
+  incompleteAttachments: boolean;
+  exclusionDetailsUnavailable: boolean;
 }
 
 export interface ApplicationPrep {

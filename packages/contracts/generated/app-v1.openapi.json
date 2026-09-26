@@ -3805,6 +3805,16 @@
           "matchingEvidence": {
             "$ref": "#/components/schemas/MatchingEvidence"
           },
+          "discoverySourceEvidence": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DiscoverySourceEvidence"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "recommendationTier": {
             "type": "string",
             "enum": [
@@ -3873,6 +3883,126 @@
           },
           "schedule": {
             "$ref": "#/components/schemas/ApplySchedule"
+          }
+        },
+        "additionalProperties": false
+      },
+      "DiscoverySourceEvidence": {
+        "type": "object",
+        "required": [
+          "sourceRevisionSha256",
+          "companyFacts",
+          "excerpts",
+          "reviewItems",
+          "incompleteAttachments",
+          "exclusionDetailsUnavailable"
+        ],
+        "properties": {
+          "sourceRevisionSha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "companyFacts": {
+            "type": "object",
+            "required": [
+              "bizAgeMonths",
+              "targetTypes",
+              "industries"
+            ],
+            "properties": {
+              "bizAgeMonths": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "targetTypes": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "industries": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "additionalProperties": false
+          },
+          "excerpts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "kind",
+                "label",
+                "text",
+                "sourceLabel",
+                "sourceUrl",
+                "truncated"
+              ],
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "target",
+                    "exclusion",
+                    "attachment_target",
+                    "attachment_exclusion"
+                  ]
+                },
+                "label": {
+                  "type": "string"
+                },
+                "text": {
+                  "type": "string"
+                },
+                "sourceLabel": {
+                  "type": "string"
+                },
+                "sourceUrl": {
+                  "type": "string",
+                  "format": "uri"
+                },
+                "truncated": {
+                  "type": "boolean"
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "reviewItems": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "label",
+                "excerptIndex"
+              ],
+              "properties": {
+                "label": {
+                  "type": "string"
+                },
+                "excerptIndex": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "incompleteAttachments": {
+            "type": "boolean"
+          },
+          "exclusionDetailsUnavailable": {
+            "type": "boolean"
           }
         },
         "additionalProperties": false

@@ -1542,6 +1542,7 @@ export const appV1OpenApi = {
         ],
         properties: {
           matchingEvidence: ref("MatchingEvidence"),
+          discoverySourceEvidence: nullable(ref("DiscoverySourceEvidence")),
           recommendationTier: {
             type: "string",
             enum: ["recommendable", "needs_profile_input", "needs_core_review", "not_recommended"],
@@ -1556,6 +1557,45 @@ export const appV1OpenApi = {
           applyMethod: nullable({ type: "string" }),
           deepLink: nullable({ type: "string" }),
           schedule: ref("ApplySchedule"),
+        },
+        additionalProperties: false,
+      },
+      DiscoverySourceEvidence: {
+        type: "object",
+        required: ["sourceRevisionSha256", "companyFacts", "excerpts", "reviewItems", "incompleteAttachments", "exclusionDetailsUnavailable"],
+        properties: {
+          sourceRevisionSha256: { type: "string", pattern: "^[0-9a-f]{64}$" },
+          companyFacts: {
+            type: "object",
+            required: ["bizAgeMonths", "targetTypes", "industries"],
+            properties: {
+              bizAgeMonths: nullable({ type: "integer", minimum: 0 }),
+              targetTypes: arrayOf({ type: "string" }),
+              industries: arrayOf({ type: "string" }),
+            },
+            additionalProperties: false,
+          },
+          excerpts: arrayOf({
+            type: "object",
+            required: ["kind", "label", "text", "sourceLabel", "sourceUrl", "truncated"],
+            properties: {
+              kind: { type: "string", enum: ["target", "exclusion", "attachment_target", "attachment_exclusion"] },
+              label: { type: "string" },
+              text: { type: "string" },
+              sourceLabel: { type: "string" },
+              sourceUrl: { type: "string", format: "uri" },
+              truncated: { type: "boolean" },
+            },
+            additionalProperties: false,
+          }),
+          reviewItems: arrayOf({
+            type: "object",
+            required: ["label", "excerptIndex"],
+            properties: { label: { type: "string" }, excerptIndex: { type: "integer", minimum: 0 } },
+            additionalProperties: false,
+          }),
+          incompleteAttachments: { type: "boolean" },
+          exclusionDetailsUnavailable: { type: "boolean" },
         },
         additionalProperties: false,
       },

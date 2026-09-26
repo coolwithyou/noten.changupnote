@@ -73,27 +73,29 @@ lossyHistorical.runtime.normalizerContractVersion = "grant-llm-criteria-normaliz
 (lossyHistorical.projectedCriteria[0] as { value: unknown }).value = { tags: [] };
 lossyHistorical.projectedCriteriaSha256 = sha256Canonical(lossyHistorical.projectedCriteria);
 
-const restored = resolveReviewedMatchingProjectionForPromotion(reviewedInput(lossyHistorical));
-assert.equal(restored.carryforward?.mode, "lossless_text_only_restore");
-assert.deepEqual(restored.carryforward?.changedCriterionIndexes, [0]);
-assert.deepEqual(restored.snapshot.projectedCriteria[0]?.value, source.criteria[0]?.value);
-assert.equal(restored.binding.snapshotSha256, restored.carryforward?.currentSnapshotSha256);
+const currentReviewed = resolveReviewedMatchingProjectionForPromotion(reviewedInput(current));
+assert.equal(currentReviewed.carryforward, null, "현행 v4 projection은 같은 검수 결속을 그대로 사용한다");
+assert.throws(
+  () => resolveReviewedMatchingProjectionForPromotion(reviewedInput(lossyHistorical)),
+  /허용되지 않은 matching projection runtime 전환/,
+  "역사 v2 검수는 v4 결과로 자동 승계하지 않는다",
+);
 
 const runtimeOnlyHistorical = structuredClone(current);
-runtimeOnlyHistorical.runtime.normalizerContractVersion = "grant-llm-criteria-normalization-v2";
-const runtimeOnly = resolveReviewedMatchingProjectionForPromotion(
-  reviewedInput(runtimeOnlyHistorical),
+runtimeOnlyHistorical.runtime.normalizerContractVersion = "grant-llm-criteria-normalization-v3";
+assert.throws(
+  () => resolveReviewedMatchingProjectionForPromotion(reviewedInput(runtimeOnlyHistorical)),
+  /허용되지 않은 matching projection runtime 전환/,
+  "역사 v3 검수도 v4 결과로 자동 승계하지 않는다",
 );
-assert.equal(runtimeOnly.carryforward?.mode, "runtime_only");
-assert.deepEqual(runtimeOnly.carryforward?.changedCriterionIndexes, []);
 
 assert.throws(
   () => resolveReviewedMatchingProjectionForPromotion({
     ...reviewedInput(lossyHistorical),
     reviewFindings: [{ kind: "criterion", key: 0 }],
   }),
-  /검수 범위를 벗어난 matching projection 변경/,
-  "비정상 검수 finding이 있는 criterion은 current value로 승계하지 않는다",
+  /허용되지 않은 matching projection runtime 전환/,
+  "검수 finding이 있어도 역사 v2에서 v4로 승계하지 않는다",
 );
 
 const tamperedHistorical = structuredClone(lossyHistorical);

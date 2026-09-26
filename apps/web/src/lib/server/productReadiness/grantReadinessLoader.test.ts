@@ -10,6 +10,9 @@ import {
 } from "./grantReadinessLoader";
 import { classifyGrantReadiness } from "./grantReadiness";
 import { planGrantNextWork } from "./grantNextWork";
+import { createGrantNextWorkSnapshot } from "./grantNextWorkExecution";
+import { planGrantSupply } from "./grantSupply";
+import { classifyMatchingInventorySnapshot } from "../analysis-lab/matching-inventory-campaign";
 
 const revision = "a".repeat(64);
 const raw = "b".repeat(64);
@@ -98,6 +101,62 @@ test("DB 조건이 있으면 발행 전에도 분석 존재로 보며, 조건도
   assert.ok(unanalysed.blockerCodes.includes("analysis_missing"));
   const missingQuestion = normalizeGrantReadinessEvidence(fixture({ questions: [] }));
   assert.deepEqual(classifyGrantReadiness(missingQuestion).blockerCodes, ["eligible_question_missing"]);
+});
+
+test("미승격 포털 검색 필터만 있으면 신규 분석 대기이며 원문·수동 조건은 검수 대상으로 보존한다", () => {
+  const metadata = ["biz_enyy", "biz_trgt_age", "supt_regin"].map((sourceField) => ({
+    ...fixture().criteria[0]!, sourceField, parserVersion: "kstartup-field-parser-v3", stableKey: null,
+  }));
+  const evidence = fixture({ promotion: null, criteria: metadata, questions: [] });
+  const input = normalizeGrantReadinessEvidence(evidence);
+  const readiness = classifyGrantReadiness(input);
+  assert.equal(input.analysis.status, "missing");
+  assert.ok(readiness.blockerCodes.includes("analysis_missing"));
+  assert.equal(planGrantNextWork(readiness).action, "condition_analysis");
+
+  for (const criterion of [
+    { ...metadata[0]!, sourceField: "aply_trgt_ctnt" },
+    { ...metadata[0]!, sourceField: null },
+    { ...metadata[0]!, parserVersion: "human-reviewed-v1" },
+    { ...metadata[0]!, stableKey: "criterion:reviewed" },
+  ]) {
+    const preserved = normalizeGrantReadinessEvidence(fixture({ promotion: null, criteria: [criterion] }));
+    assert.equal(preserved.analysis.status, "present");
+    assert.equal(planGrantNextWork(classifyGrantReadiness(preserved)).action, "condition_review");
+  }
+  assert.equal(normalizeGrantReadinessEvidence(fixture({ criteria: metadata })).analysis.status, "present");
+
+  const exactId = "301e4b86-bc46-4c06-8ed1-6f59bf01fd9b";
+  const snapshot = createGrantNextWorkSnapshot({
+    grantId: exactId,
+    readinessInput: { ...input, grantId: exactId },
+  });
+  const supply = planGrantSupply({ snapshot, inventory: { status: "checked", assets: [] } });
+  assert.equal(supply.stage, "await_approved_model_run");
+  assert.equal(supply.modelCalls, 0);
+  const entry = classifyMatchingInventorySnapshot({
+    observedAt: "2026-09-25T00:00:00.000Z",
+    targets: [{
+      grantId: exactId,
+      inputSha256: "1".repeat(64),
+      attachmentManifestSha256: "2".repeat(64),
+      closesToday: false,
+      eligibility: { eligible: true },
+      readinessNextWork: snapshot.nextWork.action,
+      supplyAssessment: supply,
+      history: {
+        kind: "legacy_material", source: "kstartup", sourceId: "179187",
+        runId: "run-2026-09-18T103813.923Z-4b292a",
+        sourceRunArtifactSha256: "3".repeat(64),
+        inputSha256: "4".repeat(64),
+        attachmentManifestSha256: "5".repeat(64),
+        contractCompatible: false,
+      },
+    }],
+  }).entries[0]!;
+  assert.equal(entry.category, "source_changed");
+  assert.equal(entry.campaignEligible, true);
+  assert.equal(entry.nextAction, "prepare_changed_source");
 });
 
 test("검수 전 조건은 질문 수요를 추정하지 않고 원문 검수 단계에서 닫는다", () => {

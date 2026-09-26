@@ -1808,6 +1808,135 @@ assert.equal(
   "숫자·other가 섞인 축 결속은 fail-closed한다",
 );
 
+const inclusiveFounderSpan = "경기도 내 예비 · 초기 (재)창업자 및 기술창업기업";
+const inclusiveFounderSeal = sealDeepAnalysisInput({
+  grantId: "grant-inclusive-founder",
+  sourceRevisionSha256: "e".repeat(64),
+  structuredText: inclusiveFounderSpan,
+  attachments: [],
+});
+const narrowedFounder = validateDeepAnalysisResult({
+  seal: inclusiveFounderSeal,
+  result: result([criterion({
+    dimension: "other",
+    operator: "text_only",
+    value: { note: "예비·초기 재창업자", covered_dimensions: ["biz_age", "industry"] },
+    sourceSpan: inclusiveFounderSpan,
+  })], axes(["other", "biz_age", "industry"])),
+});
+assert.deepEqual(
+  narrowedFounder.issues.filter((issue) => issue.code === "semantic_misattribution")
+    .map((issue) => issue.path),
+  ["$.criteria[0].value.note", "$.criteria[0].value.covered_dimensions"],
+  "(재)창업자 누락과 업종 추정은 원문에 근거한 validator에서 각각 거부한다",
+);
+const narrowedFounderWithoutCoverage = validateDeepAnalysisResult({
+  seal: inclusiveFounderSeal,
+  result: result([criterion({
+    dimension: "other",
+    operator: "text_only",
+    value: { note: "예비·초기 재창업자" },
+    sourceSpan: inclusiveFounderSpan,
+  })], axes(["other"])),
+});
+assert.equal(
+  narrowedFounderWithoutCoverage.issues.some((issue) => issue.code === "semantic_misattribution"
+    && issue.path === "$.criteria[0].value.note"),
+  true,
+  "covered_dimensions가 없어도 신청자 범위 축소를 거부한다",
+);
+const preservedFounder = validateDeepAnalysisResult({
+  seal: inclusiveFounderSeal,
+  result: result([criterion({
+    dimension: "other",
+    operator: "text_only",
+    value: { note: "예비·초기 창업자와 재창업자를 포함", covered_dimensions: ["biz_age", "target_type"] },
+    sourceSpan: inclusiveFounderSpan,
+  })], axes(["other", "biz_age", "target_type"])),
+});
+assert.equal(
+  preservedFounder.issues.some((issue) => issue.code === "semantic_misattribution"),
+  false,
+  "두 신청자 유형을 보존하면 의미 오류를 만들지 않는다",
+);
+
+const smallExporterSpan = "FTA 미활용 및 수출 영세업체, 컨설팅 실익이 큰 업체 위주로 선정";
+const smallExporterSeal = sealDeepAnalysisInput({
+  grantId: "grant-small-exporter",
+  sourceRevisionSha256: "e".repeat(64),
+  structuredText: smallExporterSpan,
+  attachments: [],
+});
+const inferredRevenue = validateDeepAnalysisResult({
+  seal: smallExporterSeal,
+  result: result([criterion({
+    dimension: "other",
+    operator: "text_only",
+    kind: "preferred",
+    value: { note: "수출 영세업체(매출 규모)", covered_dimensions: ["revenue"] },
+    sourceSpan: smallExporterSpan,
+  })], axes(["other", "revenue"])),
+});
+assert.equal(
+  inferredRevenue.issues.some((issue) => issue.code === "semantic_misattribution"
+    && issue.path === "$.criteria[0].value.covered_dimensions"),
+  true,
+  "영세 표현만으로 매출 기준을 만들지 않는다",
+);
+const directInferredRevenue = validateDeepAnalysisResult({
+  seal: smallExporterSeal,
+  result: result([criterion({
+    dimension: "revenue",
+    operator: "text_only",
+    kind: "preferred",
+    value: { note: "영세업체(매출 규모)" },
+    sourceSpan: smallExporterSpan,
+  })], axes(["revenue"])),
+});
+assert.equal(
+  directInferredRevenue.issues.some((issue) => issue.code === "semantic_misattribution"
+    && issue.path === "$.criteria[0].dimension"),
+  true,
+  "직접 revenue criterion도 영세 표현만으로 발행하지 않는다",
+);
+for (const [sourceText, value, foundAxes] of [
+  ["예비·초기 재창업자만 신청 가능", { note: "예비·초기 재창업자" }, ["other"]],
+  ["ICT 업종의 예비·초기 (재)창업자", {
+    note: "예비·초기 창업자와 재창업자이며 ICT 업종을 영위",
+    covered_dimensions: ["industry", "target_type"],
+  }, ["other", "industry", "target_type"]],
+  ["소프트웨어 개발 (재)창업자", {
+    note: "소프트웨어 개발 창업자와 재창업자",
+    covered_dimensions: ["industry", "target_type"],
+  }, ["other", "industry", "target_type"]],
+  ["매출액 10억원 이하의 수출 영세업체 우대", {
+    note: "매출액 10억원 이하의 수출 영세업체 우대",
+    covered_dimensions: ["revenue"],
+  }, ["other", "revenue"]],
+] as const) {
+  const explicitSeal = sealDeepAnalysisInput({
+    grantId: "grant-explicit-semantic-source",
+    sourceRevisionSha256: "e".repeat(64),
+    structuredText: sourceText,
+    attachments: [],
+  });
+  const explicit = validateDeepAnalysisResult({
+    seal: explicitSeal,
+    result: result([criterion({
+      dimension: "other",
+      operator: "text_only",
+      kind: sourceText.includes("우대") ? "preferred" : "required",
+      value,
+      sourceSpan: sourceText,
+    })], axes([...foundAxes])),
+  });
+  assert.equal(
+    explicit.issues.some((issue) => issue.code === "semantic_misattribution"),
+    false,
+    `명시 근거가 있는 재창업 전용·업종·매출 조건은 보존한다: ${sourceText}`,
+  );
+}
+
 const manufacturerApplicantSpan =
   "영천시 소재 중소 제조기업으로서 생산 현장에서 기술적 애로사항을 보유한 기업";
 const unrelatedRolesSpan = "수행기관, 참여기관, 총괄책임자는 별도 적정성 확인 대상이다.";
@@ -2044,6 +2173,44 @@ assert.equal(validateDeepAnalysisResult({
     }),
   ], axes(["prior_award"])),
 }).valid, true, "참여 중과 과거 참여를 함께 보존한 상태 범위는 통과한다");
+
+const tenantHistorySpan = "서울시 7대 창업거점시설(서울창업허브 공덕) 사무공간 입주수혜 이력이 있는 기업";
+const tenantCurrentPastLine = "서울창업허브 공덕에 현재 입주 중이거나 과거 입주한 이력이 있는 경우 지원하실 수 없습니다.";
+const tenantHistorySeal = sealDeepAnalysisInput({
+  grantId: "grant-tenant-history",
+  sourceRevisionSha256: "d".repeat(64),
+  structuredText: `${tenantHistorySpan}\n${tenantCurrentPastLine}`,
+  attachments: [],
+});
+const tenantHistoryCriterion = (states: string[]) => criterion({
+  dimension: "prior_award",
+  operator: "in",
+  kind: "exclusion",
+  value: { scope: "program", programs: ["서울창업허브 공덕"], states },
+  sourceSpan: tenantHistorySpan,
+});
+const completedOnlyTenant = validateDeepAnalysisResult({
+  seal: tenantHistorySeal,
+  result: result([tenantHistoryCriterion(["completed"])], axes(["prior_award"])),
+});
+assert.equal(completedOnlyTenant.valid, false);
+assert.equal(completedOnlyTenant.issues.some((issue) => (
+  issue.code === "canonical_contract_invalid" && issue.path === "$.criteria[0].value.states"
+)), true, "원문이 현재·과거 입주를 모두 제외하면 완료 이력만으로 좁힐 수 없다");
+assert.equal(validateDeepAnalysisResult({
+  seal: tenantHistorySeal,
+  result: result([tenantHistoryCriterion(["participating", "completed"])], axes(["prior_award"])),
+}).valid, true, "현재·과거 상태를 모두 보존하면 통과한다");
+const unrelatedCurrentSeal = sealDeepAnalysisInput({
+  grantId: "grant-unrelated-current",
+  sourceRevisionSha256: "d".repeat(64),
+  structuredText: `${tenantHistorySpan}\n서울창업허브 공덕 과거 입주자는 지원 불가, 현재 사업자등록은 필수`,
+  attachments: [],
+});
+assert.equal(validateDeepAnalysisResult({
+  seal: unrelatedCurrentSeal,
+  result: result([tenantHistoryCriterion(["completed"])], axes(["prior_award"])),
+}).valid, true, "현재 사업자등록 같은 별도 현재 문구를 현재 입주 이력으로 오인하지 않는다");
 
 const completeBusinessStatusSpan = "신청일 기준 사업자가 휴·폐업 중인 자";
 const completeBusinessStatusSeal = sealDeepAnalysisInput({

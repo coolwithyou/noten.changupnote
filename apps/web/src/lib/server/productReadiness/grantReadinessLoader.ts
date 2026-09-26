@@ -87,6 +87,8 @@ export interface GrantReadinessEvidenceRow {
     readonly operator: CriterionOperator;
     readonly value: unknown;
     readonly sourceSpan: string | null;
+    readonly sourceField?: string | null;
+    readonly parserVersion?: string | null;
     readonly needsReview: boolean;
   }[];
   readonly questions: readonly {
@@ -200,6 +202,13 @@ export function normalizeGrantReadinessEvidence(row: GrantReadinessEvidenceRow):
   const sourceAttachmentManifestSha256 = attachmentStatus === "complete"
     ? row.source.attachmentManifestSha256 ?? promotion?.attachmentManifestSha256 ?? null
     : null;
+  const searchFilterFields = new Set(["biz_enyy", "biz_trgt_age", "supt_regin"]);
+  // 좁은 legacy 휴리스틱: 승격 전 v3 포털 검색 필터 파서의 안정키 없는 행만
+  // 분석 자산으로 세지 않는다. 원문·수동·다른 파서의 조건은 기존 review 경로다.
+  const searchFilterCriteriaOnly = !promotion && row.criteria.length > 0
+    && row.criteria.every((criterion) => searchFilterFields.has(criterion.sourceField ?? "")
+      && criterion.parserVersion === "kstartup-field-parser-v3"
+      && criterion.stableKey === null);
 
   return {
     grantId: row.grant.id,
@@ -213,8 +222,8 @@ export function normalizeGrantReadinessEvidence(row: GrantReadinessEvidenceRow):
       attachmentManifestSha256: sourceAttachmentManifestSha256,
     },
     analysis: {
-      // 서비스 반영 증거가 없어도 현재 DB에 조건이 있으면 분석 산출물은 존재한다.
-      status: promotion || row.criteria.length > 0 ? "present" : "missing",
+      // 미승격 검색 분류 휴리스틱만 제외하고 실제 DB 조건은 기존 분석 존재로 본다.
+      status: promotion || row.criteria.length > 0 && !searchFilterCriteriaOnly ? "present" : "missing",
       sourceRevisionSha256: promotion?.sourceRevisionSha256 ?? null,
       // grant_deep_analysis_runs does not retain raw hash separately. A matching
       // current source revision cryptographically commits this raw hash; when it
@@ -319,6 +328,8 @@ export async function loadCurrentGrantReadiness(input: {
       operator: schema.grantCriteria.operator,
       value: schema.grantCriteria.value,
       sourceSpan: schema.grantCriteria.sourceSpan,
+      sourceField: schema.grantCriteria.sourceField,
+      parserVersion: schema.grantCriteria.parserVersion,
       needsReview: schema.grantCriteria.needsReview,
     }).from(schema.grantCriteria).where(inArray(schema.grantCriteria.grantId, grantIds)),
     input.db.select({

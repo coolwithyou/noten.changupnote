@@ -231,6 +231,18 @@ test("완료된 matching-only Opus 4.8 current inventory receipt만 오프라인
     normalizeCompletedAnalysisLaunchManifestForOfflineConsumption(currentMatching).execution.model,
     "claude-opus-4-8",
   );
+  assert.equal(
+    normalizeCompletedAnalysisLaunchManifestForOfflineConsumption({
+      ...currentMatching,
+      execution: {
+        ...currentMatching.execution,
+        promptVersion: "lab-deep-v29",
+        validatorVersion: "deep-analysis-validator-v23",
+      },
+    }).execution.promptVersion,
+    "lab-deep-v29",
+    "봉인된 exact3 구 계약은 live 권한 없이 오프라인 검증 가능하다",
+  );
   assert.throws(() => normalizeCompletedAnalysisLaunchManifestForOfflineConsumption({
     ...currentMatching,
     execution: { ...currentMatching.execution, model: "claude-opus-4-7" },
@@ -812,6 +824,7 @@ test("독립 검수 matching-only repair는 원본 범위를 유지하고 Kordoc
     aggregateSha256: SHA_D,
     analysisMode: "matching_only" as const,
     withApplicationRoundtrip: false,
+    model: "claude-opus-4-8",
     targets: [{
       originalSequence: 3,
       grantId: GRANT_0,
@@ -837,11 +850,13 @@ test("독립 검수 matching-only repair는 원본 범위를 유지하고 Kordoc
   const repair = createIndependentReviewRepairAnalysisLaunchManifest(input);
   assert.equal(repair.source.kind, "independent_review_repair");
   assert.equal(repair.execution.analysisMode, "matching_only");
+  assert.equal(repair.execution.model, "claude-opus-4-8");
   assert.equal(repair.execution.withApplicationRoundtrip, false);
   assert.equal(repair.execution.roundtripModel, null);
   assert.equal(repair.execution.applicationFieldAnalysisVersion, null);
   assert.equal(repair.targets[0]?.applicationRoundtripReuse, undefined);
   assert.deepEqual(normalizeAnalysisLaunchManifest(JSON.parse(encodeCanonical(repair).toString("utf8"))), repair);
+  assert.equal(normalizeCompletedAnalysisLaunchManifestForOfflineConsumption(repair).execution.model, "claude-opus-4-8");
 
   assert.throws(() => createIndependentReviewRepairAnalysisLaunchManifest({
     ...input,

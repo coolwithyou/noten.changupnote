@@ -381,6 +381,7 @@ export function createIndependentReviewRepairAnalysisLaunchManifest(input: {
   readonly aggregateSha256: string;
   readonly analysisMode: AnalysisLaunchManifest["execution"]["analysisMode"];
   readonly withApplicationRoundtrip: boolean;
+  readonly model?: string;
   readonly targets: readonly {
     readonly originalSequence: number;
     readonly grantId: string;
@@ -431,7 +432,9 @@ export function createIndependentReviewRepairAnalysisLaunchManifest(input: {
       seriesId: `independent-review-repair-${aggregateSha256.slice(0, 16)}`,
       planSha256: aggregateSha256,
       planArtifactSha256: aggregateSha256,
-      model: DEEP_REPAIR_PREPARATION_POLICY.model,
+      model: input.analysisMode === "matching_only"
+        ? requireNonEmpty(input.model ?? DEEP_REPAIR_PREPARATION_POLICY.model, "repair model")
+        : DEEP_REPAIR_PREPARATION_POLICY.model,
       targets: input.targets.map((target, sequence) => ({
         sequence,
         grantId: target.grantId,
@@ -908,11 +911,16 @@ function normalizeAnalysisLaunchManifestForPurpose(
   const supportedCurrentOfflineContract = purpose === "completed-receipt-offline-consumer"
     && !liveSourcePolicyRejected
     && (execution.model === APPLICATION_ROUNDTRIP_ADOPTED_MODEL
-      || (sourceKind === "current_inventory"
+      || ((sourceKind === "current_inventory" || sourceKind === "independent_review_repair")
         && analysisMode === "matching_only"
         && execution.model === "claude-opus-4-8"))
-    && execution.promptVersion === ANALYSIS_LAB_PROMPT_VERSION
-    && execution.validatorVersion === DEEP_ANALYSIS_VALIDATOR_VERSION
+    && ((execution.promptVersion === ANALYSIS_LAB_PROMPT_VERSION
+      && execution.validatorVersion === DEEP_ANALYSIS_VALIDATOR_VERSION)
+      || (sourceKind === "current_inventory"
+        && analysisMode === "matching_only"
+        && execution.model === "claude-opus-4-8"
+        && execution.promptVersion === "lab-deep-v29"
+        && execution.validatorVersion === "deep-analysis-validator-v23"))
     && (withApplicationRoundtrip
       ? roundtripModel === APPLICATION_ROUNDTRIP_ADOPTED_MODEL
         && applicationFieldAnalysisVersion === APPLICATION_ROUNDTRIP_VERSION

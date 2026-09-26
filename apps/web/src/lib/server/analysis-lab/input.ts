@@ -313,6 +313,8 @@ function renderStructuredFields(
 }
 
 // K-Startup 원본 payload 주요 필드(packages/core/src/kstartup/extraction-input.ts 필드 선택 참고).
+// biz_enyy/biz_trgt_age/supt_regin은 포털 검색 필터라 추출 입력에서 제외한다.
+// raw payload는 보존하며 자격 근거는 신청대상 본문·첨부의 명시 문구에서만 읽는다.
 const KSTARTUP_FIELDS: Array<[key: string, label: string]> = [
   ["biz_pbanc_nm", "공고명"],
   ["pbanc_ctnt", "공고 내용"],
@@ -320,9 +322,6 @@ const KSTARTUP_FIELDS: Array<[key: string, label: string]> = [
   ["aply_trgt_ctnt", "신청대상 상세"],
   ["aply_excl_trgt_ctnt", "신청 제외대상"],
   ["prfn_matr", "우대사항"],
-  ["biz_enyy", "업력 조건"],
-  ["biz_trgt_age", "대상 연령"],
-  ["supt_regin", "지원지역"],
   ["supt_biz_clsfc", "지원분류"],
   ["pbanc_rcpt_bgng_dt", "접수 시작(원본)"],
   ["pbanc_rcpt_end_dt", "접수 마감(원본)"],
@@ -330,7 +329,7 @@ const KSTARTUP_FIELDS: Array<[key: string, label: string]> = [
 
 /**
  * payload 필드 렌더 — 짧은 단일행 값은 "라벨: 값" 으로 그대로 노출한다.
- * 모델이 구조화 필드를 인용할 때 자연스럽게 쓰는 형식("지원지역: 전국")과 입력 표기를
+ * 모델이 자격 원문 필드를 인용할 때 자연스럽게 쓰는 형식("신청대상 상세: ...")과 입력 표기를
  * 일치시켜 source_span 부분문자열 검증이 성립하게 하기 위함(v2 보정).
  */
 function payloadLine(label: string, key: string, text: string): string {

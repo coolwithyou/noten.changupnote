@@ -14,7 +14,7 @@ import {
   validateAndWrapIndependentReviewResult,
   writeIndependentReviewResult,
 } from "./independent-review-packet";
-import { findMonorepoRoot } from "./run-store";
+import { assertDurableAnalysisArtifactPath, findMonorepoRoot } from "./run-store";
 
 interface ManifestPacket {
   sequence: number;
@@ -94,6 +94,8 @@ async function main() {
   const addressedSha = basename(manifestPath).replace(/\.manifest\.json$/, "");
   if (sha256(manifestBytes) !== addressedSha) throw new Error("manifest content address가 일치하지 않습니다.");
   const reviewerModel = resolveCodexReviewModel(manifest, option("model"));
+  const outputDir = reviewResultRoot(manifestPath, addressedSha, manifest.schema);
+  assertDurableAnalysisArtifactPath(outputDir);
 
   const authStatus = await runCommand("codex", ["login", "status"], root);
   if (authStatus.code !== 0 || !`${authStatus.stdout}\n${authStatus.stderr}`.includes("Logged in using ChatGPT")) {
@@ -101,7 +103,6 @@ async function main() {
   }
   const version = await runCommand("codex", ["--version"], root);
   if (version.code !== 0) throw new Error("Codex 버전을 확인하지 못했습니다.");
-  const outputDir = reviewResultRoot(manifestPath, addressedSha, manifest.schema);
   const rawDir = join(outputDir, "codex", "raw");
   const resultDir = join(outputDir, "codex", "results");
   const schemaDir = join(outputDir, "codex", "schemas");

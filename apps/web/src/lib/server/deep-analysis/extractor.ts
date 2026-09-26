@@ -1039,6 +1039,8 @@ export const DEEP_ANALYSIS_ALTERNATIVE_PATH_SCOPE_RULE =
   "신청자격이 A 또는 B, 쉼표 열거, 트랙별 경로처럼 대안(OR)으로 열려 있으면 한 경로의 속성을 모든 신청자에게 적용되는 독립 required criterion으로 승격하지 마라. 서로 다른 22축이 섞인 대안은 현재 criterion 계약으로 논리식을 무손실 표현할 수 없으므로 dimension=other, operator=text_only 한 건에 전체 OR 경로와 적용 범위를 보존한다. 예: '입주기업, 졸업기업 및 기타 예비·초기 창업기업'에서 입주 여부와 예비·초기 업력을 별도 전역 필수조건으로 만들면 안 되고, '콘텐츠 제작 사업자 또는 제주 거주 개인 창작자'에서 콘텐츠 업종을 개인 창작자에게까지 적용하면 안 된다.";
 export const DEEP_ANALYSIS_CROSS_AXIS_TEXT_ONLY_RULE =
   "서로 다른 22축의 OR 조건을 other/text_only로 보존하면 value.covered_dimensions에 그 한 criterion이 실제로 검토·보존한 축 이름만 넣는다. 예: 창업 7년 이내 또는 벤처기업이면 covered_dimensions=[\"biz_age\",\"certification\"]이다. 적용 축이 하나도 없으면 빈 배열을 만들지 말고 covered_dimensions 키 자체를 생략한다. 공통 필수조건이나 원문에 없는 축을 넣지 말고, listed 축의 axis_assessments는 condition_found로 둔다. 이 결속은 축별 독립 required criterion을 새로 만들라는 뜻이 아니다.";
+export const DEEP_ANALYSIS_APPLICANT_AND_SCALE_SEMANTICS_RULE =
+  "'예비·초기 (재)창업자'의 '(재)'는 재창업자도 포함한다는 뜻이다. 일반 창업자를 재창업자로만 좁히지 말고 두 신청자 유형을 모두 보존하라. 창업자·재창업자라는 신청 주체 표현만으로 업종 자격을 추론하거나 other/text_only의 covered_dimensions에 industry를 넣지 마라. '영세업체'라는 정성 표현만으로 매출액·매출 구간·규모의 수치 기준을 만들거나 covered_dimensions에 revenue를 넣지 마라. 명시적인 매출 기준이 따로 있으면 그 근거와 적용 효과를 별도로 검토하고, 정성적 우대 문구는 원문 그대로 text_only로 보존한다.";
 export const DEEP_ANALYSIS_PROGRAM_THEME_BOUNDARY_RULE =
   "수요기업별 협업 모집분야, 해결과제, 도입기술, 개발대상 품목, 출품작 장르·형식은 신청기업의 KSIC·업태·종목이 아니다. 신청기업이 그 업종을 실제로 영위해야 한다는 문장이 없으면 industry criterion으로 만들지 마라. 제안 아이템·작품이 특정 주제나 유형이어야 해서 신청 가능성에 영향을 주면 other/text_only로 전체 과제 범위를 보존하고, 단순 사업 방향이면 program_intent에만 기록한다.";
 export const DEEP_ANALYSIS_PROCEDURAL_EVIDENCE_CHECK_RULE =
@@ -1108,6 +1110,7 @@ export const DEEP_ANALYSIS_REVIEW_ALIGNMENT_RULES = Object.freeze([
   DEEP_ANALYSIS_STRUCTURED_FILTER_METADATA_RULE,
   DEEP_ANALYSIS_ALTERNATIVE_PATH_SCOPE_RULE,
   DEEP_ANALYSIS_CROSS_AXIS_TEXT_ONLY_RULE,
+  DEEP_ANALYSIS_APPLICANT_AND_SCALE_SEMANTICS_RULE,
   DEEP_ANALYSIS_PROGRAM_THEME_BOUNDARY_RULE,
   DEEP_ANALYSIS_PROCEDURAL_EVIDENCE_CHECK_RULE,
   DEEP_ANALYSIS_SCORING_TABLE_COMPLETENESS_RULE,
@@ -1172,6 +1175,7 @@ export const DEEP_ANALYSIS_SYSTEM_PROMPT = [
   DEEP_ANALYSIS_STRUCTURED_FILTER_METADATA_RULE,
   DEEP_ANALYSIS_ALTERNATIVE_PATH_SCOPE_RULE,
   DEEP_ANALYSIS_CROSS_AXIS_TEXT_ONLY_RULE,
+  DEEP_ANALYSIS_APPLICANT_AND_SCALE_SEMANTICS_RULE,
   DEEP_ANALYSIS_PROGRAM_THEME_BOUNDARY_RULE,
   DEEP_ANALYSIS_PROCEDURAL_EVIDENCE_CHECK_RULE,
   DEEP_ANALYSIS_SCORING_TABLE_COMPLETENESS_RULE,

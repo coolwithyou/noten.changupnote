@@ -149,11 +149,15 @@ export function mergeKStartupLlmCriteria(
   deterministic: GrantCriterion[],
   llm: GrantCriterion[],
 ): GrantCriterion[] {
+  // 포털 검색 필터에서 만든 결정론적 조건은 원문 근거로 승격하지 않는다.
+  // 상세 모집본문·첨부 근거의 LLM 조건과 다른 결정론적 조건은 그대로 둔다.
+  const searchFilterFields = new Set(["biz_enyy", "biz_trgt_age", "supt_regin"]);
   const structuredLlmKeys = new Set(llm
     .filter((criterion) => criterion.operator !== "text_only")
     .map((criterion) => `${criterion.dimension}:${criterion.kind}`));
   const merged = deterministic.filter((criterion) =>
-    criterion.operator !== "text_only" || !structuredLlmKeys.has(`${criterion.dimension}:${criterion.kind}`));
+    !searchFilterFields.has(criterion.source_field ?? "")
+    && (criterion.operator !== "text_only" || !structuredLlmKeys.has(`${criterion.dimension}:${criterion.kind}`)));
   const signatures = new Set(merged.map(criterionSignature));
   const spanKeys = new Set(merged.flatMap((criterion) => {
     const span = normalizeEvidence(criterion.source_span ?? "");
