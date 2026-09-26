@@ -44,6 +44,9 @@
   `.../features/grant-overview/DiscoverySourceReview.render.test.tsx`,
   `pnpm build:packages`, `pnpm --filter @cunote/web typecheck`, `pnpm verify:openapi`
   (28 paths), `pnpm verify:package-runtime-freshness`, `git diff --check` PASS.
+- 변경 커밋 `f429e9695bee53e0fdb3ccb25160b28d8f2d229d`을 작업 브랜치에 push했다.
+  같은 SHA에서 `pnpm build:web` PASS. Turbopack의 기존 analysis-lab `run-store.ts`
+  경유 NFT 추적 경고 3개가 있었고 컴파일·TypeScript·정적 페이지 생성은 완료됐다.
 - 실제 브라우저 Glyph 로그인 검증은 개발 서버가 없어 미실행이다. 4010/4011
   LISTEN이 없음을 확인했고 사용자 직접 서버 실행 규칙에 따라 시작을 요청했다.
   운영 DB 쓰기·모델 호출·배포는 실행하지 않았다.
