@@ -1,4 +1,6 @@
 import { readLegacyMaterialHistories } from "./legacy-material-history";
+import { ANALYSIS_LAB_PROMPT_VERSION } from "@/lib/server/analysis-lab/lab-contract";
+import { DEEP_ANALYSIS_VALIDATOR_VERSION } from "@/lib/server/deep-analysis/validator";
 import { createHash } from "node:crypto";
 import { access, readdir } from "node:fs/promises";
 import { join } from "node:path";
@@ -16,6 +18,8 @@ import {
   type CurrentEligibleMatchingTarget,
 } from "./current-inventory-launch-production";
 import { verifyCurrentInventoryLaunchBinding } from "./current-inventory-launch";
+import { readCurrentDeepRepairExecutionProvenance } from "./deep-repair-runtime-provenance";
+import { resolveLabModel } from "./extractor";
 import { readDeepRepairHistoricalGrantIds } from "./deep-repair-preparation-history";
 import { isImmutableArtifactTempFileName } from "./immutable-artifact-fs";
 import {
@@ -64,6 +68,26 @@ export interface MatchingCampaignHistoryRecord {
   readonly manifest: AnalysisLaunchManifest | null;
   readonly manifestSha256: string | null;
   readonly grantSha256: string | null;
+}
+
+/** A prepared child can be reused only when its live material contract still runs here. */
+export function isPreparedMatchingContractCompatible(
+  manifest: AnalysisLaunchManifest,
+  current: { readonly packageRuntimeSha256: string; readonly validatorVersion: string },
+  model: string,
+): boolean {
+  const execution = manifest.execution;
+  return manifest.source.kind === "current_inventory"
+    && execution.analysisMode === "matching_only"
+    && execution.transport === "claude-cli"
+    && execution.model === model
+    && execution.concurrency === 2
+    && execution.existingRunPolicy === "skip_existing"
+    && !execution.withApplicationRoundtrip
+    && execution.packageRuntimeSha256 === current.packageRuntimeSha256
+    && execution.validatorVersion === current.validatorVersion
+    && execution.validatorVersion === DEEP_ANALYSIS_VALIDATOR_VERSION
+    && execution.promptVersion === ANALYSIS_LAB_PROMPT_VERSION;
 }
 
 export interface MatchingCampaignProductionDependencies {
@@ -589,6 +613,8 @@ export async function readVerifiedCurrentLaunchHistory(
   root: string,
   current: readonly CurrentEligibleMatchingCandidate[],
 ): Promise<ReadonlyMap<string, MatchingCampaignHistoryRecord>> {
+  const execution = await readCurrentDeepRepairExecutionProvenance({ repositoryRoot: root });
+  const model = resolveLabModel();
   const runtime = await readDeepAnalysisRuntimeAdmissionSnapshot(getCunoteDb());
   const activeGrantSha256 = activeLaunchGrantShaFromRuntime(runtime);
   const activeStatus = activeGrantSha256
@@ -655,7 +681,7 @@ export async function readVerifiedCurrentLaunchHistory(
           kind: "prepared",
           inputSha256: manifestTarget.inputSha256,
           attachmentManifestSha256: manifestTarget.attachmentManifestSha256,
-          contractCompatible: manifest.execution.analysisMode === "matching_only",
+          contractCompatible: isPreparedMatchingContractCompatible(manifest, execution, model),
           manifestSha256,
           // grant artifact나 stale status 단독은 ownership이 아니다. 현재 DB lease와
           // 같은 grant의 running status가 이 manifest에 결속될 때만 active다.
@@ -700,7 +726,7 @@ export async function readVerifiedCurrentLaunchHistory(
             kind: "prepared",
             inputSha256: manifestTarget.inputSha256,
             attachmentManifestSha256: manifestTarget.attachmentManifestSha256,
-            contractCompatible: true,
+            contractCompatible: isPreparedMatchingContractCompatible(manifest, execution, model),
             manifestSha256,
             ownership: "unowned",
           };

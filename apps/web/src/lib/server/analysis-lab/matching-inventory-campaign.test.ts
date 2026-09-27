@@ -5,6 +5,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { buildCurrentInventoryLaunchManifest, type CurrentLaunchInventory } from "./current-inventory-launch";
+import { ANALYSIS_LAB_PROMPT_VERSION } from "@/lib/server/analysis-lab/lab-contract";
+import { DEEP_ANALYSIS_VALIDATOR_VERSION } from "@/lib/server/deep-analysis/validator";
 import {
   isCurrentEligibleMatchingTargetClosingToday,
   prepareCurrentEligibleMatchingTargets,
@@ -36,6 +38,7 @@ import {
   applyActiveLaunchOwnership,
   classifyCampaignTerminalHistoryOutcome,
   inspectMatchingHistoryReview,
+  isPreparedMatchingContractCompatible,
   matchingHistoryReviewDisposition,
   prepareMatchingInventoryCampaign,
   readActiveLaunchManifest,
@@ -1047,6 +1050,37 @@ function manifest(
     analysisMode,
   });
 }
+
+test("과거 prepared child의 package runtime이 다르면 현재 campaign에서 재봉인한다", () => {
+  const source = manifest([id(0)], 42);
+  const current = { packageRuntimeSha256: hex("d"), validatorVersion: DEEP_ANALYSIS_VALIDATOR_VERSION };
+  const compatible: AnalysisLaunchManifest = {
+    ...source,
+    execution: {
+      ...source.execution,
+      model: "test-model",
+      validatorVersion: DEEP_ANALYSIS_VALIDATOR_VERSION,
+      promptVersion: ANALYSIS_LAB_PROMPT_VERSION,
+    },
+  };
+  assert.equal(isPreparedMatchingContractCompatible(compatible, current, "test-model"), true);
+  assert.equal(isPreparedMatchingContractCompatible({
+    ...compatible, execution: { ...compatible.execution, packageRuntimeSha256: hex("e") },
+  }, current, "test-model"), false);
+  assert.equal(isPreparedMatchingContractCompatible({
+    ...compatible, execution: { ...compatible.execution, promptVersion: "old-prompt" },
+  }, current, "test-model"), false);
+  assert.equal(isPreparedMatchingContractCompatible(compatible, current, "other-model"), false);
+  const classified = classifyMatchingInventorySnapshot({
+    observedAt: "2026-09-28T00:00:00.000Z",
+    targets: [target(0, {
+      kind: "prepared", inputSha256: hex("a"), attachmentManifestSha256: hex("b"),
+      contractCompatible: false, manifestSha256: hex("f"), ownership: "unowned",
+    })],
+  });
+  assert.equal(classified.entries[0]?.category, "source_changed");
+  assert.equal(classified.entries[0]?.campaignEligible, true);
+});
 
 function receipt(
   source: AnalysisLaunchManifest,
