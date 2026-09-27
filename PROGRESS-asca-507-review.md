@@ -198,5 +198,5 @@
 ## 2026-09-28 08:43 KST 독립 검수 보정 15건의 입력 누락 경로 확인
 
 - 동일 material 결함 보정 준비물 `4459b164…` 15건을 현재 `prepareLabAnalysis`로 읽기 전용 재점검했다. 입력이 불완전한 7건은 모두 BizInfo 첨부 `markdown_missing`이며, 이 중 3건에는 `announcement`가 포함된다. 앞서 분리한 8건 `ba06aab4…`은 이 7건을 포함하지 않는다.
-- 위 7개 sourceId에 한정한 `backfill:bizinfo-attachments --reprocess-missing-markdown` dry-run은 7건 로드, 재처리 후보 2건·첨부 2개를 반환했다. 후보는 `PBLN_000000000126497` 및 `PBLN_000000000126585`의 ZIP이다. 나머지 5건은 이 백필 경로에서 선택되지 않았으므로, 7건 전체를 같은 명령으로 복구할 수 있다고 가정하지 않는다. 이 조사는 모델 호출·R2/DB 쓰기 없이 수행했다.
-- 먼저 5건의 보관 원본·변환 실패 원인을 분리 진단하고, 2개 ZIP도 재처리 후 실제 텍스트·material 변경 여부를 확인해야 한다. 기존 15건 manifest에 새 입력을 혼합하거나 실행 대상으로 확대하지 않는다.
+- 위 7개 sourceId에 한정한 `backfill:bizinfo-attachments --reprocess-missing-markdown` dry-run은 7건 로드, 재처리 후보 2건·첨부 2개를 반환했다. 후보는 `PBLN_000000000126497` 및 `PBLN_000000000126585`의 ZIP이다. 그러나 `126585`의 실제 누락 입력은 별도 **공고문 PDF**여서 이 ZIP 재처리만으로 해결되지 않는다. `126497` 1건만 누락 첨부 자체가 ZIP이다. 이 조사는 모델 호출·R2/DB 쓰기 없이 수행했다.
+- 입력 report를 파일별로 대조하면 누락 11개 중 ZIP 1개를 제외한 10개는 **exact PDF 원본은 있으나 markdown이 없는** 상태이고 `pdf_text_or_ocr`·`requiresSourceWrite=true`로 분류된다. 7건 전체를 백필 명령 하나로 복구할 수 없다. PDF 텍스트/OCR의 별도 복구와 실제 텍스트·material 재검증이 필요하며, 기존 15건 manifest에 새 입력을 혼합하거나 실행 대상으로 확대하지 않는다.
