@@ -10,6 +10,7 @@ import {
   type GrantImageOcrAdapter,
 } from "./grantAttachmentArchive";
 import { buildGrantArchiveAttachmentReceipts } from "./grantArchiveWriteReceipt";
+import { includeDeclaredAttachments } from "../deep-analysis/declaredAttachments";
 import {
   mergeArchivedKStartupAttachments,
   selectKStartupAttachmentsForArchive,
@@ -57,13 +58,16 @@ export function mergeKStartupAttachmentArchiveRecoveryRows(
     rowsBySourceId.set(row.sourceId, [...(rowsBySourceId.get(row.sourceId) ?? []), row]);
   }
   return entries.map((entry) => {
+    // 명시 복구에서만 현재 detail의 선언 첨부를 복원한다. raw.attachments가
+    // 비어 있어도 현재 원문에 보이는 파일을 누락시키지 않는다.
+    const current = includeDeclaredAttachments("kstartup",
+      entry.raw.payload as unknown as Record<string, unknown>, entry.raw.attachments ?? []) as NonNullable<GrantRaw["attachments"]>;
     const recovered = (rowsBySourceId.get(entry.grant.source_id) ?? []).map(toRawAttachment);
-    if (recovered.length === 0) return entry;
     return {
       ...entry,
       raw: {
         ...entry.raw,
-        attachments: mergeArchivedKStartupAttachments(entry.raw.attachments, recovered),
+        attachments: mergeArchivedKStartupAttachments(current, recovered),
       },
     };
   });

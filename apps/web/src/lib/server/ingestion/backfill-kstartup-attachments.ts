@@ -2,6 +2,7 @@ import { closeCunoteDb, getCunoteDb } from "../db/client";
 import { loadMonorepoEnv } from "../loadMonorepoEnv";
 import { createR2ObjectStorageFromEnv } from "../storage/r2ObjectStorage";
 import { runKStartupAttachmentArchiveBatch } from "./kstartupAttachmentArchiveBatch";
+import { parseGrantImageOcrProvider, resolveGrantImageOcrAdapter } from "./grantImageOcrProviders";
 
 loadMonorepoEnv();
 
@@ -19,6 +20,8 @@ const maxTotalAttachments = boundedInteger(
 const sourceIds = csvArg(readArg("sourceIds"), 100);
 const asOf = dateArg(readArg("asOf")) ?? new Date();
 const convertHwp = !process.argv.includes("--skip-attachment-conversion");
+const imageOcr = parseGrantImageOcrProvider(readArg("imageOcr"));
+const imageOcrAdapter = resolveGrantImageOcrAdapter(imageOcr);
 if (write && confirmation !== "ARCHIVE_KSTARTUP_ATTACHMENTS") {
   throw new Error("--write requires --confirm=ARCHIVE_KSTARTUP_ATTACHMENTS");
 }
@@ -36,8 +39,9 @@ try {
     maxTotalAttachments,
     maxAttachmentsPerGrant,
     sourceIds,
+    imageOcr: imageOcrAdapter,
   });
-  console.log(JSON.stringify({ ...result, source: "kstartup" }, null, 2));
+  console.log(JSON.stringify({ ...result, source: "kstartup", imageOcr }, null, 2));
 } finally {
   await closeCunoteDb();
 }
