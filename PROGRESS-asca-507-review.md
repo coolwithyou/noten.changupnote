@@ -127,3 +127,10 @@
 - 추가 물리 입력 감사 CLI `lab:matching-campaign:input-audit`는 child target 결속과 현재 input/attachment SHA를 비교한다. `e6…` 154건 감사에서 material drift 0, 입력 누락 27개·영향 target 17개, 공고문 누락 6개·영향 target 4개를 확인했다. `--require-announcement-coverage`는 공고문 누락에 exit 2로 차단했다.
 - 보류 공고문 PDF 3개를 SHA 결속 원본으로 내려받아 `pdfinfo`/`pdftotext`/`pdfimages`로 대조했다. PDF 전체 21/23/23쪽에 비해 이미지 쪽은 7/10/4쪽이었다. OCR 상한을 문서 전체 쪽수가 아니라 실제 OCR 대상 쪽수 20쪽으로 적용하고, 필요한 쪽만 로컬 렌더링하도록 수정했다. OCR confidence 0.6, 원본 SHA, 업로드 SHA readback은 유지한다. exact 3개를 다시 복구한 결과 3/3 성공·실패 0, OCR 평균 confidence 0.734/0.751/0.648이다. 29쪽 전체 이미지 매뉴얼 등 나머지 20쪽 초과 문서는 계속 보류한다. 관련 회귀 테스트와 웹 typecheck PASS.
 - 위 3개 document artifact 변경 뒤에는 `e6…` manifest도 이전 입력 snapshot이다. 현재 기간·material 재준비 및 입력 감사 후 최신 결과를 추가 기록한다.
+
+## 2026-09-28 01:42 KST 최신 입력 재봉인·감사
+
+- 변경 코드 `17efea6`을 작업 브랜치에 커밋·push한 뒤 formal prepare를 재실행했다. 현재 campaign `545636b811729a8af1f6238235d73452ead45d65e13a3ba5ec68e109a5380503`, classification `fa13b7bece7f583dfb2d7ca04cc5623af1ccb988c57fb40e14e518b307a5f567`의 bytes SHA와 7개 child manifest bytes SHA가 모두 PASS했다. 529건 분류는 reusable 4·primary review 221·prepared 151·source changed 82·quality held 71이다. 이전 `e6…` 준비물 중 입력 SHA가 같은 child는 재사용되고 새 PDF 입력 3건은 새 material로 별도 결속돼, 이전 16건 `2aa1…` child가 이 캠페인에서 sequence 3으로 이동했다. 7개 child 합계는 여전히 154건이다.
+- 새 캠페인의 첫 25건 child `c4c1f12a76170bdc4a9e00afdba4488632180bfbb7862a6042651536e4f0db69`은 `not_started`, 완료 0·grant 0·`liveExecutionAuthorized=false`다. `2aa1…` 16건을 비롯한 준비 manifest는 품질 인수·실행 승인이 아니며 exact19와 분리한다.
+- 새 캠페인의 물리 입력 감사에서 154/154 target의 input/attachment material drift 0, 입력 누락 24개·영향 target 15개, 공고문 누락 3개·영향 target 1개다. 앞선 27개·17개와 비교해 3개·2개 감소했다. `--require-announcement-coverage`가 exit 2로 차단한 유일한 공고는 K-Startup `175783` 통합공고다. 안내책자 PDF, 본공고 HWPX, 본공고 PDF 세 파일 모두 cap_exceeded이며, 통합공고의 대상 사업을 분리해 원문을 검수하기 전에는 매칭 가능 근거로 쓰지 않는다. 나머지 누락 21개는 매뉴얼·공간 사진·신청서·포스터 등의 후속 검수 대상으로 남긴다.
+- 이 감사의 PASS는 입력 결속에 한정된다. 507건 전체의 원문 조건 의미 검수, 아스카웍스의 실제 지원 자격 판정, 신청서 field readiness, 서비스 추천 품질 인수는 완료가 아니다. exact live 모델 호출 및 서비스 DB 승격은 별도 승인 경계를 유지한다.
