@@ -200,3 +200,11 @@
 - 동일 material 결함 보정 준비물 `4459b164…` 15건을 현재 `prepareLabAnalysis`로 읽기 전용 재점검했다. 입력이 불완전한 7건은 모두 BizInfo 첨부 `markdown_missing`이며, 이 중 3건에는 `announcement`가 포함된다. 앞서 분리한 8건 `ba06aab4…`은 이 7건을 포함하지 않는다.
 - 위 7개 sourceId에 한정한 `backfill:bizinfo-attachments --reprocess-missing-markdown` dry-run은 7건 로드, 재처리 후보 2건·첨부 2개를 반환했다. 후보는 `PBLN_000000000126497` 및 `PBLN_000000000126585`의 ZIP이다. 그러나 `126585`의 실제 누락 입력은 별도 **공고문 PDF**여서 이 ZIP 재처리만으로 해결되지 않는다. `126497` 1건만 누락 첨부 자체가 ZIP이다. 이 조사는 모델 호출·R2/DB 쓰기 없이 수행했다.
 - 입력 report를 파일별로 대조하면 누락 11개 중 ZIP 1개를 제외한 10개는 **exact PDF 원본은 있으나 markdown이 없는** 상태이고 `pdf_text_or_ocr`·`requiresSourceWrite=true`로 분류된다. 7건 전체를 백필 명령 하나로 복구할 수 없다. PDF 텍스트/OCR의 별도 복구와 실제 텍스트·material 재검증이 필요하며, 기존 15건 manifest에 새 입력을 혼합하거나 실행 대상으로 확대하지 않는다.
+
+## 2026-09-28 08:58 KST PDF 원본 복구 가능성 검증과 exact 쓰기 경로
+
+- 누락 PDF가 있는 BizInfo **6개 공고·10개 파일**을 기존 `listPdfTextOcrRecoveryCandidates`가 정확히 찾았다. 나머지 1개 공고 `126497`은 PDF가 아니라 ZIP 누락이므로 이 복구 범위에서 제외한다. R2 원본 10/10 SHA가 DB 기록과 일치했고, 로컬 `pdftotext`는 7개에서 본문을 추출했다. 3개는 이미지 전용이다.
+- 기존 PDF 복구 코어와 같은 160dpi 렌더·macOS Vision 조합으로 이미지가 있는 총 14페이지를 읽기 전용 사전 검증했다. 10개 파일 전부 OCR 경로가 현재 confidence 0.6·페이지 상한 20 계약을 통과했다. 이 수치는 문자 추출 가능성의 증거일 뿐 원문 의미 정확도나 독립 검수 PASS가 아니다. PDF 임시 파일은 사전 검증 후 삭제했다.
+- source manifest `4459b164…`의 현재 input/attachment SHA, 공고 상태·지원 종료 시각, surface 원본 키·PDF SHA를 묶은 별도 source-only 계획 `e12dada0023d31984956e88ff393fb62a10b006e592422f3f151f5c9e62f3d44`를 `spike-out/asca-test-20260927/same-material-defect10-pdf-recovery-plan.json`에 봉인·readback PASS했다. 대상은 6개 공고·10개 PDF, R2/DB 텍스트 산출물 쓰기만이며 모델 호출·서비스 승격·배포는 범위 밖이다.
+- `lab:matching-pdf-source-recovery -- --plan=<path>`는 source manifest bytes/canonical SHA와 subset material, 현재 공고·입력·PDF 바이트를 재검증하는 읽기 전용 preflight로 PASS했다(6/10, drift 0). `--write`에는 exact plan·receipt 경로·확인값이 필요하고, 동일 receipt 경로의 로컬 lock을 선점한 뒤 실행한다. 결과 receipt는 생성 후 SHA readback을 검증하며, 중간 오류로 receipt가 없으면 lock을 남겨 자동 중복 실행을 막는다. 확인값 없는 쓰기 시도는 exit 1이며 receipt/lock 생성 0을 확인했다. 계약 테스트 3/3, 기존 PDF 복구 테스트, 웹 typecheck, package runtime freshness, diff 검사 PASS. 이번 코드 변경 뒤 기존 모델 실행 package runtime SHA `30aa25ba…`는 동일하다.
+- 프로젝트 `AGENTS.md`의 운영 데이터 변경 경계에 따라 위 exact source-only 계획의 사용자 승인 응답을 요청했다. 아직 R2/DB 복구 쓰기·모델 실행·추천 승격을 하지 않았다. 승인 후에도 실행 직전 preflight 재검증, receipt와 입력 변화·남은 누락 확인이 필수다.
