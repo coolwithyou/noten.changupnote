@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import {
   attachmentIdentityPairsFromApi,
   attachmentIdentityPairsFromDetail,
+  attachmentIdentityPairsFromStored,
   attachmentRowsFromDetail,
+  compareBizInfoOfficialAttachmentIdentities,
 } from "./audit-bizinfo-official-attachment-links";
 
 const api = attachmentIdentityPairsFromApi({
@@ -18,6 +20,24 @@ const detail = attachmentIdentityPairsFromDetail(`
 `);
 assert.deepEqual(detail, ["FILE_FORM:1", "FILE_MAIN:1"]);
 assert.deepEqual(api.filter((identity) => !detail.includes(identity)), ["FILE_MAIN:0", "FILE_FORM:0"]);
+const stored = attachmentIdentityPairsFromStored([
+  { filename: "공고문.hwp", source_uri: "https://www.bizinfo.go.kr/cmm/fms/fileDown.do?atchFileId=FILE_MAIN&fileSn=1" },
+  { filename: "신청서.hwp", url: "https://www.bizinfo.go.kr/cmm/fms/getImageFile.do?atchFileId=FILE_FORM&fileSn=1" },
+  { filename: "보관 원본", source_uri: "https://elsewhere.invalid/cmm/fms/fileDown.do?atchFileId=FILE_BAD&fileSn=1" },
+]);
+assert.deepEqual(stored, ["FILE_MAIN:1", "FILE_FORM:1"]);
+assert.deepEqual(attachmentIdentityPairsFromStored(null), []);
+assert.deepEqual(compareBizInfoOfficialAttachmentIdentities({ api, current: stored, detail }), {
+  apiMatches: false,
+  currentMatches: true,
+  apiMissingFromDetail: ["FILE_MAIN:0", "FILE_FORM:0"],
+  apiNewOnDetail: ["FILE_FORM:1", "FILE_MAIN:1"],
+  currentMissingFromDetail: [],
+  currentNewOnDetail: [],
+});
+assert.deepEqual(compareBizInfoOfficialAttachmentIdentities({
+  api: detail, current: ["FILE_FORM:0", "FILE_MAIN:1"], detail,
+}).currentMissingFromDetail, ["FILE_FORM:0"]);
 assert.deepEqual(attachmentIdentityPairsFromDetail("<html>첨부 형식 변경</html>"), []);
 assert.deepEqual(attachmentRowsFromDetail(`
   <ul>
