@@ -42,7 +42,7 @@ import {
 import { activeNumericQuestionRange, type NumericQuestionRange } from "../company/question-answer-state.js";
 import { evaluatePremisesCriterion } from "../premises/contract.js";
 
-export const RULESET_VERSION = "ruleset-kstartup-spine-v16";
+export const RULESET_VERSION = "ruleset-kstartup-spine-v17";
 export const SCORING_VERSION = "scoring-verification-v3";
 
 const CORE_GATE_DIMENSIONS = new Set<CriterionDimension>([
@@ -88,13 +88,20 @@ export function matchGrantCriteria(
     confirmationQuestionBindings?: readonly MatchingConfirmationCriterionBinding[];
   } = {},
 ): MatchResult {
+  // Legacy K-Startup field parser persisted portal search categories as hard
+  // eligibility. Do not let those unverified fields pass or reject companies.
+  // Keep the notice in core review until source-backed criteria replace them.
+  const legacySearchCriteria = criteria.filter(isLegacyKStartupSearchCriterion);
+  const effectiveCriteria = legacySearchCriteria.length > 0
+    ? criteria.filter((criterion) => !isLegacyKStartupSearchCriterion(criterion))
+    : criteria;
   // 공고에서 구조화된 조건을 아직 추출하지 못한 경우(criteria 0건)는 적격으로 오인하지 않도록
   // 조건부(conditional)로 강등하고 조건 확인도를 미산정(0)으로 둔다.
-  if (criteria.length === 0) {
+  if (effectiveCriteria.length === 0) {
     return unstructuredCriteriaResult();
   }
 
-  const canonicalCriteria = canonicalizeGrantCriteria(criteria);
+  const canonicalCriteria = canonicalizeGrantCriteria(effectiveCriteria);
   const asOf = options.asOf ?? new Date();
   const confirmationById = buildConfirmationIndex(options.confirmations, canonicalCriteria);
   const answerableQuestionCriterionIds = answerableQuestionCriterionIndex(
@@ -129,9 +136,14 @@ export function matchGrantCriteria(
   const hasUnknown = ruleTrace.some(
     (entry) => entry.result === "unknown" && (entry.kind === "required" || entry.kind === "exclusion"),
   );
-  const eligibility: Eligibility = hardFail ? "ineligible" : hasUnknown ? "conditional" : "eligible";
+  const eligibility: Eligibility = hardFail
+    ? "ineligible"
+    : hasUnknown || legacySearchCriteria.length > 0 ? "conditional" : "eligible";
   const unknown_fields = unique(
-    ruleTrace.filter((entry) => entry.result === "unknown").map((entry) => entry.dimension),
+    [
+      ...ruleTrace.filter((entry) => entry.result === "unknown").map((entry) => entry.dimension),
+      ...(legacySearchCriteria.length > 0 ? ["other" as const] : []),
+    ],
   );
   const extractionManifest = confirmationAwareExtractionManifest(
     canonicalCriteria,
@@ -143,7 +155,7 @@ export function matchGrantCriteria(
     eligibility,
     traceEntries: ruleTrace,
     criteria: canonicalCriteria,
-    criteriaExtracted: true,
+    criteriaExtracted: legacySearchCriteria.length === 0 || hardFail,
     ...(extractionManifest ? { extractionManifest } : {}),
     answerableQuestionCriterionIds,
   });
@@ -156,7 +168,7 @@ export function matchGrantCriteria(
     unknown_fields,
     ruleset_ver: RULESET_VERSION,
     scoring_ver: SCORING_VERSION,
-    criteria_extracted: true,
+    criteria_extracted: legacySearchCriteria.length === 0,
     review_gate: reviewGate,
     quality,
   };
@@ -173,6 +185,11 @@ export function matchGrantCriteria(
     : null;
   if (question) result.next_question = question;
   return result;
+}
+
+function isLegacyKStartupSearchCriterion(criterion: GrantCriterion): boolean {
+  return /^kstartup-field-parser-v[1-3]$/u.test(criterion.parser_version ?? "")
+    && ["biz_enyy", "biz_trgt_age", "supt_regin"].includes(criterion.source_field ?? "");
 }
 
 /**

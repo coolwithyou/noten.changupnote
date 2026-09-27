@@ -91,6 +91,13 @@
 - 이전 `c053…` 승인 질문은 현재 `523e…` exact campaign 질문으로 대체했다. 명시적 응답 전에는 grant/launch를 실행하지 않으며, 승인 응답이 오면 실행 직전 현재 기간·material·lease와 이 campaign의 결속을 다시 확인한다. 분석 결과 서비스 승격은 별도 권한이다.
 - `179038`을 아스카웍스 현재 저장 프로필로 비영속 재평가했다. 저장 criterion 4개일 때와 검색 필드 유래 `biz_enyy` 1개만 메모리에서 제거했을 때 모두 `conditional / needs_core_review`다. 실제 회사 업력은 알려져 기존의 잘못된 10년 상한에도 pass였고, 나머지 AX·LX 혼입 `size`/`industry`/`other` 세 criterion은 모두 unknown·미검수 상태다. 따라서 검색 필드 오류를 제거하는 것만으로 이번 사례의 서비스 추천을 만들었다고 주장하지 않는다. 원문 트랙·우대·모집분야의 의미 결속 검수가 다음 차단점이다.
 
+## 2026-09-28 과거 검색 필드 criterion의 판정 차단
+
+- 앞서 식별한 122개 검색 필드 criterion의 parser version은 전부 `kstartup-field-parser-v3`였다. 현재 정규화 v4의 재발 방지와 별도로, matcher에서 v1~v3 검색 필드 `biz_enyy`·`biz_trgt_age`·`supt_regin`을 판정 근거에서 제외하고 해당 공고를 원문 검수 필요 상태로 유지한다. 명시적 신청대상 문장에 근거한 다른 criterion의 확정 탈락은 그대로 보존한다. ruleset은 v17로 올려 기존 저장 match_state를 현행 판정으로 오인하지 않게 했다.
+- 새 ruleset을 적용한 읽기 전용 아스카웍스 74건 재평가: 과거 판정 재현 `ineligible / needs_core_review` 15건은 `conditional / needs_core_review`로 바뀌고 나머지 59건은 양쪽 모두 `conditional / needs_core_review`다. 이 15건은 실제 지원 자격 확정 사례가 아니라 *검색 필드만으로 내린 탈락을 취소한 사례*다. 서비스 DB·사용자 답변·매칭 상태 쓰기는 0건이다.
+- 새 legacy 필터 회귀 테스트는 필터만 남은 공고의 보류, 원문 기반 조건 통과와 함께 있을 때의 보류, 원문 기반 확정 탈락의 보존을 확인했다. core `match.test` 55건, 결격 매칭 51건, premises 및 질문 노출 회귀, `pnpm test:matching-unit`, `pnpm verify:match-state-refresh`, core/web typecheck PASS. 배포 전 서비스 화면 검증이 필요하다.
+- ruleset v17의 *역사적 대량 refresh 계획기*를 읽기 전용으로 실행했더니 active grant 1,502건·회사 146곳의 직교 조합 219,292건을 계획했다. 그중 실제 저장 상태 619건은 버전만 교체하면 되지만 신규 빈 조합 218,673건까지 채우는 과범위다. 현재 대량 write CLI는 코드에서 fail-closed하므로 이 계획을 운영 쓰기로 실행하지 않는다. 제품의 소유 회사 매칭은 요청 시 현재 ruleset으로 계산하고, 저장 cache는 version/revision/topology 불일치 시 사용하지 않는 경로를 확인했다. 전체 조합 생성은 이번 오류 보정의 필요 조건이 아니다.
+
 ## 현재 실행 경계
 
 - 20:43 KST campaign의 세 child SHA는 역사 준비물이다. 원문 archive/publisher 변경 후 current material을 다시 분류·prepare하고 새 exact 범위와 권한을 판정한다. 준비물을 근거로 `lab:launch:grant`, `lab:launch`, 서비스 승격을 실행하지 않는다.
