@@ -194,3 +194,9 @@
 
 - 일회성 진단을 읽기 전용 CLI `pnpm lab:matching-campaign:review-audit -- --classification=<SHA>`로 고정했다. 봉인된 classification bytes SHA·canonical 계약을 읽고, 검증된 launch history와 현재 `prepareLabAnalysis`의 input/attachment SHA를 비교한다. 대상별 비정상 입력은 `error`로 남기고 exit 2로 분리한다. 공고·첨부·회사 데이터 쓰기와 모델 호출은 없다.
 - `f4763330887f26e674ae4c9b56c1505361067f12601788c0c3f06696689234a3` 실측에서 221/221 조회·오류 0이다. legacy material 48, terminal 11, 무이력 60, legacy 2, prepared 3, primary held/same 39·held/changed 56·pending/same 1·pending/changed 1로 앞선 독립 임시 감사와 정확히 일치했다. 이는 역사·material 분류이며 원문 의미 검수나 독립 검수 PASS를 새로 만들지 않는다.
+
+## 2026-09-28 08:43 KST 독립 검수 보정 15건의 입력 누락 경로 확인
+
+- 동일 material 결함 보정 준비물 `4459b164…` 15건을 현재 `prepareLabAnalysis`로 읽기 전용 재점검했다. 입력이 불완전한 7건은 모두 BizInfo 첨부 `markdown_missing`이며, 이 중 3건에는 `announcement`가 포함된다. 앞서 분리한 8건 `ba06aab4…`은 이 7건을 포함하지 않는다.
+- 위 7개 sourceId에 한정한 `backfill:bizinfo-attachments --reprocess-missing-markdown` dry-run은 7건 로드, 재처리 후보 2건·첨부 2개를 반환했다. 후보는 `PBLN_000000000126497` 및 `PBLN_000000000126585`의 ZIP이다. 나머지 5건은 이 백필 경로에서 선택되지 않았으므로, 7건 전체를 같은 명령으로 복구할 수 있다고 가정하지 않는다. 이 조사는 모델 호출·R2/DB 쓰기 없이 수행했다.
+- 먼저 5건의 보관 원본·변환 실패 원인을 분리 진단하고, 2개 ZIP도 재처리 후 실제 텍스트·material 변경 여부를 확인해야 한다. 기존 15건 manifest에 새 입력을 혼합하거나 실행 대상으로 확대하지 않는다.
