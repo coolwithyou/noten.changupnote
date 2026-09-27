@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import type { BizInfoProgram } from "@cunote/core";
-import { recoverBizInfoSourceAttachments } from "./bizinfoAttachmentArchiveBatch";
+import { assertBizInfoOfficialDetailDryRunBinding, recoverBizInfoSourceAttachments } from "./bizinfoAttachmentArchiveBatch";
 import { selectKStartupAttachmentsForArchive } from "./kstartupAttachmentSelection";
+import { mergeArchivedKStartupAttachments } from "./kstartupAttachmentSelection";
 
 const applicationUrl = "https://www.bizinfo.go.kr/cmm/fms/getImageFile.do?atchFileId=FILE_APP&fileSn=0";
 const ruleUrl = "https://www.bizinfo.go.kr/cmm/fms/getImageFile.do?atchFileId=FILE_APP&fileSn=1";
@@ -76,5 +77,35 @@ assert.deepEqual(
   ["공고문.pdf", "신청서.hwpx"],
   "명시 recovery는 본문과 markdown 실패 신청서를 함께 선택",
 );
+
+const currentBodyUrl = "https://www.bizinfo.go.kr/cmm/fms/fileDown.do?atchFileId=FILE_BODY&fileSn=1";
+const updated = structuredClone(entry) as unknown as { raw: { payload: BizInfoProgram } };
+updated.raw.payload.officialDetailAttachmentSnapshot = {
+  sourceUrl: "https://www.bizinfo.go.kr/sii/siia/selectSIIA200Detail.do?pblancId=PBLN_TEST",
+  apiAttachmentFieldsSha256: "d".repeat(64),
+  attachmentListSha256: "e".repeat(64),
+  attachments: [{ kind: "print", filename: "공고문_변경.pdf", url: currentBodyUrl }],
+};
+const refreshed = recoverBizInfoSourceAttachments(updated as never);
+assert.deepEqual(refreshed.map((attachment) => ({ filename: attachment.filename,
+  source_uri: attachment.source_uri, storage_key: attachment.storage_key })), [
+  { filename: "공고문_변경.pdf", source_uri: undefined, storage_key: undefined },
+]);
+assert.equal(selectKStartupAttachmentsForArchive(refreshed, 3).length, 1);
+assert.deepEqual(mergeArchivedKStartupAttachments(refreshed, []), refreshed,
+  "현재 공식 링크 기준으로 발행하면 옛 API attachment가 남지 않는다");
+
+const binding = { sourceIds: ["PBLN_TEST"],
+  officialDetailAttachmentSnapshots: [{ sourceId: "PBLN_TEST", attachmentListSha256: "f".repeat(64) }],
+  candidates: [{ sourceId: "PBLN_TEST", selectedFilenames: ["공고문_변경.pdf"] }] };
+assert.doesNotThrow(() => assertBizInfoOfficialDetailDryRunBinding(binding, {
+  mode: "dry-run", ...binding,
+  candidates: binding.candidates.map((candidate) => ({ ...candidate, title: "테스트 공고" })),
+}));
+assert.throws(() => assertBizInfoOfficialDetailDryRunBinding(binding, {
+  mode: "dry-run", ...binding,
+  officialDetailAttachmentSnapshots: [{ sourceId: "PBLN_TEST", attachmentListSha256: "0".repeat(64) }],
+  candidates: binding.candidates.map((candidate) => ({ ...candidate, title: "테스트 공고" })),
+}), /plan drift/);
 
 console.log("bizinfoAttachmentArchiveBatch.test.ts: all assertions passed");

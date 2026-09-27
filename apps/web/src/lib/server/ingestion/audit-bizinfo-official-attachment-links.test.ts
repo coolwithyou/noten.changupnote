@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import {
   attachmentIdentityPairsFromApi,
   attachmentIdentityPairsFromDetail,
+  attachmentRowsFromDetail,
 } from "./audit-bizinfo-official-attachment-links";
 
 const api = attachmentIdentityPairsFromApi({
@@ -18,4 +19,27 @@ const detail = attachmentIdentityPairsFromDetail(`
 assert.deepEqual(detail, ["FILE_FORM:1", "FILE_MAIN:1"]);
 assert.deepEqual(api.filter((identity) => !detail.includes(identity)), ["FILE_MAIN:0", "FILE_FORM:0"]);
 assert.deepEqual(attachmentIdentityPairsFromDetail("<html>첨부 형식 변경</html>"), []);
+assert.deepEqual(attachmentRowsFromDetail(`
+  <ul>
+    <h3>첨부파일</h3>
+    <li><div class="file_name">참여 신청서&amp;확인서.hwp</div><div class="right_btn">
+      <a href="/cmm/fms/fileDown.do?atchFileId=FILE_FORM&amp;fileSn=1">다운로드</a>
+    </div></li>
+    <h3>본문출력파일</h3>
+    <li><div class="file_name">모집공고_변경.hwp</div><div class="right_btn">
+      <a href="/cmm/fms/fileDown.do?atchFileId=FILE_MAIN&fileSn=2">다운로드</a>
+    </div></li>
+  </ul>
+`), [
+  { kind: "attachment", filename: "참여 신청서&확인서.hwp",
+    url: "https://www.bizinfo.go.kr/cmm/fms/fileDown.do?atchFileId=FILE_FORM&fileSn=1",
+    identity: "FILE_FORM:1" },
+  { kind: "print", filename: "모집공고_변경.hwp",
+    url: "https://www.bizinfo.go.kr/cmm/fms/fileDown.do?atchFileId=FILE_MAIN&fileSn=2",
+    identity: "FILE_MAIN:2" },
+]);
+assert.throws(() => attachmentRowsFromDetail(`
+  <h3>본문출력파일</h3><li><div class="file_name">원문.hwp</div>
+  <a href="https://elsewhere.invalid/cmm/fms/fileDown.do?atchFileId=FILE_BAD&fileSn=1">다운로드</a></li>
+`), /unexpected origin/);
 console.log("bizinfo official link identity parsing PASS");

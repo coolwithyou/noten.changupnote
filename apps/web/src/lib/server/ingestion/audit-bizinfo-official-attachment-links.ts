@@ -9,6 +9,13 @@ import { loadMonorepoEnv } from "../loadMonorepoEnv";
 
 const OFFICIAL_ORIGIN = "https://www.bizinfo.go.kr";
 
+export interface BizInfoOfficialAttachmentRow {
+  kind: "attachment" | "print";
+  filename: string;
+  url: string;
+  identity: string;
+}
+
 export function attachmentIdentityPairsFromApi(payload: Record<string, unknown>): string[] {
   return [...new Set([payload.printFlpthNm, payload.flpthNm]
     .filter((value): value is string => typeof value === "string")
@@ -25,6 +32,53 @@ export function attachmentIdentityPairsFromDetail(html: string): string[] {
       const sequence = url.searchParams.get("fileSn");
       return fileId && sequence !== null ? [`${fileId}:${sequence}`] : [];
     }))];
+}
+
+/** Exact official filename, section and download identity for a source review packet. */
+export function attachmentRowsFromDetail(html: string): BizInfoOfficialAttachmentRow[] {
+  const rows: BizInfoOfficialAttachmentRow[] = [];
+  const headings = [...html.matchAll(/<h3>\s*(첨부파일|본문출력파일)\s*<\/h3>/giu)];
+  for (let index = 0; index < headings.length; index += 1) {
+    const heading = headings[index]!;
+    const start = heading.index! + heading[0].length;
+    const nextHeading = headings[index + 1]?.index ?? html.length;
+    const endOfList = html.indexOf("</ul>", start);
+    const end = endOfList >= 0 ? Math.min(nextHeading, endOfList) : nextHeading;
+    const section = html.slice(start, end);
+    for (const item of section.matchAll(/<li\b[^>]*>([\s\S]*?)<\/li>/giu)) {
+      const content = item[1]!;
+      const filenameMatch = /<div\b[^>]*class=["'][^"']*\bfile_name\b[^"']*["'][^>]*>([\s\S]*?)<\/div>/iu.exec(content);
+      const linkMatch = /href=["']([^"']*\/cmm\/fms\/fileDown\.do\?[^"']+)["']/iu.exec(content);
+      if (!linkMatch) continue;
+      if (!filenameMatch) throw new Error("official detail download has no filename");
+      const filename = decodeDetailText(filenameMatch[1]!);
+      if (!filename) throw new Error("official detail download filename is empty");
+      const url = new URL(linkMatch[1]!.replaceAll("&amp;", "&"), OFFICIAL_ORIGIN);
+      if (url.origin !== OFFICIAL_ORIGIN || url.pathname !== "/cmm/fms/fileDown.do") {
+        throw new Error("official detail download has unexpected origin or path");
+      }
+      const fileId = url.searchParams.get("atchFileId");
+      const fileSn = url.searchParams.get("fileSn");
+      if (!fileId || fileSn === null || !/^\d+$/u.test(fileSn)) {
+        throw new Error("official detail download identity is incomplete");
+      }
+      rows.push({ kind: heading[1] === "본문출력파일" ? "print" : "attachment",
+        filename, url: url.toString(), identity: `${fileId}:${fileSn}` });
+    }
+  }
+  if (new Set(rows.map((row) => row.identity)).size !== rows.length) {
+    throw new Error("official detail has duplicate download identities");
+  }
+  return rows;
+}
+
+function decodeDetailText(html: string): string {
+  return html.replace(/<[^>]+>/gu, " ")
+    .replace(/&nbsp;/giu, " ").replace(/&amp;/giu, "&")
+    .replace(/&lt;/giu, "<").replace(/&gt;/giu, ">")
+    .replace(/&quot;/giu, '"').replace(/&#39;|&apos;/giu, "'")
+    .replace(/&#(\d+);/gu, (_, value: string) => String.fromCodePoint(Number(value)))
+    .replace(/\s+/gu, " ").trim();
 }
 
 async function main() {
@@ -73,9 +127,13 @@ async function main() {
         const missingFromDetail = api.filter((identity) => !detail.includes(identity));
         const newOnDetail = detail.filter((identity) => !api.includes(identity));
         if (missingFromDetail.length === 0 && newOnDetail.length === 0) { matched++; continue; }
+        const detailAttachments = attachmentRowsFromDetail(html);
+        if (detailAttachments.length !== detail.length) {
+          throw new Error("detail section filename/link parsing is incomplete");
+        }
         mismatches.push({ sourceId, rawHash: raw.rawHash,
           detailHtmlSha256: createHash("sha256").update(html).digest("hex"),
-          api, detail, missingFromDetail, newOnDetail, url });
+          api, detail, detailAttachments, missingFromDetail, newOnDetail, url });
       } catch (error) {
         errors.push({ sourceId, reason: error instanceof Error ? error.message : String(error) });
       }

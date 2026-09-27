@@ -25,6 +25,7 @@ import {
 } from "./archivePlan";
 import { buildBizInfoSampleEntries } from "./bizinfoSample";
 import { publishBizInfoGrants } from "./bizinfoPublisher";
+import { carryBizInfoOfficialDetailAttachmentSnapshot } from "./bizinfoOfficialDetailSnapshot";
 import { archiveBizInfoProgramAttachments, type GrantAttachmentArchiveBundle } from "./grantAttachmentArchive";
 import { hashGrantRawPayload } from "./grantRawHash";
 import { discoverGrantSupplyWork, type GrantSupplyWorkItem } from "../productReadiness/grantSupply";
@@ -134,8 +135,12 @@ export async function archiveBizInfo(input: ArchiveBizInfoInput): Promise<Archiv
     ? await readLivePrograms()
     : buildBizInfoSampleEntries({ asOf: input.collectedAt, collectedAt: input.collectedAt })
       .map((entry) => entry.raw.payload);
-  const selectedPrograms = selectPrograms(programs, input);
+  let selectedPrograms = selectPrograms(programs, input);
   const existingHashes = input.db ? await readExistingGrantRawHashes(input.db, selectedPrograms) : [];
+  const existingBySourceId = new Map(existingHashes.map((row) => [row.sourceId, row.payload]));
+  selectedPrograms = selectedPrograms.map((program) =>
+    carryBizInfoOfficialDetailAttachmentSnapshot(program,
+      existingBySourceId.get(program.pblancId)));
   const rawPlan = planRawPrograms(selectedPrograms, existingHashes, {
     skipUnchanged: input.skipUnchanged,
     forceRepublish: input.forceRepublish,
@@ -431,6 +436,7 @@ async function readExistingGrantRawHashes(
     .select({
       sourceId: schema.grantRaw.sourceId,
       rawHash: schema.grantRaw.rawHash,
+      payload: schema.grantRaw.payload,
       attachments: schema.grantRaw.attachments,
     })
     .from(schema.grantRaw)
@@ -438,10 +444,11 @@ async function readExistingGrantRawHashes(
       eq(schema.grantRaw.source, "bizinfo"),
       inArray(schema.grantRaw.sourceId, sourceIds),
     ));
-  return rows;
+  return rows.map((row) => ({ ...row, payload: row.payload as unknown as BizInfoProgram }));
 }
 
 export interface ExistingBizInfoRawState extends ExistingGrantRawHash {
+  payload?: BizInfoProgram;
   attachments: Array<Record<string, unknown>> | null;
 }
 

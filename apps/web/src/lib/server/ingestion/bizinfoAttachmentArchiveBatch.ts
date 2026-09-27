@@ -11,6 +11,7 @@ import {
 } from "./grantAttachmentArchive";
 import { buildGrantArchiveAttachmentReceipts } from "./grantArchiveWriteReceipt";
 import { publishBizInfoGrants } from "./bizinfoPublisher";
+import { fetchBizInfoOfficialDetailAttachmentSnapshot } from "./bizinfoOfficialDetailSnapshot";
 import {
   mergeArchivedKStartupAttachments,
   preserveArchivedKStartupAttachmentMetadata,
@@ -42,6 +43,10 @@ export interface RunBizInfoAttachmentArchiveBatchInput {
   reprocessMissingMarkdown?: boolean;
   archiveMaxEntries?: number;
   sourceIds?: readonly string[];
+  /** Exact source IDs only: bind current official detail attachments before archive. */
+  refreshOfficialDetail?: boolean;
+  officialDetailDryRunPlan?: Pick<BizInfoAttachmentArchiveBatchResult,
+    "mode" | "sourceIds" | "officialDetailAttachmentSnapshots" | "candidates">;
   imageOcr?: GrantImageOcrAdapter | null;
   imageOcrName?: string;
   collectedAt?: Date;
@@ -67,6 +72,7 @@ export interface BizInfoAttachmentArchiveBatchResult {
   reprocessMissingMarkdown: boolean;
   imageOcr: string;
   sourceIds: string[];
+  officialDetailAttachmentSnapshots: Array<{ sourceId: string; attachmentListSha256: string }>;
   candidates: Array<{ sourceId: string; title: string; selectedFilenames: string[] }>;
   preservedLastPage: number | null;
   deadlineReached: boolean;
@@ -91,6 +97,14 @@ export async function runBizInfoAttachmentArchiveBatch(
     client: input.db,
   });
   const requestedSourceIds = [...new Set(input.sourceIds ?? [])];
+  if (input.refreshOfficialDetail && (requestedSourceIds.length === 0 ||
+    requestedSourceIds.length > input.maxGrants)) {
+    throw new Error("official detail refresh requires exact sourceIds within maxGrants");
+  }
+  if (input.write && input.refreshOfficialDetail &&
+    input.officialDetailDryRunPlan?.mode !== "dry-run") {
+    throw new Error("official detail archive write requires a dry-run plan");
+  }
   const loaded = requestedSourceIds.length > 0
     ? (await Promise.all(requestedSourceIds.map((sourceId) =>
       repositories.grants.findGrantById(`bizinfo:${sourceId}`))))
@@ -99,14 +113,28 @@ export async function runBizInfoAttachmentArchiveBatch(
       limit: input.scanLimit,
       asOf: input.asOf,
     });
+  if (input.refreshOfficialDetail && loaded.length !== requestedSourceIds.length) {
+    throw new Error("one or more official detail refresh source IDs are missing");
+  }
+  const officialDetailAttachmentSnapshots: BizInfoAttachmentArchiveBatchResult["officialDetailAttachmentSnapshots"] = [];
+  if (input.refreshOfficialDetail) {
+    for (const entry of loaded) {
+      if (entry.grant.source !== "bizinfo") throw new Error("official detail refresh requires BizInfo grants");
+      const snapshot = await fetchBizInfoOfficialDetailAttachmentSnapshot(entry.raw.payload);
+      entry.raw.payload = { ...entry.raw.payload, officialDetailAttachmentSnapshot: snapshot };
+      officialDetailAttachmentSnapshots.push({ sourceId: entry.grant.source_id,
+        attachmentListSha256: snapshot.attachmentListSha256 });
+    }
+  }
   const sourceIdFilter = new Set(requestedSourceIds);
   const allCandidates = loaded
     .filter((entry) => entry.grant.source === "bizinfo")
     .filter((entry) => sourceIdFilter.size === 0 || sourceIdFilter.has(entry.grant.source_id))
-    .map((entry) => ({
-      entry,
+    .map((entry) => {
+      const sourceAttachments = recoverBizInfoSourceAttachments(entry);
+      return { entry, sourceAttachments,
       selected: selectKStartupAttachmentsForArchive(
-        recoverBizInfoSourceAttachments(entry),
+        sourceAttachments,
         input.maxAttachmentsPerGrant,
         {
           includeImages: Boolean(input.imageOcr),
@@ -114,8 +142,8 @@ export async function runBizInfoAttachmentArchiveBatch(
             ? { reprocessMissingMarkdown: input.reprocessMissingMarkdown }
             : {}),
         },
-      ),
-    }))
+      ) };
+    })
     .filter((candidate) => candidate.selected.length > 0)
     .sort((left, right) =>
       hardTextOnlyCount(right.entry.criteria) - hardTextOnlyCount(left.entry.criteria)
@@ -130,6 +158,16 @@ export async function runBizInfoAttachmentArchiveBatch(
     if (selected.length === 0) continue;
     candidates.push({ ...candidate, selected });
     remainingAttachments -= selected.length;
+  }
+  if (input.write && input.refreshOfficialDetail) {
+    assertBizInfoOfficialDetailDryRunBinding({
+      sourceIds: requestedSourceIds,
+      officialDetailAttachmentSnapshots,
+      candidates: candidates.map((candidate) => ({
+      sourceId: candidate.entry.grant.source_id,
+      selectedFilenames: candidate.selected.map((attachment) => attachment.filename),
+      })),
+    }, input.officialDetailDryRunPlan!);
   }
 
   const [cursor] = input.write
@@ -171,7 +209,7 @@ export async function runBizInfoAttachmentArchiveBatch(
             : {}),
         });
         candidate.entry.raw.attachments = mergeArchivedKStartupAttachments(
-          candidate.entry.raw.attachments,
+          candidate.sourceAttachments,
           bundle.attachments,
         );
         const published = await publishBizInfoGrants(input.db, [candidate.entry], {
@@ -219,6 +257,7 @@ export async function runBizInfoAttachmentArchiveBatch(
     reprocessMissingMarkdown: input.reprocessMissingMarkdown ?? false,
     imageOcr: input.imageOcrName ?? (input.imageOcr ? "configured" : "none"),
     sourceIds: [...(input.sourceIds ?? [])],
+    officialDetailAttachmentSnapshots,
     candidates: candidates.map((candidate) => ({
       sourceId: candidate.entry.grant.source_id,
       title: candidate.entry.grant.title,
@@ -230,6 +269,35 @@ export async function runBizInfoAttachmentArchiveBatch(
     failedCount: results.filter((result) => "error" in result).length,
     results,
   };
+}
+
+export function assertBizInfoOfficialDetailDryRunBinding(
+  actual: {
+    sourceIds: readonly string[];
+    officialDetailAttachmentSnapshots: BizInfoAttachmentArchiveBatchResult["officialDetailAttachmentSnapshots"];
+    candidates: Array<{ sourceId: string; selectedFilenames: string[] }>;
+  },
+  planned: Pick<BizInfoAttachmentArchiveBatchResult,
+    "mode" | "sourceIds" | "officialDetailAttachmentSnapshots" | "candidates">,
+): void {
+  const actualSourceIds = [...new Set(actual.sourceIds)].sort();
+  const plannedSourceIds = [...new Set(planned.sourceIds)].sort();
+  const actualSnapshots = actual.officialDetailAttachmentSnapshots.slice()
+    .sort((left, right) => left.sourceId.localeCompare(right.sourceId));
+  const plannedSnapshots = planned.officialDetailAttachmentSnapshots.slice()
+    .sort((left, right) => left.sourceId.localeCompare(right.sourceId));
+  const actualCandidates = actual.candidates.slice()
+    .sort((left, right) => left.sourceId.localeCompare(right.sourceId));
+  const plannedCandidates = planned.candidates.map((candidate) => ({
+    sourceId: candidate.sourceId, selectedFilenames: candidate.selectedFilenames,
+  })).sort((left, right) => left.sourceId.localeCompare(right.sourceId));
+  if (planned.mode !== "dry-run" ||
+    JSON.stringify(actualSourceIds) !== JSON.stringify(plannedSourceIds) ||
+    JSON.stringify(actualSnapshots) !== JSON.stringify(plannedSnapshots) ||
+    JSON.stringify(actualCandidates) !== JSON.stringify(plannedCandidates) ||
+    actualCandidates.length !== actualSourceIds.length) {
+    throw new Error("official detail dry-run plan drift; archive writes not started");
+  }
 }
 
 function hardTextOnlyCount(criteria: Array<{ operator: string; kind: string }>): number {
