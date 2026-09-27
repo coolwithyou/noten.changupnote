@@ -45,6 +45,7 @@ import {
   readMatchingCampaignResumeStatus,
   readCurrentInventoryHistoryTargetIds,
   resolveActiveLaunchManifest,
+  selectMatchingCampaignHistory,
   type MatchingCampaignHistoryRecord,
 } from "./matching-inventory-campaign-production";
 import { parseMatchingCampaignArgs } from "./matching-inventory-campaign-cli";
@@ -835,6 +836,35 @@ test("정상 blocked 독립검수는 오류가 아니라 quality held 분류로 
   });
   assert.equal(classified.entries[0]!.category, "quality_held");
   assert.equal(classified.entries[0]!.campaignEligible, false);
+});
+
+test("동일 입력의 후행 미실행 준비물은 완료된 독립 검수 보류를 덮지 않는다", () => {
+  const reviewed: MatchingCampaignHistoryRecord = {
+    grantId: id(0),
+    history: {
+      kind: "primary", inputSha256: hex("a"), attachmentManifestSha256: hex("b"),
+      contractCompatible: true, review: "held", sourceRunArtifactSha256: hex("c"),
+    },
+    manifest: null, manifestSha256: hex("1"), grantSha256: hex("2"),
+  };
+  const prepared: MatchingCampaignHistoryRecord = {
+    grantId: id(0),
+    history: {
+      kind: "prepared", inputSha256: hex("a"), attachmentManifestSha256: hex("b"),
+      contractCompatible: true, manifestSha256: hex("3"), ownership: "unowned",
+    },
+    manifest: null, manifestSha256: hex("3"), grantSha256: null,
+  };
+  assert.equal(selectMatchingCampaignHistory(reviewed, prepared), reviewed);
+  assert.equal(selectMatchingCampaignHistory(reviewed, {
+    ...prepared,
+    history: {
+      kind: "prepared", inputSha256: hex("d"), attachmentManifestSha256: hex("b"),
+      contractCompatible: true, manifestSha256: hex("3"), ownership: "unowned",
+    },
+  }).manifestSha256, hex("3"), "원문 입력이 바뀌면 새 준비 이력을 사용한다");
+  assert.equal(selectMatchingCampaignHistory(prepared, reviewed), reviewed,
+    "후행 완료 분석은 준비 이력을 대체한다");
 });
 
 test("active ownership은 current runtime lease와 같은 running status가 함께 있어야 한다", () => {

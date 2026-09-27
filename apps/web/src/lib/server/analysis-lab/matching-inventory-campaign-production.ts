@@ -70,6 +70,22 @@ export interface MatchingCampaignHistoryRecord {
   readonly grantSha256: string | null;
 }
 
+/** 같은 입력의 미실행 준비물은 완료된 분석과 그 독립 검수 상태를 지우지 못한다. */
+export function selectMatchingCampaignHistory(
+  previous: MatchingCampaignHistoryRecord | undefined,
+  incoming: MatchingCampaignHistoryRecord,
+): MatchingCampaignHistoryRecord {
+  if (previous
+    && incoming.history.kind === "prepared"
+    && (previous.history.kind === "primary"
+      || (previous.history.kind === "terminal" && previous.history.outcome === "quality_held"))
+    && previous.history.inputSha256 === incoming.history.inputSha256
+    && previous.history.attachmentManifestSha256 === incoming.history.attachmentManifestSha256) {
+    return previous;
+  }
+  return incoming;
+}
+
 /** A prepared child can be reused only when its live material contract still runs here. */
 export function isPreparedMatchingContractCompatible(
   manifest: AnalysisLaunchManifest,
@@ -742,13 +758,14 @@ export async function readVerifiedCurrentLaunchHistory(
           };
         }
       }
-      result.set(manifestTarget.grantId, {
+      const incoming: MatchingCampaignHistoryRecord = {
         grantId: manifestTarget.grantId,
         history,
         manifest,
         manifestSha256,
         grantSha256,
-      });
+      };
+      result.set(manifestTarget.grantId, selectMatchingCampaignHistory(result.get(manifestTarget.grantId), incoming));
     }
   }
 
