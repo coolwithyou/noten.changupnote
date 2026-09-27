@@ -920,6 +920,11 @@ function normalizeAnalysisLaunchManifestForPurpose(
         && analysisMode === "matching_only"
         && execution.model === "claude-opus-4-8"
         && execution.promptVersion === "lab-deep-v29"
+        && execution.validatorVersion === "deep-analysis-validator-v23")
+      || (sourceKind === "current_inventory"
+        && analysisMode === "matching_only"
+        && execution.model === "claude-opus-5"
+        && execution.promptVersion === "lab-deep-v28"
         && execution.validatorVersion === "deep-analysis-validator-v23"))
     && (withApplicationRoundtrip
       ? roundtripModel === APPLICATION_ROUNDTRIP_ADOPTED_MODEL

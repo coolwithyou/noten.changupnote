@@ -307,9 +307,9 @@ async function verifyApplicationOnlyPrimaryReuse(
       || run.grantId !== target.grantId
       || run.inputSha256 !== target.inputSha256
       || run.attachmentManifestSha256 !== target.attachmentManifestSha256
-      || run.model !== manifest.execution.model
-      || run.transport !== manifest.execution.transport
-      || run.promptVersion !== manifest.execution.promptVersion
+      || run.model !== completed.sourceManifest.execution.model
+      || run.transport !== completed.sourceManifest.execution.transport
+      || run.promptVersion !== completed.sourceManifest.execution.promptVersion
       || classifyLabRunOutcome(run) !== "publishable"
       || (run.matchingReadiness !== "ready" && run.matchingReadiness !== "conditional")
       || !run.primaryRepairProvenance

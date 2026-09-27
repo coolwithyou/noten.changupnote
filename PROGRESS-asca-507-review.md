@@ -152,3 +152,9 @@
 - 코드 `89bdd05`를 커밋·push한 뒤 campaign `0d406a9d991cd047c102e000980035f99d1b0073594b180c3251e5ba219b8f4e`, classification `06164a8e2dc8c33caf2b106d5cd277ff3ef08cb4589859f0ac98b2f5d16a72f7`을 새로 봉인했다. 두 파일과 7개 child의 bytes SHA PASS. 모든 child는 `matching_only`·`claude-cli`·`claude-opus-5`·concurrency 2이고 package runtime SHA가 동일한 `30aa25ba…`다. 과거 13건 `0b78…`은 재사용되지 않고 새 13건 `58920414…`로 대체됐다. 감시 사건의 16건 `2aa1…`은 동일한 manifest SHA로 현재 campaign sequence 5에 재배치됐으며 exact19와 합산하지 않는다.
 - 현재 529건 분류는 reusable 4·primary review 221·prepared 141·source changed 92·quality held 71. 일곱 child 합계 154건이다. 첫 25건 `8bfc3490…` status는 `not_started`, completed 0·grant 0·live authority false다. `claude auth status --json`은 `claude.ai/max` 로그인으로 반환됐다. 현재 campaign 전체의 물리 입력 감사도 154건 material drift 0, 누락 24개·영향 15건, 공고문 누락 3개·영향 1건이다. 세 공고문이 빠진 `175783`은 모델 전 대상별 보호로 실패 격리되며, 16건 `2aa1…`은 material drift 0·보조 지침서 1개 markdown_missing·공고문 누락 0이다.
 - 이 준비물은 현재 코드와 입력 결속을 통과한 모델 무호출 범위다. exact 전체 154건의 live launch 승인은 아직 없다. 시작 전 사용자 exact 승인·grant·runtime paused/lease 확인이 필요하고, 모델 결과의 독립 검수·서비스 DB 승격·배포는 별도 단계다. `pnpm lab:launch:test` 집계의 변경 전부터 존재한 두 실패는 아직 해소되지 않았다.
+
+## 2026-09-28 역사 launch 검증 gate 복구
+
+- 집계 launch 테스트의 두 기존 실패를 원인별로 수정했다. 완료된 current-inventory matching-only `claude-opus-5`·`lab-deep-v28`·validator v23 receipt는 오프라인 역사 복구에서만 읽고, 현행 live material contract는 계속 거부한다. 실제 matching20의 20건 receipt에서 성공·skipped는 보존하고 모델 미착수 실패 13건만 terminal repair 후보로 고르는 테스트가 PASS했다.
+- application-only는 과거 primary run의 모델·전송·프롬프트를 새 신청서 실행 계약과 비교하지 않고 exact source manifest와 비교한다. run bytes SHA·source receipt·input/attachment SHA·publishable·matching projection 검사는 유지한다. v19 완료 primary 재사용과 matching-only 부모의 application-only 후속 테스트가 모두 PASS했다.
+- `pnpm lab:launch:test` 전체 PASS, 웹 typecheck PASS, 역사 matching20의 현행 live material contract 거부 회귀 PASS. 기존 역사 receipt·run 파일은 수정하지 않았고 모델 호출·서비스 승격도 없었다. 코드 커밋 후 최종 확인을 다시 수행한다.
