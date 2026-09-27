@@ -84,6 +84,13 @@
 - 재발 방지를 위해 K-Startup 기본 정규화에서 세 포털 검색 필드로부터 직접 자격 criterion을 만들지 않도록 했다. 명시적 신청대상·제외 문장의 파서는 유지한다. parser version은 v4로 올렸고, 검색 필드 회귀 테스트·LLM 병합 테스트·core/web typecheck·ingestion publish 검증·service usecases가 PASS했다. 기존 DB의 74건은 자동 수정되지 않았고, 원문별 검수 없이 일괄 삭제·승격하지 않는다.
 - 이 코드 변경은 package runtime 계약을 바꾸므로 앞서 요청한 `c053…` live 승인에 대한 응답이 나중에 오더라도 그 준비물을 즉시 실행하지 않는다. 새 코드 빌드·고정 후 현재 source/input/period로 campaign을 재준비하고 exact 결속을 다시 확인한다.
 
+## 2026-09-28 00:18 KST v4 코드 기준 재준비
+
+- commit `70f0185`에서 K-Startup 검색 필드 자격 오인 방지와 검수 기록을 별도 작업 브랜치에 고정·push했다. `pnpm build:packages`와 runtime freshness 확인 후 모델 무호출로 현재 campaign `523e7ca28649bc084d26c5b9f1626ac0b676cd9136473fbcf8f851a334609b57`, classification `1da3591fab48640e3a0655068df96005030a90f4c4ecff29fcab34485c857fe1`을 봉인했다. 두 파일 bytes SHA는 파일명과 일치한다.
+- 현재 529건의 ID·분류 행동은 직전 `c053…`와 동일하며 증감·변경 0건이다. 분류는 reusable 4, primary review 220, prepared 154, source changed 78, quality held 73. 7개 child는 동일 SHA 집합이나 순서만 바뀌어 24건 `5460…`이 첫 child가 됐다. 이번 `--status`는 그 child `not_started`, 완료 0, 기존 grant 0, live authorization false를 확인했다. 감시 사건의 24건은 여전히 모델 미실행 준비물이다.
+- 이전 `c053…` 승인 질문은 현재 `523e…` exact campaign 질문으로 대체했다. 명시적 응답 전에는 grant/launch를 실행하지 않으며, 승인 응답이 오면 실행 직전 현재 기간·material·lease와 이 campaign의 결속을 다시 확인한다. 분석 결과 서비스 승격은 별도 권한이다.
+- `179038`을 아스카웍스 현재 저장 프로필로 비영속 재평가했다. 저장 criterion 4개일 때와 검색 필드 유래 `biz_enyy` 1개만 메모리에서 제거했을 때 모두 `conditional / needs_core_review`다. 실제 회사 업력은 알려져 기존의 잘못된 10년 상한에도 pass였고, 나머지 AX·LX 혼입 `size`/`industry`/`other` 세 criterion은 모두 unknown·미검수 상태다. 따라서 검색 필드 오류를 제거하는 것만으로 이번 사례의 서비스 추천을 만들었다고 주장하지 않는다. 원문 트랙·우대·모집분야의 의미 결속 검수가 다음 차단점이다.
+
 ## 현재 실행 경계
 
 - 20:43 KST campaign의 세 child SHA는 역사 준비물이다. 원문 archive/publisher 변경 후 current material을 다시 분류·prepare하고 새 exact 범위와 권한을 판정한다. 준비물을 근거로 `lab:launch:grant`, `lab:launch`, 서비스 승격을 실행하지 않는다.
