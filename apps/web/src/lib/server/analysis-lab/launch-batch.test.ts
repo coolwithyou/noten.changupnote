@@ -243,6 +243,29 @@ test("완료된 matching-only Opus 4.8 current inventory receipt만 오프라인
     "lab-deep-v29",
     "봉인된 exact3 구 계약은 live 권한 없이 오프라인 검증 가능하다",
   );
+  const reviewedHistoricalMatching = {
+    ...currentMatching,
+    execution: {
+      ...currentMatching.execution,
+      promptVersion: "lab-deep-v30",
+      validatorVersion: "deep-analysis-validator-v25",
+    },
+  };
+  assert.equal(
+    normalizeCompletedAnalysisLaunchManifestForOfflineConsumption(reviewedHistoricalMatching).execution.promptVersion,
+    "lab-deep-v30",
+    "독립 검수된 과거 matching receipt의 원 실행을 읽을 수 있어야 한다",
+  );
+  assert.throws(() => assertAnalysisLaunchExecutionContract({
+    manifest: normalizeAnalysisLaunchManifest(reviewedHistoricalMatching),
+    current: {
+      gitSha: GIT_B,
+      packageRuntimeSha256: reviewedHistoricalMatching.execution.packageRuntimeSha256,
+      validatorVersion: DEEP_ANALYSIS_VALIDATOR_VERSION,
+    },
+  }),
+    /material execution contract/,
+    "과거 계약을 현행 live 실행 권한으로 승격하지 않는다");
   assert.throws(() => normalizeCompletedAnalysisLaunchManifestForOfflineConsumption({
     ...currentMatching,
     execution: { ...currentMatching.execution, model: "claude-opus-4-7" },
