@@ -29,6 +29,7 @@ import {
   detectConvertibleSurfaceFormat,
   detectConvertibleSurfaceFormatFromBytes,
   readDetectedSurfaceFormat,
+  setCachedLocalHwpConverterAvailableForTest,
 } from "./grantAttachmentArchive";
 import {
   registerAttachmentConversions,
@@ -59,6 +60,28 @@ async function main(): Promise<void> {
 
   await check("진짜 hwpx(.hwpx + PK 시그니처) → 'hwpx' 유지", () => {
     assert.equal(detectConvertibleSurfaceFormatFromBytes("서식.hwpx", PK), "hwpx");
+  });
+
+  await check("HWPX 원문은 hwp5html 없이도 XML 본문으로 변환", async () => {
+    const hwpx = writeHwpx([{ name: "Contents/section0.xml",
+      data: Buffer.from("<section><p>지원대상: 소프트웨어 중소기업</p></section>"), method: 0 }]);
+    const storage = {
+      async putObject(input: { key: string }) { return { key: input.key, url: `https://r2.example/${input.key}` }; },
+    } as R2ObjectStorage;
+    setCachedLocalHwpConverterAvailableForTest(false);
+    try {
+      const result = await archiveGrantAttachments([{
+        filename: "공고문.hwpx", url: "https://origin.example/notice.hwpx",
+      }], {
+        source: "kstartup", sourceId: "HWPX_NATIVE", collectedAt: new Date("2026-07-12T00:00:00.000Z"),
+        enabled: true, convertHwp: true, autoInstallPyhwp: false, allowFailures: false,
+        storage, fetchImpl: (async () => new Response(new Uint8Array(hwpx), { status: 200 })) as typeof fetch,
+      });
+      assert.equal(result.archivedCount, 1);
+      assert.equal(result.convertedCount, 1);
+      assert.equal(result.attachments[0]?.conversion?.converter, "hwpx-xml-unzip-v1");
+      assert.match(result.attachmentMarkdowns[0]?.markdown ?? "", /소프트웨어 중소기업/);
+    } finally { setCachedLocalHwpConverterAvailableForTest(null); }
   });
 
   await check("진짜 hwp(.hwp + CFBF) → 'hwp' 유지", () => {

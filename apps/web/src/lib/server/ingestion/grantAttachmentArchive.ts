@@ -8,6 +8,7 @@ import {
 } from "@cunote/core";
 import {
   convertHwpBufferToMarkdown,
+  detectHwpMarkdownFormat,
   detectHwpMarkdownConverter,
   isHwpFilename,
 } from "@cunote/core/bizinfo/hwp-markdown";
@@ -265,6 +266,12 @@ async function convertHwpMarkdownWithFallback(args: {
   options: GrantAttachmentArchiveOptions;
 }): Promise<{ markdown: string; converter: string }> {
   const { filename, body, sha256, storageKey, options } = args;
+  // 실제 HWPX(OPC/ZIP)는 표준 unzip 경로에서 변환한다. HWPv5 전용
+  // hwp5html 가용성 때문에 이 경로까지 막지 않는다.
+  if (detectHwpMarkdownFormat(filename, body) === "hwpx") {
+    const result = convertHwpBufferToMarkdown({ filename, body, autoInstallPyhwp: false });
+    return { markdown: result.markdown, converter: result.converter };
+  }
   if (cachedLocalHwpConverterAvailable === null) {
     cachedLocalHwpConverterAvailable = detectHwpMarkdownConverter({
       autoInstallPyhwp: options.autoInstallPyhwp,
