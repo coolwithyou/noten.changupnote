@@ -158,3 +158,4 @@
 - 집계 launch 테스트의 두 기존 실패를 원인별로 수정했다. 완료된 current-inventory matching-only `claude-opus-5`·`lab-deep-v28`·validator v23 receipt는 오프라인 역사 복구에서만 읽고, 현행 live material contract는 계속 거부한다. 실제 matching20의 20건 receipt에서 성공·skipped는 보존하고 모델 미착수 실패 13건만 terminal repair 후보로 고르는 테스트가 PASS했다.
 - application-only는 과거 primary run의 모델·전송·프롬프트를 새 신청서 실행 계약과 비교하지 않고 exact source manifest와 비교한다. run bytes SHA·source receipt·input/attachment SHA·publishable·matching projection 검사는 유지한다. v19 완료 primary 재사용과 matching-only 부모의 application-only 후속 테스트가 모두 PASS했다.
 - `pnpm lab:launch:test` 전체 PASS, 웹 typecheck PASS, 역사 matching20의 현행 live material contract 거부 회귀 PASS. 기존 역사 receipt·run 파일은 수정하지 않았고 모델 호출·서비스 승격도 없었다. 코드 커밋 후 최종 확인을 다시 수행한다.
+- commit `da5ea9f`를 작업 브랜치에 push한 정확한 소스에서 `pnpm lab:launch:test`, `pnpm build:web`, `pnpm verify:package-runtime-freshness`가 모두 PASS했다. Vercel PR preview는 검사 당시 배포 중이므로 원격 PASS로 세지 않는다.
