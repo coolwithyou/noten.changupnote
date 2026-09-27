@@ -39,6 +39,7 @@ import {
   classifyCampaignTerminalHistoryOutcome,
   inspectMatchingHistoryReview,
   isPreparedMatchingContractCompatible,
+  mergeMatchingLaunchReceiptOutcomes,
   matchingHistoryReviewDisposition,
   prepareMatchingInventoryCampaign,
   readActiveLaunchManifest,
@@ -822,6 +823,34 @@ test("history prefilter는 current inventory target만 안전하게 추출한다
     source: { kind: "current_inventory" },
     targets: [{ grantId: id(0) }, { grantId: id(0) }],
   }), /grantId/);
+});
+
+test("matching 재시도 skipped는 첫 영수증의 publishable을 보존하고 실제 재실행만 갱신한다", () => {
+  const source = manifest([id(0), id(1)], 43);
+  const original = receipt(source, ["publishable", "failed"], "completed", null);
+  const retry = {
+    ...receipt(source, ["skipped", "publishable"], "completed", null),
+    startedAt: "2026-09-18T02:02:00.000Z",
+    finishedAt: "2026-09-18T02:03:00.000Z",
+  };
+  const firstSha = digest(original);
+  const retrySha = digest(retry);
+  const merged = mergeMatchingLaunchReceiptOutcomes(source, digest(source), [
+    { sha256: firstSha, receipt: original },
+    { sha256: retrySha, receipt: retry },
+  ]);
+  assert.equal(merged.get(id(0))?.receiptSha256, firstSha);
+  assert.equal(merged.get(id(0))?.target.status, "publishable");
+  assert.equal(merged.get(id(1))?.receiptSha256, retrySha);
+  assert.equal(merged.get(id(1))?.target.status, "publishable");
+  assert.throws(() => mergeMatchingLaunchReceiptOutcomes(source, digest(source), [
+    { sha256: firstSha, receipt: original },
+    { sha256: retrySha, receipt: { ...retry, targets: [...retry.targets].reverse() } },
+  ]), /target 결속/);
+  assert.throws(() => mergeMatchingLaunchReceiptOutcomes(source, digest(source), [
+    { sha256: firstSha, receipt: original },
+    { sha256: retrySha, receipt: { ...retry, grantSha256: hex("f") } },
+  ]), /chain 결속/);
 });
 
 test("정상 blocked 독립검수는 오류가 아니라 quality held 분류로 이어진다", () => {

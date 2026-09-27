@@ -32,6 +32,7 @@ import {
   type AnalysisLaunchManifest,
   type AnalysisLaunchGrant,
   type AnalysisLaunchReceipt,
+  type AnalysisLaunchReceiptTarget,
 } from "./launch-batch-artifacts";
 import { inspectAnalysisLaunchIndependentReview } from "./analysis-launch-promotion";
 import type { AnalysisLaunchIndependentReviewInspection } from "./analysis-launch-promotion";
@@ -84,6 +85,46 @@ export function selectMatchingCampaignHistory(
     return previous;
   }
   return incoming;
+}
+
+interface EffectiveMatchingReceiptTarget {
+  readonly receiptSha256: string;
+  readonly receipt: AnalysisLaunchReceipt;
+  readonly target: AnalysisLaunchReceiptTarget;
+}
+
+/** 재시도 receipt의 skipped는 이전 target 결과를 덮지 않는다. */
+export function mergeMatchingLaunchReceiptOutcomes(
+  manifest: AnalysisLaunchManifest,
+  manifestSha256: string,
+  receipts: readonly { readonly sha256: string; readonly receipt: AnalysisLaunchReceipt }[],
+): ReadonlyMap<string, EffectiveMatchingReceiptTarget> {
+  const outcomes = new Map<string, EffectiveMatchingReceiptTarget>();
+  let previousFinishedAt = -Infinity;
+  let grantSha256: string | null = null;
+  for (const { sha256, receipt } of receipts) {
+    const startedAt = Date.parse(receipt.startedAt);
+    const finishedAt = Date.parse(receipt.finishedAt);
+    if (receipt.manifestSha256 !== manifestSha256
+      || receipt.targets.length !== manifest.targets.length
+      || startedAt < previousFinishedAt
+      || finishedAt < startedAt
+      || (grantSha256 !== null && receipt.grantSha256 !== grantSha256)) {
+      throw new Error(`matching launch receipt chain 결속이 다릅니다: ${manifestSha256}`);
+    }
+    previousFinishedAt = finishedAt;
+    grantSha256 = receipt.grantSha256;
+    for (const [index, expected] of manifest.targets.entries()) {
+      const target = receipt.targets[index];
+      if (!target || target.sequence !== expected.sequence || target.grantId !== expected.grantId) {
+        throw new Error(`matching launch receipt target 결속이 다릅니다: ${expected.grantId}`);
+      }
+      if (target.status !== "skipped") {
+        outcomes.set(expected.grantId, { receiptSha256: sha256, receipt, target });
+      }
+    }
+  }
+  return outcomes;
 }
 
 /** A prepared child can be reused only when its live material contract still runs here. */
@@ -685,9 +726,10 @@ export async function readVerifiedCurrentLaunchHistory(
   for (const { sha256: manifestSha256, manifest } of manifestations) {
     const receipts = receiptsByManifest.get(manifestSha256) ?? [];
     const latest = receipts.at(-1);
+    const effective = mergeMatchingLaunchReceiptOutcomes(manifest, manifestSha256, receipts);
     // 현행 terminal-repair reader는 같은 source의 held와 failed를 함께 고른다.
     // semantic held를 동일 입력으로 재실행하지 않도록 혼합 source의 failed도 자동 복구하지 않는다.
-    const hasHeld = latest?.receipt.targets.some((target) => target.status === "held") ?? false;
+    const hasHeld = [...effective.values()].some(({ target }) => target.status === "held");
     for (const manifestTarget of manifest.targets) {
       if (!currentIds.has(manifestTarget.grantId)) continue;
       let history: MatchingInventoryHistory;
@@ -704,15 +746,18 @@ export async function readVerifiedCurrentLaunchHistory(
           ownership: "unowned",
         };
       } else {
-        grantSha256 = latest.receipt.grantSha256;
-        const target = latest.receipt.targets.find((item) => item.grantId === manifestTarget.grantId);
+        const selected = effective.get(manifestTarget.grantId);
+        const sourceReceipt = selected?.receipt ?? latest.receipt;
+        const sourceReceiptSha256 = selected?.receiptSha256 ?? latest.sha256;
+        grantSha256 = sourceReceipt.grantSha256;
+        const target = selected?.target ?? latest.receipt.targets.find((item) => item.grantId === manifestTarget.grantId);
         if (!target) throw new Error(`current launch receipt target이 없습니다: ${manifestTarget.grantId}`);
         if (target.status === "publishable") {
-          const reviewRoot = join(root, "spike-out", "analysis-lab", "independent-review", latest.sha256);
+          const reviewRoot = join(root, "spike-out", "analysis-lab", "independent-review", sourceReceiptSha256);
           const reviewComplete = await hasIndependentReviewAggregate(reviewRoot);
           const review = reviewComplete
             ? await inspectMatchingHistoryReview({
-                launchReceiptSha256: latest.sha256,
+                launchReceiptSha256: sourceReceiptSha256,
                 grantId: target.grantId,
                 repositoryRoot: root,
               })
@@ -727,7 +772,7 @@ export async function readVerifiedCurrentLaunchHistory(
             sourceRunArtifactSha256: target.runArtifactSha256,
           };
         } else if (classifyCampaignTerminalHistoryOutcome(target.status, hasHeld) === "failed"
-          && latest.receipt.stopReason === "completed") {
+          && sourceReceipt.stopReason === "completed") {
           history = {
             kind: "terminal",
             inputSha256: manifestTarget.inputSha256,
@@ -735,7 +780,7 @@ export async function readVerifiedCurrentLaunchHistory(
             contractCompatible: true,
             outcome: "failed",
             sourceManifestSha256: manifestSha256,
-            sourceReceiptSha256: latest.sha256,
+            sourceReceiptSha256,
           };
         } else if (target.status === "skipped" && latest.receipt.targets.every((item) => item.status === "skipped")) {
           history = {
@@ -754,7 +799,7 @@ export async function readVerifiedCurrentLaunchHistory(
             contractCompatible: true,
             outcome: "quality_held",
             sourceManifestSha256: manifestSha256,
-            sourceReceiptSha256: latest.sha256,
+            sourceReceiptSha256,
           };
         }
       }
