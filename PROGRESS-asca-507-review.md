@@ -189,3 +189,8 @@
 - ICT `126531`의 sequence 54는 aggregate에서 defect가 아닌 unresolved이므로 `independent_review_repair` selector가 정확히 거부했다. 더 많은 모델 호출로 자동 해결할 경로가 아니라 공식 원문 간 규모 범위의 수동 판정·검수 경로가 필요하다. 56건 변경 material 역시 같은 입력의 보정 대상으로 보내지 않고 현재 원문 변경 검수로 남긴다.
 - 8건 repair manifest와 일반 154건 campaign의 grantId 교집합은 0이다. 준비 8건의 원본 분석·검수 결함만 대상으로 삼고, 일반 campaign의 새 공고 분석과 중복 실행하지 않는다.
 - `pending` 2건은 같은 역사 receipt `0129b8cf…`의 sequence 25·26이며 기존 독립 검수 manifest는 20개 packet만 포함해 두 sequence를 검수하지 않았다. sequence 25는 현행 input/attachment가 이미 변경됐다. sequence 26(`PBLN_000000000126416`)은 현행 material이 같아 gpt-6-sol 독립 검수 packet을 오프라인 준비하려 했지만 `matching_projection_runtime_binding_mismatch`로 정확히 거부됐다. 과거 matching projection과 현행 runtime 사이를 근거 없이 승계하거나 과거 파일을 수정하지 않는다. 현행 계약으로 새 분석을 봉인하거나 역사 projection 검증 경로를 별도 설계·검증해야 하는 미완료 blocker다.
+
+## 2026-09-28 현행 조건 검수 재현 가능 감사
+
+- 일회성 진단을 읽기 전용 CLI `pnpm lab:matching-campaign:review-audit -- --classification=<SHA>`로 고정했다. 봉인된 classification bytes SHA·canonical 계약을 읽고, 검증된 launch history와 현재 `prepareLabAnalysis`의 input/attachment SHA를 비교한다. 대상별 비정상 입력은 `error`로 남기고 exit 2로 분리한다. 공고·첨부·회사 데이터 쓰기와 모델 호출은 없다.
+- `f4763330887f26e674ae4c9b56c1505361067f12601788c0c3f06696689234a3` 실측에서 221/221 조회·오류 0이다. legacy material 48, terminal 11, 무이력 60, legacy 2, prepared 3, primary held/same 39·held/changed 56·pending/same 1·pending/changed 1로 앞선 독립 임시 감사와 정확히 일치했다. 이는 역사·material 분류이며 원문 의미 검수나 독립 검수 PASS를 새로 만들지 않는다.
