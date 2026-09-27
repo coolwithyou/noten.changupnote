@@ -181,6 +181,7 @@
     "backfill:kstartup-details": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/ingestion/backfill-kstartup-details.ts",
     "backfill:kstartup-attachments": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/ingestion/backfill-kstartup-attachments.ts",
     "backfill:bizinfo-attachments": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/ingestion/backfill-bizinfo-attachments.ts",
+    "audit:bizinfo-official-links": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/ingestion/audit-bizinfo-official-attachment-links.ts",
     "inspect:unsupported-grant-attachments": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/ingestion/inspect-unsupported-grant-attachments.ts",
     "probe:grant-image-ocr": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/ingestion/probe-grant-image-ocr.ts",
     "backfill:bizinfo-industries": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/ingestion/backfill-bizinfo-industries.ts",

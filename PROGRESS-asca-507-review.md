@@ -47,7 +47,25 @@
 - 최초 209건 readiness를 다시 조회하면 `attachments_missing` 156건, 다음 작업 불일치 53건이다. 이 53건은 원본 첨부 누락만 해소된 것으로, `attachment_manifest_missing` 46건·기존 분석/검수 blocker가 남아 있어 매칭 공급 완료로 세지 않는다. 모델 호출·분석 승격·회사 답변 저장은 0건이다.
 - 수정 범위의 `verify:grant-attachment-archive`(25 assertions), `verify:kstartup-archive`, `verify:bizinfo-archive`, `verify:extraction-manifest-hydration`, `verify:ingestion-publish`, `verify:runtime-repositories`, 웹 typecheck, package runtime freshness를 확인했다.
 
+## 2026-09-27 23:36 KST 원문 복구 후속 계측
+
+- K-Startup 2차 25건·36개, 3차 25건·35개 원본을 순차 보관했다. 2차 HWP 변환 실패 2건과 이전 배치 HWP 실패는 격리된 pyhwp `hwp5html`로 재처리해 원본 SHA를 유지하며 변환했다. 3차 이미지 3개는 OCR 텍스트 없음/신뢰도 부족으로 원본만 보관했다.
+- BizInfo 2차 25건에서 원본 25/26개, 3차 24건에서 25/25개를 보관했다. `PBLN_000000000126284`의 HWP 다운로드가 두 번 모두 0바이트여서 원본 미확보로 남았다. `PBLN_000000000121107`의 대형 포스터는 원본은 보관했으나 20 MiB OCR 상한으로 변환 실패했다. BizInfo HWP 변환 실패 6개는 pyhwp로 재처리했다.
+- K-Startup 2차 처리와 `179249` HWP 재처리를 잠시 겹쳐 실행했을 때 후자가 source cursor DB 쓰기에 실패했다. 2차 완료 후 동일 원본 SHA로 순차 재시도해 성공했다. 이후 서비스 쓰기 배치는 겹치지 않게 실행한다.
+- 원래 209건의 readiness 재조회에서 `attachments_missing`이 58건으로 감소했다. 다음 작업 분류 불일치는 151건으로, 원본 선행 조건 일부 해소를 뜻할 뿐 원문 조건 검수 완료나 추천 준비 완료가 아니다. `attachment_manifest_missing` 125건, `analysis_missing` 115건 등은 중복 blocker다.
+- K-Startup 마지막 대상 `177944`는 원본 이미지 2/2 보관과 publisher 결속을 마쳤다. 이미지가 공간 사진이라 OCR은 텍스트 없음으로 실패했다. 조건을 추정하거나 텍스트가 확보됐다고 표시하지 않는다.
+- 감시 사건 `fe3bb11f…`는 13건 matching_only 준비 manifest `0b78a2ac…`의 SHA 확인·exact19 ID 교집합 0·grant/receipt/status null이라는 인계다. 이 사건은 launch 승인이 아니다. exact19 19 terminal(18 publishable/1 held)은 별도 종결 상태로 유지한다.
+- BizInfo 후속 4차 24건·26개 첨부는 24/24 target·26/26 원본 보관, 5차 32건·52개 첨부는 32/32 target 처리·51개 원본 보관이었다. 5차의 `PBLN_000000000124661`은 공고문과 서식 2개가 모두 0바이트를 반환했다.
+- 빈 파일 원인을 공식 기업마당 상세 페이지와 대조했다. API snapshot의 `printFlpthNm`은 `atchFileId=FILE_000000000772558&fileSn=1`인데, 2026-09-27 현재 상세 페이지의 본문출력파일 다운로드는 같은 `atchFileId`의 `fileSn=2`다. 후자를 GET하면 HWPv5 87,040바이트·SHA256 `a3ad7572e2acdf27e490fd22cbbfe59d7a685947f2817727eae8dafde69ba393`이지만 전자는 0바이트다. 주요 공고문이므로 신청서 파일만으로 원문 충족 판정을 내릴 수 없다. API URL에 다른 파일 바이트를 붙여 저장하지 않고, 공식 페이지의 URL 변경을 source revision과 결속하는 수집 경로를 설계·검증해야 한다.
+- 첫 209건의 최종 재계측은 `attachments_missing` 2건, 즉 207건의 원본 보관 선행 조건만 해소됐다. 2건은 위 `PBLN_000000000126284`, `PBLN_000000000124661`이다. 후자는 공식 페이지의 공고문 파일명도 API snapshot의 `수정.hwp`에서 `변경.hwp`로 달라졌고, 공식 다운로드의 `fileSn`은 공고문 1·서식 2/3인 반면 API snapshot은 0·0/1이다. 이 두 건은 단순 다운로드 재시도 대상이 아니라 공식 상세와 API의 source revision 불일치로 보류한다. 나머지 207건에는 `attachment_manifest_missing` 171건, `analysis_missing` 115건 등의 후속 작업이 남는다(중복 집계).
+- 23:43:38 KST 고정 모집단 536건을 모델 무호출로 재분류했다. 동일 ID 536건이며, 원래 `recover_source` 209건은 새 공고 matching-only 준비 5·원문 변경 재분석 준비 87·현행 조건 검수 56·원문 변경 검수 32·품질 보류 23·원문 커버리지 검수 4·원문 복구 유지 2건으로 이동했다. 즉 207건의 원본 보관 완료가 207건의 즉시 매칭 가능을 뜻하지 않는다.
+- 새 campaign `c550e17a20b2ed226074b329bbef66467c9e2accf8e91722f33f24ec084913d1`, classification `026b9f5f69699a2ec4cc867c44988fc3ba7a3ee48561d5c5055849f1e76d0ea7`. 이전 준비물 63건(25/25/13)은 같은 child SHA로 유지되고, 새 준비물 92건(25/25/25/17)이 추가됐다. 전체 155건은 승인된 live 실행이 아니라 `allowedStage=prepare`, `liveExecutionAuthorized=false` 상태다. 536건 중 review/hold/release 등은 모델 실행 대상에 합산하지 않는다.
+- 새 campaign의 `--status`는 첫 child `not_started`, completedGrantIds 0, existing grant SHA 0, `liveExecutionAuthorized=false`를 반환했다. 감시자가 인계한 13건은 이 campaign에서도 정확히 세 번째 기존 child로 유지되고, exact19와 섞이지 않는다.
+- 감시 추가 사건 `91fa00bd…`의 17건 `matching_only` manifest `5e8c9323…`는 새 campaign 마지막 child와 동일하다. 인계 내용의 bytes SHA PASS·exact19 교집합 0·grant/receipt 0을 별도 사건으로 기록하며 launch 또는 품질 승인이 아니다.
+- 23:50 KST 기업마당 official detail 페이지의 `atchFileId:fileSn`과 저장된 API snapshot을 현재 모집단 BizInfo 310/310건에서 읽기 전용 대조했다(페이지 오류 0). 일치 306건, 불일치 4건: `126284`, `124661`, `126496`, `126545`. 앞의 둘은 원본 누락 HOLD, 뒤의 둘은 기존 보관본과 공식 최신 원본의 SHA/크기가 모두 다르다. 뒤의 둘은 현재 `source_review`/`review_current_conditions`로 campaign 미포함이며, 원문 최신화 검수 전 매칭 준비로 간주하지 않는다. 이 대조는 파일 링크에 한정하며 본문 의미나 모든 출처의 완전성을 증명하지 않는다.
+- 동일 대조를 `pnpm audit:bizinfo-official-links -- --classification=<SHA JSON>` 읽기 전용 명령으로 고정했다. 분류 파일 bytes SHA를 검증하고, 공식 도메인의 다운로드 ID·순번만 비교하며 페이지를 읽을 수 없으면 오류로 분리한다. 새 명령의 전체 실측은 310/310 조회·306 일치·4 불일치·오류 0으로 일회성 조사와 동일했다. parser 회귀 테스트와 웹 typecheck PASS.
+
 ## 현재 실행 경계
 
-- prepared campaign의 exact 범위(위 SHA, 세 child, 최대 63건, matching-only, receipt 종결)를 사용자에게 제시하고 승인받는다. 승인 전 `lab:launch:grant`, `lab:launch`, 서비스 승격을 실행하지 않는다.
+- 20:43 KST campaign의 세 child SHA는 역사 준비물이다. 원문 archive/publisher 변경 후 current material을 다시 분류·prepare하고 새 exact 범위와 권한을 판정한다. 준비물을 근거로 `lab:launch:grant`, `lab:launch`, 서비스 승격을 실행하지 않는다.
 - 444건은 이번 campaign의 launch admission에서 제외됐다. 특히 원문 복구 202건은 선언 첨부의 원본 archive 결속부터 확보해야 하며, 현행 조건 검수 150건은 기존 분석 또는 원문 결속 판단이 필요하다. 원문 검수 결과 없이 추천 가능 0건을 시장의 실제 부재로 해석하지 않는다.
