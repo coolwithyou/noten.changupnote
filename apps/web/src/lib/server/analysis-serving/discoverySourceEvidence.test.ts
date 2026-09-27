@@ -4,6 +4,7 @@ import { sha256Hex, stableJson } from "@/lib/server/deep-analysis/sourceRevision
 import { buildDiscoverySourceEvidence } from "./discoverySourceEvidence";
 
 const company = {
+  region: { code: "11", label: "서울" },
   biz_age_months: 29,
   target_types: ["개인사업자"],
   industries: ["응용 소프트웨어 개발 및 공급업", "광고 대행업"],
@@ -41,6 +42,8 @@ const seongsu = buildDiscoverySourceEvidence(seal({
 ].join("\n"))]), company, null);
 assert.ok(seongsu);
 assert.equal(seongsu.companyFacts.bizAgeMonths, 29);
+assert.equal(seongsu.companyFacts.region, "서울");
+assert.ok(seongsu.reviewItems.some((item) => item.label.includes("지역 조건")));
 assert.ok(seongsu.excerpts.some((excerpt) => excerpt.kind === "attachment_target" && excerpt.text.includes("30일 이내")));
 assert.ok(seongsu.excerpts.some((excerpt) => excerpt.kind === "attachment_exclusion" && excerpt.text.includes("입주수혜 이력")));
 assert.equal(seongsu.exclusionDetailsUnavailable, false);
@@ -65,6 +68,13 @@ assert.equal(rocketship.excerpts.some((excerpt) => excerpt.sourceLabel.includes(
   "신청서 양식의 칸을 공식 자격 조항으로 제시하지 않는다");
 assert.ok(rocketship.excerpts.some((excerpt) => excerpt.text.includes("선정·졸업기업")));
 assert.ok(rocketship.reviewItems.some((item) => item.label.includes("선정·졸업 이력")));
+
+const regional = buildDiscoverySourceEvidence(seal({
+  aply_trgt_ctnt: "호남권(전남광주, 전북, 제주) 창업 7년 이내 로컬기업",
+}), company, null);
+assert.ok(regional);
+assert.equal(regional.companyFacts.region, "서울");
+assert.ok(regional.reviewItems.some((item) => item.label.includes("지역 조건")));
 
 const incomplete = buildDiscoverySourceEvidence(seal({
   aply_trgt_ctnt: "전국 소재 예비창업자 및 7년 이내 창업기업", aply_excl_trgt_ctnt: null,

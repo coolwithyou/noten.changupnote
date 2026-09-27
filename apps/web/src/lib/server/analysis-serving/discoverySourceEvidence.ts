@@ -99,6 +99,7 @@ export function buildDiscoverySourceEvidence(
     if (index !== -1) reviewItems.push({ label, excerptIndex: index });
   };
   addReview("창업 시점과 공고의 업력 기준", /(?:창업|업력)[^\n]{0,45}\d+\s*년/u);
+  addReview("회사 소재지와 공고의 지역 조건", /(?:소재|지역|주소지|호남권|수도권|특별시|광역시|특별자치)/u);
   addReview("사업자등록 완료 여부", /사업자\s*등록/u);
   addReview("입주 후 주소지 이전 가능 여부", /(?:주소지\s*이전|이전\s*등록)/u);
   addReview("과거·현재 입주 지원 수혜 이력과 예외", /(?:입주|사무공간)[^\n]{0,65}(?:수혜|이력)|(?:수혜|이력)[^\n]{0,65}입주/u);
@@ -114,6 +115,7 @@ export function buildDiscoverySourceEvidence(
   return {
     sourceRevisionSha256: seal.sourceRevisionSha256,
     companyFacts: {
+      region: company.region?.label ?? company.region?.code ?? null,
       bizAgeMonths: Number.isInteger(company.biz_age_months) && company.biz_age_months! >= 0
         ? company.biz_age_months! : null,
       targetTypes: (company.target_types ?? []).slice(0, 2),

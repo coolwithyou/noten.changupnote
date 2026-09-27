@@ -412,6 +412,7 @@ export interface DiscoverySourceEvidence {
   sourceRevisionSha256: string;
   /** 회사가 입력·제공한 현재 값이며 공식 자격 확정값이 아니다. */
   companyFacts: {
+    region: string | null;
     bizAgeMonths: number | null;
     targetTypes: string[];
     industries: string[];

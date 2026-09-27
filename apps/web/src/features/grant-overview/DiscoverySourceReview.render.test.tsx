@@ -25,7 +25,7 @@ const withEvidence = {
   ...base,
   discoverySourceEvidence: {
     sourceRevisionSha256: "a".repeat(64),
-    companyFacts: { bizAgeMonths: 29, targetTypes: ["개인사업자"], industries: ["응용 소프트웨어 개발 및 공급업"] },
+    companyFacts: { region: "서울", bizAgeMonths: 29, targetTypes: ["개인사업자"], industries: ["응용 소프트웨어 개발 및 공급업"] },
     excerpts: [{ kind: "attachment_target", label: "첨부 공고문의 대상·신청자격",
       text: "□ 모집대상 및 신청자격\n창업 7년 이내 창업기업\n입주 계약 체결 이후 30일 이내 주소지 이전",
       sourceLabel: "첨부 공고문", sourceUrl: "https://www.k-startup.go.kr/notice.hwp", truncated: false }],
@@ -38,6 +38,7 @@ const reviewedHtml = renderToStaticMarkup(<GrantOverviewView sheet={withEvidence
 assert.ok(reviewedHtml.includes("검토 후보"));
 assert.ok(reviewedHtml.includes("공식 증빙으로 확인되지 않았습니다"));
 assert.ok(reviewedHtml.includes("응용 소프트웨어 개발 및 공급업"));
+assert.ok(reviewedHtml.includes("소재지</dt><dd class=\"font-semibold text-ink\">서울"));
 assert.ok(reviewedHtml.includes("30일 이내 주소지 이전"));
 assert.ok(reviewedHtml.includes("입주 후 주소지 이전 가능 여부"));
 assert.ok(reviewedHtml.includes("제외대상 세부 조건을 이 자료에서 확인하지 못했습니다"));

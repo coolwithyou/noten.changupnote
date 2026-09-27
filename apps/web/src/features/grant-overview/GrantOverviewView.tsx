@@ -240,18 +240,21 @@ export function DiscoverySourceReview({ evidence }: {
   evidence: NonNullable<ApplySheet["discoverySourceEvidence"]>;
 }) {
   const { companyFacts } = evidence;
-  const hasCompanyFacts = companyFacts.bizAgeMonths !== null
+  const hasCompanyFacts = companyFacts.region !== null || companyFacts.bizAgeMonths !== null
     || companyFacts.targetTypes.length > 0 || companyFacts.industries.length > 0;
   return (
     <div className="mt-2 flex flex-col gap-5">
       <p>{hasCompanyFacts
-        ? "등록된 업력·업종과 공고 원문을 나란히 살펴볼 수 있는 검토 후보입니다. 아래 내용만으로 지원 자격이 확인된 것은 아닙니다."
+        ? "등록된 소재지·업력·업종과 공고 원문을 나란히 살펴볼 수 있는 검토 후보입니다. 아래 내용만으로 지원 자격이 확인된 것은 아닙니다."
         : "공고 원문에서 검토할 조건을 확인할 수 있습니다. 아래 내용만으로 지원 자격이 확인된 것은 아닙니다."}</p>
       {hasCompanyFacts ? (
         <div>
           <h2 className="font-bold text-ink">검토 이유 · 등록된 회사 정보</h2>
           <p className="text-xs text-text-tertiary">서비스에 등록된 정보이며 자가 입력값은 공식 증빙으로 확인되지 않았습니다.</p>
           <dl className="mt-2 flex flex-col gap-1">
+            {companyFacts.region !== null ? (
+              <div className="flex gap-2"><dt className="shrink-0">소재지</dt><dd className="font-semibold text-ink">{companyFacts.region}</dd></div>
+            ) : null}
             {companyFacts.bizAgeMonths !== null ? (
               <div className="flex gap-2"><dt className="shrink-0">업력</dt><dd className="font-semibold text-ink">약 {companyFacts.bizAgeMonths}개월</dd></div>
             ) : null}
