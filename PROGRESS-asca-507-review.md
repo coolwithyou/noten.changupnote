@@ -64,6 +64,25 @@
 - 감시 추가 사건 `91fa00bd…`의 17건 `matching_only` manifest `5e8c9323…`는 새 campaign 마지막 child와 동일하다. 인계 내용의 bytes SHA PASS·exact19 교집합 0·grant/receipt 0을 별도 사건으로 기록하며 launch 또는 품질 승인이 아니다.
 - 23:50 KST 기업마당 official detail 페이지의 `atchFileId:fileSn`과 저장된 API snapshot을 현재 모집단 BizInfo 310/310건에서 읽기 전용 대조했다(페이지 오류 0). 일치 306건, 불일치 4건: `126284`, `124661`, `126496`, `126545`. 앞의 둘은 원본 누락 HOLD, 뒤의 둘은 기존 보관본과 공식 최신 원본의 SHA/크기가 모두 다르다. 뒤의 둘은 현재 `source_review`/`review_current_conditions`로 campaign 미포함이며, 원문 최신화 검수 전 매칭 준비로 간주하지 않는다. 이 대조는 파일 링크에 한정하며 본문 의미나 모든 출처의 완전성을 증명하지 않는다.
 - 동일 대조를 `pnpm audit:bizinfo-official-links -- --classification=<SHA JSON>` 읽기 전용 명령으로 고정했다. 분류 파일 bytes SHA를 검증하고, 공식 도메인의 다운로드 ID·순번만 비교하며 페이지를 읽을 수 없으면 오류로 분리한다. 새 명령의 전체 실측은 310/310 조회·306 일치·4 불일치·오류 0으로 일회성 조사와 동일했다. parser 회귀 테스트와 웹 typecheck PASS.
+- 새 campaign의 `review_current_conditions` 224건을 현재 readiness로 재조회했다(224/224). 200건은 `analysis_source_binding_missing + attachment_manifest_missing + criteria_review_incomplete + criteria_structure_incomplete`, 6건은 같은 조건에서 첨부 manifest만 있음, 14건은 질문 누락/낡은 질문과 기준 검수 미완성, 4건은 기준 검수만 미완성이다. 이 200건은 155건 launch의 자동 후속 대상이 아니므로 기존 자산을 exact 검증하거나 별도 원문 조건 검수 경로가 필요하다.
+- 200건의 기존 history는 `legacy_material` 92, 무이력 57, terminal 23, primary 23, legacy 5다. 따라서 200건 전체를 기존 분석 결과의 단순 발행 대기로 취급할 수 없고, 반대로 전부 신규 모델 호출 대상으로 단정할 수도 없다.
+- 단일 검수 예시 `PBLN_000000000116832`의 원본 HWP 변환문을 읽었다. 고용보험 피보험자 10인 기준과 일부 10인 미만 예외, 기업탐방형에 한정된 20명 교육장 조건이 명시된다. 저장 criterion에는 `insured_workforce` 예외 text_only, 기업탐방형 시설 조건 needsReview, `size=중소기업`이 있다. size 문구는 첨부에는 없지만 API `trgetNm=중소기업`에 있고, 현행 코드·정책은 이를 공식 신청대상 근거로 취급한다. 단지 첨부에 없다는 이유로 size criterion을 오류라고 단정하거나 삭제하지 않는다. 트랙별 조건은 전체 신청기업의 자동 탈락 조건으로 확대하지 않고 exact 검수 대상으로 남긴다.
+- 2026-09-28 00:00 KST 이후 9월 27일 `current-matching-campaign`은 역사 as-of다. 위 `c550…` 승인 요청에 대한 응답이 와도 그 SHA를 바로 실행하지 않고, 현재 신청기간·material을 다시 준비해 exact 실행 범위를 새로 판정한다.
+
+## 2026-09-28 00:00:31 KST 현재 모집단 재준비
+
+- 현재 신청기간 기준 고유 target은 536→529로 7건 감소했다. 모델 무호출 campaign `c053563e7560f631dcb9c67e498a878d1a73d2d6651fc238706503652204920a`, classification `608d1a2f2ca9ea7703497c22adfc6811eaf95c96c245a34c141576692b94a725`로 새로 봉인했다. 준비 child는 25/25/25/25/13/17/24건의 총 154건이다. 9월 27일 `c550…` 155건 범위는 더 이상 현재 실행 범위가 아니다.
+- 전일 536건과 현재 529건의 grantId 집합을 대조하면 빠진 7건은 모두 전일 `closesToday=true`였고 신규 대체 grantId는 0건이다. 빠진 7건 중 모델 준비 대상은 1건, 현행 조건 검수 4건, 원문 변경 검수 2건이었다.
+- 현재 529건 분류는 reusable 4, primary review 220, prepared not started 154, source changed review 78, quality held 73이다. `--status`는 첫 child `not_started`, 완료 0, 기존 grant 0, live authorization false를 반환했다. 13건 `0b78…`·17건 `5e8c…` child SHA는 유지됐지만 순서와 전체 campaign 결속이 바뀌었다. exact19와 합산하지 않는다.
+- 새 exact campaign에 대한 승인 없이는 grant/launch를 실행하지 않는다. 독립적으로 가능한 원문 링크 감사, 조건 검수·기존 분석 자산 감사와 아스카웍스 비영속 시나리오 검증을 계속한다.
+
+## 2026-09-28 00:14 KST 현행 조건 검수·검색 필드 오류 축소
+
+- 감시 사건 `a2c0acb4…`의 24건 `matching_only` manifest `5460aa508dd9f488968a10d8137c63e1f05050b7e03931aba70b6c03e3a91fa3`는 위 `c053…` campaign의 마지막 child다. 이번 세션에서 파일 bytes SHA도 확인했다. 감시 인계상 exact19 grantId 교집합 0, 결속 grant/receipt 0, snapshot status null이다. 준비 변경이며 실행·품질·서비스 쓰기 승인이 아니다.
+- `c053…` classification bytes SHA를 검증한 뒤 `review_current_conditions` 220/220건의 저장 criterion 1,348개를 읽기 전용 집계했다. K-Startup 74건에 포털 검색 필드 `biz_enyy` 74개·`supt_regin` 26개·`biz_trgt_age` 22개, 합계 122개가 criterion으로 저장돼 있다. 이것은 원문 자격과 충돌할 **위험 집합**이지 74건 모두 오류 확정이나 추천 가능 집계가 아니다.
+- K-Startup `179038`은 위험의 원문 확인 사례다. 보관된 HWPX 변환문 SHA `4c1fbc1b5a0ba1504f2560d5323d0a1cd867c0b75622127515e4c3433da5d7c4`와 현재 API 신청대상 상세가 AX의 Vertical AI Agent를 산업군 무관 모집 분야로, 법인 3년 미만 등을 *우대조건*으로 명시하며 우대조건 미충족자도 지원 가능하다고 말한다. 저장된 `biz_enyy` 검색 범주 유래 `biz_age <= 120개월` 필수 criterion은 그 원문 자격 근거가 아니다. 저장 `industry`/`size`/`other` text_only도 AX·LX 트랙과 우대/선별 조건을 전역 필수조건으로 섞어 needsReview다. 실제 아스카웍스 제품이 Vertical AI Agent인지 확인되지 않았으므로 이 공고의 지원 가능 판정·추천으로 승격하지 않는다.
+- 재발 방지를 위해 K-Startup 기본 정규화에서 세 포털 검색 필드로부터 직접 자격 criterion을 만들지 않도록 했다. 명시적 신청대상·제외 문장의 파서는 유지한다. parser version은 v4로 올렸고, 검색 필드 회귀 테스트·LLM 병합 테스트·core/web typecheck·ingestion publish 검증·service usecases가 PASS했다. 기존 DB의 74건은 자동 수정되지 않았고, 원문별 검수 없이 일괄 삭제·승격하지 않는다.
+- 이 코드 변경은 package runtime 계약을 바꾸므로 앞서 요청한 `c053…` live 승인에 대한 응답이 나중에 오더라도 그 준비물을 즉시 실행하지 않는다. 새 코드 빌드·고정 후 현재 source/input/period로 campaign을 재준비하고 exact 결속을 다시 확인한다.
 
 ## 현재 실행 경계
 

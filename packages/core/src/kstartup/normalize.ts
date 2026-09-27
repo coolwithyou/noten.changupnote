@@ -69,20 +69,10 @@ export function buildKStartupCriteria(
   options: { priorAwardSplit?: boolean } = {},
 ): GrantCriterion[] {
   const criteria: GrantCriterion[] = [];
-  const region = parseRegion(row.supt_regin);
-
-  if (!region.nationwide) {
-    criteria.push(makeCriterion(sourceId, "region", {
-      dimension: "region",
-      operator: "in",
-      kind: "required",
-      value: region,
-      confidence: 0.98,
-      source_field: "supt_regin",
-      source_span: clean(row.supt_regin),
-      raw_text: clean(row.supt_regin),
-    }));
-  }
+  // These three API fields are portal search filters. They can describe the
+  // agency's service area or broad search categories rather than applicant
+  // eligibility. Keep them in raw payload, but derive criteria only from
+  // explicit application text or attachments.
 
   const metroExclusion = parseMetroExclusion(row.aply_excl_trgt_ctnt);
   if (metroExclusion) {
@@ -95,34 +85,6 @@ export function buildKStartupCriteria(
       source_field: "aply_excl_trgt_ctnt",
       source_span: "수도권 소재 기업 제외",
       raw_text: clean(row.aply_excl_trgt_ctnt),
-    }));
-  }
-
-  const bizAge = parseBizAge(row.biz_enyy);
-  if (bizAge.max_months !== null || bizAge.include_preliminary) {
-    criteria.push(makeCriterion(sourceId, "biz-age", {
-      dimension: "biz_age",
-      operator: bizAge.max_months === null ? "in" : "lte",
-      kind: "required",
-      value: bizAge,
-      confidence: 0.98,
-      source_field: "biz_enyy",
-      source_span: clean(row.biz_enyy),
-      raw_text: clean(row.biz_enyy),
-    }));
-  }
-
-  const founderAge = parseFounderAge(row.biz_trgt_age);
-  if (founderAge) {
-    criteria.push(makeCriterion(sourceId, "founder-age", {
-      dimension: "founder_age",
-      operator: "in",
-      kind: "required",
-      value: founderAge,
-      confidence: 0.98,
-      source_field: "biz_trgt_age",
-      source_span: clean(row.biz_trgt_age),
-      raw_text: clean(row.biz_trgt_age),
     }));
   }
 
