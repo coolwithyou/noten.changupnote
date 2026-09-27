@@ -97,6 +97,7 @@
 - 새 ruleset을 적용한 읽기 전용 아스카웍스 74건 재평가: 과거 판정 재현 `ineligible / needs_core_review` 15건은 `conditional / needs_core_review`로 바뀌고 나머지 59건은 양쪽 모두 `conditional / needs_core_review`다. 이 15건은 실제 지원 자격 확정 사례가 아니라 *검색 필드만으로 내린 탈락을 취소한 사례*다. 서비스 DB·사용자 답변·매칭 상태 쓰기는 0건이다.
 - 새 legacy 필터 회귀 테스트는 필터만 남은 공고의 보류, 원문 기반 조건 통과와 함께 있을 때의 보류, 원문 기반 확정 탈락의 보존을 확인했다. core `match.test` 55건, 결격 매칭 51건, premises 및 질문 노출 회귀, `pnpm test:matching-unit`, `pnpm verify:match-state-refresh`, core/web typecheck PASS. 배포 전 서비스 화면 검증이 필요하다.
 - ruleset v17의 *역사적 대량 refresh 계획기*를 읽기 전용으로 실행했더니 active grant 1,502건·회사 146곳의 직교 조합 219,292건을 계획했다. 그중 실제 저장 상태 619건은 버전만 교체하면 되지만 신규 빈 조합 218,673건까지 채우는 과범위다. 현재 대량 write CLI는 코드에서 fail-closed하므로 이 계획을 운영 쓰기로 실행하지 않는다. 제품의 소유 회사 매칭은 요청 시 현재 ruleset으로 계산하고, 저장 cache는 version/revision/topology 불일치 시 사용하지 않는 경로를 확인했다. 전체 조합 생성은 이번 오류 보정의 필요 조건이 아니다.
+- commit `e041beb`을 별도 작업 브랜치에 push했다. 현재 matching-only campaign을 다시 읽기 전용으로 준비한 결과 `d672b1597a07dabf454b1d8ace46726416e19ca41666fcfd2c8abb540c96cac4`, classification `a70a5166ba7a17d08423d41792ca30b4c61e7ccb908552891fe6f906a41da256`이다. 이전 `523e…` 대비 529개 ID·분류 행동·7개 child manifest SHA 집합과 순서가 같고 원문/material 차이 0건이다. 두 새 파일 bytes SHA PASS, 첫 24건 child `not_started`, 완료 0·grant 0·live authorization false다. 앞선 승인 질문에 아직 응답이 없으며 `c053…`·`523e…` SHA 자체를 실행 권한으로 삼지 않는다.
 
 ## 현재 실행 경계
 
