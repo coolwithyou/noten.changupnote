@@ -103,3 +103,10 @@
 
 - 20:43 KST campaign의 세 child SHA는 역사 준비물이다. 원문 archive/publisher 변경 후 current material을 다시 분류·prepare하고 새 exact 범위와 권한을 판정한다. 준비물을 근거로 `lab:launch:grant`, `lab:launch`, 서비스 승격을 실행하지 않는다.
 - 444건은 이번 campaign의 launch admission에서 제외됐다. 특히 원문 복구 202건은 선언 첨부의 원본 archive 결속부터 확보해야 하며, 현행 조건 검수 150건은 기존 분석 또는 원문 결속 판단이 필요하다. 원문 검수 결과 없이 추천 가능 0건을 시장의 실제 부재로 해석하지 않는다.
+
+## 2026-09-28 00:54 KST 기업마당 공식 상세 원문 복구와 재준비
+
+- 최신 공식 상세 첨부 링크가 API snapshot과 다른 BizInfo 4건(`PBLN_000000000124661`, `126284`, `126496`, `126545`)을 exact 대상으로 했다. 공식 상세 조회와 기존 API 첨부 필드 해시를 결속한 dry-run 4건·9개 첨부 계획 SHA `75ba02641cc058534a4d8ed02902a8cb1dcfb685a4bb31116bb11e59c0933dab`을 확인하고, 이 계획과 동일한 현재 공식 상세 첨부만 R2 archive/DB publisher에 반영했다. 최초 실행은 4/4 target·9/9 원본 보관 성공, HWPX 2개 변환 성공, PDF 2개 정책상 생략, HWPv5 5개는 변환 도구 경로 부재로 실패했다. 원본 다운로드 실패는 0개다.
+- 기존 격리 pyhwp 환경을 지정한 재처리 dry-run은 `124661` 3개·`126284` 2개의 HWP만 선택했다. 후속 exact 재처리에서 5/5 변환 성공·실패 0개다. 현재 DB 원문에는 네 공고 각각 공식 상세 snapshot과 현재 첨부 3/2/2/2개가 결속됐고, R2에서 원본 9개와 HWP/HWPX 변환문 7개를 다시 읽어 DB SHA와 대조한 결과 모두 PASS다. 이전 API URL을 현재 첨부로 재사용하지 않았다. 보관 archive 역사 행은 삭제하지 않았다.
+- 현행 모델 무호출 campaign은 `42e37618f7deac8dcdab31b2b1c17964e46e2d1dcc571d2e0aec4e9d6470c814`, classification `916d49a05e2f8fa4d3e18fcb09418508e7c3450b722709d5b0ac626956d7fcc8`로 재준비했다. 두 파일 bytes SHA PASS. 529건 분류는 reusable 4·primary review 221·prepared 154·source changed 79·quality held 71이다. 직전 대비 `124661`은 `recover_source/quality_held`→`review_source_coverage/source_changed`, `126284`는 `recover_source/quality_held`→`review_current_conditions/primary_review_required`로 이동했다. 다른 두 건은 `review_current_conditions`를 유지한다. 154건의 7개 child manifest SHA는 변하지 않았고 첫 24건 `5460aa…`는 status `not_started`, completed 0·grant 0·live authorization false다.
+- 본 복구는 원문 첨부 결속이다. 네 공고의 의미상 신청 자격 검수·아스카웍스 추천 판정과 전체 507건의 원문 조건 검수는 별도로 남는다. `d672…` campaign은 source revision 변경 전 snapshot이므로 실행 범위로 쓰지 않는다. 새 준비물도 grant/launch 승인이 아니며 exact19의 19 terminal(18 publishable/1 held)과 분리한다.
