@@ -374,3 +374,9 @@
 
 - 일반 campaign entrypoint는 child 준비 직전 `await_approved_model_run` 공급 단계와 classification evidence SHA를 다시 확인했으나, 공개 `prepareMatchingCampaignLaunch` 직접 호출에는 그 검사가 없었다. 앞의 2건 직접 재준비는 별도 수동 공급 대조가 PASS했지만 호출자마다 이를 기억해야 하는 구조였다. 공통 exact 공급 판정을 준비 함수 안에 넣고 R2/DB 자산 읽기는 기존과 같은 16건 단위로 제한했다. terminal repair의 기존 공급 검사는 같은 판정 함수를 공유한다.
 - 회귀는 exact evidence·단계 drift·대상 수 누락을 분리해 확인했다. `pnpm lab:matching-campaign:test` 34+2, `pnpm lab:launch:test`, 웹 typecheck, package runtime freshness와 diff 검증 PASS. 이 변경은 준비 admission이며 이미 봉인된 `16433fff…`의 두 입력 SHA·모델/validator/package 계약이나 live 권한을 바꾸지 않는다. 서비스 DB/R2 쓰기·모델 호출 0이다.
+
+## 2026-09-28 target 착수 시점의 공급 단계 재확인
+
+- 준비 이후 다른 검수·발행 자산이 생기면 동일 원천 SHA라도 `await_approved_model_run`이 더는 필요한 다음 작업이 아닐 수 있다. matching campaign 정책의 target 착수 검사에서 현행 원천·신청기간 검증 다음에 공급 판정을 다시 읽고, exact grant 1건의 `await_approved_model_run/condition_analysis`일 때만 모델 착수를 허용하도록 했다. 다른 current inventory 정책의 착수 계약은 유지한다. 공급 판정 변경·누락은 해당 target의 착수를 거부하며 기존 receipt를 수정하지 않는다.
+- synthetic 회귀는 정상 단계, `ready` 변경, `condition_review` 변경, 결과 누락, 일반 inventory 비적용을 확인했다. `pnpm lab:launch:test`, 웹 typecheck, diff 검증 PASS. 봉인 inventory `ada5d4…`의 아스카웍스 우선 2건을 현행 DB/R2와 새 함수를 통해 읽기 전용으로 각각 재검증한 결과 둘 다 preflight PASS다. 이는 live 모델 실행·독립 검수·추천 품질 인수가 아니다.
+- `pnpm build:web` PASS, 빌드 뒤 package runtime freshness PASS. Turbopack NFT 경고 2건은 모두 기존 `ingest-bizinfo` → `grantSupply` → `run-store` import trace의 전체 프로젝트 파일 추적이며 컴파일·typecheck를 실패시키지 않았다. 이 빌드는 브라우저 UAT나 공급량 개선의 증거가 아니다.

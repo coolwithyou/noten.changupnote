@@ -102,13 +102,18 @@ export function assertMatchingCampaignSupplyBindings(
   for (const grantId of grantIds) {
     const plan = current.get(grantId);
     const entry = expected.get(grantId);
-    if (plan?.schema !== "grant-supply-plan-v1"
-      || plan.stage !== "await_approved_model_run"
+    if (!isMatchingCampaignModelSupplyPlan(plan)
       || entry?.supplyStage !== plan.stage
       || entry.supplyEvidenceSha256 !== plan.evidenceSha256) {
       throw new Error(`matching campaign child 준비 전 공급 판정이 변경됐습니다: ${grantId}`);
     }
   }
+}
+
+function isMatchingCampaignModelSupplyPlan(plan: GrantSupplyAssessment | undefined): plan is Extract<GrantSupplyAssessment, { schema: "grant-supply-plan-v1" }> {
+  return plan?.schema === "grant-supply-plan-v1"
+    && plan.stage === "await_approved_model_run"
+    && plan.nextWorkAction === "condition_analysis";
 }
 
 /** 원본 불변 산출물이 소실된 역사 target만 현재 입력으로 새 실행 범위를 봉인한다. */
@@ -270,6 +275,8 @@ export async function verifyCurrentInventoryLaunchTarget(
     materialSourceRevisionSha256?: string;
   }[]> = readCurrentEligibility,
   analysisMode: AnalysisLaunchAnalysisMode = "primary_and_application",
+  readSupply: (ids: readonly string[]) => Promise<readonly GrantSupplyAssessment[]> =
+    (ids) => assessPublishedGrantSupply({ db: getCunoteDb(), grantIds: ids }),
 ) {
   const target = inventory.targets.find(item => item.grantId === grantId);
   if (!target) throw new Error("current inventory 밖의 target입니다.");
@@ -283,6 +290,12 @@ export async function verifyCurrentInventoryLaunchTarget(
     : row?.sourceRevisionSha256 === target.sourceRevisionSha256;
   if (rows.length !== 1 || row?.grantId !== grantId || !sourceMatches) {
     throw new Error("current inventory target 원천이 변경됐습니다.");
+  }
+  if (inventory.policy === MATCHING_CAMPAIGN_POLICY) {
+    const plans = await readSupply([grantId]);
+    if (plans.length !== 1 || plans[0]?.grantId !== grantId || !isMatchingCampaignModelSupplyPlan(plans[0])) {
+      throw new Error(`matching campaign target 공급 단계가 변경됐습니다: ${grantId}`);
+    }
   }
 }
 

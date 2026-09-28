@@ -8,6 +8,7 @@ import test from "node:test";
 import {
   CURRENT_INVENTORY_SCHEMA, buildCurrentInventoryLaunchManifest,
   MISSING_WORKSPACE_FIELDS_POLICY,
+  MATCHING_CAMPAIGN_POLICY,
   TERMINAL_REPAIR_POLICY,
   currentLaunchInventoryPath, readCurrentLaunchInventory, storeCurrentLaunchInventory,
   readAndVerifyCompletedCurrentInventoryLaunch,
@@ -33,6 +34,7 @@ import {
   shouldForceExactManifestReanalysis,
 } from "./launch-batch-production";
 import { DEEP_ANALYSIS_VALIDATOR_VERSION } from "../deep-analysis/validator";
+import type { GrantSupplyPlan } from "../productReadiness/grantSupply";
 import { APPLICATION_ROUNDTRIP_VERSION } from "./application-roundtrip/contract";
 import {
   buildDeepAnalysisMaterialSourceRevision,
@@ -945,6 +947,38 @@ test("대상 착수에서 범위 밖 ID·현재 지원 조건 실패·원천 변
   await assert.rejects(() => verifyCurrentInventoryLaunchTarget(value, id(0), async () => []));
   await assert.rejects(() => verifyCurrentInventoryLaunchTarget(value, id(0), async () => [{ grantId: id(0), sourceRevisionSha256: "e".repeat(64) }]));
   await assert.rejects(() => verifyCurrentInventoryLaunchTarget(value, id(0), async () => { throw new Error("공고 마감"); }), /공고 마감/);
+});
+
+test("matching campaign target 착수는 현행 공급이 모델 분석 단계일 때만 허용한다", async () => {
+  const value: CurrentLaunchInventory = {
+    ...inventory(1),
+    seriesId: "current-matching-campaign-20260928",
+    policy: MATCHING_CAMPAIGN_POLICY,
+  };
+  const read = async () => [{ grantId: id(0), sourceRevisionSha256: "d".repeat(64) }];
+  const plan: GrantSupplyPlan = {
+    schema: "grant-supply-plan-v1", grantId: id(0), evidenceSha256: "e".repeat(64),
+    nextWorkAction: "condition_analysis", stage: "await_approved_model_run",
+    reason: "test", owner: "model_authority", requiredInput: null, reusedRunId: null,
+    assetBinding: null, candidateRuns: [], candidateRunCount: 0,
+    candidatesTruncated: false, modelCalls: 0,
+  };
+  await verifyCurrentInventoryLaunchTarget(value, id(0), read, "matching_only", async () => [plan]);
+  await assert.rejects(
+    () => verifyCurrentInventoryLaunchTarget(value, id(0), read, "matching_only", async () => [{ ...plan, stage: "ready" }]),
+    /공급 단계가 변경/,
+  );
+  await assert.rejects(
+    () => verifyCurrentInventoryLaunchTarget(value, id(0), read, "matching_only", async () => [{ ...plan, nextWorkAction: "condition_review" }]),
+    /공급 단계가 변경/,
+  );
+  await assert.rejects(
+    () => verifyCurrentInventoryLaunchTarget(value, id(0), read, "matching_only", async () => []),
+    /공급 단계가 변경/,
+  );
+  await verifyCurrentInventoryLaunchTarget(inventory(1), id(0), read, "matching_only", async () => {
+    throw new Error("일반 inventory는 campaign 공급 판정을 읽지 않는다");
+  });
 });
 
 test("matching-only material 결속은 raw hash만 제외하고 공고·첨부 변경은 계속 차단한다", async () => {
