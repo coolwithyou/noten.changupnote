@@ -162,6 +162,7 @@ async function runTailConversionSweep(db: ReturnType<typeof getCunoteDb>, starte
       // conversions drain current announcement inventory in one cron invocation.
       limit: 50,
       currentOpenOnly: true,
+      concurrency: 3,
       budgetMs: leftoverMs,
       maxAttempts: 60,
       intervalMs: 1000,

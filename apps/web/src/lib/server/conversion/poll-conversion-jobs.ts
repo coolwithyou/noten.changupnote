@@ -16,7 +16,7 @@
 // Environment: CONVERSION_SERVER_URL, CONVERSION_SHARED_SECRET,
 //              DATABASE_URL/SUPABASE_DB_URL/DIRECT_URL.
 
-import { closeCunoteDb, getCunoteDb, type CunoteDbSession } from "../db/client";
+import { closeCunoteDb, getCunoteDb } from "../db/client";
 import { loadMonorepoEnv } from "../loadMonorepoEnv";
 import { createConversionClientFromEnv } from "./conversionClient";
 import {
@@ -76,14 +76,7 @@ try {
       continue;
     }
     try {
-      const result = await db.transaction((tx) =>
-        pollAndPersistSurfaceJob(
-          tx as unknown as CunoteDbSession,
-          client,
-          job,
-          { maxAttempts, intervalMs },
-        ),
-      );
+      const result = await pollAndPersistSurfaceJob(db, client, job, { maxAttempts, intervalMs });
       results.push(result);
     } catch (error) {
       results.push({
