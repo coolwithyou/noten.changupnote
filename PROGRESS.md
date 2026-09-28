@@ -21,7 +21,7 @@
 - [x] `pnpm test:product-postgres` — 격리 Unix socket·94 migrations·RLS, 변환 source/동시성/lease/공정성
 - [x] `pnpm verify:deep-analysis-contract` — 입력 준비 호출처
 - [x] `pnpm verify:package-runtime-freshness`
-- [ ] `git diff --check` 및 Vercel Preview PASS
+- [x] `git diff --check` 및 [draft PR #19](https://github.com/coolwithyou/noten.changupnote/pull/19) Vercel Preview·Preview Comments PASS (`86baf8c`)
 - [ ] 운영 적용 범위 승인 후 `0093` 적용 → 정확한 소스 배포 → Cron/변환 처리량 관측
 
 ## 결정과 경계
