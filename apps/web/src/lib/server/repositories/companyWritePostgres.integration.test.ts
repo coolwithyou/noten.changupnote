@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { readFileSync, realpathSync } from "node:fs";
 import postgres from "postgres";
 import { drizzle } from "drizzle-orm/postgres-js";
+import type { NormalizedGrant } from "@cunote/contracts";
+import { buildTeaser, markProfileQuestionUnknown, updateCompanyProfileField } from "@cunote/core";
 import * as schema from "../db/schema";
 import { createDrizzleRepositories } from "./drizzle";
 import { companyCreationIdentity } from "../productProfile/companyCreationIdentity";
@@ -59,6 +61,41 @@ try {
   assert.equal(rejected?.reason.code, "company_profile_conflict");
   const reopened = (await repo.resolveCompanyProfile({ companyId: creationId, userId }))!;
   assert.ok([11, 22].includes(reopened.employees_count!));
+  const answerAt = new Date("2026-09-28T00:00:00.000Z");
+  const sizeGrantId = crypto.randomUUID();
+  const sizeGrant: NormalizedGrant<unknown> = {
+    grant: { id: sizeGrantId, source: "bizinfo", source_id: "isolated-size-answer",
+      title: "중소기업 대상 공고", status: "open", apply_end: "2026-10-01",
+      overall_confidence: 1, f_regions: [], f_industries: [], f_sizes: [],
+      f_founder_traits: [], f_required_certs: [] },
+    criteria: [{ id: crypto.randomUUID(), grant_id: sizeGrantId, dimension: "size", kind: "required",
+      operator: "in", value: { sizes: ["중소기업"] }, confidence: 1, source_span: "모집 대상: 중소기업" }],
+    extraction_manifest: { grantId: sizeGrantId, revision: "isolated-size-answer", sourceFieldsSeen: ["criteria"],
+      attachmentsExpected: 0, attachmentsFetched: 0, attachmentsConverted: 0, sectionsDetected: ["required"],
+      extractorVersion: "fixture", completedAt: answerAt.toISOString(), warnings: [],
+      readiness: "reviewed", reviewedAt: answerAt.toISOString() },
+    raw: { source: "bizinfo", source_id: "isolated-size-answer", payload: {}, status: "published" },
+  };
+  const recommendable = (profile: typeof reopened) => buildTeaser({
+    company: profile, grants: [sizeGrant], asOf: answerAt, limit: 1,
+  }).counts.recommendable;
+  assert.equal(recommendable(reopened), 0);
+  const smallAnswer = updateCompanyProfileField(reopened, {
+    field: "size", value: "중소기업", confidence: 0.6, sourceKind: "self_declared",
+    provider: "cunote_profile_question", asOf: answerAt.toISOString(),
+    observation: { scope: "user", persistenceClass: "portable_user_answer" },
+  });
+  await repo.saveCompanyProfile({ companyId: creationId, userId, expectedProfile: reopened, profile: smallAnswer });
+  const smallReopened = (await repo.resolveCompanyProfile({ companyId: creationId, userId }))!;
+  assert.equal(smallReopened.size, "중소기업");
+  assert.equal(recommendable(smallReopened), 1);
+  await repo.saveCompanyProfile({ companyId: creationId, userId, expectedProfile: smallReopened,
+    profile: markProfileQuestionUnknown({ profile: smallReopened, dimension: "size", answeredAt: answerAt }) });
+  const unknownReopened = (await repo.resolveCompanyProfile({ companyId: creationId, userId }))!;
+  assert.equal(unknownReopened.size, undefined);
+  assert.equal(unknownReopened.question_answer_state?.size?.status, "unknown");
+  assert.equal(recommendable(unknownReopened), 0, "저장 후 재진입해도 철회한 규모로 추천하지 않는다");
+  console.log("PASS: isolated PostgreSQL user answer save, recommendation, withdrawal and reentry");
   const replay = await repo.createCompany({ userId, creationId, profile });
   assert.equal(replay.profile.employees_count, reopened.employees_count);
   console.log("PASS: actual row lock yields one save and one conflict; retry preserves latest saved answers");

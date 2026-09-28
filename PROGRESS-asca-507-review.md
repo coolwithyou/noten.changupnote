@@ -395,3 +395,10 @@
 - 새 exact manifest에 대한 사용자 승인 질문을 보냈다. 응답 전에는 grant/launch하지 않으며 과거 `16433fff…` 및 감시 `5f90a58b…`의 승인 질문이나 ack를 이 범위로 이월하지 않는다. 두 공고의 현재 회사 정보만으로 추천 가능 확정이 되지 않는다는 원문 기반 기대 판정도 유지한다.
 - 저장 회귀에 Drizzle 프로필 row codec 왕복을 더해 모름 상태의 메타 행을 다시 decode해도 size 값이 되살아나지 않음을 확인했다. 직접 `applyCompanyProfileAnswer.test.ts`와 웹 typecheck PASS. 이는 **격리 codec 검증**이며 운영 DB `match_state` 갱신이나 실제 브라우저 조작을 대신하지 않는다. 테스트 파일만 바뀌어 위 exact 모델 실행 계약 SHA에는 영향이 없다.
 - PR #18의 최신 `680425e` Vercel·Preview Comments 검사도 PASS다. Preview 배포 완료는 로그인 후 아스카웍스 화면의 브라우저 UAT 또는 운영 배포 인수가 아니다.
+
+## 2026-09-28 격리 PostgreSQL에서 사용자 답변 재진입 검증
+
+- 사용자 답변은 `applyCompanyProfileAnswer → saveCompanyProfile(userId) → owned read`의 개인 범위이며, `refreshProfileQuestionMatchStates`는 `stateScope=user`일 때 공용 `match_state` 저장을 명시적으로 건너뛴다. 따라서 사용자 답변의 필수 영속 증거는 **개인 프로필 row와 재진입 후 다시 계산한 추천**이다. 앞 절에서 공용 `match_state` 미검증을 이 경로의 누락처럼 읽지 않는다.
+- 전용 Unix socket PostgreSQL의 기존 product gate에 중소기업 필수 criterion 1건을 넣어 미입력 추천0 → 자가신고 저장·재조회 추천1 → 모름 저장·재조회 추천0, 최종 size null 및 unknown 상태를 검증했다. 같은 DB의 회사 소유권·RLS와 row codec을 통과한 결과다. 실제 아스카웍스 계정에 값을 쓰지 않았고, 이 fixture의 1건은 실공고 지원 자격 증명이 아니다.
+- 첫 전체 gate는 별도 질문 준비 fixture의 첨부 archive에 `storage_key`가 없어 `attachments_missing`으로 실패했다. 최근 원문 아카이브 판정은 SHA와 저장 키를 모두 요구한다. 질문 준비·신규 정식 공급·source rebind의 세 **격리 fixture**에 해당 키를 명시하고 선언 첨부 행 1건 결속을 확인했다. 이후 `pnpm test:product-postgres` PASS: migration 93개, RLS, 개인 답변 재진입, 질문 발행/답변/철회와 `match_state`, 신규 공급 발행, source rebind까지 확인했다. 로그의 synthetic refresh outage는 실패 복구를 검증하는 의도된 경로이며 전체 종료 코드 0이다. 운영 원문·R2가 실제 저장됐다는 뜻은 아니다.
+- 이 턴의 변경은 PostgreSQL 통합 테스트와 진행 기록에 한정된다. core package runtime·validator·prompt는 바뀌지 않아 `84bf20ea…` manifest의 모델 실행 계약은 유지된다. exact 승인 응답 전 grant/launch, 운영 쓰기는 없다.

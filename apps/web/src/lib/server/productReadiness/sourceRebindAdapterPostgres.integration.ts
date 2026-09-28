@@ -58,9 +58,9 @@ export async function verifySourceRebindAdapterPostgres(input: {
       ${JSON.stringify([{ filename: "guide.pdf", url: "https://example.invalid/source-rebind.pdf" }])}::jsonb,
       ${previousRawSha256},'normalized')`;
   await input.admin`insert into grant_attachment_archives
-    (source,source_id,filename,source_uri,sha256,conversion_status)
+    (source,source_id,filename,source_uri,storage_key,sha256,conversion_status)
     values ('bizinfo',${sourceId},'guide.pdf','https://example.invalid/source-rebind.pdf',
-      ${"a".repeat(64)},'archived')`;
+      'isolated-test/source-rebind/guide.pdf',${"a".repeat(64)},'archived')`;
   await input.admin`insert into grant_criteria
     (id,grant_id,dimension,operator,value,kind,confidence,source_span,raw_text,source_field,
      stable_key,needs_review,parser_version)
