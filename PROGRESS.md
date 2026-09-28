@@ -16,6 +16,7 @@
 - 2026-09-28T07:43:28Z 운영 DB 읽기 전용 preflight: `changupnote`/role `postgres`, Drizzle 원장 최신 id 94(`0092`), `conversion_sweep_leases` 없음. surface 전체 `pending` 4,050·`preview_ready` 1,406·`fields_ready` 54·`failed` 16. KST 현재 모집 중 `open/visible`인 파일 surface pending은 K-Startup 176개/77공고, BizInfo 500개/246공고로 합계 676개/323공고다. 기간·타입 필터를 명시한 이 snapshot을 이전 709개 수치와 같은 모집단으로 합치지 않는다.
 - 2026-09-28 읽기 전용 연결 확인: `NOTEN/changupnote` production 환경에 `CONVERSION_SERVER_URL`, `CONVERSION_SHARED_SECRET`, `CRON_SECRET`이 등록돼 있다. production env가 가리키는 Cloud Run URL의 `GET /`은 앱 401, 같은 production secret으로 없는 job을 GET하면 앱 JSON 404(`job not found`)가 나왔다. 인증·도달성은 확인됐으나 실제 변환 성공·처리량 증거는 아니다. `/healthz`의 Google 404는 기존 배포 기록에도 명시된 프런트엔드 가로채기다.
 - 2026-09-28T07:59Z 운영 DB 읽기 전용 재측정: 같은 KST 현재 `open/visible`·신청기간·`file_template/pending` 모집단은 709개(K-Startup 189·BizInfo 520)로 달라졌다. exact archive SHA와 공급 URL이 있는 것은 705개이며, 4개는 BizInfo 두 공고(`PBLN_000000000126496`, `PBLN_000000000126545`)의 공고문 쌍에 보관 SHA가 없다. 07:43Z 기준선 이후 만들어진 해당 모집단 surface는 0개라 676→709를 신규 첨부 유입량으로 해석하지 않는다. 현재 grant 노출·기간 등 모집단 변동 원인은 별도 추적 대상이다.
+- 같은 시각 운영 DB에서 새 자동 정렬과 동일한 50건 선택 SELECT를 `EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)`로 읽기 전용 실행했다. 실제 50행, planning 0.929ms·execution 12.805ms·shared read 0블록이었다. 선택 쿼리 비용만 확인한 결과이며 원격 변환 완료 시간은 포함하지 않는다.
 
 ## 검증 체크리스트
 
