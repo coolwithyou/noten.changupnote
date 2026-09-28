@@ -12,7 +12,7 @@
 
 import { randomUUID } from "node:crypto";
 import type { GrantSource } from "@cunote/contracts";
-import type { CunoteDbSession } from "../db/client";
+import type { CunoteDb, CunoteDbSession } from "../db/client";
 import { createR2ObjectStorageFromEnv } from "../storage/r2ObjectStorage";
 import {
   detectConvertibleSurfaceFormat,
@@ -29,6 +29,7 @@ import {
   upsertApplicationSurface,
   upsertDocumentArtifacts,
 } from "./surfaceConversion";
+import { pollAndPersistSurfaceJob, type PendingSurfaceJob } from "./pollConversions";
 
 /** 아카이브된 첨부 1건 (surface/변환 대상 후보). */
 export interface ArchivedAttachmentRef {
@@ -57,6 +58,14 @@ export interface RegisterAttachmentConversionsInput {
   attachments: ArchivedAttachmentRef[];
   /** 변환 클라이언트 주입 (미주입 시 env 에서 생성; 없으면 no-op). */
   client?: ConversionClient | null;
+  /** Register surfaces inside a publication transaction; submit remote jobs after commit. */
+  deferEnqueue?: boolean;
+}
+
+export interface DeferredConversionJob {
+  job: Omit<PendingSurfaceJob, "sourceObjectUrl">;
+  archiveUrl: string | null;
+  sourceUri: string | null;
 }
 
 export interface RegisterAttachmentConversionsResult {
@@ -65,6 +74,7 @@ export interface RegisterAttachmentConversionsResult {
   cacheHits: number;
   skipped: number;
   warnings: string[];
+  deferredJobs: DeferredConversionJob[];
 }
 
 /**
@@ -76,6 +86,7 @@ export async function registerAttachmentConversions(
   input: RegisterAttachmentConversionsInput,
 ): Promise<RegisterAttachmentConversionsResult> {
   const warnings: string[] = [];
+  const deferredJobs: DeferredConversionJob[] = [];
   let surfacesUpserted = 0;
   let jobsEnqueued = 0;
   let cacheHits = 0;
@@ -133,6 +144,19 @@ export async function registerAttachmentConversions(
       continue;
     }
 
+    if (input.deferEnqueue) {
+      deferredJobs.push({
+        job: {
+          surfaceId, source: input.source, sourceId: input.sourceId,
+          filename: attachment.filename, format,
+          sourceAttachment, sourceUrl, sha256: attachment.sha256,
+        },
+        archiveUrl: attachment.archiveUrl,
+        sourceUri: attachment.sourceUri,
+      });
+      continue;
+    }
+
     // 2) 변환 job 등록. client 없으면(env 미설정) 여기서 멈춤 — surface 는 pending 으로 남는다.
     if (!client) continue;
 
@@ -185,7 +209,39 @@ export async function registerAttachmentConversions(
     }
   }
 
-  return { surfacesUpserted, jobsEnqueued, cacheHits, skipped, warnings };
+  return { surfacesUpserted, jobsEnqueued, cacheHits, skipped, warnings, deferredJobs };
+}
+
+/** Submit only after the surface transaction commits. Remote I/O never holds a DB transaction. */
+export async function enqueueDeferredAttachmentConversions(
+  db: CunoteDb,
+  deferredJobs: DeferredConversionJob[],
+  client: ConversionClient | null = createConversionClientFromEnv(),
+): Promise<Pick<RegisterAttachmentConversionsResult, "jobsEnqueued" | "cacheHits" | "warnings">> {
+  const result = { jobsEnqueued: 0, cacheHits: 0, warnings: [] as string[] };
+  if (!client) return result;
+  for (const deferred of deferredJobs) {
+    const { job } = deferred;
+    try {
+      const storage = createR2ObjectStorageFromEnv();
+      const sourceObjectUrl = storage && job.sourceAttachment
+        ? await storage.presignGetUrl(job.sourceAttachment)
+        : deferred.archiveUrl ?? deferred.sourceUri;
+      if (!sourceObjectUrl) {
+        result.warnings.push(`변환 job 등록 건너뜀 (${job.filename}): 원본 URL 누락`);
+        continue;
+      }
+      // A zero-poll registration still consumes an immediate cache hit and persists it
+      // under the exact source lock. Queued jobs remain pending for the normal sweep.
+      const polled = await pollAndPersistSurfaceJob(db, client, { ...job, sourceObjectUrl },
+        { maxAttempts: 0 });
+      if (polled.outcome === "preview_ready") result.cacheHits += 1;
+      else result.jobsEnqueued += 1;
+    } catch (error) {
+      result.warnings.push(`변환 job 등록 실패 (${job.filename}): ${errorMessage(error)}`);
+    }
+  }
+  return result;
 }
 
 function errorMessage(error: unknown): string {
