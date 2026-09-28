@@ -33,3 +33,6 @@
 
 - 부분 보관 manifest는 교체를 증명할 수 없으므로 모든 raw 첨부에 storage_key가 있을 때만 역사 surface를 제외하도록 보강했다. 부분 보관 누락 유지 회귀, product-postgres 전체 gate, 웹 typecheck를 다시 통과했다. 운영 비교도 역사4개 제외·현행 누락0개를 유지했다.
 - worker 이미지 소스는 `0c404433fe86dfdeccd42b44119a28e32a10ced0`; 후속 보강은 웹 선택 SQL/테스트만 바꿔 워커 소스·빌드 입력은 동일하다. Cloud Build `5bf75b97-d512-4417-a196-5d84fbc8b23b`에서 native suite를 이미지 push보다 먼저 실행한다.
+
+- PR21은 `2ce4bc8f1d148ca92a1561fad009d5617852cb2e`로 main 병합. Cloud Build 전체 SUCCESS, native failure11/11·quality10/10·worker 응답46ms/3초 blocking·cleanup·HWP endpoint PASS. 워커 revision10, image `sha256:6df93e7c7024f961898e644ced9ae16395b74e8b773779c25fe5f915d259a1e3`, runtime/access 보존 및 traffic100% 확인.
+- 긴 변환 HTTP 병목 해소 후에도 20분 주기 중 비실행 대기가 남는다. 동일 자동 공급 범위·worker 동시성2·cron limit50/concurrency3/budget240s·DB lease10분을 유지하며 실행 간격만5분으로 조정한다. 매시간2/7/12/.../57분이라 기존17/37/57분 관측과 정각 수집을 유지·분산한다.

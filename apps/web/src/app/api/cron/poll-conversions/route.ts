@@ -2,7 +2,7 @@
 // extraction_status 를 반영한다 (Phase 2 T8 의 서버 측 배선 — 계획 2026-07-08 슬라이스 A3).
 //
 // 독립 Cron과 ingest-kstartup 말미 스윕은 DB lease로 중복 실행을 격리한다. 트리거 경로:
-//   1) Vercel Cron (20분 간격) 및 ingest-kstartup 말미의 잔여 예산 스윕
+//   1) Vercel Cron (5분 간격) 및 ingest-kstartup 말미의 잔여 예산 스윕
 //   2) 수동: curl -H "Authorization: Bearer $CRON_SECRET" .../api/cron/poll-conversions?limit=50
 //      기본은 현재 모집 중인 공고 우선. 역사 pending 복구는 includeHistorical=true.
 //   3) on-demand: 공고 상세 진입 시 grant 단위 폴링 (별도 라우트)
