@@ -121,6 +121,7 @@ export async function runConversionPollSweep(
             maxAttempts: options.maxAttempts ?? 60,
             intervalMs: options.intervalMs ?? 1000,
             deadlineAtMs,
+            ...(options.includeFailed && job.extractionStatus === "failed" ? { forceRetry: true } : {}),
           });
         } catch (error) {
           results[index] = {

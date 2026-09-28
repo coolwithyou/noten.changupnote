@@ -3,7 +3,7 @@ import postgres from "postgres";
 import { drizzle } from "drizzle-orm/postgres-js";
 import * as schema from "../db/schema";
 import type { CunoteDbSession } from "../db/client";
-import { collectPendingSurfaceJobs, pollAndPersistSurfaceJob, type PendingSurfaceJob } from "./pollConversions";
+import { collectPendingSurfaceJobs, conversionJobId, pollAndPersistSurfaceJob, type PendingSurfaceJob } from "./pollConversions";
 import { enqueueDeferredAttachmentConversions, registerAttachmentConversions } from "./registerAttachmentConversions";
 import { claimConversionSweepLease, releaseConversionSweepLease } from "./conversionSweepLease";
 import { runConversionPollSweep } from "./pollSweep";
@@ -40,6 +40,8 @@ export async function verifyConversionPollingPostgres(input: {
     sourceAttachment: storageKey, sourceUrl: null, sha256: sourceSha,
     sourceObjectUrl: "https://example.invalid/original.pdf",
   };
+  assert.notEqual(conversionJobId(job), conversionJobId({ ...job, sha256: "c".repeat(64) }),
+    "a new archived source SHA must use a new converter job");
   const workerSql = postgres({ host: input.socket, database: "postgres", username: "postgres",
     prepare: false, max: 4, connection: { application_name: "cunote-conversion-poll-fixture" } });
   const db = drizzle(workerSql, { schema });
@@ -117,13 +119,24 @@ export async function verifyConversionPollingPostgres(input: {
 
     await input.admin`update grant_application_surfaces set extraction_status='pending',
       updated_at='2026-01-01T00:00:00Z' where id=${surfaceId}`;
+    const pendingJobIds: string[] = [];
     const pendingClient: ConversionClient = {
-      enqueueJob: async () => ({ jobId: crypto.randomUUID(), status: "queued", cached: false }),
+      enqueueJob: async (request) => {
+        pendingJobIds.push(request.jobId);
+        return { jobId: request.jobId, status: "queued", cached: false };
+      },
       getJob: async () => null,
       getArtifacts: async () => null,
     };
     const pending = await pollAndPersistSurfaceJob(db, pendingClient, job, { maxAttempts: 1, intervalMs: 1 });
     assert.equal(pending.outcome, "pending");
+    await pollAndPersistSurfaceJob(db, pendingClient, job, { maxAttempts: 1, intervalMs: 1 });
+    assert.equal(pendingJobIds[0], pendingJobIds[1],
+      "a repeated pending sweep must reuse the same in-flight converter job");
+    await pollAndPersistSurfaceJob(db, pendingClient, job,
+      { maxAttempts: 1, intervalMs: 1, forceRetry: true });
+    assert.notEqual(pendingJobIds[2], pendingJobIds[0],
+      "explicit terminal failure recovery must start a new converter job");
     const [attempt] = await input.admin`select extraction_status as status, updated_at as updated
       from grant_application_surfaces where id=${surfaceId}`;
     assert.equal(attempt?.status, "pending");

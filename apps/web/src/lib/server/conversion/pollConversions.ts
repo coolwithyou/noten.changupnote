@@ -8,7 +8,7 @@
 //   이 흐름은 T8 폴링이자 동시에 재조정 스윕(계획 2장)이다: 큐 유실·후크 누락·재시작을 회복한다.
 
 import { and, asc, eq, gte, inArray, isNull, lt, lte, or, sql } from "drizzle-orm";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import type { GrantSource } from "@cunote/contracts";
 import type { CunoteDb, CunoteDbSession } from "../db/client";
 import * as schema from "../db/schema";
@@ -26,6 +26,7 @@ import {
 /** 폴링 대상 surface 1건 (첨부 원본 sha256/URL 조인 결과). */
 export interface PendingSurfaceJob {
   surfaceId: string;
+  extractionStatus?: "pending" | "failed";
   source: GrantSource;
   sourceId: string;
   filename: string;
@@ -94,6 +95,7 @@ export async function collectPendingSurfaceJobs(
   const rows = await db
     .select({
       surfaceId: surfaces.id,
+      extractionStatus: surfaces.extractionStatus,
       source: surfaces.source,
       sourceId: surfaces.sourceId,
       filename: surfaces.title,
@@ -136,6 +138,7 @@ export async function collectPendingSurfaceJobs(
   return Promise.all(
     rows.map(async (row) => ({
       surfaceId: row.surfaceId,
+      extractionStatus: row.extractionStatus === "failed" ? "failed" : "pending",
       source: row.source,
       sourceId: row.sourceId,
       filename: row.filename,
@@ -168,6 +171,16 @@ export interface PollOptions {
   intervalMs?: number;
   /** Stop starting another status request after this time; one in-flight HTTP call may finish later. */
   deadlineAtMs?: number;
+  /** Explicit failed-surface recovery starts a new remote job after the previous terminal failure. */
+  forceRetry?: boolean;
+}
+
+/** The converter deduplicates active work by jobId, while its SHA cache covers completed work. */
+export function conversionJobId(job: PendingSurfaceJob): string {
+  const digest = createHash("sha256")
+    .update(JSON.stringify([job.surfaceId, job.sha256, CONVERSION_CONVERTER_VERSION]))
+    .digest("hex");
+  return `surface-${digest}`;
 }
 
 /**
@@ -196,7 +209,7 @@ export async function pollAndPersistSurfaceJob(
 
     const maxAttempts = options.maxAttempts ?? 120;
     const intervalMs = options.intervalMs ?? 250;
-    const jobId = randomUUID();
+    const jobId = options.forceRetry ? randomUUID() : conversionJobId(job);
 
     // Remote registration and polling must not hold a database transaction.
     const enqueued = await client.enqueueJob({
