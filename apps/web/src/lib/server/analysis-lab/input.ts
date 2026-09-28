@@ -639,7 +639,7 @@ function inferAttachmentDocumentRole(filename: string): LabAttachmentDocumentRol
   if (/(사업\s*계획서|수행\s*계획서|제안서)/u.test(normalized)) return "business_plan";
   if (/(신청서|지원서|참가\s*신청|양식|서식)/u.test(normalized)) return "application_form";
   if (/(증빙|증명서|확인서|명부|통장|인증서)/u.test(normalized)) return "evidence";
-  if (/(공\s*고문|모집\s*공고|모집\s*요강|사업\s*안내|통합\s*공고)/u.test(normalized)) {
+  if (/(공\s*고문|모집\s*공고|모집\s*요강|사업\s*안내|통합\s*공고|공\s*고(?=\.(?:pdf|hwpx?|docx?|zip)$))/iu.test(normalized)) {
     return "announcement";
   }
   return "unknown";

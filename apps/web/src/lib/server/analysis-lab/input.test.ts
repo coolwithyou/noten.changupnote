@@ -4,6 +4,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { zipSync } from "fflate";
+import { assertMatchingAnnouncementCoverage, MatchingAnnouncementInputMissingError } from "./matching-announcement-coverage";
 import {
   applyLabVerifiedConversionArtifacts,
   assembleLabInput,
@@ -542,6 +543,22 @@ async function run() {
         reason: "exact 보관 원본이 없어 source URI 재수집부터 필요함",
       },
     });
+  }
+
+  // 파일명 끝의 '시행 공고.pdf'도 명시적 공고문이다. 누락 시 matching 보호에서 빠지면 안 된다.
+  {
+    const result = await assembleLabInput({
+      grant: GRANT, payload: null,
+      archives: [archive({
+        filename: "2026년도 안전관리 우수연구실 인증제 시행 공고.pdf",
+        sourceUri: "https://example.com/notice.pdf",
+        conversionStatus: "skipped",
+      })],
+    }, { storage: fakeStorage({}) });
+    assert.equal(result.attachmentPreparationReport?.[0]?.documentRole, "announcement");
+    assert.equal(result.attachmentPreparationReport?.[0]?.inputOutcome, "unavailable");
+    assert.throws(() => assertMatchingAnnouncementCoverage(result.attachmentPreparationReport),
+      MatchingAnnouncementInputMissingError);
   }
 
   {
