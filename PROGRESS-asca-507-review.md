@@ -235,3 +235,9 @@
 - 현재 캠페인 `181ea87b…`의 154건을 DB와 읽기 전용으로 재감사했다. material drift 0, 미입력 첨부 24개·15개 target, 공고문 누락 3개·1개 target(`kstartup/175783`)으로 직전 수치와 같다. 이 감사 결과는 의미 검수나 추천 품질 인수가 아니다.
 - PDF 6건 계획의 새 preflight가 `bizinfo/126586`을 drift로 잘못 거부했다. DB 조회 결과 이 공고는 `open/visible`이고 저장된 마감일과 계획 결속이 동일한 `2026-09-28T00:00:00Z`였다. 감사 시각 09:20 KST는 **마감 당일**인데 복구 CLI가 UTC 시각 비교로 09:00 KST 이후를 마감으로 오판한 것이다. 현행 제품 모집기간 계약은 저장 UTC 날짜를 KST 달력일로 해석하고 마감일 전체를 포함한다.
 - PDF·ZIP 복구 preflight 및 ZIP publisher의 exact 트랜잭션 guard에 동일한 `classifyNoticePeriod`를 적용했다. 공고의 `open/visible`, exact 마감일, 현재 KST 기간을 모두 검증한다. PDF receipt의 완료 조건도 후보·성공 건수가 계획한 10개와 정확히 같아야 하도록 좁혔다. 수정 후 실제 현재 PDF 계획은 6개 공고·10개 PDF 원본 SHA 검증까지 읽기 전용 PASS, ZIP 계획은 원본 1개·child 5개·기존 매칭 1행 범위로 읽기 전용 PASS다. 두 쓰기 계획의 승인 범위는 변하지 않았으며 실행하지 않았다.
+
+## 2026-09-28 현재 아스카웍스 공급·가상 답변 재측정
+
+- 저장된 회사 프로필을 수정 없이 읽고 동일 시각(09:24 KST)의 제품 공고 universe와 재매칭했다. universe 1,502건 중 원문 조건 `verified`는 22건, `discovery`는 1,480건이다. verified 22건에서 실제 저장 프로필은 eligible/recommendable 0·conditional 14·ineligible 8이다. 미확인 `size=중소기업`을 비영속으로 가정하면 eligible/recommendable 1·conditional 13·ineligible 8이며, 그 1건은 인도 BTS 전시회다. 실제 회사 규모 확인이나 지원 자격 확정이 아니다.
+- 같은 저장 프로필로 discovery 포함 전체 universe를 `buildTeaser` 읽기 전용 평가한 결과 eligible/recommendable 0, conditional 1,494, ineligible 8, reviewNeeded 1,499였다. 이 중 1,480건은 discovery 원문 검수 전 재고여서 `reviewNeeded`를 지원 가능 후보 또는 품질 통과량으로 해석할 수 없다. 기본 표시 8개에서는 discovery 1개와 verified 7개가 선택됐다. 서버의 확인 질문·노출 주석을 적용하기 전의 core 평가이므로 실제 브라우저 카드 UX 검증을 대신하지 않는다.
+- 공급 병목은 현행 프로필의 미확인 기업 규모와 원문 조건 검수가 끝난 공고의 매우 작은 수가 함께 만든다. 이를 확인 답변 없이 임의 저장하거나 discovery 1,480건을 자동 추천으로 올리지 않는다. 사용자 대상 실제 추천 품질은 분석 receipt·독립 검수·서비스 연결 후 다시 측정해야 한다.
