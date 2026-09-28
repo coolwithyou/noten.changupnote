@@ -222,6 +222,39 @@ export async function verifyConversionPollingPostgres(input: {
     const [next] = await collectPendingSurfaceJobs(db, selection);
     assert.equal(next?.surfaceId, laterSurfaceId,
       "a repeatedly pending early deadline cannot starve another current notice");
+
+    const obsoleteId = crypto.randomUUID();
+    const missingId = crypto.randomUUID();
+    const currentKey = `fixture/${laterSurfaceId}.pdf`;
+    const missingKey = `fixture/${missingId}.pdf`;
+    await input.admin`insert into grant_application_surfaces
+      (id,grant_id,source,source_id,type,title,format,source_attachment,extraction_status,updated_at)
+      values (${obsoleteId},${laterGrantId},'kstartup',${laterSourceId},'file_template',
+        '교체 전 모집 공고.pdf','pdf','fixture/obsolete.pdf','pending','2020-01-01T00:00:00Z'),
+      (${missingId},${laterGrantId},'kstartup',${laterSourceId},'file_template',
+        '현행 원문 누락 공고.pdf','pdf',${missingKey},'pending','2020-01-02T00:00:00Z')`;
+    await input.admin`insert into grant_raw (source,source_id,payload,status,attachments)
+      values ('kstartup',${laterSourceId},'{}'::jsonb,'published',
+        ${input.admin.json([{filename:'사업안내.pdf',storage_key:currentKey},
+          {filename:'현행 원문 누락 공고.pdf',storage_key:missingKey}])})`;
+    const scoped = { ...selection, sourceIds: [laterSourceId], limit: 10 };
+    const current = await collectPendingSurfaceJobs(db, scoped);
+    assert.deepEqual(new Set(current.map((item) => item.surfaceId)), new Set([laterSurfaceId, missingId]),
+      "current supply excludes replaced attachments but retains genuinely missing current archives");
+    assert.equal(current.find((item) => item.surfaceId === missingId)?.sha256, null);
+    const historical = await collectPendingSurfaceJobs(db, { ...scoped, currentOpenOnly: false });
+    assert.ok(historical.some((item) => item.surfaceId === obsoleteId), "historical surface is preserved");
+    await input.admin`update grant_raw set attachments=${input.admin.json([
+      {filename:'사업안내.pdf',storage_key:currentKey}, {filename:'현행 원문 누락 공고.pdf'},
+    ])} where source='kstartup' and source_id=${laterSourceId}`;
+    const incomplete = await collectPendingSurfaceJobs(db, scoped);
+    assert.ok(incomplete.some((item) => item.surfaceId === missingId),
+      "a partially archived raw manifest cannot prove supersession of a missing attachment");
+    await input.admin`update grant_raw set attachments='[{"filename":"사업안내.pdf"}]'::jsonb
+      where source='kstartup' and source_id=${laterSourceId}`;
+    const legacy = await collectPendingSurfaceJobs(db, scoped);
+    assert.ok(legacy.some((item) => item.surfaceId === obsoleteId),
+      "a legacy raw record without archived identities cannot prove supersession");
     console.log("PASS: conversion poll releases DB during remote I/O, serializes artifacts, preserves ready state and blocks source drift");
   } finally {
     await workerSql.end({ timeout: 5 });

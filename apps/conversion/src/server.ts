@@ -8,7 +8,7 @@
 // 웹앱이 서버-투-서버로만 호출한다 (공개 노출 안 함).
 
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
-import { ConversionQueue, type ConversionJobRequest, type FetchSourceFn } from "./queue.js";
+import { ConversionQueue, type ConversionJobRequest, type FetchSourceFn, type DocumentConverter } from "./queue.js";
 import { createR2ObjectStorageFromEnv, type R2ObjectStorage } from "./storage.js";
 import type { HwpToMarkdownFn, HwpxConvertFn } from "./convert-document.js";
 import { sha256Hex } from "./integrity.js";
@@ -365,7 +365,7 @@ export function createConversionServer(config: ServerConfig): Server {
  * env 에서 R2 클라이언트/시크릿을 읽고 서버를 기동한다.
  */
 export function bootstrapFromEnv(
-  deps: { hwpToMarkdown?: HwpToMarkdownFn; hwpxConvert?: HwpxConvertFn } = {},
+  deps: { hwpToMarkdown?: HwpToMarkdownFn; hwpxConvert?: HwpxConvertFn; convertDocument?: DocumentConverter } = {},
 ): Server {
   const storage: R2ObjectStorage | null = createR2ObjectStorageFromEnv();
   if (!storage) {
@@ -377,6 +377,7 @@ export function bootstrapFromEnv(
     concurrency,
     ...(deps.hwpToMarkdown ? { hwpToMarkdown: deps.hwpToMarkdown } : {}),
     ...(deps.hwpxConvert ? { hwpxConvert: deps.hwpxConvert } : {}),
+    ...(deps.convertDocument ? { convertDocument: deps.convertDocument } : {}),
     ...(process.env.CONVERSION_KEY_PREFIX ? { keyPrefix: process.env.CONVERSION_KEY_PREFIX } : {}),
   });
   // 동기 markdown 엔드포인트도 같은 어댑터를 쓴다 (미주입 시 503).
