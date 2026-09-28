@@ -402,3 +402,9 @@
 - 전용 Unix socket PostgreSQL의 기존 product gate에 중소기업 필수 criterion 1건을 넣어 미입력 추천0 → 자가신고 저장·재조회 추천1 → 모름 저장·재조회 추천0, 최종 size null 및 unknown 상태를 검증했다. 같은 DB의 회사 소유권·RLS와 row codec을 통과한 결과다. 실제 아스카웍스 계정에 값을 쓰지 않았고, 이 fixture의 1건은 실공고 지원 자격 증명이 아니다.
 - 첫 전체 gate는 별도 질문 준비 fixture의 첨부 archive에 `storage_key`가 없어 `attachments_missing`으로 실패했다. 최근 원문 아카이브 판정은 SHA와 저장 키를 모두 요구한다. 질문 준비·신규 정식 공급·source rebind의 세 **격리 fixture**에 해당 키를 명시하고 선언 첨부 행 1건 결속을 확인했다. 이후 `pnpm test:product-postgres` PASS: migration 93개, RLS, 개인 답변 재진입, 질문 발행/답변/철회와 `match_state`, 신규 공급 발행, source rebind까지 확인했다. 로그의 synthetic refresh outage는 실패 복구를 검증하는 의도된 경로이며 전체 종료 코드 0이다. 운영 원문·R2가 실제 저장됐다는 뜻은 아니다.
 - 이 턴의 변경은 PostgreSQL 통합 테스트와 진행 기록에 한정된다. core package runtime·validator·prompt는 바뀌지 않아 `84bf20ea…` manifest의 모델 실행 계약은 유지된다. exact 승인 응답 전 grant/launch, 운영 쓰기는 없다.
+
+## 2026-09-28 인증된 HTTP 프로필 답변 수용 검사
+
+- 일회성 `tools/run-local-product-uat.mjs`에 회사 A의 `GET /api/web/company-matching → POST /api/web/profile/field(size=중소기업) → GET → POST(unknown) → GET` 수용 검사를 추가했다. 회사 소유자 인증 세션에서 버전 토큰을 이어 사용하고, 알려진 규모의 저장·재조회와 철회 후 unknown 상태·규모 미표시를 검증한다. 앞선 확인 질문 시나리오가 원래 소유자 세션을 종료하므로 이 검사는 별도 정상 로그인 세션을 연다. 첫 시도는 종료된 세션 재사용으로 401이었고, 이 수정 후 동일한 전체 UAT를 처음부터 다시 실행했다.
+- 두 번째 격리 UAT PASS. 영수증 `/private/var/folders/90/3_v527vj59d6wv2ql7_k6rzm0000gn/T/cunote-product-uat-pg-s9Gvni/receipt.json`의 `profileAnswerAcceptance={status:passed,scope:isolated_authenticated_http_db,knownThenUnknown:true}`, source manifest SHA `ee75fb05f8e9ff7eb188c23977a2a0056f5ed12847e5aeee916afd8c782d1ab1`; packages/web/admin build와 계정 인증·회사 격리·확인 질문 시나리오 PASS. UAT는 새 Unix socket DB와 합성 공고를 사용했고 비밀번호는 로그/진행 문서에 기록하지 않았다. 실제 브라우저 버튼 조작, 운영 계정, 운영 R2/모델, 실제 아스카웍스 규모 판정은 이 영수증의 범위 밖이다.
+- `tools/run-local-product-uat.mjs`만 실행 경로로 수정했으므로 분석 모델 계약과 현재 `84bf20ea…` 준비물의 runtime SHA는 바뀌지 않는다.
