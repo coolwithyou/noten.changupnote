@@ -35,8 +35,8 @@ function normalize(excl: string): ReturnType<typeof normalizeKStartupAnnouncemen
   return normalizeKStartupAnnouncement(row, { asOf, collectedAt: asOf });
 }
 
-check("normalizer version 이 v3 로 범프됐다(D7 + industry projection)", () => {
-  assert.equal(KSTARTUP_NORMALIZER_VERSION, "kstartup-field-parser-v3");
+check("normalizer version v4가 검색 필드 자격 배제 계약을 반영한다", () => {
+  assert.equal(KSTARTUP_NORMALIZER_VERSION, "kstartup-field-parser-v4");
 });
 
 check("배제 문구가 신설 결격 축으로 구조화되고 raw_text 복제가 없다(M1)", () => {

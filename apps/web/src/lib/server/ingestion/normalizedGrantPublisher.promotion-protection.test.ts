@@ -842,6 +842,7 @@ interface RecordedOp {
 function createFakeDb(fixture: {
   previousRow: ReturnType<typeof makePreviousRow> | null;
   previousCriteria: StoredCriterionRow[];
+  matchCompanyIds?: string[];
 }) {
   const ops: RecordedOp[] = [];
   const thenable = (result: unknown) => ({
@@ -852,6 +853,7 @@ function createFakeDb(fixture: {
     if (table === schema.dedupLinks) return [];
     if (table === schema.grants) return fixture.previousRow ? [fixture.previousRow] : [];
     if (table === schema.grantCriteria) return fixture.previousCriteria;
+    if (table === schema.matchState) return (fixture.matchCompanyIds ?? []).map((companyId) => ({ companyId }));
     throw new Error("unexpected select table in fake tx");
   };
   const tx = {
@@ -909,6 +911,52 @@ function createFakeDb(fixture: {
 
 const countOps = (ops: RecordedOp[], op: RecordedOp["op"], table: unknown) =>
   ops.filter((item) => item.op === op && item.table === table).length;
+
+// Exact source recovery must fail inside the publication transaction before any DB mutation.
+{
+  const entry = makeEntry();
+  entry.grant.apply_end = "2030-08-31T00:00:00.000Z";
+  const previousRow = makePreviousRow(entry, makeStoredGrantRow({
+    applyEnd: new Date(entry.grant.apply_end),
+  }));
+  const expectedCompanies = ["company-1"];
+  const exactPublicationImpact = {
+    grantId: GRANT_ID, sourceId: entry.grant.source_id,
+    applyEnd: entry.grant.apply_end!, maxAffectedGrants: 1 as const,
+    existingMatchStateRows: 1,
+    matchCompanyIdsSha256: createHash("sha256").update(JSON.stringify(expectedCompanies)).digest("hex"),
+    criterionCount: 1, promotedCriterionCount: 0 as const,
+  };
+  const accepted = createFakeDb({
+    previousRow, previousCriteria: [makeStoredCriterionRow({ stableKey: null })],
+    matchCompanyIds: expectedCompanies,
+  });
+  await publishNormalizedGrants(accepted.db, [entry], {
+    source: "kstartup", collectedAt: COLLECTED_AT, exactPublicationImpact,
+  });
+  assert.equal(countOps(accepted.ops, "insert", schema.grants), 1);
+  const { db, ops } = createFakeDb({
+    previousRow, previousCriteria: [makeStoredCriterionRow({ stableKey: null })],
+    matchCompanyIds: ["company-2"],
+  });
+  await assert.rejects(
+    publishNormalizedGrants(db, [entry], {
+      source: "kstartup", collectedAt: COLLECTED_AT, exactPublicationImpact,
+    }), /Exact publication match-state scope drift/u,
+  );
+  assert.equal(ops.filter((item) => item.op === "insert" || item.op === "delete").length, 0);
+
+  const promoted = createFakeDb({
+    previousRow, previousCriteria: [makeStoredCriterionRow({ stableKey: "promoted" })],
+    matchCompanyIds: expectedCompanies,
+  });
+  await assert.rejects(
+    publishNormalizedGrants(promoted.db, [entry], {
+      source: "kstartup", collectedAt: COLLECTED_AT, exactPublicationImpact,
+    }), /Exact publication grant, component, or criteria drift/u,
+  );
+  assert.equal(promoted.ops.filter((item) => item.op === "insert" || item.op === "delete").length, 0);
+}
 
 // (A) 보호 grant: criteria 무접촉 + unchanged + 요약 카운트/로그
 {

@@ -222,4 +222,19 @@ assert.equal(
   1,
   "discovery inventory must receive one generic review slot instead of being starved by verified cards",
 );
+const profileAnswerableCard = {
+  ...earlierReviewCards[0]!,
+  grantId: "verified-profile-answer",
+  matchingEvidence: { level: "verified" as const, sourceRevisionSha256: "verified-profile-answer" },
+  ruleTrace: [input],
+};
+const actionableBeforeDiscovery = selectTeaserDisplay(
+  [profileAnswerableCard, ...verifiedCoreReviewCards, discoveryCoreReview],
+  { limit: 3, recommendableLimit: 0, reviewNeededLimit: 3 },
+);
+assert.deepEqual(
+  actionableBeforeDiscovery.matches.map((card) => card.grantId),
+  ["verified-profile-answer", "verified-core-0", "discovery-core"],
+  "a source-unreviewed generic card must not lead a verified card with one answerable hard condition",
+);
 console.log("match explanation tests passed");

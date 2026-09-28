@@ -63,6 +63,13 @@ export async function verifyNewGrantFormalSupplyPostgres(input: {
   assert.ok(published);
   const grantId = published.id;
   assert.equal(publication.supplyWorkItems?.[0]?.grantId, grantId);
+  const archived = await input.admin`update grant_attachment_archives
+    set storage_key='isolated-test/new-formal-supply/guide.pdf',
+      sha256=${"b".repeat(64)}, conversion_status='archived'
+    where source='kstartup' and source_id=${sourceId}
+      and filename='guide.pdf' and source_uri='https://example.invalid/new-guide.pdf'
+    returning id`;
+  assert.equal(archived.length, 1, "신규 공고의 선언 첨부 아카이브를 결속한다");
   const source = await loadDeepAnalysisSourceBinding({ db, grantId });
   assert.ok(source);
   const runId = `run-2026-09-24T030000.000Z-${grantId.replaceAll("-", "").slice(0, 6)}`;

@@ -1,6 +1,13 @@
 export type BizInfoKind = "program" | "event";
 
 export interface BizInfoProgram {
+  /** Official detail page attachment snapshot, retained alongside the API fields. */
+  officialDetailAttachmentSnapshot?: {
+    sourceUrl: string;
+    apiAttachmentFieldsSha256: string;
+    attachmentListSha256: string;
+    attachments: Array<{ kind: "attachment" | "print"; filename: string; url: string }>;
+  };
   trgetNm?: string | null;
   updtPnttm?: string | null;
   hashtags?: string | null;

@@ -29,6 +29,7 @@ import {
   detectConvertibleSurfaceFormat,
   detectConvertibleSurfaceFormatFromBytes,
   readDetectedSurfaceFormat,
+  setCachedLocalHwpConverterAvailableForTest,
 } from "./grantAttachmentArchive";
 import {
   registerAttachmentConversions,
@@ -59,6 +60,28 @@ async function main(): Promise<void> {
 
   await check("진짜 hwpx(.hwpx + PK 시그니처) → 'hwpx' 유지", () => {
     assert.equal(detectConvertibleSurfaceFormatFromBytes("서식.hwpx", PK), "hwpx");
+  });
+
+  await check("HWPX 원문은 hwp5html 없이도 XML 본문으로 변환", async () => {
+    const hwpx = writeHwpx([{ name: "Contents/section0.xml",
+      data: Buffer.from("<section><p>지원대상: 소프트웨어 중소기업</p></section>"), method: 0 }]);
+    const storage = {
+      async putObject(input: { key: string }) { return { key: input.key, url: `https://r2.example/${input.key}` }; },
+    } as R2ObjectStorage;
+    setCachedLocalHwpConverterAvailableForTest(false);
+    try {
+      const result = await archiveGrantAttachments([{
+        filename: "공고문.hwpx", url: "https://origin.example/notice.hwpx",
+      }], {
+        source: "kstartup", sourceId: "HWPX_NATIVE", collectedAt: new Date("2026-07-12T00:00:00.000Z"),
+        enabled: true, convertHwp: true, autoInstallPyhwp: false, allowFailures: false,
+        storage, fetchImpl: (async () => new Response(new Uint8Array(hwpx), { status: 200 })) as typeof fetch,
+      });
+      assert.equal(result.archivedCount, 1);
+      assert.equal(result.convertedCount, 1);
+      assert.equal(result.attachments[0]?.conversion?.converter, "hwpx-xml-unzip-v1");
+      assert.match(result.attachmentMarkdowns[0]?.markdown ?? "", /소프트웨어 중소기업/);
+    } finally { setCachedLocalHwpConverterAvailableForTest(null); }
   });
 
   await check("진짜 hwp(.hwp + CFBF) → 'hwp' 유지", () => {
@@ -160,6 +183,71 @@ async function main(): Promise<void> {
     assert.match(result.attachments[1]?.filename ?? "", /\.txt$/);
     assert.match(result.attachmentMarkdowns[0]?.markdown ?? "", /지원대상: 중소기업/);
     assert.equal(uploads.length, 3);
+  });
+
+  await check("ZIP 안의 모집 포스터는 OCR이 설정되면 정확한 child로 보관", async () => {
+    const storage = {
+      async putObject(input: { key: string; body: Buffer | string; contentType: string }) {
+        return { key: input.key, url: `https://r2.example/${input.key}` };
+      },
+    } as R2ObjectStorage;
+    const zip = writeHwpx([
+      { name: "notice.txt", data: Buffer.from("지원대상: 연구소기업"), method: 0 },
+      { name: "poster.png", data: Buffer.from([137, 80, 78, 71, 1, 2, 3]), method: 0 },
+    ]);
+    const result = await archiveGrantAttachments([{
+      filename: "첨부파일.zip",
+      url: "https://origin.example/bundle.zip",
+    }], {
+      source: "bizinfo",
+      sourceId: "PBLN_ZIP_POSTER",
+      collectedAt: new Date("2026-07-12T00:00:00.000Z"),
+      enabled: true,
+      convertHwp: true,
+      autoInstallPyhwp: false,
+      allowFailures: false,
+      storage,
+      fetchImpl: (async () => new Response(new Uint8Array(zip), {
+        status: 200,
+        headers: { "content-type": "application/zip" },
+      })) as typeof fetch,
+      imageOcr: async () => ({
+        markdown: "모집대상은 연구소기업이며 신청기간은 10월 2일까지입니다.",
+        confidence: 0.82,
+        provider: "test_vision",
+        converter: "test-vision-v1",
+      }),
+    });
+    assert.equal(result.archivedCount, 3);
+    assert.equal(result.convertedCount, 2);
+    const poster = result.attachments.find((item) => item.filename.endsWith(".png"));
+    assert.equal(poster?.conversion?.status, "converted");
+    assert.equal(poster?.conversion?.ocr_provider, "test_vision");
+  });
+
+  await check("exact ZIP 원본 SHA가 바뀌면 첫 R2 쓰기 전에 거부", async () => {
+    let writes = 0;
+    const storage = {
+      async putObject(input: { key: string; body: Buffer | string; contentType: string }) {
+        writes += 1;
+        return { key: input.key, url: `https://r2.example/${input.key}` };
+      },
+    } as R2ObjectStorage;
+    const url = "https://origin.example/exact.zip";
+    const zip = writeHwpx([{ name: "notice.txt", data: Buffer.from("지원대상"), method: 0 }]);
+    await assert.rejects(archiveGrantAttachments([{ filename: "첨부파일.zip", url }], {
+      source: "bizinfo",
+      sourceId: "PBLN_EXACT_ZIP",
+      collectedAt: new Date("2026-07-12T00:00:00.000Z"),
+      enabled: true,
+      convertHwp: true,
+      autoInstallPyhwp: false,
+      allowFailures: false,
+      storage,
+      expectedDownloadSha256: new Map([[url, "a".repeat(64)]]),
+      fetchImpl: (async () => new Response(new Uint8Array(zip), { status: 200 })) as typeof fetch,
+    }), /Exact attachment source SHA-256 mismatch/);
+    assert.equal(writes, 0);
   });
 
   await check("XLSX 첨부는 shared strings와 worksheet 값을 markdown으로 변환", async () => {
@@ -334,14 +422,13 @@ async function main(): Promise<void> {
   });
 
   // -------------------------------------------------------------------
-  // 3. registerAttachmentConversions 통합 (fake drizzle 세션, client=null)
+  // 3. registerAttachmentConversions 통합 (fake drizzle 세션, 네트워크 호출 없음)
   await check("detectedFormat='hwp' 는 확장자 .hwpx 를 이기고 surface.format='hwp'", async () => {
     const { db, inserts } = makeFakeDb();
     const result = await registerAttachmentConversions(db, {
       grantId: "grant-1",
       source: SOURCE,
       sourceId: "src-1",
-      client: null,
       attachments: [ref({ filename: "위장.hwpx", detectedFormat: "hwp" })],
     });
     assert.equal(result.surfacesUpserted, 1);
@@ -356,7 +443,6 @@ async function main(): Promise<void> {
       grantId: "grant-1",
       source: SOURCE,
       sourceId: "src-1",
-      client: null,
       attachments: [ref({ filename: "정상.hwpx" })], // detectedFormat 없음(byte-less)
     });
     assert.equal(result.surfacesUpserted, 1);
@@ -369,7 +455,6 @@ async function main(): Promise<void> {
       grantId: "grant-1",
       source: SOURCE,
       sourceId: "src-1",
-      client: null,
       attachments: [ref({ filename: "정체불명.hwpx", detectedFormat: null })],
     });
     assert.equal(result.surfacesUpserted, 0);
@@ -383,7 +468,6 @@ async function main(): Promise<void> {
       grantId: "grant-1",
       source: SOURCE,
       sourceId: "src-1",
-      client: null,
       attachments: [ref({ filename: "첨부.zip" })],
     });
     assert.equal(result.surfacesUpserted, 0);
@@ -397,7 +481,6 @@ async function main(): Promise<void> {
       grantId: "grant-1",
       source: SOURCE,
       sourceId: "src-1",
-      client: null,
       attachments: [
         ref({ filename: "미보관.hwp", storageKey: null }),
         ref({ filename: "해시없음.hwpx", sha256: null }),
@@ -416,7 +499,6 @@ async function main(): Promise<void> {
       grantId: "grant-1",
       source: SOURCE,
       sourceId: "src-1",
-      client: null,
       attachments: [ref({ filename: "모집공고.pdf", storageKey: "grant-archive/body.pdf" })],
     });
     assert.equal(result.surfacesUpserted, 1);

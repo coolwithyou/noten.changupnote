@@ -3,6 +3,7 @@ import {
   buildPdfPageOcrMarkdown,
   normalizePdfTextLayout,
   needsPdfVisualOcr,
+  selectPdfOcrPages,
 } from "./pdfTextOcrRecovery";
 import { parseTesseractTsv } from "@/lib/server/ingestion/tesseractImageOcr";
 
@@ -61,3 +62,6 @@ assert.equal(needsPdfVisualOcr("x".repeat(300), []), false);
 assert.equal(needsPdfVisualOcr("x".repeat(300), [1]), true, "native text must not hide image captions");
 assert.equal(needsPdfVisualOcr("x".repeat(300), null), true, "unknown visual coverage stays conservative");
 assert.equal(needsPdfVisualOcr("short", []), true);
+assert.deepEqual(selectPdfOcrPages("x".repeat(300), [4, 18, 22, 23], 23), [4, 18, 22, 23]);
+assert.equal(selectPdfOcrPages("short", [4], 23).length, 23);
+assert.equal(selectPdfOcrPages("x".repeat(300), null, 21).length, 21);

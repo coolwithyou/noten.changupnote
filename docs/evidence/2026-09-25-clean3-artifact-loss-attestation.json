@@ -1,0 +1,34 @@
+{
+  "schema": "analysis-artifact-loss-reanalysis-attestation-v1",
+  "evidenceStatus": "session-transcript-only",
+  "sessionTranscriptSha256": "2643ab073f6fae83fceeefafba8e8bef6a566740af890c966e15a8a1c3934e37",
+  "priorManifestSha256": "fc0d0dffe48a05096dcb3e12c39c7d08d795d71f6037be8b23583c36ef00b746",
+  "priorGrantSha256": "480eccd09064a25d10bc8db1b3cb86d24898960b206fe084d23fc2386ec033d5",
+  "priorTerminalReceiptSha256": "3d2fd5390142403f9a7470282428c77055988bed033d0cd3dc2458984837eabd",
+  "targets": [
+    {
+      "grantId": "76069674-e762-456e-9c69-9c94e76eba1f",
+      "priorSequence": 18,
+      "priorRunId": "run-2026-09-25T033757.034Z-c6f4e3",
+      "priorSourceRevisionSha256": "38c2c82773ce0ca5602c6aec790f803f729ace1084d5d36d094dc7999ea5d0f1",
+      "priorInputSha256": "a99c478cf832b18008b39010535553c39ac0e0983dc0389c06ef078e3fd1f2cb",
+      "priorAttachmentManifestSha256": "c424acbcbc328ee5a7e92657d642421fc51470c8ad4af1110cbe37184ac6e8e5"
+    },
+    {
+      "grantId": "13892d8b-a06b-4717-aeda-da44772a786c",
+      "priorSequence": 42,
+      "priorRunId": "run-2026-09-25T042928.932Z-2797a9",
+      "priorSourceRevisionSha256": "0891d8b655d87e5ae2dcbe72e8be41dbdd1273585cc0f93a8510ce797b050288",
+      "priorInputSha256": "daa8c186537bff2de2595724beef7f9cb38a8234f1eaea9d19b65c8a947da6a1",
+      "priorAttachmentManifestSha256": "13d57391fddeae2e0ce69cd5b54df2adbc4e5fde40f0809ffc19b724d994b8f4"
+    },
+    {
+      "grantId": "0189ee53-a0b4-48c2-a753-cdb2860dec3b",
+      "priorSequence": 46,
+      "priorRunId": "run-2026-09-25T043425.961Z-7e654e",
+      "priorSourceRevisionSha256": "e084f5329ae479c668a4c399985939206506984848e9dd4291713a351750462a",
+      "priorInputSha256": "4227042079164c6b27c1fe2f752233dc9edace4e9a17871d14c9f8538f3fb5cc",
+      "priorAttachmentManifestSha256": "513b764ed5a24adfc2cb2d0fc5fb8d841ee6213b6e295ea6444aca18780dedf3"
+    }
+  ]
+}

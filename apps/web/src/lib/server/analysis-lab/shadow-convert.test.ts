@@ -504,6 +504,20 @@ const sharedPreferred = convertSelectedLabCriteria(fixtureRun([
 assert.equal(sharedPreferred.criteria.length, 2, sharedPreferred.report.error ?? "서로 다른 가점 보존");
 assert.deepEqual(sharedPreferred.criteria.map((item) => item.kind), ["preferred", "preferred"]);
 
+const cappedFounderBonus = convertSelectedLabCriteria(fixtureRun([criterion({
+  dimension: "founder_trait",
+  kind: "preferred",
+  operator: "in",
+  value: { traits: ["여성기업"], note: "여성기업·특화분야 가점 합산 최대 3점" },
+  sourceSpan: "여성기업 가점 3점, 특화분야 가점과 합산 최대 3점",
+})]), { selections: [{ criterionIndex: 0, needsReview: false }] });
+assert.equal(cappedFounderBonus.criteria.length, 1);
+assert.equal(
+  (cappedFounderBonus.criteria[0]?.value as Record<string, unknown>).note,
+  "여성기업·특화분야 가점 합산 최대 3점",
+  "list canonicalization 뒤에도 가점 상한 설명을 보존한다",
+);
+
 // ---- 시나리오: 진짜 semantic duplicate는 provenance를 잃지 않고 양쪽 명시 보류 --
 
 const trueDuplicate = convertSelectedLabCriteria(fixtureRun([

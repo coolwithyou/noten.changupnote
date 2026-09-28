@@ -410,6 +410,7 @@ export async function prepareIndependentReviewRepairLaunchManifest(input: {
     aggregateSha256,
     analysisMode,
     withApplicationRoundtrip: sourceManifest.execution.withApplicationRoundtrip,
+    ...(analysisMode === "matching_only" ? { model: sourceManifest.execution.model } : {}),
     targets: exactRepairTargets,
     preparedTargets: stablePreparedTargets,
     provenance,

@@ -44,7 +44,7 @@ import {
   type AnalysisLaunchStatus,
 } from "./launch-status";
 import { classifyLabRunOutcome } from "./run-outcome";
-import { findMonorepoRoot, labRunFilePath } from "./run-store";
+import { assertDurableAnalysisArtifactPath, findMonorepoRoot, labRunFilePath } from "./run-store";
 import type { LabRun } from "./lab-contract";
 import {
   buildCurrentInventoryLaunchManifest,
@@ -476,6 +476,7 @@ export async function runApprovedAnalysisLaunchBatch(input: {
   }
   const startedAt = new Date();
   const repositoryRoot = findMonorepoRoot();
+  assertDurableAnalysisArtifactPath(resolve(repositoryRoot, "spike-out", "analysis-lab"));
   const grant = normalizeAnalysisLaunchGrant(
     await readAnalysisLaunchArtifact("grants", input.grantSha256, repositoryRoot),
   );

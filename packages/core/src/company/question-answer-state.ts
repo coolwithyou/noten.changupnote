@@ -22,10 +22,17 @@ export function markProfileQuestionUnknown(input: {
     throw new Error("unknown answer ttlDays must be > 0 and <= 365");
   }
   const expiresAt = new Date(answeredAt.getTime() + ttlDays * 86_400_000);
+  // A later "I don't know" withdraws an earlier user answer. Keeping its value
+  // would continue to qualify the company even though the answer is now unknown.
+  // Provider facts remain available when the user does not know the answer.
+  const evidence = input.profile.profile_evidence?.[input.dimension];
+  const profile = !evidence || evidence.sourceKind === "self_declared"
+    ? withoutQuestionAnswerValue(input.profile, input.dimension)
+    : input.profile;
   return {
-    ...input.profile,
+    ...profile,
     question_answer_state: {
-      ...(input.profile.question_answer_state ?? {}),
+      ...(profile.question_answer_state ?? {}),
       [input.dimension]: {
         status: "unknown",
         answeredAt: answeredAt.toISOString(),
@@ -35,6 +42,34 @@ export function markProfileQuestionUnknown(input: {
       },
     },
   };
+}
+
+function withoutQuestionAnswerValue(profile: CompanyProfile, dimension: CriterionDimension): CompanyProfile {
+  const next: CompanyProfile = { ...profile };
+  const keys: Partial<Record<CriterionDimension, (keyof CompanyProfile)[]>> = {
+    region: ["region"], biz_age: ["biz_age_months"], industry: ["industries", "industry_codes"],
+    size: ["size"], revenue: ["revenue_krw"], employees: ["employees_count"],
+    founder_age: ["founder_age"], founder_trait: ["traits"], certification: ["certs"],
+    prior_award: ["prior_awards", "prior_award_history"], ip: ["ip"], target_type: ["target_types"],
+    business_status: ["business_status"], tax_compliance: ["tax_compliance"],
+    credit_status: ["credit_status"], sanction: ["sanction"],
+    financial_health: ["financial_health"], insured_workforce: ["insured_workforce"],
+    investment: ["investment"], premises: ["premises"], other: ["other_conditions"],
+  };
+  for (const key of keys[dimension] ?? []) delete next[key];
+  if (profile.profile_evidence?.[dimension]) {
+    next.profile_evidence = { ...profile.profile_evidence };
+    delete next.profile_evidence[dimension];
+  }
+  if (profile.confidence?.[dimension] !== undefined) {
+    next.confidence = { ...profile.confidence };
+    delete next.confidence[dimension];
+  }
+  if (profile.list_completeness) {
+    next.list_completeness = { ...profile.list_completeness };
+    delete next.list_completeness[dimension as keyof typeof next.list_completeness];
+  }
+  return next;
 }
 
 export function markProfileQuestionRange(input: {
@@ -63,10 +98,13 @@ export function markProfileQuestionRange(input: {
     throw new Error(`${input.dimension} is already confirmed by authoritative evidence`);
   }
   const expiresAt = new Date(answeredAt.getTime() + ttlDays * 86_400_000);
+  // A range replaces the user's earlier exact number; otherwise the matcher
+  // could still decide from that stale exact number instead of the range.
+  const profile = withoutQuestionAnswerValue(input.profile, input.dimension);
   return {
-    ...input.profile,
+    ...profile,
     profile_evidence: {
-      ...(input.profile.profile_evidence ?? {}),
+      ...(profile.profile_evidence ?? {}),
       [input.dimension]: {
         sourceKind: "self_declared",
         provider: "cunote_profile_question_range",
@@ -76,7 +114,7 @@ export function markProfileQuestionRange(input: {
       },
     },
     question_answer_state: {
-      ...(input.profile.question_answer_state ?? {}),
+      ...(profile.question_answer_state ?? {}),
       [input.dimension]: {
         status: "range",
         answeredAt: answeredAt.toISOString(),

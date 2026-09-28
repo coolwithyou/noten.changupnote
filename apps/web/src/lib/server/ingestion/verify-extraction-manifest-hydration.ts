@@ -75,6 +75,22 @@ assert.equal(manifest.attachmentsConverted, 1);
 assert.equal(manifest.readiness, "structured_unreviewed");
 assert.deepEqual(manifest.warnings, []);
 
+const [changedUrl] = mergeCurrentAttachmentArchiveState([{
+  ...entry,
+  raw: { ...entry.raw, attachments: [{ filename: "공고문.hwp", url: "https://source.test/new-notice.hwp" }] },
+}], [{
+  source: "bizinfo", sourceId: "hydrate-test", filename: "공고문.hwp",
+  sourceUri: "https://source.test/notice.hwp", archiveUrl: "https://archive.test/notice.hwp",
+  storageKey: "grants/notice.hwp", contentType: "application/x-hwp", bytes: 1200,
+  sha256: "abc123", fetchedAt: new Date("2026-07-12T00:00:00.000Z"),
+  conversionStatus: null, markdownUrl: null, markdownStorageKey: null,
+  markdownSha256: null, markdownBytes: null, converter: null, convertedAt: null,
+  conversionError: null,
+}]);
+assert.equal(changedUrl?.raw.attachments?.[0]?.storage_key, undefined,
+  "같은 파일명의 과거 URL 보관본은 현재 첨부의 원본 증거가 아니다");
+assert.equal(buildGrantExtractionManifest(changedUrl!).readiness, "partial");
+
 const reviewedAt = "2026-07-12T02:00:00.000Z";
 const [reviewed] = mergeReviewedExtractionManifestState([hydrated], [{
   grantId: hydrated.grant.id ?? null,
@@ -144,6 +160,7 @@ console.log(JSON.stringify({
   checked: [
     "raw_attachment_pending",
     "archive_state_hydration",
+    "changed_url_archive_mismatch",
     "surface_state_hydration",
     "converted_manifest_ready",
     "reviewed_log_manifest_hydration",

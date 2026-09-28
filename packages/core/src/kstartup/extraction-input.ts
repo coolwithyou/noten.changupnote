@@ -11,13 +11,14 @@ export function buildKStartupExtractionInput(
 ): KStartupExtractionInput {
   const sourceId = String(announcement.pbanc_sn);
   const title = clean(announcement.biz_pbanc_nm) || clean(announcement.intg_pbanc_biz_nm) || sourceId;
+  // biz_enyy/biz_trgt_age/supt_regin은 검색 필터다. 원본은 그대로 두고
+  // 자격 추출에는 신청대상 본문·첨부에 명시된 조건만 제공한다.
   const blocks: KStartupExtractionBlock[] = [
     apiBlock("공고명", "biz_pbanc_nm", title),
     apiBlock("신청대상 요약", "aply_trgt", announcement.aply_trgt),
     apiBlock("신청대상 상세", "aply_trgt_ctnt", announcement.aply_trgt_ctnt),
     apiBlock("신청 제외대상", "aply_excl_trgt_ctnt", announcement.aply_excl_trgt_ctnt),
     apiBlock("우대사항", "prfn_matr", announcement.prfn_matr),
-    apiBlock("지원지역", "supt_regin", announcement.supt_regin),
     apiBlock("지원분류", "supt_biz_clsfc", announcement.supt_biz_clsfc),
   ].filter(hasText);
 

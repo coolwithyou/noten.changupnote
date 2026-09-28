@@ -548,6 +548,19 @@ assert.deepEqual(criterionEvidencePresentation({
 assert.deepEqual(profileInputSuggestions("target_type"), ["개인사업자", "법인"]);
 assert.match(profileFieldAsOfLabel("2026-07-14T12:00:00.000Z") ?? "", /2026/);
 
+const newlyOpenedAge = buildProfilePatch("biz_age", {
+  value: "0",
+  secondaryValue: "0",
+  unit: "manwon",
+});
+assert.ok("profile" in newlyOpenedAge, "개업 첫 달의 0개월도 유효한 업력이다");
+if ("profile" in newlyOpenedAge) {
+  assert.equal(newlyOpenedAge.profile.biz_age_months, 0);
+}
+assert.deepEqual(buildProfileAnswer("biz_age", {
+  value: "0", secondaryValue: "0", unit: "manwon",
+}), { answer: { field: "biz_age", value: 0 } });
+
 const patch = buildProfilePatch("target_type", {
   value: "법인",
   secondaryValue: "",

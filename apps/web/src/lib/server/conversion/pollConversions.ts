@@ -7,11 +7,12 @@
 //   - 아직이면 queued 로 돌아오고, GET 폴링으로 succeeded/partial/failed 까지 기다린다.
 //   이 흐름은 T8 폴링이자 동시에 재조정 스윕(계획 2장)이다: 큐 유실·후크 누락·재시작을 회복한다.
 
-import { and, eq, inArray, lt, or } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, isNull, lt, lte, or, sql } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import type { GrantSource } from "@cunote/contracts";
 import type { CunoteDb, CunoteDbSession } from "../db/client";
 import * as schema from "../db/schema";
+import { kstDayStartUtc } from "../analysis-lab/notice-period";
 import { createR2ObjectStorageFromEnv } from "../storage/r2ObjectStorage";
 import { CONVERSION_CONVERTER_VERSION, CONVERSION_REQUESTED_ARTIFACTS } from "./constants";
 import type { ConversionClient } from "./conversionClient";
@@ -50,6 +51,9 @@ export interface CollectPendingOptions {
   grantId?: string;
   /** 승인된 복구에서만 failed surface도 같은 content identity로 다시 조정한다. */
   includeFailed?: boolean;
+  /** Automatic supply sweep only: exclude expired/hidden inventory before LIMIT. */
+  currentOpenOnly?: boolean;
+  asOf?: Date;
 }
 
 /**
@@ -65,6 +69,7 @@ export async function collectPendingSurfaceJobs(
   const staleMs = options.staleMs ?? 0;
   const surfaces = schema.grantApplicationSurfaces;
   const archives = schema.grantAttachmentArchives;
+  const grants = schema.grants;
 
   const conditions = [
     options.includeFailed
@@ -75,6 +80,13 @@ export async function collectPendingSurfaceJobs(
   if (options.source) conditions.push(eq(surfaces.source, options.source));
   if (options.sourceIds?.length) conditions.push(inArray(surfaces.sourceId, options.sourceIds));
   if (options.grantId) conditions.push(eq(surfaces.grantId, options.grantId));
+  if (options.currentOpenOnly) {
+    const today = kstDayStartUtc(options.asOf ?? new Date());
+    conditions.push(eq(grants.status, "open"));
+    conditions.push(eq(grants.servingState, "visible"));
+    conditions.push(gte(grants.applyEnd, today));
+    conditions.push(or(isNull(grants.applyStart), lte(grants.applyStart, today))!);
+  }
   if (staleMs > 0) {
     conditions.push(lt(surfaces.updatedAt, new Date(Date.now() - staleMs)));
   }
@@ -93,6 +105,7 @@ export async function collectPendingSurfaceJobs(
       storageKey: archives.storageKey,
     })
     .from(surfaces)
+    .leftJoin(grants, eq(grants.id, surfaces.grantId))
     .leftJoin(
       archives,
       and(
@@ -100,11 +113,20 @@ export async function collectPendingSurfaceJobs(
         eq(archives.sourceId, surfaces.sourceId),
         or(
           eq(archives.storageKey, surfaces.sourceAttachment),
-          eq(archives.filename, surfaces.title),
+          and(
+            or(isNull(surfaces.sourceAttachment), eq(surfaces.sourceAttachment, surfaces.title)),
+            eq(archives.filename, surfaces.title),
+          ),
         ),
       ),
     )
     .where(and(...conditions))
+    .orderBy(...(options.currentOpenOnly
+      ? [
+          sql<number>`case when ${surfaces.title} ~* '공고|모집요강|사업안내' then 0 else 1 end`,
+          asc(surfaces.updatedAt), asc(grants.applyEnd), asc(surfaces.id),
+        ]
+      : [asc(surfaces.updatedAt), asc(surfaces.id)]))
     .limit(limit);
 
   // R2 아카이브분은 presigned GET URL 로 공급한다 — 저장된 archive_url(S3 엔드포인트)은
@@ -144,6 +166,8 @@ export interface PollOptions {
   maxAttempts?: number;
   /** 폴링 간격 ms (기본 250). */
   intervalMs?: number;
+  /** Stop starting another status request after this time; one in-flight HTTP call may finish later. */
+  deadlineAtMs?: number;
 }
 
 /**
@@ -151,7 +175,7 @@ export interface PollOptions {
  * document_artifacts upsert + extraction_status 전이한다 (T8, 계획 8.3).
  */
 export async function pollAndPersistSurfaceJob(
-  db: CunoteDbSession,
+  db: CunoteDb,
   client: ConversionClient,
   job: PendingSurfaceJob,
   options: PollOptions = {},
@@ -164,72 +188,130 @@ export async function pollAndPersistSurfaceJob(
     artifactsUpdated: 0,
   };
 
-  if (!job.sourceObjectUrl || !job.sha256) {
-    return { ...base, message: "archive_url 또는 sha256 누락 — 첨부 미매칭" };
-  }
-
-  const maxAttempts = options.maxAttempts ?? 120;
-  const intervalMs = options.intervalMs ?? 250;
-  const jobId = randomUUID();
-
-  // 1) 등록 (캐시 히트면 즉시 succeeded/partial + artifacts).
-  const enqueued = await client.enqueueJob({
-    jobId,
-    source: job.source,
-    sourceId: job.sourceId,
-    surfaceId: job.surfaceId,
-    filename: job.filename,
-    sourceObjectUrl: job.sourceObjectUrl,
-    sha256: job.sha256,
-    requestedArtifacts: [...CONVERSION_REQUESTED_ARTIFACTS],
-  });
-
-  let finalStatus = enqueued.status;
-  let artifacts = enqueued.cached ? enqueued.artifacts ?? [] : [];
-
-  // 2) 아직 완료가 아니면 폴링.
-  if (!isTerminal(finalStatus)) {
-    for (let i = 0; i < maxAttempts; i += 1) {
-      const status = await client.getJob(jobId);
-      if (!status) {
-        return { ...base, outcome: "pending", message: "job 조회 404 (인메모리 유실 가능)" };
-      }
-      finalStatus = status.status;
-      if (isTerminal(finalStatus)) break;
-      await sleep(intervalMs);
+  try {
+    if (!job.sourceObjectUrl || !job.sha256) {
+      await markPendingAttempt(db, job.surfaceId);
+      return { ...base, message: "archive_url 또는 sha256 누락 — 첨부 미매칭" };
     }
-  }
 
-  if (!isTerminal(finalStatus)) {
-    return { ...base, outcome: "pending", jobStatus: finalStatus, message: "폴링 타임아웃" };
-  }
+    const maxAttempts = options.maxAttempts ?? 120;
+    const intervalMs = options.intervalMs ?? 250;
+    const jobId = randomUUID();
 
-  if (finalStatus === "failed") {
-    await transitionSurfaceStatus(db, job.surfaceId, "failed", CONVERSION_CONVERTER_VERSION);
-    return { ...base, outcome: "failed", jobStatus: finalStatus };
-  }
+    // Remote registration and polling must not hold a database transaction.
+    const enqueued = await client.enqueueJob({
+      jobId,
+      source: job.source,
+      sourceId: job.sourceId,
+      surfaceId: job.surfaceId,
+      filename: job.filename,
+      sourceObjectUrl: job.sourceObjectUrl,
+      sha256: job.sha256,
+      requestedArtifacts: [...CONVERSION_REQUESTED_ARTIFACTS],
+    });
 
-  // 3) succeeded/partial: artifacts 확보 (캐시 히트가 아니면 GET 으로 조회).
-  if (artifacts.length === 0) {
-    const artifactsResponse = await client.getArtifacts(jobId);
-    artifacts = artifactsResponse?.artifacts ?? [];
-  }
+    let finalStatus = enqueued.status;
+    let artifacts = enqueued.cached ? enqueued.artifacts ?? [] : [];
 
-  const upsert = await upsertDocumentArtifacts(db, job.surfaceId, artifacts);
-  // 이 지점의 finalStatus 는 succeeded|partial 뿐이라 매핑은 항상 preview_ready 지만,
-  // 타입 좁힘을 위해 pending 을 명시적으로 배제한다 (pending 이면 전이 없음이 올바른 동작).
-  const nextExtractionStatus = mapJobStatusToExtractionStatus(finalStatus);
-  if (nextExtractionStatus !== "pending") {
-    await transitionSurfaceStatus(db, job.surfaceId, nextExtractionStatus, CONVERSION_CONVERTER_VERSION);
-  }
+    if (!isTerminal(finalStatus)) {
+      for (let i = 0; i < maxAttempts; i += 1) {
+        if (options.deadlineAtMs !== undefined && Date.now() >= options.deadlineAtMs) break;
+        const status = await client.getJob(jobId);
+        if (!status) {
+          await markPendingAttempt(db, job.surfaceId);
+          return { ...base, outcome: "pending", message: "job 조회 404 (인메모리 유실 가능)" };
+        }
+        finalStatus = status.status;
+        if (isTerminal(finalStatus)) break;
+        const waitMs = options.deadlineAtMs === undefined
+          ? intervalMs : Math.min(intervalMs, Math.max(0, options.deadlineAtMs - Date.now()));
+        if (waitMs > 0) await sleep(waitMs);
+      }
+    }
 
-  return {
-    ...base,
-    outcome: "preview_ready",
-    jobStatus: finalStatus,
-    artifactsInserted: upsert.inserted,
-    artifactsUpdated: upsert.updated,
-  };
+    if (!isTerminal(finalStatus)) {
+      await markPendingAttempt(db, job.surfaceId);
+      return { ...base, outcome: "pending", jobStatus: finalStatus, message: "폴링 타임아웃" };
+    }
+
+    if (finalStatus === "failed") {
+      await db.transaction(async (tx) => {
+        const session = tx as unknown as CunoteDbSession;
+        await lockAndVerifySurfaceSource(session, job);
+        await transitionSurfaceStatus(session, job.surfaceId, "failed", CONVERSION_CONVERTER_VERSION);
+      });
+      return { ...base, outcome: "failed", jobStatus: finalStatus };
+    }
+
+    // A terminal response without artifacts cannot establish preview readiness.
+    if (artifacts.length === 0) {
+      const artifactsResponse = await client.getArtifacts(jobId);
+      artifacts = artifactsResponse?.artifacts ?? [];
+    }
+    if (artifacts.length === 0) {
+      await markPendingAttempt(db, job.surfaceId);
+      return { ...base, outcome: "pending", jobStatus: finalStatus,
+        message: "변환 완료 응답에 artifact가 없어 재조정 대기" };
+    }
+
+    return await db.transaction(async (tx) => {
+      const session = tx as unknown as CunoteDbSession;
+      await lockAndVerifySurfaceSource(session, job);
+      const upsert = await upsertDocumentArtifacts(session, job.surfaceId, artifacts);
+      const nextExtractionStatus = mapJobStatusToExtractionStatus(finalStatus);
+      if (nextExtractionStatus !== "pending") {
+        await transitionSurfaceStatus(session, job.surfaceId, nextExtractionStatus, CONVERSION_CONVERTER_VERSION);
+      }
+      return { ...base, outcome: "preview_ready" as const, jobStatus: finalStatus,
+        artifactsInserted: upsert.inserted, artifactsUpdated: upsert.updated };
+    });
+  } catch (error) {
+    // A transient provider error must not pin the first page of pending jobs forever.
+    await markPendingAttempt(db, job.surfaceId).catch(() => undefined);
+    throw error;
+  }
+}
+
+async function lockAndVerifySurfaceSource(db: CunoteDbSession, job: PendingSurfaceJob): Promise<void> {
+  // Only persistence holds the lock. Concurrent pollers cannot insert duplicate
+  // artifact kinds or publish an old source after the surface was rebound.
+  await db.execute(sql`select pg_advisory_xact_lock(hashtextextended(${job.surfaceId}, 0))`);
+  const [surface] = await db.select({
+    source: schema.grantApplicationSurfaces.source,
+    sourceId: schema.grantApplicationSurfaces.sourceId,
+    sourceAttachment: schema.grantApplicationSurfaces.sourceAttachment,
+    sourceUrl: schema.grantApplicationSurfaces.sourceUrl,
+  }).from(schema.grantApplicationSurfaces)
+    .where(eq(schema.grantApplicationSurfaces.id, job.surfaceId)).limit(1);
+  if (!surface || surface.source !== job.source || surface.sourceId !== job.sourceId
+    || surface.sourceAttachment !== job.sourceAttachment || surface.sourceUrl !== job.sourceUrl) {
+    throw new Error("Conversion surface source changed during remote polling");
+  }
+  const archives = await db.select({
+    storageKey: schema.grantAttachmentArchives.storageKey,
+    sha256: schema.grantAttachmentArchives.sha256,
+  }).from(schema.grantAttachmentArchives).where(and(
+    eq(schema.grantAttachmentArchives.source, job.source),
+    eq(schema.grantAttachmentArchives.sourceId, job.sourceId),
+    job.sourceAttachment && job.sourceAttachment !== job.filename
+      ? eq(schema.grantAttachmentArchives.storageKey, job.sourceAttachment)
+      : eq(schema.grantAttachmentArchives.filename, job.filename),
+  ));
+  const exact = job.sourceAttachment
+    ? archives.filter((item) => item.storageKey === job.sourceAttachment) : [];
+  const bound = exact.length === 1 ? exact[0]
+    : exact.length === 0 && archives.length === 1
+      && (!job.sourceAttachment || job.sourceAttachment === job.filename) ? archives[0] : null;
+  if (!bound || bound.sha256 !== job.sha256) {
+    throw new Error("Conversion archived source SHA changed during remote polling");
+  }
+}
+
+async function markPendingAttempt(db: CunoteDb, surfaceId: string): Promise<void> {
+  await db.update(schema.grantApplicationSurfaces)
+    .set({ updatedAt: new Date() })
+    .where(and(eq(schema.grantApplicationSurfaces.id, surfaceId),
+      eq(schema.grantApplicationSurfaces.extractionStatus, "pending")));
 }
 
 function isTerminal(status: string): boolean {

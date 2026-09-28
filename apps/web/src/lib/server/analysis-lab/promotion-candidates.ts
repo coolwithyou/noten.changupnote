@@ -27,9 +27,11 @@ import { labReviewFilePath } from "./review-store";
 import { labRunFilePath, modelSlug } from "./run-store";
 import { resolveManualConfirmationEvaluationsForSource } from "./manual-confirmation-evaluations";
 import { isPublishableLabRun } from "./run-outcome";
+import { hasUnreadableEligibilitySource } from "./promotion-source-readability";
 import { getCunoteDb } from "../db/client";
 import * as schema from "../db/schema";
 import { prepareDeepAnalysisInput } from "../deep-analysis/prepareInput";
+import { parseDeepAnalysisNormalizedOutput } from "../deep-analysis/promotion";
 import { createR2ObjectStorageFromEnv } from "../storage/r2ObjectStorage";
 
 export interface PromotionCandidate {
@@ -134,6 +136,9 @@ export async function verifyPromotionSourceArtifact(
   const run = await readRunImpl(artifact.grantId, artifact.runId);
   if (!run) return { ok: false, changed: ["run_missing"] };
   if (!isPublishableLabRun(run)) return { ok: false, changed: ["run_outcome"] };
+  if (hasUnreadableEligibilitySource(run)) {
+    return { ok: false, changed: ["eligibility_source_unreadable"] };
+  }
   const runPath = labRunFilePath(run.source, run.sourceId, run.runId);
   const selectedManual = await resolveManualConfirmationEvaluationsForSource({
     run,
@@ -311,6 +316,16 @@ async function verifyDeepAnalysisPromotionSourceArtifact(
   } else {
     const output = await storage.getObjectBytes(run.outputArtifactKey);
     if (sha256(output.body) !== artifact.runSha256) changed.push("output");
+    try {
+      const normalized = parseDeepAnalysisNormalizedOutput(
+        JSON.parse(output.body.toString("utf8")) as unknown,
+      );
+      if (hasUnreadableEligibilitySource(normalized.result)) {
+        changed.push("eligibility_source_unreadable");
+      }
+    } catch {
+      changed.push("output_contract");
+    }
   }
 
   const [latestJob] = await db

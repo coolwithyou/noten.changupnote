@@ -403,6 +403,25 @@ try {
     },
   });
 
+  const unreadableEligibility = classifyFixtureRun({
+    ...run,
+    criteria: [{
+      ...run.criteria[0]!,
+      kind: "exclusion",
+      note: "인접한 지원 제한 문구는 OCR 손상으로 판독 불가하여 발행하지 않음.",
+    }],
+  });
+  assert.equal(unreadableEligibility.disposition, "held");
+  assert.ok(unreadableEligibility.reasons.includes("eligibility_source_unreadable"));
+  const confirmedAlternativeSource = classifyFixtureRun({
+    ...run,
+    criteria: [{
+      ...run.criteria[0]!,
+      note: "OCR 문자가 깨졌으나 공식 본문으로 자격 조건을 대조해 확인함.",
+    }],
+  });
+  assert.equal(confirmedAlternativeSource.reasons.includes("eligibility_source_unreadable"), false);
+
   // 실제 과잉 보류 2건의 패스 형태를 오프라인으로 재생한다. immutable 카운터는
   // 그대로 1이지만, 완전한 진단에서 새 issue가 source_incomplete뿐이면 현행 admission은 통과한다.
   const sourceIncompleteHistoricalCases: Array<{

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { and, eq, inArray, isNotNull, notInArray } from "drizzle-orm";
 import type {
   Grant,
@@ -12,7 +13,9 @@ import { buildGrantExtractionManifest } from "@cunote/core";
 import type { CunoteDb, CunoteDbSession } from "../db/client";
 import * as schema from "../db/schema";
 import {
+  enqueueDeferredAttachmentConversions,
   registerAttachmentConversions,
+  type DeferredConversionJob,
   type ArchivedAttachmentRef,
 } from "../conversion/registerAttachmentConversions";
 import { readDetectedSurfaceFormat } from "./grantAttachmentArchive";
@@ -31,6 +34,20 @@ import {
   type GrantSourceChangeProjectionInput,
 } from "./grantSourceChangeImpact";
 import type { GrantSupplyAssessment } from "../productReadiness/grantSupply";
+import { stableJson } from "../deep-analysis/sourceRevision";
+import { classifyNoticePeriod } from "../analysis-lab/notice-period";
+
+/** Single-grant publication boundary for an approved exact source recovery. */
+export interface ExactPublicationImpact {
+  grantId: string;
+  sourceId: string;
+  applyEnd: string;
+  maxAffectedGrants: 1;
+  existingMatchStateRows: number;
+  matchCompanyIdsSha256: string;
+  criterionCount: number;
+  promotedCriterionCount: 0;
+}
 
 export interface NormalizedGrantPublishPlan {
   source: GrantSource;
@@ -103,12 +120,18 @@ export async function publishNormalizedGrants<TPayload>(
     source: GrantSource;
     page?: number;
     collectedAt?: Date;
+    exactPublicationImpact?: ExactPublicationImpact;
   },
 ): Promise<NormalizedGrantPublishResult> {
   const collectedAt = options.collectedAt ?? new Date();
   assertEntriesUseSource(options.source, entries);
+  if (options.exactPublicationImpact && (entries.length !== 1
+    || entries[0]?.grant.source_id !== options.exactPublicationImpact.sourceId)) {
+    throw new Error("Exact publication entry scope mismatch");
+  }
 
   const conversionWarnings: string[] = [];
+  const deferredConversionJobs: DeferredConversionJob[] = [];
 
   const result = await db.transaction(async (tx) => {
     const confirmedLinks = await tx
@@ -165,6 +188,27 @@ export async function publishNormalizedGrants<TPayload>(
         ? await tx.select().from(schema.grantCriteria)
           .where(eq(schema.grantCriteria.grantId, previous.grantId))
         : [];
+      if (options.exactPublicationImpact) {
+        const exact = options.exactPublicationImpact;
+        const component = expandConfirmedGrantComponentIds([exact.grantId], confirmedLinks);
+        if (!previous || previous.grantId !== exact.grantId
+          || previous.grant.status !== "open" || previous.grant.servingState !== "visible"
+          || previous.grant.applyEnd?.toISOString() !== exact.applyEnd
+          || classifyNoticePeriod(previous.grant.applyStart, previous.grant.applyEnd) !== "eligible"
+          || component.length !== exact.maxAffectedGrants || component[0] !== exact.grantId
+          || previousCriteria.length !== exact.criterionCount
+          || previousCriteria.filter((item) => item.stableKey !== null).length !== exact.promotedCriterionCount) {
+          throw new Error("Exact publication grant, component, or criteria drift");
+        }
+        const matches = await tx.select({ companyId: schema.matchState.companyId })
+          .from(schema.matchState).where(eq(schema.matchState.grantId, exact.grantId));
+        const companyIdsSha256 = createHash("sha256")
+          .update(stableJson(matches.map((item) => item.companyId).sort())).digest("hex");
+        if (matches.length !== exact.existingMatchStateRows
+          || companyIdsSha256 !== exact.matchCompanyIdsSha256) {
+          throw new Error("Exact publication match-state scope drift");
+        }
+      }
       // P1 승격 보호(promotion-protected) 판별 — 추가 쿼리 없이, 위에서 이미 읽은
       // previousCriteria(advisory lock 획득 후 재조회 baseline)를 재사용한다.
       const promotionProtected = hasPromotionProtectedCriteria(previousCriteria);
@@ -324,6 +368,7 @@ export async function publishNormalizedGrants<TPayload>(
             attachments: attachmentRefs,
           });
           conversionWarnings.push(...hook.warnings);
+          deferredConversionJobs.push(...hook.deferredJobs);
         }
       } catch (error) {
         // 후크 전체 실패도 아카이브를 막지 않는다.
@@ -380,7 +425,10 @@ export async function publishNormalizedGrants<TPayload>(
       promotionProtectedSourceIds: [...promotionProtectedSourceIds].sort(),
       ...(conversionWarnings.length > 0 ? { conversionWarnings } : {}),
     };
-  }, { isolationLevel: "repeatable read" });
+  }, { isolationLevel: options.exactPublicationImpact ? "serializable" : "repeatable read" });
+
+  const conversionEnqueue = await enqueueDeferredAttachmentConversions(db, deferredConversionJobs);
+  conversionWarnings.push(...conversionEnqueue.warnings);
 
   if (result.promotionProtectedCount > 0) {
     // 관측성: 수집 크론(Vercel) 함수 로그에 보호 발동을 1줄로 남긴다 — 커밋된 publish에만 기록.
@@ -389,7 +437,10 @@ export async function publishNormalizedGrants<TPayload>(
       + `sourceIds=${result.promotionProtectedSourceIds.join(",")} — 승격 보호 grant는 criteria 교체 스킵(큐레이션 세트 보존)`,
     );
   }
-  return result;
+  return {
+    ...result,
+    ...(conversionWarnings.length > 0 ? { conversionWarnings } : {}),
+  };
 }
 
 function numberField(value: unknown): number {

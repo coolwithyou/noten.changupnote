@@ -76,7 +76,7 @@ export interface MatchingInventorySnapshotTarget {
   readonly inputSha256: string | null;
   readonly attachmentManifestSha256: string | null;
   readonly closesToday: boolean;
-  readonly preparationFailure?: "grant_missing" | "input_integrity";
+  readonly preparationFailure?: "grant_missing" | "input_integrity" | "announcement_input_missing";
   readonly supplyAssessment?: GrantSupplyAssessment;
   readonly eligibility:
     | { readonly eligible: true }

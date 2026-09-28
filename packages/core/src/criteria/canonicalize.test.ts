@@ -51,6 +51,16 @@ assert.deepEqual(canonicalizeGrantCriterion(aliases[1]!).value, { targets: ["법
 assert.deepEqual(canonicalizeGrantCriterion(aliases[2]!).value, { traits: ["여성"] });
 assert.equal(matchGrantCriteria(aliases, company).eligibility, "eligible");
 
+assert.deepEqual(canonicalizeGrantCriterion(criterion({
+  dimension: "founder_trait",
+  kind: "preferred",
+  operator: "in",
+  value: { traits: ["여성기업"], note: "여성기업·특화분야 가점 합산 최대 3점" },
+})).value, {
+  traits: ["여성기업"],
+  note: "여성기업·특화분야 가점 합산 최대 3점",
+}, "구조화 목록의 원문 가점 설명을 투영 중 소실하지 않는다");
+
 for (const dimension of ["industry", "region", "employees"] as const) {
   const value = {
     note: `${dimension} 원문 조건`,

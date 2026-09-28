@@ -25,6 +25,7 @@ import {
   primaryMatchingProjectionSnapshotSha256,
   primaryProjectionSource,
 } from "./primary-matching-projection";
+import { deriveCurrentProjectionForFreshIndependentReview } from "./matching-projection-review-carryforward";
 import type { AnalysisLaunchMatchingProjectionBinding } from "./launch-batch-artifacts";
 
 export const INDEPENDENT_REVIEW_PACKET_SCHEMA = "independent-ai-review-packet-v2";
@@ -932,13 +933,19 @@ export function resolveIndependentReviewProjection(
       : {}),
     criteria: run.criteria,
   });
-  const provenance = run.primaryMatchingProjection ? "run_snapshot" : "derived_current";
   const snapshot = run.primaryMatchingProjection ?? buildPrimaryMatchingProjectionSnapshot({
     source,
     primaryExtractionAvailable: true,
   });
   const inspection = inspectPrimaryMatchingProjectionSnapshot(source, snapshot);
   if (inspection.status !== "verified") {
+    if (run.primaryMatchingProjection) {
+      const fresh = deriveCurrentProjectionForFreshIndependentReview({ run, target });
+      return {
+        snapshot: fresh.snapshot,
+        binding: { ...fresh.binding, provenance: "derived_current" },
+      };
+    }
     throw new Error(
       `독립 검수용 matching projection을 검증할 수 없습니다: ${run.grantId} (${inspection.issues.join("+")})`,
     );
@@ -952,7 +959,7 @@ export function resolveIndependentReviewProjection(
   }
   return {
     snapshot,
-    binding: { ...expected, provenance },
+    binding: { ...expected, provenance: run.primaryMatchingProjection ? "run_snapshot" : "derived_current" },
   };
 }
 

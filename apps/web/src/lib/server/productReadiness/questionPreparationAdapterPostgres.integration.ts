@@ -120,10 +120,13 @@ export async function verifyQuestionPreparationAdapterPostgres(input: {
   assert.ok(publishedCriterion);
   const criterionId = publishedCriterion.id;
   await input.admin`update grant_criteria set stable_key=${stableKey} where id=${criterionId}`;
-  await input.admin`update grant_attachment_archives
-    set sha256=${"a".repeat(64)},conversion_status='archived'
+  const archived = await input.admin`update grant_attachment_archives
+    set storage_key='isolated-test/question-preparation/guide.pdf',
+      sha256=${"a".repeat(64)},conversion_status='archived'
     where source='kstartup' and source_id=${sourceId}
-      and filename='guide.pdf' and source_uri='https://example.invalid/guide.pdf'`;
+      and filename='guide.pdf' and source_uri='https://example.invalid/guide.pdf'
+    returning id`;
+  assert.equal(archived.length, 1, "격리 공고의 선언 첨부 아카이브를 정확히 한 건 결속한다");
   const source = await loadDeepAnalysisSourceBinding({ db, grantId });
   assert.ok(source);
   assert.equal(source.sourceRawSha256, rawSha256);

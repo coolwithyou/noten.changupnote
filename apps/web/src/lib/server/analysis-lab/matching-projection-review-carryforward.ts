@@ -36,6 +36,62 @@ export interface ReviewedMatchingProjectionResolution {
 }
 
 /**
+ * 역사 run은 그대로 보존하고, 현재 변환 결과를 새 독립 검수에 명시적으로 제출한다.
+ * 이 경로는 과거 검수의 승계가 아니다. 옛 snapshot/receipt의 무결성이 확인되고
+ * 오직 runtime 재투영 차이만 있을 때 새 packet에 현행 projection을 봉인한다.
+ */
+export function deriveCurrentProjectionForFreshIndependentReview(input: {
+  run: LabRun;
+  target: {
+    grantId: string;
+    primaryMatchingProjection?: AnalysisLaunchMatchingProjectionBinding;
+  };
+}): ReviewedMatchingProjectionResolution {
+  const historical = input.run.primaryMatchingProjection;
+  if (
+    input.target.grantId !== input.run.grantId
+    || !historical
+    || !input.target.primaryMatchingProjection
+  ) {
+    throw new Error(`역사 matching projection의 run/receipt 결속이 없습니다: ${input.run.grantId}`);
+  }
+  const historicalBinding = buildAnalysisLaunchMatchingProjectionBinding(historical);
+  assertOptionalReceiptBinding(input.target.primaryMatchingProjection, historicalBinding, input.run.grantId);
+  const source = primaryProjectionSource({
+    runId: input.run.runId,
+    grantId: input.run.grantId,
+    source: input.run.source,
+    sourceId: input.run.sourceId,
+    inputSha256: input.run.inputSha256,
+    ...(input.run.attachmentManifestSha256
+      ? { attachmentManifestSha256: input.run.attachmentManifestSha256 }
+      : {}),
+    criteria: input.run.criteria,
+  });
+  const historicalInspection = inspectPrimaryMatchingProjectionSnapshot(source, historical);
+  if (
+    historicalInspection.status !== "mismatch"
+    || !historicalInspection.issues.includes("matching_projection_runtime_binding_mismatch")
+    || historicalInspection.issues.some((issue) => !ALLOWED_HISTORICAL_ISSUES.has(issue))
+  ) {
+    throw new Error(
+      `역사 matching projection을 새 검수에 결속할 수 없습니다: ${input.run.grantId}`
+      + ` (${historicalInspection.issues.join("+")})`,
+    );
+  }
+  const current = buildPrimaryMatchingProjectionSnapshot({
+    source,
+    primaryExtractionAvailable: true,
+  });
+  assertCurrentSnapshotVerified(source, current, input.run.grantId);
+  return {
+    snapshot: current,
+    binding: buildAnalysisLaunchMatchingProjectionBinding(current),
+    carryforward: null,
+  };
+}
+
+/**
  * 독립 검수된 역사 projection과 현행 runtime 사이의 유일한 허용 승계 경계.
  * 일반적인 재투영 변경은 거부하고, v2가 비워 버린 text_only value의 무손실 복원만 허용한다.
  */
@@ -76,6 +132,16 @@ export function resolveReviewedMatchingProjectionForPromotion(input: {
       input.run.grantId,
     );
     return { snapshot: current, binding, carryforward: null };
+  }
+
+  if (input.reviewedPacketBinding.provenance === "derived_current") {
+    const fresh = deriveCurrentProjectionForFreshIndependentReview(input);
+    assertPacketBinding(
+      input.reviewedPacketBinding,
+      { ...fresh.binding, provenance: "derived_current" },
+      input.run.grantId,
+    );
+    return fresh;
   }
 
   const historicalBinding = buildAnalysisLaunchMatchingProjectionBinding(historical);

@@ -148,6 +148,32 @@ assert.deepEqual(clean.passes[0]?.issueCodes, [], "통과 패스는 issueCodes �
 assert.ok((clean.passes[0]?.durationMs ?? -1) >= 0, "패스 durationMs 는 0 이상");
 assert.equal(clean.terminationReason, "accepted");
 
+let unreadableCalls = 0;
+const unreadable = await runValidatedLabPrimary({
+  grantId: "grant-lab-unreadable-eligibility",
+  inputText,
+  inputSha256: "d".repeat(64),
+  apiKey: "subscription",
+  model: "claude-opus-5",
+  runModel: async () => {
+    unreadableCalls += 1;
+    const first = result(true);
+    return {
+      ...first,
+      criteria: [{
+        ...validCriterion,
+        note: "지원 제한 문구는 스캔 손상으로 판독 불가",
+      }],
+    };
+  },
+});
+assert.equal(unreadableCalls, 1, "읽을 수 없는 자격 근거를 모델 repair로 다시 쓰지 않는다");
+assert.equal(unreadable.repairCount, 0);
+assert.equal(unreadable.matchingReadiness, "deferred");
+assert.equal(unreadable.outcome, "held");
+assert.equal(unreadable.terminationReason, "held");
+assert.ok(unreadable.passes[0]?.issueCodes.includes("eligibility_source_unreadable"));
+
 const danyangScopeSpan = "〈사업 대상자 선정평가표〉\n\n붙임 2";
 const danyangInputText = `${inputText}\n${danyangScopeSpan}\n`;
 function sourceLimitedResult(

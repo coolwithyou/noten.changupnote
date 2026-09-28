@@ -236,9 +236,10 @@ async function recoverOneCandidate(input: {
     mode = "pdftotext_layout";
     markdown = extracted;
   } else {
-    if (candidate.pageCount > MAX_IMAGE_OCR_PAGES) {
+    const pagesToOcr = selectPdfOcrPages(extracted, imagePages, candidate.pageCount);
+    if (pagesToOcr.length > MAX_IMAGE_OCR_PAGES) {
       throw new Error(
-        `PDF has ${candidate.pageCount} image pages; OCR cap is `
+        `PDF requires OCR for ${pagesToOcr.length} pages; OCR cap is `
         + `${MAX_IMAGE_OCR_PAGES} and this notice requires human split review`,
       );
     }
@@ -250,15 +251,14 @@ async function recoverOneCandidate(input: {
       })
       : await renderLocalPdfPages({
         pdf: pdf.body,
-        pageCount: candidate.pageCount,
+        pages: pagesToOcr,
       });
     mode = candidate.pageImages.length > 0
       ? "page_image_ocr"
       : "local_render_ocr";
     const ocr = await buildPdfPageOcrMarkdown({
       title: candidate.title,
-      images: extracted.length >= MIN_EXTRACTED_TEXT_CHARS && imagePages !== null
-        ? images.filter(image => imagePages.includes(image.page)) : images,
+      images: images.filter(image => pagesToOcr.includes(image.page)),
       imageOcr: input.imageOcr ?? tesseractGrantImageOcr,
     });
     markdown = extracted.length >= MIN_EXTRACTED_TEXT_CHARS
@@ -378,6 +378,16 @@ export function needsPdfVisualOcr(text: string, imagePages: readonly number[] | 
   return text.length < MIN_EXTRACTED_TEXT_CHARS || imagePages === null || imagePages.length > 0;
 }
 
+export function selectPdfOcrPages(
+  text: string,
+  imagePages: readonly number[] | null,
+  pageCount: number,
+): number[] {
+  return text.length >= MIN_EXTRACTED_TEXT_CHARS && imagePages !== null
+    ? [...imagePages]
+    : Array.from({ length: pageCount }, (_, index) => index + 1);
+}
+
 async function readPdfPageCount(pdf: Buffer): Promise<number> {
   const directory = await mkdtemp(join(tmpdir(), "cunote-pdf-info-"));
   try {
@@ -459,38 +469,36 @@ async function loadVerifiedPageImages(input: {
 
 async function renderLocalPdfPages(input: {
   pdf: Buffer;
-  pageCount: number;
+  pages: readonly number[];
 }): Promise<Array<{ page: number; body: Buffer; contentType: string | null }>> {
-  if (input.pageCount > MAX_IMAGE_OCR_PAGES) {
+  if (input.pages.length > MAX_IMAGE_OCR_PAGES) {
     throw new Error(
-      `PDF has ${input.pageCount} pages without text/page images; local OCR cap is `
+      `PDF requires OCR for ${input.pages.length} pages; local OCR cap is `
       + `${MAX_IMAGE_OCR_PAGES}`,
     );
+  }
+  if (input.pages.length === 0
+    || input.pages.some((page, index) => !Number.isSafeInteger(page)
+      || page < 1 || index > 0 && page <= input.pages[index - 1]!)) {
+    throw new Error("PDF OCR pages must be nonempty, sorted, and unique");
   }
   const directory = await mkdtemp(join(tmpdir(), "cunote-pdf-render-"));
   const pdfPath = join(directory, "input.pdf");
   const outputPrefix = join(directory, "page");
   try {
     await writeFile(pdfPath, input.pdf, { flag: "wx" });
-    await execFileAsync(
-      "pdftoppm",
-      [
-        "-png",
-        "-r",
-        "160",
-        "-f",
-        "1",
-        "-l",
-        String(input.pageCount),
-        pdfPath,
-        outputPrefix,
-      ],
-      { timeout: 120_000, maxBuffer: 4 * 1024 * 1024 },
-    );
+    for (const page of input.pages) {
+      await execFileAsync(
+        "pdftoppm",
+        ["-png", "-r", "160", "-f", String(page), "-l", String(page), pdfPath, outputPrefix],
+        { timeout: 120_000, maxBuffer: 4 * 1024 * 1024 },
+      );
+    }
     const paths = (await readdir(directory))
       .filter((path) => /^page-\d+\.png$/.test(path))
       .sort((left, right) => pageNumber(left) - pageNumber(right));
-    if (paths.length !== input.pageCount) {
+    if (paths.length !== input.pages.length
+      || paths.some((path, index) => pageNumber(path) !== input.pages[index])) {
       throw new Error("Local PDF renderer produced an incomplete page set");
     }
     return Promise.all(paths.map(async (path) => ({

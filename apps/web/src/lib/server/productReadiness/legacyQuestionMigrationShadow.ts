@@ -228,12 +228,20 @@ export async function loadLegacyQuestionMigrationShadow(input: {
   readonly db: CunoteDbSession;
   readonly asOf?: Date;
   readonly limit?: number;
+  readonly grantIds?: readonly string[];
 }): Promise<LegacyQuestionMigrationShadowReport> {
   const asOf = input.asOf ?? new Date();
   const limit = input.limit ?? 20_000;
   if (!Number.isFinite(asOf.getTime()) || !Number.isInteger(limit) || limit < 1 || limit > 20_000) {
     throw new Error("asOf 또는 limit을 확인해주세요.");
   }
+  const requestedGrantIds = input.grantIds;
+  if (requestedGrantIds && (
+    requestedGrantIds.length === 0
+    || requestedGrantIds.length > limit
+    || new Set(requestedGrantIds).size !== requestedGrantIds.length
+    || requestedGrantIds.some((grantId) => !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(grantId))
+  )) throw new Error("질문 이관 exact 공고 범위가 올바르지 않습니다.");
   const { start, end } = kstDayBounds(asOf);
   const grants = await input.db.select({ id: schema.grants.id })
     .from(schema.grants)
@@ -242,11 +250,16 @@ export async function loadLegacyQuestionMigrationShadow(input: {
       eq(schema.grants.servingState, "visible"),
       lte(schema.grants.applyStart, end),
       gte(schema.grants.applyEnd, start),
+      ...(requestedGrantIds ? [inArray(schema.grants.id, [...requestedGrantIds])] : []),
     ))
     .orderBy(desc(schema.grants.updatedAt), desc(schema.grants.id))
     .limit(limit + 1);
   if (grants.length > limit) throw new Error("질문 이관 shadow 상한 초과: 부분 결과를 반환하지 않습니다.");
   const grantIds = grants.map((grant) => grant.id);
+  if (requestedGrantIds && (
+    grantIds.length !== requestedGrantIds.length
+    || requestedGrantIds.some((grantId) => !grantIds.includes(grantId))
+  )) throw new Error("질문 이관 exact 공고가 현재 공개·접수 범위에 없습니다.");
   if (grantIds.length === 0) return buildLegacyQuestionMigrationShadowReport({ observedAt: asOf, rows: [] });
 
   const [questions, answers, servingRows, sourceBindings] = await Promise.all([

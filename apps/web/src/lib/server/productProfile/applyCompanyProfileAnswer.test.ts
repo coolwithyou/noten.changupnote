@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import type { NormalizedGrant } from "@cunote/contracts";
 import { closeCunoteDb } from "@/lib/server/db/client";
+import { decodeCompanyProfileRows, encodeCompanyProfileRows, type CompanyProfilePersistenceRow } from "../repositories/drizzle";
 
 process.env.CUNOTE_REPOSITORY_ADAPTER = "runtime";
 process.env.CUNOTE_WEB_DATA_SOURCE = "sample";
@@ -184,6 +185,59 @@ for (const [timestamp, editable] of [["2026-05-01T00:00:00.000Z", true], [asOf.t
   const stored = await repositories.companies.resolveCompanyProfile({ companyId: officialCompany.id, userId });
   assert.equal(stored?.revenue_krw, 100, "editing one expired field preserves consent-hidden stored fields");
   assert.ok(stored?.profile_evidence?.biz_age?.supplemental?.some((e) => e.provider === "apick" && e.asOf === timestamp), "expired provenance remains in storage for audit");
+}
+
+const sizeCompany = await repositories.companies.createCompany({
+  userId, profile: { name: "규모 답변 철회 검증 기업" },
+});
+await repositories.companies.saveCompanyProfile({
+  companyId: sizeCompany.id, profile: { name: "규모 답변 철회 검증 기업" },
+});
+const sizeGrantId = "00000000-0000-4000-8000-000000000301";
+const sizeGrant: NormalizedGrant<unknown> = {
+  grant: {
+    id: sizeGrantId, source: "bizinfo", source_id: "size-answer-withdrawal",
+    title: "중소기업 대상 공고", status: "open", apply_end: "2026-06-30",
+    overall_confidence: 1, f_regions: [], f_industries: [], f_sizes: [],
+    f_founder_traits: [], f_required_certs: [],
+  },
+  criteria: [{
+    id: "00000000-0000-4000-8000-000000000302", grant_id: sizeGrantId,
+    dimension: "size", kind: "required", operator: "in", value: { sizes: ["중소기업"] },
+    confidence: 1, source_span: "모집 대상: 중소기업",
+  }],
+  extraction_manifest: {
+    grantId: sizeGrantId, revision: "size-answer-withdrawal", sourceFieldsSeen: ["criteria"],
+    attachmentsExpected: 0, attachmentsFetched: 0, attachmentsConverted: 0,
+    sectionsDetected: ["required"], extractorVersion: "fixture", completedAt: asOf.toISOString(),
+    warnings: [], readiness: "reviewed", reviewedAt: asOf.toISOString(),
+  },
+  raw: { source: "bizinfo", source_id: "size-answer-withdrawal", payload: {}, status: "published" },
+};
+try {
+  repositories.grants.listActiveGrants = async () => [sizeGrant] as Awaited<ReturnType<typeof originalListGrants>>;
+  const before = await loadOwnedCompanyMatching({ companyId: sizeCompany.id, userId, asOf });
+  assert.equal(before.teaser.counts.recommendable, 0);
+  const small = await applyCompanyProfileAnswer({
+    companyId: sizeCompany.id, userId, answer: { field: "size", value: "중소기업" }, asOf,
+  });
+  assert.equal(small.matching.teaser.counts.recommendable, 1);
+  assert.equal((await loadOwnedCompanyMatching({ companyId: sizeCompany.id, userId, asOf })).teaser.counts.recommendable, 1);
+  const unknown = await applyCompanyProfileAnswer({
+    companyId: sizeCompany.id, userId, answer: { field: "size", unknown: true }, asOf,
+  });
+  assert.equal(unknown.matching.teaser.counts.recommendable, 0, "모름으로 바꾸면 추천 상태가 철회된다");
+  assert.equal(unknown.profile.size, undefined);
+  const storedRows = encodeCompanyProfileRows(sizeCompany.id, unknown.profile, asOf, userId);
+  const decoded = decodeCompanyProfileRows({ id: sizeCompany.id, kind: "active", name: sizeCompany.name },
+    storedRows as CompanyProfilePersistenceRow[]);
+  assert.equal(decoded.size, undefined, "DB row codec 왕복에서 이전 자가신고 규모가 복원되지 않는다");
+  assert.equal(decoded.question_answer_state?.size?.status, "unknown");
+  const reopened = await loadOwnedCompanyMatching({ companyId: sizeCompany.id, userId, asOf });
+  assert.equal(reopened.teaser.counts.recommendable, 0, "새 조회에서도 철회된 추천이 되살아나지 않는다");
+  assert.deepEqual(reopened.unknownDimensions, ["size"]);
+} finally {
+  repositories.grants.listActiveGrants = originalListGrants;
 }
 
 console.log("productProfile/applyCompanyProfileAnswer.test.ts: all assertions passed");

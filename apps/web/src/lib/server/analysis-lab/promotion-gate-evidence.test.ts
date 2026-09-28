@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import type { LabRun } from "./lab-contract";
 import type { GrantPromotionPlan } from "./promote";
 import {
   evaluatePromotionAggregateEvidence,
@@ -6,6 +7,7 @@ import {
 } from "./promotion-gate-evidence";
 import {
   PromotionSourceUnavailableError,
+  verifyPromotionSourceArtifact,
   verifyPromotionReleaseSources,
 } from "./promotion-candidates";
 import { planSha256, type PromotionReleasePlanItem } from "./promotion-release";
@@ -172,6 +174,19 @@ const sourceArtifact = {
   overlaySha256: null,
   confirmationsSha256: null,
 };
+
+assert.deepEqual(
+  await verifyPromotionSourceArtifact(sourceArtifact, {
+    readRunImpl: async () => ({
+      runId: sourceArtifact.runId,
+      error: null,
+      primaryValidationOutcome: "publishable",
+      criteria: [{ kind: "required", note: "스캔 손상으로 해독 불가한 지원조건" }],
+    }) as LabRun,
+  }),
+  { ok: false, changed: ["eligibility_source_unreadable"] },
+  "이미 봉인된 일반 release도 write 전 source 재검증에서 막는다",
+);
 
 assert.deepEqual(
   await verifyPromotionReleaseSources([sourceArtifact], {

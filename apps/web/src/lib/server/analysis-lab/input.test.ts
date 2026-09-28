@@ -4,6 +4,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { zipSync } from "fflate";
+import { assertMatchingAnnouncementCoverage, MatchingAnnouncementInputMissingError } from "./matching-announcement-coverage";
 import {
   applyLabVerifiedConversionArtifacts,
   assembleLabInput,
@@ -99,6 +100,46 @@ function zipCoverageFixture(input: {
 }
 
 async function run() {
+  // K-Startup 포털 검색 필터는 자격 원문이 아니다. 본문과 첨부의 명시 조건은 보존한다.
+  {
+    const payload = {
+      biz_pbanc_nm: "입주기업 모집",
+      aply_trgt_ctnt: "공고일 기준 창업 7년 이내 기업, 서울 소재 제한 없음",
+      biz_enyy: "예비창업자,1년미만,2년미만,3년미만,5년미만,7년미만",
+      biz_trgt_age: "만 20세 미만,만 20세 이상 ~ 만 39세 이하,만 40세 이상",
+      supt_regin: "전국",
+    };
+    const before = structuredClone(payload);
+    const archives = [archive({
+      filename: "공고문.txt",
+      markdownStorageKey: "md/공고문",
+      markdownSha256: sha256("입주 후 30일 이내 주소 이전 필수"),
+      markdownBytes: "입주 후 30일 이내 주소 이전 필수".length,
+      conversionStatus: "converted",
+    })];
+    const storage = fakeStorage({ "md/공고문": "입주 후 30일 이내 주소 이전 필수" });
+    const withFilters = await assembleLabInput({ grant: GRANT, payload, archives }, { storage });
+    const withoutFilters = await assembleLabInput({
+      grant: GRANT,
+      payload: { biz_pbanc_nm: payload.biz_pbanc_nm, aply_trgt_ctnt: payload.aply_trgt_ctnt },
+      archives,
+    }, { storage });
+    assert.deepEqual(payload, before, "원본 payload를 수정하지 않는다");
+    assert.equal(withFilters.inputSha256, withoutFilters.inputSha256);
+    assert.equal(withFilters.text, withoutFilters.text);
+    assert.doesNotMatch(withFilters.text, /source_field: (biz_enyy|biz_trgt_age|supt_regin)/);
+    assert.doesNotMatch(withFilters.text, /예비창업자,1년미만|만 20세 미만/);
+    assert.match(withFilters.text, /공고일 기준 창업 7년 이내 기업, 서울 소재 제한 없음/);
+    assert.match(withFilters.text, /입주 후 30일 이내 주소 이전 필수/);
+
+    const filterOnly = await assembleLabInput({
+      grant: GRANT,
+      payload: { biz_enyy: "3년미만", biz_trgt_age: "만 39세 이하", supt_regin: "서울" },
+      archives: [],
+    }, { storage: fakeStorage({}) });
+    assert.doesNotMatch(filterOnly.text, /3년미만|만 39세 이하|지원지역: 서울/);
+  }
+
   // ⓪ archive 변환 포인터가 비어도 같은 원본의 검증된 surface markdown을 재사용한다.
   {
     const hydrated = applyLabVerifiedConversionArtifacts([
@@ -504,6 +545,65 @@ async function run() {
     });
   }
 
+  // 파일명 끝의 '시행 공고.pdf'도 명시적 공고문이다. 누락 시 matching 보호에서 빠지면 안 된다.
+  {
+    const result = await assembleLabInput({
+      grant: GRANT, payload: null,
+      archives: [archive({
+        filename: "2026년도 안전관리 우수연구실 인증제 시행 공고.pdf",
+        sourceUri: "https://example.com/notice.pdf",
+        conversionStatus: "skipped",
+      })],
+    }, { storage: fakeStorage({}) });
+    assert.equal(result.attachmentPreparationReport?.[0]?.documentRole, "announcement");
+    assert.equal(result.attachmentPreparationReport?.[0]?.inputOutcome, "unavailable");
+    assert.throws(() => assertMatchingAnnouncementCoverage(result.attachmentPreparationReport),
+      MatchingAnnouncementInputMissingError);
+  }
+
+  // 사업지침서는 자격·지원 범위를 정할 수 있는 공식 입력이므로 누락되면 대상만 보류한다.
+  {
+    const result = await assembleLabInput({
+      grant: GRANT, payload: null,
+      archives: [archive({
+        filename: "(사업지침서) 2026년 GAP 안전성 분석 지원.pdf",
+        sourceUri: "https://example.com/guideline.pdf",
+        conversionStatus: "skipped",
+      })],
+    }, { storage: fakeStorage({}) });
+    assert.equal(result.attachmentPreparationReport?.[0]?.documentRole, "announcement");
+    assert.equal(result.attachmentPreparationReport?.[0]?.inputOutcome, "unavailable");
+    assert.throws(() => assertMatchingAnnouncementCoverage(result.attachmentPreparationReport),
+      MatchingAnnouncementInputMissingError);
+  }
+
+  // SHA가 맞는 markdown이라도 본문이 비어 있으면 공고문을 읽었다고 표시하지 않는다.
+  {
+    const empty = " \n";
+    const result = await assembleLabInput({
+      grant: GRANT, payload: null,
+      archives: [archive({
+        filename: "모집 공고문.pdf",
+        storageKey: "archive/notice.pdf",
+        sha256: "a".repeat(64),
+        markdownStorageKey: "archive/notice.md",
+        markdownSha256: sha256(empty),
+        markdownBytes: empty.length,
+      })],
+    }, { storage: fakeStorage({ "archive/notice.md": empty }) });
+    assert.deepEqual(result.attachmentPreparationReport?.map((item) => ({
+      role: item.documentRole,
+      outcome: item.inputOutcome,
+      reason: item.missingReason,
+      recovery: item.recovery.mode,
+    })), [{
+      role: "announcement", outcome: "unavailable",
+      reason: "empty_markdown", recovery: "pdf_text_or_ocr",
+    }]);
+    assert.throws(() => assertMatchingAnnouncementCoverage(result.attachmentPreparationReport),
+      MatchingAnnouncementInputMissingError);
+  }
+
   {
     const originalCap = process.env.ANALYSIS_LAB_INPUT_CHAR_CAP;
     const baseline = await assembleLabInput({ grant: GRANT, payload: null, archives: [] }, { storage: fakeStorage({}) });
@@ -525,7 +625,7 @@ async function run() {
     }
   }
 
-  console.log("input.test.ts: 17개 시나리오 전부 통과");
+  console.log("input.test.ts: 첨부 입력 시나리오 통과");
 }
 
 run().catch((error) => {

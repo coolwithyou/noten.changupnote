@@ -263,6 +263,17 @@ const result = await withIsolatedProductUatPostgres(async (postgresRuntime) => {
         logPath: join(logsPath, `confirmation-${label}.log`),
       }),
     });
+    const profileAnswerLogin = await verifyPasswordLogin({
+      baseUrl: webUrl,
+      email: "sw@noten.im",
+      password: userPassword,
+      expectedUserId: LOCAL_UAT_IDS.owner,
+    });
+    const profileAnswerRoundTrip = await verifyProfileSizeAnswerRoundTrip({
+      jar: profileAnswerLogin.jar,
+      baseUrl: webUrl,
+      companyId: LOCAL_UAT_IDS.companyA,
+    });
     await verifyRejectedWebAccess({ baseUrl: webUrl, password: userPassword });
     const relogin = await verifyLogoutAndRelogin({
       baseUrl: webUrl,
@@ -360,6 +371,7 @@ const result = await withIsolatedProductUatPostgres(async (postgresRuntime) => {
         naturalUiReadiness: confirmationScenarios.naturalUiReadiness,
         fixtureReceiptPath: confirmationFixtureReceiptPath,
       },
+      profileAnswerAcceptance: profileAnswerRoundTrip,
       sourceCorrectionFixture: {
         authority: sourceCorrectionFixture.receipt.authority,
         fixtureReceiptPath: sourceCorrectionFixture.receiptPath,
@@ -955,6 +967,41 @@ async function verifyConfirmationScenarios({
     naturalUiReadiness,
     finalState: rollback.state,
   };
+}
+
+async function verifyProfileSizeAnswerRoundTrip({ jar, baseUrl, companyId }) {
+  const endpoint = `${baseUrl}/api/web/company-matching?companyId=${encodeURIComponent(companyId)}`;
+  const read = async () => {
+    const response = await jar.fetch(endpoint);
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.equal(body?.ok, true);
+    return body.data;
+  };
+  const save = async (body) => {
+    const response = await jar.fetch(`${baseUrl}/api/web/profile/field`, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ companyId, field: "size", ...body }),
+    });
+    const result = await response.json();
+    assert.equal(response.status, 200, JSON.stringify(result?.error ?? {}));
+    assert.equal(result?.ok, true);
+    return result.data;
+  };
+  const before = await read();
+  assert.notEqual(before.teaser.profileView.rows.find((row) => row.dimension === "size")?.status, "known");
+  const known = await save({ value: "중소기업", expectedProfileRevision: before.profileRevision });
+  assert.equal(known.profile.size, "중소기업");
+  const knownRead = await read();
+  assert.equal(knownRead.profileRevision, known.matching.profileRevision);
+  assert.equal(knownRead.teaser.profileView.rows.find((row) => row.dimension === "size")?.status, "known");
+  const unknown = await save({ unknown: true, expectedProfileRevision: knownRead.profileRevision });
+  assert.equal(unknown.profile.size, undefined);
+  const unknownRead = await read();
+  assert.equal(unknownRead.profileRevision, unknown.matching.profileRevision);
+  assert.ok(unknownRead.unknownDimensions.includes("size"));
+  assert.notEqual(unknownRead.teaser.profileView.rows.find((row) => row.dimension === "size")?.status, "known");
+  return { status: "passed", scope: "isolated_authenticated_http_db", knownThenUnknown: true };
 }
 
 async function verifyNaturalConfirmationListing({

@@ -53,6 +53,7 @@ import {
   type PromotionReviewRisk,
 } from "./promotion-review-risk";
 import { isPublishableLabRun } from "./run-outcome";
+import { hasUnreadableEligibilitySource } from "./promotion-source-readability";
 import { buildGrantAuthoringGuide } from "./authoring-guide";
 import {
   inspectPrimaryMatchingProjectionSnapshot,
@@ -407,6 +408,9 @@ export function planGrantPromotion(input: {
 }): GrantPromotionPlan {
   if (!isPublishableLabRun(input.run)) {
     throw new Error(`발행 가능한 런이 아닙니다: ${input.run.runId}`);
+  }
+  if (hasUnreadableEligibilitySource(input.run)) {
+    throw new Error(`자격 조건 원문 판독 불가로 발행할 수 없습니다: ${input.run.runId}`);
   }
   const matchingProjection = input.reviewedMatchingProjection ?? input.run.primaryMatchingProjection;
   if (matchingProjection) {

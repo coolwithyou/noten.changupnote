@@ -1,0 +1,57 @@
+{
+  "schema": "matching-pdf-source-recovery-plan-v2",
+  "preparedAt": "2026-09-28T06:33:51.731Z",
+  "sourceKind": "current_inventory",
+  "mode": "source-recovery-only",
+  "modelCalls": 0,
+  "servicePromotion": false,
+  "objectStorageWrite": true,
+  "databaseWrite": true,
+  "targetCount": 2,
+  "pdfCount": 2,
+  "targets": [
+    {
+      "grantId": "9d110710-afa6-468b-b84e-7ce5bb6fa97e",
+      "source": "kstartup",
+      "sourceId": "179175",
+      "applyEnd": "2026-10-30T00:00:00.000Z",
+      "inputSha256": "29f05fd6e9450d1247ae74c73d764978adf3758002d5ba6d5d8b3265f29711fa",
+      "attachmentManifestSha256": "c5144aea442ded2cfdb493ade77dab662391ba041706902ef496cd8419d46462",
+      "missingPdfFiles": [
+        "2026 스타트업 언론홍보·미디어 콘텐츠 확산 지원사업 모집 공고.pdf"
+      ]
+    },
+    {
+      "grantId": "db7ac80c-0fac-43fc-b1d0-f3bbd0c04337",
+      "source": "kstartup",
+      "sourceId": "179294",
+      "applyEnd": "2026-10-09T00:00:00.000Z",
+      "inputSha256": "cde0289ec336699218d33f19ac3252e70310db864e27381a7fb5f52ba290b185",
+      "attachmentManifestSha256": "b88b3993dc9723481f5c5c58d5cac60c1141af656649fa940fcd9e64593b4c78",
+      "missingPdfFiles": [
+        "(붙임1) (공고) 2026년 실리콘밸리 GTM 프로그램 창업기업 모집공고.pdf"
+      ]
+    }
+  ],
+  "pdfs": [
+    {
+      "grantId": "9d110710-afa6-468b-b84e-7ce5bb6fa97e",
+      "sourceId": "179175",
+      "surfaceId": "35d0bb2c-dfbe-4d7d-a073-e5c8278b675d",
+      "sourceAttachment": "grant-archive/kstartup/179175/attachments/e752e74e1528dcc8-2026_스타트업_언론홍보_미디어_콘텐츠_확산_지원사업_모집_공고.pdf",
+      "pdfStorageKey": "grant-archive/kstartup/179175/attachments/e752e74e1528dcc8-2026_스타트업_언론홍보_미디어_콘텐츠_확산_지원사업_모집_공고.pdf",
+      "pdfSha256": "e752e74e1528dcc8c023c1113a10c1fbf0982e71a66e4c19e288db8afc3f3ecf",
+      "title": "2026 스타트업 언론홍보·미디어 콘텐츠 확산 지원사업 모집 공고.pdf"
+    },
+    {
+      "grantId": "db7ac80c-0fac-43fc-b1d0-f3bbd0c04337",
+      "sourceId": "179294",
+      "surfaceId": "e0c625f5-0844-43f5-9085-0f5bae018f17",
+      "sourceAttachment": "grant-archive/kstartup/179294/attachments/d092277bd067f9ef-(붙임1)_(공고)_2026년_실리콘밸리_GTM_프로그램_창업기업_모집공고.pdf",
+      "pdfStorageKey": "grant-archive/kstartup/179294/attachments/d092277bd067f9ef-(붙임1)_(공고)_2026년_실리콘밸리_GTM_프로그램_창업기업_모집공고.pdf",
+      "pdfSha256": "d092277bd067f9ef59829aca0188c6466f6670d271481c05833194d3c12be4c7",
+      "title": "(붙임1) (공고) 2026년 실리콘밸리 GTM 프로그램 창업기업 모집공고.pdf"
+    }
+  ],
+  "planSha256": "fa3643a12cab5015e5fab59f8b21c1a8db34e4a4c89f67914c6c754eda6dd665"
+}

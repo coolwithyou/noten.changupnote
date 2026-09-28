@@ -81,6 +81,31 @@ assert.equal(recoveredPlan.totalCandidateCount, 1, "명시 복구 대상은 arch
 assert.equal(recoveredPlan.candidates[0]?.selected[0]?.filename, "마감 공고문.hwp");
 assert.equal(recoveredPlan.candidates[0]?.selected[0]?.url, "https://origin.example/closed-notice");
 
+const detailOnly = entry("detail-only", []);
+detailOnly.raw.payload.detail = {
+  parser_version: "test", fetched_at: "2026-09-27T00:00:00.000Z",
+  apply_method_text: null, submit_documents_text: null,
+  attachments: [{ filename: "현재 공고문.pdf", url: "https://origin.example/detail-only.pdf" }],
+};
+const detailRecovered = mergeKStartupAttachmentArchiveRecoveryRows([detailOnly], []);
+const detailPlan = planKStartupAttachmentArchiveBatch(detailRecovered, {
+  sourceIds: ["detail-only"], maxGrants: 1, maxTotalAttachments: 1, maxAttachmentsPerGrant: 1,
+});
+assert.equal(detailPlan.totalCandidateCount, 1, "명시 복구는 현재 detail의 선언 첨부를 되살린다");
+assert.equal(detailPlan.candidates[0]?.selected[0]?.url, "https://origin.example/detail-only.pdf");
+
+const imageOnly = entry("image-only", [attachment("공고문.jpg", "image-notice")]);
+const noOcrPlan = planKStartupAttachmentArchiveBatch([imageOnly], {
+  maxGrants: 1, maxTotalAttachments: 1, maxAttachmentsPerGrant: 1,
+});
+assert.equal(noOcrPlan.totalCandidateCount, 0, "OCR가 없으면 이미지 원문을 선택하지 않는다");
+const imageOcrPlan = planKStartupAttachmentArchiveBatch([imageOnly], {
+  maxGrants: 1, maxTotalAttachments: 1, maxAttachmentsPerGrant: 1,
+  imageOcr: async () => ({ markdown: "공고 원문", confidence: 1, provider: "fixture", converter: "fixture" }),
+});
+assert.equal(imageOcrPlan.totalCandidateCount, 1, "OCR를 지정하면 이미지 원문도 보관 후보로 선택한다");
+assert.equal(imageOcrPlan.candidates[0]?.selected[0]?.filename, "공고문.jpg");
+
 console.log("kstartupAttachmentArchiveBatch.test.ts: all assertions passed");
 
 function entry(

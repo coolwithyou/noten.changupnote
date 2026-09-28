@@ -8,6 +8,7 @@ import {
 } from "@cunote/core";
 import {
   convertHwpBufferToMarkdown,
+  detectHwpMarkdownFormat,
   detectHwpMarkdownConverter,
   isHwpFilename,
 } from "@cunote/core/bizinfo/hwp-markdown";
@@ -134,6 +135,8 @@ export interface GrantAttachmentArchiveOptions {
   allowFailures: boolean;
   storage: R2ObjectStorage | null;
   fetchImpl?: typeof fetch;
+  /** Exact source-byte gate for bounded recovery. A missing URL or SHA mismatch fails before R2 writes. */
+  expectedDownloadSha256?: ReadonlyMap<string, string>;
   /** 원본 다운로드 제한. 미지정 시 호출 환경의 fetch 기본값을 사용한다. */
   fetchTimeoutMs?: number;
   /** 단일 원본 파일 최대 바이트. 미지정 시 별도 제한 없음. */
@@ -265,6 +268,12 @@ async function convertHwpMarkdownWithFallback(args: {
   options: GrantAttachmentArchiveOptions;
 }): Promise<{ markdown: string; converter: string }> {
   const { filename, body, sha256, storageKey, options } = args;
+  // 실제 HWPX(OPC/ZIP)는 표준 unzip 경로에서 변환한다. HWPv5 전용
+  // hwp5html 가용성 때문에 이 경로까지 막지 않는다.
+  if (detectHwpMarkdownFormat(filename, body) === "hwpx") {
+    const result = convertHwpBufferToMarkdown({ filename, body, autoInstallPyhwp: false });
+    return { markdown: result.markdown, converter: result.converter };
+  }
   if (cachedLocalHwpConverterAvailable === null) {
     cachedLocalHwpConverterAvailable = detectHwpMarkdownConverter({
       autoInstallPyhwp: options.autoInstallPyhwp,
@@ -323,6 +332,7 @@ async function archiveOneAttachment(
   }
 
   const downloaded = downloadedInput ?? await downloadAttachment(originalUrl, options.fetchImpl ?? fetch, options);
+  if (!downloadedInput) verifyExpectedDownloadSha256(originalUrl, downloaded.body, options);
   const contentType = isPlainTextFilename(attachment.filename)
     ? inferContentType(attachment.filename)
     : downloaded.contentType ?? inferContentType(attachment.filename);
@@ -460,6 +470,7 @@ async function archiveContainerAttachment(
 ): Promise<ArchivedAttachmentResult[]> {
   if (!attachment.url) return [await archiveOneAttachment(attachment, options)];
   const downloaded = await downloadAttachment(attachment.url, options.fetchImpl ?? fetch, options);
+  verifyExpectedDownloadSha256(attachment.url, downloaded.body, options);
   const parent = await archiveOneAttachment(attachment, options, downloaded);
   if (extname(attachment.filename).toLowerCase() !== ".zip") return [parent];
   try {
@@ -467,6 +478,7 @@ async function archiveContainerAttachment(
       maxEntries: options.archiveMaxEntries ?? 10,
       maxEntryBytes: 20 * 1024 * 1024,
       maxTotalBytes: 50 * 1024 * 1024,
+      includeImages: Boolean(options.imageOcr),
     });
     const nested: ArchivedAttachmentResult[] = [];
     for (const [index, entry] of entries.entries()) {
@@ -487,6 +499,20 @@ async function archiveContainerAttachment(
     parent.rawAttachment.conversion = { status: "failed", error: message };
     parent.failure = { filename: attachment.filename, url: attachment.url, message };
     return [parent];
+  }
+}
+
+function verifyExpectedDownloadSha256(
+  url: string,
+  body: Buffer,
+  options: GrantAttachmentArchiveOptions,
+): void {
+  const expected = options.expectedDownloadSha256;
+  if (!expected) return;
+  const sha256 = expected.get(url);
+  if (!sha256 || !/^[a-f0-9]{64}$/u.test(sha256)
+    || sha256Hex(body) !== sha256) {
+    throw new Error("Exact attachment source SHA-256 mismatch");
   }
 }
 

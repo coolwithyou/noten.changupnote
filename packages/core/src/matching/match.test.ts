@@ -27,8 +27,8 @@ const company: CompanyProfile = {
   confidence: { region: 0.8, biz_age: 0.8, industry: 0.6, size: 0.6 },
 };
 
-check("premises-v1 readiness 변경은 ruleset v14로 귀속된다", () => {
-  assert.equal(RULESET_VERSION, "ruleset-kstartup-spine-v16");
+check("검색 필드로 만든 과거 자격 조건의 판정 차단은 ruleset v17로 귀속된다", () => {
+  assert.equal(RULESET_VERSION, "ruleset-kstartup-spine-v17");
 });
 
 check("조건 0건이면 conditional로 강등되고 조건 확인도는 0이다", () => {

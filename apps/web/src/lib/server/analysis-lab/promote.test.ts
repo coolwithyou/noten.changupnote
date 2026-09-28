@@ -143,6 +143,28 @@ function fixtureSidecar(
   console.log("✅ 승격 최종 방어 — held 런은 error:null이어도 계획 수립 차단");
 }
 
+// 검수 결과가 correct여도 원문 판독 불가를 스스로 기록한 자격 조건은 계획에 넣지 않는다.
+{
+  const unreadableRun = fixtureRun([criterion({
+    dimension: "other",
+    kind: "exclusion",
+    operator: "text_only",
+    value: { note: "지원 제한" },
+    sourceSpan: "지원 제한",
+    spanVerified: true,
+    note: "제외 문구는 OCR 손상으로 판독 불가하여 별도 조건으로 발행하지 않음.",
+  })]);
+  assert.throws(
+    () => planGrantPromotion({
+      run: unreadableRun,
+      review: null,
+      origin: "pending",
+      sidecar: null,
+    }),
+    /자격 조건 원문 판독 불가/,
+  );
+}
+
 // 역사 snapshot 부재는 기존 호환을 유지하지만, 명시 신규 failed 진단은 모든 promotion origin에서 막는다.
 {
   const sourceCriterion = criterion({

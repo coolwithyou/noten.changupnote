@@ -2,7 +2,7 @@
 // ① 공고 구조화 필드 블록(grants 행 + grant_raw.payload 소스별 주요 필드)
 // ② 첨부 markdown 전문 블록들(archive 포인터 또는 같은 원본의 검증된 document artifact
 //    → R2 로드 → stripYamlFrontmatter, 본문성 우선 정렬)
-// 총량 캡(기본 120,000자, env ANALYSIS_LAB_INPUT_CHAR_CAP) 안에서 블록별 chars/truncated 를 기록하고
+// 총량 캡(기본 126,000자, env ANALYSIS_LAB_INPUT_CHAR_CAP) 안에서 블록별 chars/truncated 를 기록하고
 // 최종 입력 텍스트 전체의 sha256 을 산출한다. source_span 검증은 이 최종 텍스트 기준으로 이루어진다.
 // 렌더 방식은 grantAnalysisPilotExtractor 의 renderBalancedPilotInput 을 참고했다.
 import { createHash } from "node:crypto";
@@ -18,7 +18,7 @@ import {
 } from "@/lib/server/storage/r2ObjectStorage";
 import type { LabInputBlock } from "@/lib/server/analysis-lab/lab-contract";
 
-const DEFAULT_INPUT_CHAR_CAP = 120_000;
+const DEFAULT_INPUT_CHAR_CAP = 126_000;
 
 export function labInputCharCap(): number {
   const raw = process.env.ANALYSIS_LAB_INPUT_CHAR_CAP?.trim();
@@ -313,6 +313,8 @@ function renderStructuredFields(
 }
 
 // K-Startup 원본 payload 주요 필드(packages/core/src/kstartup/extraction-input.ts 필드 선택 참고).
+// biz_enyy/biz_trgt_age/supt_regin은 포털 검색 필터라 추출 입력에서 제외한다.
+// raw payload는 보존하며 자격 근거는 신청대상 본문·첨부의 명시 문구에서만 읽는다.
 const KSTARTUP_FIELDS: Array<[key: string, label: string]> = [
   ["biz_pbanc_nm", "공고명"],
   ["pbanc_ctnt", "공고 내용"],
@@ -320,9 +322,6 @@ const KSTARTUP_FIELDS: Array<[key: string, label: string]> = [
   ["aply_trgt_ctnt", "신청대상 상세"],
   ["aply_excl_trgt_ctnt", "신청 제외대상"],
   ["prfn_matr", "우대사항"],
-  ["biz_enyy", "업력 조건"],
-  ["biz_trgt_age", "대상 연령"],
-  ["supt_regin", "지원지역"],
   ["supt_biz_clsfc", "지원분류"],
   ["pbanc_rcpt_bgng_dt", "접수 시작(원본)"],
   ["pbanc_rcpt_end_dt", "접수 마감(원본)"],
@@ -330,7 +329,7 @@ const KSTARTUP_FIELDS: Array<[key: string, label: string]> = [
 
 /**
  * payload 필드 렌더 — 짧은 단일행 값은 "라벨: 값" 으로 그대로 노출한다.
- * 모델이 구조화 필드를 인용할 때 자연스럽게 쓰는 형식("지원지역: 전국")과 입력 표기를
+ * 모델이 자격 원문 필드를 인용할 때 자연스럽게 쓰는 형식("신청대상 상세: ...")과 입력 표기를
  * 일치시켜 source_span 부분문자열 검증이 성립하게 하기 위함(v2 보정).
  */
 function payloadLine(label: string, key: string, text: string): string {
@@ -400,7 +399,7 @@ export function announcementScore(filename: string): number {
 /** 코호트 선정 기준: 이 크기 이상인 본문성 markdown 이 있어야 "딥분석하기 좋은 공고"로 본다. */
 export const BODY_MARKDOWN_MIN_BYTES = 2_000;
 
-export type UnavailableReason = "markdown_missing" | "r2_unconfigured" | "load_failed" | "cap_exceeded";
+export type UnavailableReason = "markdown_missing" | "empty_markdown" | "r2_unconfigured" | "load_failed" | "cap_exceeded";
 export type AttachmentOutcome = "loaded" | "truncated" | "unavailable" | "covered_by_children";
 
 interface AttachmentProvenance {
@@ -417,6 +416,7 @@ interface AttachmentProvenance {
 
 const UNAVAILABLE_REASON_LABELS: Record<UnavailableReason, string> = {
   markdown_missing: "변환 안 됨",
+  empty_markdown: "변환 본문 없음",
   r2_unconfigured: "R2 미설정",
   load_failed: "로드 실패",
   cap_exceeded: "캡 초과 미로드",
@@ -519,16 +519,20 @@ async function loadAttachmentBlocks(
         throw new Error("markdown SHA-256 mismatch");
       }
       const body = stripYamlFrontmatter(raw).trim();
+      if (!body) {
+        provenance.outcome = "unavailable";
+        provenance.unavailableReason = "empty_markdown";
+        unavailable.push({ index, filename: archive.filename, reason: "empty_markdown" });
+        continue;
+      }
       provenance.outcome = "loaded";
       provenance.unavailableReason = null;
-      if (body) {
-        blocks.push({
-          label: `첨부 공고문: ${archive.filename}`,
-          body,
-          attachmentProvenance: provenance,
-        });
-        loadedChars += body.length;
-      }
+      blocks.push({
+        label: `첨부 공고문: ${archive.filename}`,
+        body,
+        attachmentProvenance: provenance,
+      });
+      loadedChars += body.length;
     } catch {
       provenance.outcome = "unavailable";
       provenance.unavailableReason = "load_failed";
@@ -640,7 +644,7 @@ function inferAttachmentDocumentRole(filename: string): LabAttachmentDocumentRol
   if (/(사업\s*계획서|수행\s*계획서|제안서)/u.test(normalized)) return "business_plan";
   if (/(신청서|지원서|참가\s*신청|양식|서식)/u.test(normalized)) return "application_form";
   if (/(증빙|증명서|확인서|명부|통장|인증서)/u.test(normalized)) return "evidence";
-  if (/(공\s*고문|모집\s*공고|모집\s*요강|사업\s*안내|통합\s*공고)/u.test(normalized)) {
+  if (/(공\s*고문|모집\s*공고|모집\s*요강|사업\s*안내|사업\s*지침서|통합\s*공고|공\s*고(?=\.(?:pdf|hwpx?|docx?|zip)$))/iu.test(normalized)) {
     return "announcement";
   }
   return "unknown";

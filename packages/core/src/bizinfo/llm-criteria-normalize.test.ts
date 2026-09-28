@@ -35,7 +35,7 @@ function normalizeOne(row: Record<string, unknown>) {
 check("[provenance] 공용 LLM normalizer 계약은 source parser 버전과 독립이다", () => {
   assert.equal(
     LLM_CRITERIA_NORMALIZATION_CONTRACT_VERSION,
-    "grant-llm-criteria-normalization-v3",
+    "grant-llm-criteria-normalization-v4",
   );
 });
 

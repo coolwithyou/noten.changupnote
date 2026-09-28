@@ -59,6 +59,24 @@ test("exact 사람 승인과 현재 후보가 같으면 기존 release 의미 �
   );
 });
 
+test("단건 검수 결정은 더 큰 현행 재고에서도 지정 질문 하나에만 적용한다", () => {
+  const target = fixture({ suffix: "1" });
+  const unrelated = fixture({ suffix: "2" });
+  const review = { manifest: target.manifest, packets: [target.packet] };
+  const current = combine([target.packet, unrelated.packet]);
+  const built = buildLegacyQuestionMigrationDraftSet({
+    review,
+    decisions: decisionSet(target.manifest, [decision(target.packet, {
+      verdict: "approve_for_v2_draft",
+      confirmedPolarity: "exclusion_membership",
+      resolutionScope: "per_notice",
+    })]),
+    current,
+  });
+  assert.deepEqual(built.drafts.map((draft) => draft.questionId), [target.packet.legacyQuestion.id]);
+  assert.equal(built.nextWork.length, 0);
+});
+
 test("검수된 기존 표준 키만 company_fact로 유지하고 키를 새로 추정하지 않는다", () => {
   const reusable = fixture({ suffix: "1", reusable: "company_fact", conditionKey: "prior_support_history" });
   const isolated = fixture({ suffix: "2", reusable: "per_notice", conditionKey: null });

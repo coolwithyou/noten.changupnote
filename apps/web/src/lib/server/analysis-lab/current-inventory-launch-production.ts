@@ -6,9 +6,12 @@ import * as schema from "../db/schema";
 import { loadDeepAnalysisSourceBindings } from "../deep-analysis/prepareInput";
 import { isKStartupRecruitmentClosedPayload } from "../repositories/activeGrantFilter";
 import { LabGrantNotFoundError, prepareLabAnalysis } from "./analyze";
+import { scanExistingRuns } from "./batch-runner";
 import { readDeepRepairHistoricalGrantIds } from "./deep-repair-preparation-history";
+import { assertMatchingAnnouncementCoverage, MatchingAnnouncementInputMissingError } from "./matching-announcement-coverage";
 import { readCurrentDeepRepairExecutionProvenance } from "./deep-repair-runtime-provenance";
 import { resolveLabModel } from "./extractor";
+import type { LabAttachmentPreparationDiagnostic } from "./input";
 import {
   encodeCanonical,
   writeAnalysisLaunchArtifact,
@@ -22,14 +25,17 @@ import { stratumIdOf, thicknessTierOf } from "./strata";
 import {
   CURRENT_INVENTORY_SCHEMA,
   MATCHING_CAMPAIGN_POLICY,
+  ARTIFACT_LOSS_RECOVERY_POLICY,
   MISSING_WORKSPACE_FIELDS_POLICY,
   TERMINAL_REPAIR_POLICY,
   buildCurrentInventoryLaunchManifest,
   storeCurrentLaunchInventory,
   type CurrentLaunchInventory,
   type CurrentInventoryPolicy,
+  type ArtifactLossRecoveryAttestation,
 } from "./current-inventory-launch";
 import type { MatchingInventoryClassification } from "./matching-inventory-campaign";
+import { assessPublishedGrantSupply, type GrantSupplyAssessment } from "../productReadiness/grantSupply";
 
 /** 명시된 최대 100건만 읽는다. 모델 호출과 runtime lease, 서비스 DB/R2 쓰기는 하지 않는다. */
 export async function prepareCurrentInventoryLaunch(input: {
@@ -65,12 +71,63 @@ export async function prepareMatchingCampaignLaunch(input: {
     }
     await verifyLegacySourceChange(findMonorepoRoot(), entry);
   }
+  const supply: GrantSupplyAssessment[] = [];
+  // 자산 판정은 R2/DB 읽기를 동반하므로 기존 campaign과 같은 16건 단위로 제한한다.
+  for (let offset = 0; offset < input.grantIds.length; offset += 16) {
+    supply.push(...await assessPublishedGrantSupply({
+      db: getCunoteDb(),
+      grantIds: input.grantIds.slice(offset, offset + 16),
+      asOf: new Date(input.classification.observedAt),
+    }));
+  }
+  assertMatchingCampaignSupplyBindings(input.grantIds, input.classification, supply);
   return prepareExactInventory({
     grantIds: input.grantIds,
     concurrency: input.concurrency,
     analysisMode: "matching_only",
     expectedMatchingCampaignClassification: input.classification,
   }, MATCHING_CAMPAIGN_POLICY);
+}
+
+export function assertMatchingCampaignSupplyBindings(
+  grantIds: readonly string[],
+  classification: MatchingInventoryClassification,
+  assessments: readonly GrantSupplyAssessment[],
+): void {
+  const expected = new Map(classification.entries.map((entry) => [entry.grantId, entry]));
+  const current = new Map(assessments.map((assessment) => [assessment.grantId, assessment]));
+  if (assessments.length !== grantIds.length || current.size !== grantIds.length) {
+    throw new Error("matching campaign 공급 판정 대상 수가 다릅니다.");
+  }
+  for (const grantId of grantIds) {
+    const plan = current.get(grantId);
+    const entry = expected.get(grantId);
+    if (!isMatchingCampaignModelSupplyPlan(plan)
+      || entry?.supplyStage !== plan.stage
+      || entry.supplyEvidenceSha256 !== plan.evidenceSha256) {
+      throw new Error(`matching campaign child 준비 전 공급 판정이 변경됐습니다: ${grantId}`);
+    }
+  }
+}
+
+function isMatchingCampaignModelSupplyPlan(plan: GrantSupplyAssessment | undefined): plan is Extract<GrantSupplyAssessment, { schema: "grant-supply-plan-v1" }> {
+  return plan?.schema === "grant-supply-plan-v1"
+    && plan.stage === "await_approved_model_run"
+    && plan.nextWorkAction === "condition_analysis";
+}
+
+/** 원본 불변 산출물이 소실된 역사 target만 현재 입력으로 새 실행 범위를 봉인한다. */
+export async function prepareArtifactLossRecoveryLaunch(input: {
+  readonly concurrency: number;
+  readonly attestation: ArtifactLossRecoveryAttestation;
+}) {
+  const grantIds = input.attestation.targets.map(target => target.grantId);
+  return prepareExactInventory({
+    grantIds,
+    concurrency: input.concurrency,
+    analysisMode: "matching_only",
+    artifactLossRecovery: input.attestation,
+  }, ARTIFACT_LOSS_RECOVERY_POLICY);
 }
 
 /** 기존 공고 중 필드가 전혀 없는 exact 대상의 보완 준비. live 권한은 발급하지 않는다. */
@@ -104,6 +161,7 @@ async function prepareExactInventory(input: {
   readonly concurrency: number;
   readonly analysisMode?: Exclude<AnalysisLaunchAnalysisMode, "application_only">;
   readonly expectedMatchingCampaignClassification?: MatchingInventoryClassification;
+  readonly artifactLossRecovery?: ArtifactLossRecoveryAttestation;
 }, policy: CurrentInventoryPolicy, terminalRepair?: AnalysisLaunchTerminalRepairBinding) {
   if ((policy === TERMINAL_REPAIR_POLICY) !== Boolean(terminalRepair)) throw new Error("terminal repair ancestry가 필요합니다.");
   if (input.grantIds.length < 1 || input.grantIds.length > 100
@@ -119,6 +177,13 @@ async function prepareExactInventory(input: {
   const before = await readCurrentEligibility(input.grantIds, policy);
   const prepared = [];
   for (const grantId of input.grantIds) prepared.push(await prepareLabAnalysis(grantId));
+  if (policy === ARTIFACT_LOSS_RECOVERY_POLICY) {
+    const existing = await scanExistingRuns(new Map(prepared.map(item => [item.grant.id, {
+      inputSha256: item.input.inputSha256,
+      attachmentManifestSha256: item.input.attachmentManifestSha256,
+    }])));
+    assertNoCurrentArtifactLossSuccess(input.grantIds, existing.states);
+  }
   const after = await readCurrentEligibility(input.grantIds, policy);
   if (!encodeCanonical(before).equals(encodeCanonical(after))) {
     throw new Error("current inventory 준비 중 원천 결속이 변경됐습니다.");
@@ -130,10 +195,11 @@ async function prepareExactInventory(input: {
   const now = new Date();
   const inventory: CurrentLaunchInventory = {
     schema: CURRENT_INVENTORY_SCHEMA,
-    seriesId: `current-${policy === TERMINAL_REPAIR_POLICY ? "terminal-repair-" : policy === MISSING_WORKSPACE_FIELDS_POLICY ? "field-repair-" : policy === MATCHING_CAMPAIGN_POLICY ? "matching-campaign-" : ""}${kstDayStartUtc(now).toISOString().slice(0, 10).replaceAll("-", "")}`,
+    seriesId: `current-${policy === TERMINAL_REPAIR_POLICY ? "terminal-repair-" : policy === MISSING_WORKSPACE_FIELDS_POLICY ? "field-repair-" : policy === MATCHING_CAMPAIGN_POLICY ? "matching-campaign-" : policy === ARTIFACT_LOSS_RECOVERY_POLICY ? "artifact-loss-" : ""}${kstDayStartUtc(now).toISOString().slice(0, 10).replaceAll("-", "")}`,
     observedAt: now.toISOString(), model: resolveLabModel(),
     policy,
     historicalGrantIdsSha256: createHash("sha256").update(encodeCanonical(history)).digest("hex"),
+    ...(input.artifactLossRecovery ? { artifactLossRecovery: input.artifactLossRecovery } : {}),
     targets: prepared.map((item, sequence) => {
       const row = after.find(row => row.grantId === item.grant.id);
       if (!row) throw new Error("current inventory target이 없습니다.");
@@ -194,7 +260,7 @@ async function prepareExactInventory(input: {
   const launch = await writeAnalysisLaunchArtifact("manifests", manifest, root);
   return { manifest, manifestSha256: launch.sha256, path: launch.path,
     inventorySha256: stored.sha256, inventoryPath: stored.path,
-    policy, historicalExcluded: policy === MISSING_WORKSPACE_FIELDS_POLICY || policy === TERMINAL_REPAIR_POLICY ? 0 : history.length,
+    policy, historicalExcluded: policy === MISSING_WORKSPACE_FIELDS_POLICY || policy === TERMINAL_REPAIR_POLICY || policy === ARTIFACT_LOSS_RECOVERY_POLICY ? 0 : history.length,
     modelCalls: 0, serviceWrites: 0,
     liveExecutionAuthorized: false };
 }
@@ -209,6 +275,8 @@ export async function verifyCurrentInventoryLaunchTarget(
     materialSourceRevisionSha256?: string;
   }[]> = readCurrentEligibility,
   analysisMode: AnalysisLaunchAnalysisMode = "primary_and_application",
+  readSupply: (ids: readonly string[]) => Promise<readonly GrantSupplyAssessment[]> =
+    (ids) => assessPublishedGrantSupply({ db: getCunoteDb(), grantIds: ids }),
 ) {
   const target = inventory.targets.find(item => item.grantId === grantId);
   if (!target) throw new Error("current inventory 밖의 target입니다.");
@@ -223,15 +291,35 @@ export async function verifyCurrentInventoryLaunchTarget(
   if (rows.length !== 1 || row?.grantId !== grantId || !sourceMatches) {
     throw new Error("current inventory target 원천이 변경됐습니다.");
   }
+  if (inventory.policy === MATCHING_CAMPAIGN_POLICY) {
+    const plans = await readSupply([grantId]);
+    if (plans.length !== 1 || plans[0]?.grantId !== grantId || !isMatchingCampaignModelSupplyPlan(plans[0])) {
+      throw new Error(`matching campaign target 공급 단계가 변경됐습니다: ${grantId}`);
+    }
+  }
 }
 
 export function assertCurrentInventoryHistoryEligibility(
   grantIds: readonly string[], history: readonly string[], policy: CurrentInventoryPolicy,
 ) {
   if (policy === MISSING_WORKSPACE_FIELDS_POLICY || policy === MATCHING_CAMPAIGN_POLICY) return;
+  if (policy === ARTIFACT_LOSS_RECOVERY_POLICY) {
+    const historySet = new Set(history);
+    if (grantIds.some(id => !historySet.has(id))) throw new Error("artifact loss recovery 대상은 역사 실행에 있어야 합니다.");
+    return;
+  }
   if (policy !== "open-visible-current-period-unseen-v1") throw new Error("알 수 없는 inventory 정책입니다.");
   const historySet = new Set(history);
   if (grantIds.some(id => historySet.has(id))) throw new Error("current inventory에 과거 이력이 포함됐습니다.");
+}
+
+export function assertNoCurrentArtifactLossSuccess(
+  grantIds: readonly string[],
+  states: ReadonlyMap<string, { readonly okCurrent: boolean }>,
+): void {
+  if (grantIds.some(grantId => states.get(grantId)?.okCurrent)) {
+    throw new Error("현재 material의 성공 LabRun이 있어 artifact loss 재실행 대상이 아닙니다.");
+  }
 }
 
 export function assertMissingWorkspaceFieldsState(input: { fieldCount: number; editableSurfaceCount: number }) {
@@ -246,7 +334,7 @@ export interface CurrentEligibleMatchingTarget {
   readonly attachmentManifestSha256: string | null;
   readonly closesToday: boolean;
   /** target-local input failure only; shared DB/storage failures reject the snapshot. */
-  readonly preparationFailure?: "grant_missing" | "input_integrity";
+  readonly preparationFailure?: "grant_missing" | "input_integrity" | "announcement_input_missing";
 }
 
 export type CurrentEligibleMatchingCandidate = Pick<CurrentEligibleMatchingTarget, "grantId" | "closesToday">;
@@ -303,7 +391,11 @@ export async function prepareCurrentEligibleMatchingTargets(
   candidates: readonly CurrentEligibleMatchingCandidate[],
   prepare: (grantId: string) => Promise<{
     grant: { id: string };
-    input: { inputSha256: string; attachmentManifestSha256: string };
+    input: {
+      inputSha256: string;
+      attachmentManifestSha256: string;
+      attachmentPreparationReport?: readonly LabAttachmentPreparationDiagnostic[];
+    };
   }> = prepareLabAnalysis,
 ): Promise<ReadonlyMap<string, CurrentEligibleMatchingTarget>> {
   const result = new Map<string, CurrentEligibleMatchingTarget>();
@@ -314,13 +406,16 @@ export async function prepareCurrentEligibleMatchingTargets(
         if (current.grant.id !== candidate.grantId) {
           throw new Error(`입력 준비 target 결속이 다릅니다: ${candidate.grantId}`);
         }
+        assertMatchingAnnouncementCoverage(current.input.attachmentPreparationReport);
         return Object.freeze({
           ...candidate,
           inputSha256: current.input.inputSha256,
           attachmentManifestSha256: current.input.attachmentManifestSha256,
         });
       } catch (error) {
-        const preparationFailure = error instanceof LabGrantNotFoundError
+        const preparationFailure = error instanceof MatchingAnnouncementInputMissingError
+          ? "announcement_input_missing" as const
+          : error instanceof LabGrantNotFoundError
           ? "grant_missing" as const
           : error instanceof Error && (
             error.message === "markdown SHA-256 mismatch"

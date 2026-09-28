@@ -30,6 +30,7 @@ import { closeCunoteDb, getCunoteDb, type CunoteDbSession } from "../db/client";
 import * as schema from "../db/schema";
 import { loadMonorepoEnv } from "../loadMonorepoEnv";
 import {
+  enqueueDeferredAttachmentConversions,
   registerAttachmentConversions,
   type ArchivedAttachmentRef,
 } from "./registerAttachmentConversions";
@@ -158,16 +159,21 @@ try {
         attachments: group.attachments,
       }),
     );
+    const enqueued = await enqueueDeferredAttachmentConversions(db, hook.deferredJobs);
+    const { deferredJobs: _deferredJobs, ...hookSummary } = hook;
     summary.totals.surfacesUpserted += hook.surfacesUpserted;
-    summary.totals.jobsEnqueued += hook.jobsEnqueued;
-    summary.totals.cacheHits += hook.cacheHits;
+    summary.totals.jobsEnqueued += enqueued.jobsEnqueued;
+    summary.totals.cacheHits += enqueued.cacheHits;
     summary.totals.skipped += hook.skipped;
-    summary.totals.warnings += hook.warnings.length;
+    summary.totals.warnings += hook.warnings.length + enqueued.warnings.length;
     summary.results.push({
       sourceId: group.sourceId,
       title: group.title,
       attachmentCount: group.attachments.length,
-      ...hook,
+      ...hookSummary,
+      jobsEnqueued: enqueued.jobsEnqueued,
+      cacheHits: enqueued.cacheHits,
+      warnings: [...hook.warnings, ...enqueued.warnings],
     });
   }
 

@@ -2,9 +2,10 @@
 // 런 결과는 <모노레포 루트>/spike-out/analysis-lab/<source>__<sourceId>/<runId>.json 에
 // **불변**으로 저장한다: 덮어쓰기·삭제 금지(flag "wx" — 이미 있으면 실패).
 import { randomBytes } from "node:crypto";
-import { existsSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
-import { dirname, join, resolve } from "node:path";
+import { tmpdir } from "node:os";
+import { basename, dirname, join, resolve } from "node:path";
 import {
   AI_REVIEW_ADOPTED,
   isAiAuditConcur,
@@ -29,6 +30,30 @@ export function findMonorepoRoot(): string {
 /** 실험실 산출물 루트: <root>/spike-out/analysis-lab */
 export function analysisLabDir(): string {
   return join(findMonorepoRoot(), "spike-out", "analysis-lab");
+}
+
+/** 모델 실행 산출물이 재부팅 시 지워질 수 있는 macOS 임시 경로에 놓이지 않도록 막는다. */
+export function assertDurableAnalysisArtifactPath(path: string): void {
+  let existing = resolve(path);
+  const missing: string[] = [];
+  while (!existsSync(existing)) {
+    const parent = dirname(existing);
+    if (parent === existing) throw new Error(`산출물 경로를 확인할 수 없습니다: ${path}`);
+    missing.unshift(basename(existing));
+    existing = parent;
+  }
+  const physicalPath = resolve(realpathSync.native(existing), ...missing);
+  const systemTemporaryPath = realpathSync.native(tmpdir());
+  if (
+    physicalPath === "/tmp" || physicalPath.startsWith("/tmp/")
+    || physicalPath === "/private/tmp" || physicalPath.startsWith("/private/tmp/")
+    || physicalPath === systemTemporaryPath || physicalPath.startsWith(`${systemTemporaryPath}/`)
+  ) {
+    throw new Error(
+      `모델 실행 산출물 경로가 임시 디렉터리입니다: ${physicalPath}. `
+      + "영속 경로의 spike-out을 연결한 뒤 다시 실행하세요.",
+    );
+  }
 }
 
 /**

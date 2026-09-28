@@ -8,7 +8,7 @@ import { readTerminalRepairSource, selectTerminalRepairTargets } from "./termina
 import { parseTerminalRepairLaunchArgs } from "./terminal-repair-launch-cli";
 import { buildCurrentInventoryLaunchManifest, storeCurrentLaunchInventory, verifyCurrentInventoryLaunchBinding,
   TERMINAL_REPAIR_POLICY, type CurrentLaunchInventory } from "./current-inventory-launch";
-import { createAnalysisLaunchGrant, encodeCanonical, normalizeAnalysisLaunchManifest, writeAnalysisLaunchArtifact,
+import { assertAnalysisLaunchExecutionContract, createAnalysisLaunchGrant, encodeCanonical, normalizeAnalysisLaunchManifest, writeAnalysisLaunchArtifact,
   type AnalysisLaunchReceipt, type AnalysisLaunchReceiptTarget,
   type AnalysisLaunchTerminalRepairBinding } from "./launch-batch-artifacts";
 import { DEEP_ANALYSIS_VALIDATOR_VERSION } from "../deep-analysis/validator";
@@ -247,6 +247,9 @@ test("matching20 terminal repair는 성공·skipped를 보존하고 모델 미�
 }, async () => {
   const source = await readTerminalRepairSource(process.cwd(), MATCHING20_MANIFEST, MATCHING20_GRANT);
   assert.deepEqual(source.binding.receiptSha256s, [MATCHING20_RECEIPT]);
+  assert.throws(() => assertAnalysisLaunchExecutionContract({ manifest: source.manifest, current: provenance }),
+    /material execution contract/,
+    "역사 matching20 receipt 읽기는 해당 계약의 새 live 실행 권한이 아니다");
   assert.deepEqual(source.binding.originalSequences, [0, 4, 5, 7, 10, 11, 12, 13, 14, 16, 17, 18, 19]);
   assert.equal(source.selected.length, 13);
   assert.ok(source.selected.every(target => (

@@ -76,6 +76,13 @@ export function normalizeBizInfoUrl(value: string | null | undefined): string | 
 }
 
 function collectAttachments(program: BizInfoProgram): Array<{ filename: string; url: string | null }> {
+  const official = program.officialDetailAttachmentSnapshot;
+  if (official) {
+    return official.attachments.map((attachment) => ({
+      filename: attachment.filename,
+      url: attachment.url,
+    }));
+  }
   const names = splitAttachmentValues(program.fileNm);
   const printNames = splitAttachmentValues(program.printFileNm);
   const fileUrls = splitAttachmentValues(program.flpthNm);

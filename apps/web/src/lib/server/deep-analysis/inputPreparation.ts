@@ -4,7 +4,7 @@ import type { CunoteDb, CunoteDbSession } from "@/lib/server/db/client";
 import * as schema from "@/lib/server/db/schema";
 import type { R2ObjectStorage } from "@/lib/server/storage/r2ObjectStorage";
 import { runConversionPollSweep } from "@/lib/server/conversion/pollSweep";
-import { registerAttachmentConversions } from "@/lib/server/conversion/registerAttachmentConversions";
+import { enqueueDeferredAttachmentConversions, registerAttachmentConversions } from "@/lib/server/conversion/registerAttachmentConversions";
 import { runBizInfoAttachmentArchiveBatch } from "@/lib/server/ingestion/bizinfoAttachmentArchiveBatch";
 import type { GrantImageOcrAdapter } from "@/lib/server/ingestion/grantAttachmentArchive";
 import { runKStartupAttachmentArchiveBatch } from "@/lib/server/ingestion/kstartupAttachmentArchiveBatch";
@@ -522,11 +522,12 @@ export async function registerMissingDeepAnalysisConversions(input: {
           })),
         }),
       );
+      const enqueued = await enqueueDeferredAttachmentConversions(input.db, registered.deferredJobs);
       summary.surfacesUpserted += registered.surfacesUpserted;
-      summary.jobsEnqueued += registered.jobsEnqueued;
-      summary.cacheHits += registered.cacheHits;
+      summary.jobsEnqueued += enqueued.jobsEnqueued;
+      summary.cacheHits += enqueued.cacheHits;
       summary.skipped += registered.skipped;
-      summary.warnings.push(...registered.warnings);
+      summary.warnings.push(...registered.warnings, ...enqueued.warnings);
     } catch (error) {
       summary.warnings.push(
         `${key}: ${error instanceof Error ? error.message : String(error)}`.slice(0, 500),

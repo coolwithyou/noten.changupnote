@@ -2077,8 +2077,7 @@ export function mergeCurrentAttachmentArchiveState<TPayload>(
           const sourceUri = attachment.source_uri ?? attachment.url ?? "";
           const row = rows.find((candidate) =>
             candidate.filename === attachment.filename &&
-            (!candidate.sourceUri || !sourceUri || candidate.sourceUri === sourceUri)) ??
-            rows.find((candidate) => candidate.filename === attachment.filename);
+            candidate.sourceUri === sourceUri);
           if (!row) return attachment;
           const surface = surfaceRows.find((candidate) =>
             candidate.source === entry.grant.source &&

@@ -5,12 +5,16 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { buildCurrentInventoryLaunchManifest, type CurrentLaunchInventory } from "./current-inventory-launch";
+import { ANALYSIS_LAB_PROMPT_VERSION } from "@/lib/server/analysis-lab/lab-contract";
+import { DEEP_ANALYSIS_VALIDATOR_VERSION } from "@/lib/server/deep-analysis/validator";
 import {
+  assertMatchingCampaignSupplyBindings,
   isCurrentEligibleMatchingTargetClosingToday,
   prepareCurrentEligibleMatchingTargets,
   prepareMatchingCampaignLaunch,
 } from "./current-inventory-launch-production";
 import { LabGrantNotFoundError } from "./analyze";
+import type { LabAttachmentPreparationDiagnostic } from "./input";
 import {
   createAnalysisLaunchGrant,
   encodeCanonical,
@@ -36,12 +40,15 @@ import {
   applyActiveLaunchOwnership,
   classifyCampaignTerminalHistoryOutcome,
   inspectMatchingHistoryReview,
+  isPreparedMatchingContractCompatible,
+  mergeMatchingLaunchReceiptOutcomes,
   matchingHistoryReviewDisposition,
   prepareMatchingInventoryCampaign,
   readActiveLaunchManifest,
   readMatchingCampaignResumeStatus,
   readCurrentInventoryHistoryTargetIds,
   resolveActiveLaunchManifest,
+  selectMatchingCampaignHistory,
   type MatchingCampaignHistoryRecord,
 } from "./matching-inventory-campaign-production";
 import { parseMatchingCampaignArgs } from "./matching-inventory-campaign-cli";
@@ -189,7 +196,7 @@ test("선택한 입력 준비는 단건 결손을 격리하고 공유 장애를 
   const prepared = await prepareCurrentEligibleMatchingTargets(candidates, async (grantId) => {
     called.push(grantId);
     if (grantId === id(70)) throw new LabGrantNotFoundError(grantId);
-    return { grant: { id: grantId }, input: { inputSha256: hex("a"), attachmentManifestSha256: hex("b") } };
+    return { grant: { id: grantId }, input: { inputSha256: hex("a"), attachmentManifestSha256: hex("b"), attachmentPreparationReport: [] } };
   });
   assert.deepEqual(called, candidates.map((item) => item.grantId));
   assert.equal(prepared.get(id(70))?.preparationFailure, "grant_missing");
@@ -199,6 +206,45 @@ test("선택한 입력 준비는 단건 결손을 격리하고 공유 장애를 
     prepareCurrentEligibleMatchingTargets(candidates, async () => { throw new Error("shared storage unavailable"); }),
     /shared storage unavailable/,
   );
+});
+
+test("모집 공고문 미입력은 준비 단계에서 격리하고 보조 첨부 누락은 유지한다", async () => {
+  const attachment = (documentRole: LabAttachmentPreparationDiagnostic["documentRole"]): LabAttachmentPreparationDiagnostic => ({
+    filename: documentRole === "announcement" ? "통합공고문.pdf" : "신청서.hwp",
+    documentRole,
+    roleBasis: "explicit_filename_hint",
+    conversionStatus: null,
+    inputOutcome: "unavailable",
+    missingReason: "cap_exceeded",
+    relatedDimensions: [],
+    recovery: { possible: true, mode: "increase_input_cap", requiresSourceWrite: false, reason: "test" },
+  });
+  const candidates = [74, 75, 76].map((index) => ({ grantId: id(index), closesToday: false }));
+  const prepared = await prepareCurrentEligibleMatchingTargets(candidates, async (grantId) => ({
+    grant: { id: grantId },
+    input: {
+      inputSha256: hex("a"), attachmentManifestSha256: hex("b"),
+      ...(grantId === id(76) ? {} : {
+        attachmentPreparationReport: [attachment(grantId === id(74) ? "announcement" : "application_form")],
+      }),
+    },
+  }));
+  assert.equal(prepared.get(id(74))?.preparationFailure, "announcement_input_missing");
+  assert.equal(prepared.get(id(74))?.inputSha256, null);
+  assert.equal(prepared.get(id(75))?.inputSha256, hex("a"));
+  assert.equal(prepared.get(id(76))?.preparationFailure, "announcement_input_missing");
+  const classification = classifyMatchingInventorySnapshot({
+    observedAt: "2026-09-28T00:00:00.000Z",
+    targets: candidates.map((candidate) => ({
+      ...prepared.get(candidate.grantId)!,
+      eligibility: { eligible: true as const },
+      readinessNextWork: "condition_analysis" as const,
+      history: { kind: "none" as const },
+    })),
+  });
+  assert.deepEqual(classification.entries.map((entry) => entry.nextAction), [
+    "recover_source", "prepare_matching_only", "recover_source",
+  ]);
 });
 
 test("metadata 후보 중 실행 대상만 준비하고 실패 대상의 사유를 보존한다", async () => {
@@ -820,6 +866,34 @@ test("history prefilter는 current inventory target만 안전하게 추출한다
   }), /grantId/);
 });
 
+test("matching 재시도 skipped는 첫 영수증의 publishable을 보존하고 실제 재실행만 갱신한다", () => {
+  const source = manifest([id(0), id(1)], 43);
+  const original = receipt(source, ["publishable", "failed"], "completed", null);
+  const retry = {
+    ...receipt(source, ["skipped", "publishable"], "completed", null),
+    startedAt: "2026-09-18T02:02:00.000Z",
+    finishedAt: "2026-09-18T02:03:00.000Z",
+  };
+  const firstSha = digest(original);
+  const retrySha = digest(retry);
+  const merged = mergeMatchingLaunchReceiptOutcomes(source, digest(source), [
+    { sha256: firstSha, receipt: original },
+    { sha256: retrySha, receipt: retry },
+  ]);
+  assert.equal(merged.get(id(0))?.receiptSha256, firstSha);
+  assert.equal(merged.get(id(0))?.target.status, "publishable");
+  assert.equal(merged.get(id(1))?.receiptSha256, retrySha);
+  assert.equal(merged.get(id(1))?.target.status, "publishable");
+  assert.throws(() => mergeMatchingLaunchReceiptOutcomes(source, digest(source), [
+    { sha256: firstSha, receipt: original },
+    { sha256: retrySha, receipt: { ...retry, targets: [...retry.targets].reverse() } },
+  ]), /target 결속/);
+  assert.throws(() => mergeMatchingLaunchReceiptOutcomes(source, digest(source), [
+    { sha256: firstSha, receipt: original },
+    { sha256: retrySha, receipt: { ...retry, grantSha256: hex("f") } },
+  ]), /chain 결속/);
+});
+
 test("정상 blocked 독립검수는 오류가 아니라 quality held 분류로 이어진다", () => {
   assert.equal(matchingHistoryReviewDisposition("blocked"), "held");
   const classified = classifyMatchingInventorySnapshot({
@@ -832,6 +906,35 @@ test("정상 blocked 독립검수는 오류가 아니라 quality held 분류로 
   });
   assert.equal(classified.entries[0]!.category, "quality_held");
   assert.equal(classified.entries[0]!.campaignEligible, false);
+});
+
+test("동일 입력의 후행 미실행 준비물은 완료된 독립 검수 보류를 덮지 않는다", () => {
+  const reviewed: MatchingCampaignHistoryRecord = {
+    grantId: id(0),
+    history: {
+      kind: "primary", inputSha256: hex("a"), attachmentManifestSha256: hex("b"),
+      contractCompatible: true, review: "held", sourceRunArtifactSha256: hex("c"),
+    },
+    manifest: null, manifestSha256: hex("1"), grantSha256: hex("2"),
+  };
+  const prepared: MatchingCampaignHistoryRecord = {
+    grantId: id(0),
+    history: {
+      kind: "prepared", inputSha256: hex("a"), attachmentManifestSha256: hex("b"),
+      contractCompatible: true, manifestSha256: hex("3"), ownership: "unowned",
+    },
+    manifest: null, manifestSha256: hex("3"), grantSha256: null,
+  };
+  assert.equal(selectMatchingCampaignHistory(reviewed, prepared), reviewed);
+  assert.equal(selectMatchingCampaignHistory(reviewed, {
+    ...prepared,
+    history: {
+      kind: "prepared", inputSha256: hex("d"), attachmentManifestSha256: hex("b"),
+      contractCompatible: true, manifestSha256: hex("3"), ownership: "unowned",
+    },
+  }).manifestSha256, hex("3"), "원문 입력이 바뀌면 새 준비 이력을 사용한다");
+  assert.equal(selectMatchingCampaignHistory(prepared, reviewed), reviewed,
+    "후행 완료 분석은 준비 이력을 대체한다");
 });
 
 test("active ownership은 current runtime lease와 같은 running status가 함께 있어야 한다", () => {
@@ -974,6 +1077,25 @@ test("classification SHA 없이는 campaign history bypass prepare에 진입하�
   }), /classification SHA/);
 });
 
+test("campaign 직접 준비도 현행 공급 단계와 evidence SHA를 exact 검증한다", () => {
+  const classification = classifyMatchingInventorySnapshot({
+    observedAt: "2026-09-18T00:00:00.000Z",
+    targets: [{
+      ...target(0, { kind: "none" }),
+      supplyAssessment: supplyPlan(0, "await_approved_model_run", "condition_analysis"),
+    }],
+  });
+  const exact = supplyPlan(0, "await_approved_model_run", "condition_analysis");
+  assert.doesNotThrow(() => assertMatchingCampaignSupplyBindings([id(0)], classification, [exact]));
+  assert.throws(() => assertMatchingCampaignSupplyBindings([id(0)], classification, [
+    { ...exact, evidenceSha256: hex("d") },
+  ]), /공급 판정이 변경/);
+  assert.throws(() => assertMatchingCampaignSupplyBindings([id(0)], classification, [
+    { ...exact, stage: "source_review" },
+  ]), /공급 판정이 변경/);
+  assert.throws(() => assertMatchingCampaignSupplyBindings([id(0)], classification, []), /대상 수가 다릅니다/);
+});
+
 test("campaign CLI는 child-size 기본값/옵션과 status/run-next를 엄격히 파싱한다", () => {
   assert.deepEqual(parseMatchingCampaignArgs([
     "--prepare", "--as-of=2026-09-18T00:00:00.000Z", "--allowed-stage=prepare",
@@ -1047,6 +1169,37 @@ function manifest(
     analysisMode,
   });
 }
+
+test("과거 prepared child의 package runtime이 다르면 현재 campaign에서 재봉인한다", () => {
+  const source = manifest([id(0)], 42);
+  const current = { packageRuntimeSha256: hex("d"), validatorVersion: DEEP_ANALYSIS_VALIDATOR_VERSION };
+  const compatible: AnalysisLaunchManifest = {
+    ...source,
+    execution: {
+      ...source.execution,
+      model: "test-model",
+      validatorVersion: DEEP_ANALYSIS_VALIDATOR_VERSION,
+      promptVersion: ANALYSIS_LAB_PROMPT_VERSION,
+    },
+  };
+  assert.equal(isPreparedMatchingContractCompatible(compatible, current, "test-model"), true);
+  assert.equal(isPreparedMatchingContractCompatible({
+    ...compatible, execution: { ...compatible.execution, packageRuntimeSha256: hex("e") },
+  }, current, "test-model"), false);
+  assert.equal(isPreparedMatchingContractCompatible({
+    ...compatible, execution: { ...compatible.execution, promptVersion: "old-prompt" },
+  }, current, "test-model"), false);
+  assert.equal(isPreparedMatchingContractCompatible(compatible, current, "other-model"), false);
+  const classified = classifyMatchingInventorySnapshot({
+    observedAt: "2026-09-28T00:00:00.000Z",
+    targets: [target(0, {
+      kind: "prepared", inputSha256: hex("a"), attachmentManifestSha256: hex("b"),
+      contractCompatible: false, manifestSha256: hex("f"), ownership: "unowned",
+    })],
+  });
+  assert.equal(classified.entries[0]?.category, "source_changed");
+  assert.equal(classified.entries[0]?.campaignEligible, true);
+});
 
 function receipt(
   source: AnalysisLaunchManifest,

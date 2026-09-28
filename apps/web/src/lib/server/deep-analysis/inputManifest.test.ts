@@ -312,6 +312,30 @@ assert.equal(
   undefined,
   "inventory에 없는 material image가 든 ZIP은 child 문서만으로 면제하면 안 된다",
 );
+const archiveWithVerifiedImage = [
+  { ...archiveWithoutWaiver, bytes: archiveWithHiddenImageBytes.byteLength,
+    sha256: sha256Hex(archiveWithHiddenImageBytes) },
+  ...archiveChildren,
+  attachment({
+    id: "poster-image",
+    filename: "신청서식__03__poster.jpg",
+    sourceUri: "zip:https://example.com/forms.zip#poster.jpg",
+    bytes: Buffer.byteLength("material image"),
+    sha256: sha256Hex("material image"),
+    markdownText: "이미지에서 검증된 모집 조건",
+  }),
+];
+await applyVerifiedAttachmentWaivers(archiveWithVerifiedImage, {
+  getObjectBytes: async () => ({
+    body: archiveWithHiddenImageBytes,
+    contentType: "application/zip",
+  }),
+} as unknown as R2ObjectStorage);
+assert.equal(
+  archiveWithVerifiedImage[0]?.waiver?.disposition,
+  "waived_non_material",
+  "ZIP 안의 모든 문서·이미지 child 원본과 OCR 전문이 검증될 때만 부모를 덮는다",
+);
 
 const archiveWithNestedZipBytes = Buffer.from(zipSync({
   "form-1.hwp": firstFormBytes,

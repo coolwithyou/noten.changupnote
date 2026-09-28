@@ -1,6 +1,8 @@
 // 기업마당 첨부 보관 백필 CLI. 기본 dry-run이며 --write에는 별도 confirm이 필요하다.
 // 과거 변환 실패 HWP/HWPX를 함께 재처리할 때만 --reprocess-missing-markdown을 명시한다.
 import { closeCunoteDb, getCunoteDb } from "../db/client";
+import { readFileSync } from "node:fs";
+import type { BizInfoAttachmentArchiveBatchResult } from "./bizinfoAttachmentArchiveBatch";
 import { loadMonorepoEnv } from "../loadMonorepoEnv";
 import { createR2ObjectStorageFromEnv } from "../storage/r2ObjectStorage";
 import { runBizInfoAttachmentArchiveBatch } from "./bizinfoAttachmentArchiveBatch";
@@ -20,6 +22,16 @@ const maxTotalAttachments = boundedInteger(
   1_000,
 );
 const sourceIds = csvArg(readArg("sourceIds"), 100);
+const exactAttachmentFilename = readArg("exactAttachmentFilename");
+const exactAttachmentSha256 = readArg("exactAttachmentSha256");
+if (Boolean(exactAttachmentFilename) !== Boolean(exactAttachmentSha256)) {
+  throw new Error("exact attachment filename and SHA-256 must be provided together");
+}
+const refreshOfficialDetail = process.argv.includes("--refresh-official-detail");
+const officialDetailPlanPath = readArg("officialDetailPlan");
+const officialDetailDryRunPlan = officialDetailPlanPath
+  ? JSON.parse(readFileSync(officialDetailPlanPath, "utf8")) as BizInfoAttachmentArchiveBatchResult
+  : undefined;
 const asOf = dateArg(readArg("asOf")) ?? new Date();
 const convertHwp = !process.argv.includes("--skip-attachment-conversion");
 const reprocessMissingMarkdown = process.argv.includes("--reprocess-missing-markdown");
@@ -42,6 +54,15 @@ try {
     maxTotalAttachments,
     maxAttachmentsPerGrant,
     sourceIds,
+    ...(exactAttachmentFilename && exactAttachmentSha256 ? {
+      expectedExactAttachment: {
+        sourceId: sourceIds[0] ?? "",
+        filename: exactAttachmentFilename,
+        sha256: exactAttachmentSha256,
+      },
+    } : {}),
+    refreshOfficialDetail,
+    ...(officialDetailDryRunPlan ? { officialDetailDryRunPlan } : {}),
     reprocessMissingMarkdown,
     imageOcr: imageOcrAdapter,
     imageOcrName: imageOcr,

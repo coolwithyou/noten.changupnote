@@ -32,6 +32,7 @@ import {
   assertAnalysisLabLiveExecutionAdmitted,
 } from "./analysis-execution-admission";
 import { currentAnalysisLaunchBatchExecutionBinding } from "./launch-batch-context";
+import { assertMatchingAnnouncementCoverage } from "./matching-announcement-coverage";
 import {
   normalizeAnalysisLaunchPrimaryReuseBinding,
   type AnalysisLaunchApplicationRoundtripReuseBinding,
@@ -381,6 +382,9 @@ async function executePreparedLabAnalysisInternal(
   });
   if (createHash("sha256").update(input.text).digest("hex") !== input.inputSha256) {
     throw new AnalysisLabPreparedInputIntegrityError();
+  }
+  if (launchBinding?.analysisMode === "matching_only") {
+    assertMatchingAnnouncementCoverage(input.attachmentPreparationReport);
   }
   opts?.signal?.throwIfAborted();
   const roundtripModel = opts?.roundtripModel

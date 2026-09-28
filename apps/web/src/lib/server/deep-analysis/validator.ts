@@ -30,8 +30,9 @@ import {
 } from "./criterion-semantics";
 import { resolveExclusiveBizAgeUpperBound } from "./biz-age-boundary";
 import { resolveTargetTypeListSemantics } from "./target-type-list-semantics";
+import { isUnreadableEligibilityCriterion } from "../analysis-lab/promotion-source-readability";
 
-export const DEEP_ANALYSIS_VALIDATOR_VERSION = "deep-analysis-validator-v23" as const;
+export const DEEP_ANALYSIS_VALIDATOR_VERSION = "deep-analysis-validator-v27" as const;
 
 export type DeepAnalysisValidationIssueCode =
   | "raw_contract_invalid"
@@ -47,6 +48,7 @@ export type DeepAnalysisValidationIssueCode =
   | "logical_conflict"
   | "non_matching_criterion"
   | "source_incomplete"
+  | "eligibility_source_unreadable"
   | "input_not_sealed";
 
 export interface DeepAnalysisValidationIssue {
@@ -108,6 +110,11 @@ export function decideDeepAnalysisValidationRoute(input: {
   if (input.validation.valid) {
     return { route: "accept", repairIssues: [], holdIssues: [] };
   }
+  // 읽을 수 없는 자격 원문은 같은 입력의 모델 repair로 해소할 수 없다.
+  // 다른 오류가 섞여도 새 원문 확보 전까지 이 target을 종결 보류한다.
+  if (input.validation.issues.some((issue) => issue.code === "eligibility_source_unreadable")) {
+    return { route: "hold", repairIssues: [], holdIssues: input.validation.issues };
+  }
   const heldDimensions = new Set<CriterionDimension>();
   for (const issue of input.validation.issues) {
     if (issue.code !== "unresolved_axis") continue;
@@ -163,6 +170,15 @@ export function validateDeepAnalysisResult(input: {
   result: DeepAnalysisModelResult;
 }): DeepAnalysisValidationResult {
   const issues: DeepAnalysisValidationIssue[] = [];
+  input.result.criteria.forEach((criterion, index) => {
+    if (isUnreadableEligibilityCriterion(criterion)) {
+      issues.push({
+        code: "eligibility_source_unreadable",
+        path: `$.criteria.${index}.note`,
+        message: "Eligibility source is explicitly unreadable; a new source-bound run is required.",
+      });
+    }
+  });
   if (!input.seal.sealed) {
     issues.push({
       code: "input_not_sealed",
@@ -309,6 +325,7 @@ export function validateDeepAnalysisResult(input: {
   ]);
   const evidenceIssueCodes = new Set<DeepAnalysisValidationIssueCode>([
     "evidence_not_grounded",
+    "eligibility_source_unreadable",
     "input_not_sealed",
   ]);
   const responseContractValid = !issues.some((issue) => responseIssueCodes.has(issue.code));
@@ -1357,6 +1374,7 @@ function validateCriterion(
   validateCrossAxisCoverage(criterion, index, issues);
   validateExceptionCoverage(criterion, index, issues);
   validateMatcherSemanticCompleteness(criterion, index, issues);
+  validatePriorAwardCurrentPastCoverage(seal, criterion, index, issues);
   if (criterion.dimension === "biz_age" && isRecord(criterion.value)) {
     const exclusiveUpperBound = resolveExclusiveBizAgeUpperBound({
       dimension: criterion.dimension,
@@ -1546,12 +1564,68 @@ function validateCriterion(
   };
 }
 
+function validatePriorAwardCurrentPastCoverage(
+  seal: DeepAnalysisInputSeal,
+  criterion: DeepAnalysisCriterion,
+  index: number,
+  issues: DeepAnalysisValidationIssue[],
+): void {
+  if (criterion.dimension !== "prior_award" || criterion.kind !== "exclusion" || criterion.operator !== "in") return;
+  const value = isRecord(criterion.value) ? criterion.value : {};
+  if (value.scope !== "program") return;
+  const states = stringArray(value.states);
+  if (!states.includes("completed") || states.includes("participating")) return;
+  const normalize = (text: string) => text.normalize("NFKC").replace(/\s+/gu, "");
+  const citedSpan = normalize(criterion.sourceSpan ?? "");
+  const citedPrograms = stringArray(value.programs)
+    .map(normalize)
+    .filter((program) => program.length >= 4 && citedSpan.includes(program));
+  if (citedPrograms.length === 0) return;
+  const currentAndPastExclusion = seal.chunks.some((chunk) => chunk.text.split(/\r?\n/u).some((line) => {
+    const text = normalize(line);
+    return citedPrograms.some((program) => text.includes(program))
+      && /현재입주중.{0,20}과거입주/u.test(text)
+      && /(?:지원|신청).{0,12}(?:불가|할수없|하실수없)/u.test(text);
+  }));
+  if (currentAndPastExclusion) {
+    issues.push({
+      code: "canonical_contract_invalid",
+      path: `$.criteria[${index}].value.states`,
+      message: "The cited program excludes both current and past tenants; completed-only omits participating. Preserve both states or the complete source as text_only.",
+    });
+  }
+}
+
 function validateCrossAxisCoverage(
   criterion: DeepAnalysisCriterion,
   index: number,
   issues: DeepAnalysisValidationIssue[],
 ): void {
   const value = isRecord(criterion.value) ? criterion.value : {};
+  const sourceSpan = criterion.sourceSpan?.normalize("NFKC") ?? "";
+  const valueNote = typeof value.note === "string" ? value.note.normalize("NFKC") : "";
+  if (
+    /\(재\)창업자/u.test(sourceSpan)
+    && /재창업자/u.test(valueNote)
+    && !/(?<!재)창업자/u.test(valueNote)
+  ) {
+    issues.push({
+      code: "semantic_misattribution",
+      path: `$.criteria[${index}].value.note`,
+      message: "'(재)창업자' includes ordinary founders and refounders; preserve both applicant types in the note.",
+    });
+  }
+  if (
+    criterion.dimension === "revenue"
+    && /영세/u.test(sourceSpan)
+    && !/(?:매출|매상|영업\s*수익|연\s*수입)/u.test(sourceSpan)
+  ) {
+    issues.push({
+      code: "semantic_misattribution",
+      path: `$.criteria[${index}].dimension`,
+      message: "'영세' alone does not state a revenue requirement or threshold.",
+    });
+  }
   if (value.covered_dimensions === undefined) return;
   const rawDimensions = value.covered_dimensions;
   const dimensions = stringArray(value.covered_dimensions);
@@ -1574,6 +1648,30 @@ function validateCrossAxisCoverage(
       path: `$.criteria[${index}].value.covered_dimensions`,
       message:
         "covered_dimensions is only valid as a non-empty unique 22-axis list on other/text_only criteria that preserve a cross-axis condition.",
+    });
+  }
+  if (/\(재\)창업자/u.test(sourceSpan)) {
+    if (
+      dimensions.includes("industry")
+      && /^(?:[^\s]+\s*내\s*)?예비\s*[·ㆍ]\s*초기\s*\(재\)창업자(?:\s*및\s*기술창업기업)?$/u
+        .test(sourceSpan.trim())
+    ) {
+      issues.push({
+        code: "semantic_misattribution",
+        path: `$.criteria[${index}].value.covered_dimensions`,
+        message: "Founder status alone is not an applicant industry condition.",
+      });
+    }
+  }
+  if (
+    dimensions.includes("revenue")
+    && /영세/u.test(sourceSpan)
+    && !/(?:매출|매상|영업\s*수익|연\s*수입)/u.test(sourceSpan)
+  ) {
+    issues.push({
+      code: "semantic_misattribution",
+      path: `$.criteria[${index}].value.covered_dimensions`,
+      message: "'영세' alone does not state a revenue requirement or threshold.",
     });
   }
 }
