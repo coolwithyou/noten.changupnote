@@ -244,6 +244,12 @@ export async function verifyConversionPollingPostgres(input: {
     assert.equal(current.find((item) => item.surfaceId === missingId)?.sha256, null);
     const historical = await collectPendingSurfaceJobs(db, { ...scoped, currentOpenOnly: false });
     assert.ok(historical.some((item) => item.surfaceId === obsoleteId), "historical surface is preserved");
+    await input.admin`update grant_raw set attachments=${input.admin.json([
+      {filename:'사업안내.pdf',storage_key:currentKey}, {filename:'현행 원문 누락 공고.pdf'},
+    ])} where source='kstartup' and source_id=${laterSourceId}`;
+    const incomplete = await collectPendingSurfaceJobs(db, scoped);
+    assert.ok(incomplete.some((item) => item.surfaceId === missingId),
+      "a partially archived raw manifest cannot prove supersession of a missing attachment");
     await input.admin`update grant_raw set attachments='[{"filename":"사업안내.pdf"}]'::jsonb
       where source='kstartup' and source_id=${laterSourceId}`;
     const legacy = await collectPendingSurfaceJobs(db, scoped);

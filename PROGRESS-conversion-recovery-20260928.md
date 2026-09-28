@@ -30,3 +30,6 @@
 - 로컬 native failure suite는 LibreOffice 미설치 때문에2개 전제 미충족(9/11). 같은 소스의 Linux Cloud Build 이미지 안에서 전체 native suite를 실행해 배포 전 확인한다. 로컬 hwp-markdown endpoint suite PASS.
 
 - 운영 DB read-only 전체 선택 비교: 이전678개, 수정후674개, 제외된 것은 문제의 역사4개뿐이고 현행 SHA 누락0개. 선택·URL 서명까지802ms. 최신4개는 공식 다운로드와 R2 바이트가 동일하며 raw binding도 일치한다.
+
+- 부분 보관 manifest는 교체를 증명할 수 없으므로 모든 raw 첨부에 storage_key가 있을 때만 역사 surface를 제외하도록 보강했다. 부분 보관 누락 유지 회귀, product-postgres 전체 gate, 웹 typecheck를 다시 통과했다. 운영 비교도 역사4개 제외·현행 누락0개를 유지했다.
+- worker 이미지 소스는 `0c404433fe86dfdeccd42b44119a28e32a10ced0`; 후속 보강은 웹 선택 SQL/테스트만 바꿔 워커 소스·빌드 입력은 동일하다. Cloud Build `5bf75b97-d512-4417-a196-5d84fbc8b23b`에서 native suite를 이미지 push보다 먼저 실행한다.
