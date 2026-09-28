@@ -5,6 +5,8 @@ import * as schema from "../db/schema";
 import type { CunoteDbSession } from "../db/client";
 import { collectPendingSurfaceJobs, pollAndPersistSurfaceJob, type PendingSurfaceJob } from "./pollConversions";
 import { enqueueDeferredAttachmentConversions, registerAttachmentConversions } from "./registerAttachmentConversions";
+import { claimConversionSweepLease, releaseConversionSweepLease } from "./conversionSweepLease";
+import { runConversionPollSweep } from "./pollSweep";
 import { transitionSurfaceStatus } from "./surfaceConversion";
 import type { ConversionClient } from "./conversionClient";
 
@@ -50,6 +52,37 @@ export async function verifyConversionPollingPostgres(input: {
     getArtifacts: async () => { throw new Error("cache hit must not fetch artifacts"); },
   };
   try {
+    const [leaseRls] = await input.admin`select relrowsecurity as enabled from pg_class
+      where oid='conversion_sweep_leases'::regclass`;
+    assert.equal(leaseRls?.enabled, true, "automatic sweep lease is not a client table");
+    const firstLease = await claimConversionSweepLease(db);
+    assert.ok(firstLease);
+    assert.equal(await claimConversionSweepLease(db), null, "duplicate cron cannot claim an active sweep");
+    const previousServerUrl = process.env.CONVERSION_SERVER_URL;
+    const previousSecret = process.env.CONVERSION_SHARED_SECRET;
+    process.env.CONVERSION_SERVER_URL = "https://example.invalid";
+    process.env.CONVERSION_SHARED_SECRET = "fixture-secret";
+    try {
+      const skipped = await runConversionPollSweep(db, { exclusive: true, budgetMs: 1_000 });
+      assert.equal(skipped.skippedReason, "sweep_lease_active");
+      assert.equal(skipped.pendingCount, 0, "blocked cron does not fetch or submit another batch");
+    } finally {
+      if (previousServerUrl === undefined) delete process.env.CONVERSION_SERVER_URL;
+      else process.env.CONVERSION_SERVER_URL = previousServerUrl;
+      if (previousSecret === undefined) delete process.env.CONVERSION_SHARED_SECRET;
+      else process.env.CONVERSION_SHARED_SECRET = previousSecret;
+    }
+    assert.equal(await releaseConversionSweepLease(db, firstLease), true);
+    const secondLease = await claimConversionSweepLease(db);
+    assert.ok(secondLease);
+    await input.admin`update conversion_sweep_leases set expires_at=now() - interval '1 second'
+      where scope='current_inventory'`;
+    const recoveredLease = await claimConversionSweepLease(db);
+    assert.ok(recoveredLease, "expired lease can be recovered after a killed invocation");
+    assert.equal(await releaseConversionSweepLease(db, secondLease), false,
+      "stale runner cannot release a successor's lease");
+    assert.equal(await releaseConversionSweepLease(db, recoveredLease), true);
+
     const selected = await collectPendingSurfaceJobs(db, { grantId, limit: 10 });
     assert.equal(selected.length, 1, "filename fallback cannot duplicate a storage-key-bound surface");
     assert.equal(selected[0]?.sha256, sourceSha, "selection binds the exact archived storage key");
@@ -132,7 +165,7 @@ export async function verifyConversionPollingPostgres(input: {
     };
     const registered = await db.transaction(async (tx) => {
       const value = await registerAttachmentConversions(tx as unknown as CunoteDbSession, {
-        grantId, source: "kstartup", sourceId, deferEnqueue: true, client: postCommitClient,
+        grantId, source: "kstartup", sourceId,
         attachments: [{ filename, storageKey, archiveUrl: sourceUrl, sourceUri: null,
           sha256: sourceSha, detectedFormat: "pdf" }],
       });

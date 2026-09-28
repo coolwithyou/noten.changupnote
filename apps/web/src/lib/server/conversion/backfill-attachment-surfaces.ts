@@ -157,7 +157,6 @@ try {
         source,
         sourceId: group.sourceId,
         attachments: group.attachments,
-        deferEnqueue: true,
       }),
     );
     const enqueued = await enqueueDeferredAttachmentConversions(db, hook.deferredJobs);

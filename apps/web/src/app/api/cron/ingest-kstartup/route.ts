@@ -61,7 +61,7 @@ export async function GET(request: Request) {
     );
 
     // 잔여 예산 변환 폴링 스윕 (계획 2026-07-08 슬라이스 A3): 이 수집이 등록한 pending surface 를
-    // 같은 실행에서 변환한다. Hobby 플랜 cron 2개 제한으로 별도 cron 을 못 늘려 여기 얹는다.
+    // 같은 실행에서 변환한다. 독립 변환 Cron과 겹칠 때는 공용 lease가 중복 실행을 막는다.
     // 실패·예산 부족은 무해 — pending 으로 남아 on-demand 폴링/수동 스윕이 회복한다.
     const conversionSweep = await runTailConversionSweep(db, startedAt);
 
@@ -163,6 +163,7 @@ async function runTailConversionSweep(db: ReturnType<typeof getCunoteDb>, starte
       limit: 50,
       currentOpenOnly: true,
       concurrency: 3,
+      exclusive: true,
       budgetMs: leftoverMs,
       maxAttempts: 60,
       intervalMs: 1000,

@@ -96,7 +96,6 @@ try {
             sourceUri: archive.sourceUri,
             sha256: archive.sha256,
           }],
-          deferEnqueue: true,
         },
       ));
       const enqueued = await enqueueDeferredAttachmentConversions(db, hook.deferredJobs);
