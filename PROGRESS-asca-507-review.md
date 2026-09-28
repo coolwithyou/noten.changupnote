@@ -346,3 +346,8 @@
 - 새 판독 불가 조건 보호는 `analysis-launch`·`deep-repair`의 readiness에 있었지만, 일반 사람/감사 release의 `planGrantPromotion`과 이미 봉인된 일반 release가 `lab:promote --write` 직전에 실행하는 `verifyPromotionSourceArtifact`에는 없었다. 일반 경로로 새 plan을 만들거나 과거 plan을 그대로 쓰는 우회를 막기 위해 공통 검사를 두 지점에도 연결했다. `analysis-launch`·`deep-repair` 전용 source verifier는 기존 readiness를 다시 계산하는 경로임을 확인했다.
 - 보관된 실제 KISA `run-2026-09-01T030253.051Z-286bdc`를 새 공통 계획 함수에 직접 넣으면 `자격 조건 원문 판독 불가`로 거부됐다. 같은 run을 일반 source 재검증에 넣으면 `{ok:false, changed:["eligibility_source_unreadable"]}`로 거부됐다. synthetic 회귀는 사람 검수 여부와 관계없이 exclusion의 판독 불가가 plan 작성 및 기존 sealed release 검증을 막는지 확인한다.
 - `pnpm lab:promote:test`, `pnpm lab:release:test`, 웹 typecheck, `git diff --check` PASS. 이 변경은 release 경계만 수정하며 모델 prompt·validator·package runtime은 변경하지 않는다. 과거 적용된 운영 DB row는 자동 수정되지 않으므로 위 1건 격리 승인 대기는 그대로다.
+
+## 2026-09-28 운영 API 분석 release 경로의 동일 차단
+
+- 운영 API 딥분석은 `deep-analysis-normalized-output-v2`를 R2에서 봉인해 release plan을 만든다. 신규 plan은 앞 절의 `planGrantPromotion` 공통 검사에 도달하지만, 이미 봉인된 release의 `verifyDeepAnalysisPromotionSourceArtifact`는 종전에는 output SHA·source/current input만 재검증했다. 현행 normalized output 계약으로 다시 파싱하고 required/exclusion의 명시적 원문 판독 불가를 검사해 `eligibility_source_unreadable` drift로 반환하도록 보강했다. 파싱 실패는 `output_contract`로 차단한다.
+- API normalized output에서도 audit `concur` 상태의 판독 불가 자격 criterion이 `buildDeepAnalysisPromotionPlan`을 통과하지 못하는 회귀를 추가했다. `pnpm verify:deep-analysis-contract`, `pnpm lab:release:test`, `pnpm lab:promote:test`, 웹 typecheck와 diff 검증 PASS. 이는 운영 worker를 켜거나 배포한 증거가 아니다. 운영 main worker는 기존 `observe_only` 경계를 유지하고, 로컬 현행 2건 manifest의 모델 계약도 바꾸지 않는다.

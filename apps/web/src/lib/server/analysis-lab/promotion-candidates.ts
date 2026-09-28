@@ -31,6 +31,7 @@ import { hasUnreadableEligibilitySource } from "./promotion-source-readability";
 import { getCunoteDb } from "../db/client";
 import * as schema from "../db/schema";
 import { prepareDeepAnalysisInput } from "../deep-analysis/prepareInput";
+import { parseDeepAnalysisNormalizedOutput } from "../deep-analysis/promotion";
 import { createR2ObjectStorageFromEnv } from "../storage/r2ObjectStorage";
 
 export interface PromotionCandidate {
@@ -315,6 +316,16 @@ async function verifyDeepAnalysisPromotionSourceArtifact(
   } else {
     const output = await storage.getObjectBytes(run.outputArtifactKey);
     if (sha256(output.body) !== artifact.runSha256) changed.push("output");
+    try {
+      const normalized = parseDeepAnalysisNormalizedOutput(
+        JSON.parse(output.body.toString("utf8")) as unknown,
+      );
+      if (hasUnreadableEligibilitySource(normalized.result)) {
+        changed.push("eligibility_source_unreadable");
+      }
+    } catch {
+      changed.push("output_contract");
+    }
   }
 
   const [latestJob] = await db

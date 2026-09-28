@@ -146,6 +146,41 @@ assert.deepEqual(result.readiness, {
 assert.throws(
   () => buildDeepAnalysisPromotionPlan({
     run: {
+      runId: "da-unreadable",
+      grantId: "11111111-1111-4111-8111-111111111111",
+      source: "bizinfo",
+      sourceId: "PBLN_TEST",
+      title: "원문 판독 실패 공고",
+      model: "claude-opus-4-8",
+      promptVersion: "deep-analysis-v2",
+      startedAt: new Date("2026-07-25T00:00:00Z"),
+      completedAt: new Date("2026-07-25T00:01:00Z"),
+      inputChars: 1000,
+      inputSha256: "a".repeat(64),
+      costUsd: 0.2,
+    },
+    output: outputWithResult({
+      ...output.result,
+      criteria: [{
+        ...directCriterion,
+        note: "지역 자격 문구는 이미지 손상으로 판독 불가",
+      }],
+    }),
+    currentCriteria: [],
+    audit: {
+      model: "claude-sonnet-5",
+      promptVersion: "deep-analysis-blind-audit-v2",
+      completedAt: new Date("2026-07-25T00:01:00Z"),
+      verdict: "concur",
+    },
+  }),
+  /자격 조건 원문 판독 불가/,
+  "API normalized output도 감사 concur만으로 판독 불가 자격을 발행하지 않는다",
+);
+
+assert.throws(
+  () => buildDeepAnalysisPromotionPlan({
+    run: {
       runId: "da-conflict",
       grantId: "22222222-2222-4222-8222-222222222222",
       source: "kstartup",
