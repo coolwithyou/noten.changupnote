@@ -36,6 +36,7 @@ import {
 import type { PromotionCandidate } from "./promotion-candidates";
 import { analysisLabDir, findMonorepoRoot } from "./run-store";
 import { isPublishableLabRun } from "./run-outcome";
+import { hasUnreadableEligibilitySource } from "./promotion-source-readability";
 import { shadowConversionIsPromotionSafe } from "./shadow-convert";
 import { isNoticeApplicationOpen } from "./notice-period";
 import {
@@ -510,6 +511,7 @@ export function classifyDeepRepairPromotionReadiness(
   }
 
   if (run.criteria.length === 0) reasons.push("empty_criteria");
+  if (hasUnreadableEligibilitySource(run)) reasons.push("eligibility_source_unreadable");
   if (run.inputSha256 !== current.inputSha256) reasons.push("input_drift");
   if (run.attachmentManifestSha256 !== current.attachmentManifestSha256) {
     reasons.push("attachment_drift");

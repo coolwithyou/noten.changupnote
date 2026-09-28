@@ -176,6 +176,15 @@ assert.equal(
   classifyDeepRepairPromotionReadiness(run(), current(), sha("4")).disposition,
   "ready",
 );
+const unreadableEligibility = classifyDeepRepairPromotionReadiness(run({
+  criteria: [{
+    ...run().criteria[0]!,
+    kind: "exclusion",
+    note: "제외 문구는 스캔 손상으로 판독 불가하여 별도 조건을 발행하지 않음.",
+  }],
+}), current(), sha("4"));
+assert.equal(unreadableEligibility.disposition, "held");
+assert.ok(unreadableEligibility.reasons.includes("eligibility_source_unreadable"));
 assert.equal(
   classifyDeepRepairPromotionReadiness(
     run({ matchingReadiness: "conditional" }),
