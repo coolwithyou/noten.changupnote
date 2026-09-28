@@ -14,6 +14,7 @@
 - 후속 검토에서 변환 서버는 진행 중인 SHA 작업을 자동으로 합치지 않고 `jobId`만 멱등 처리함을 확인했다. 웹이 매 스윕마다 새 UUID를 만들던 결함을 `db21209`에서 surface·원문 SHA·converter 버전 기반 안정 ID로 수정했다. 명시적인 failed 복구는 새 ID를 사용한다. 같은 원문에 대한 불필요한 중복 큐 등록을 방지한다.
 - 정확한 코드 근거와 이전 작업의 운영 snapshot은 `codex/matching-coverage-artifact-recovery`의 `PROGRESS-asca-507-review.md` §2026-09-28을 참조한다. 운영 snapshot은 배포 이후 결과가 아니다.
 - 2026-09-28T07:43:28Z 운영 DB 읽기 전용 preflight: `changupnote`/role `postgres`, Drizzle 원장 최신 id 94(`0092`), `conversion_sweep_leases` 없음. surface 전체 `pending` 4,050·`preview_ready` 1,406·`fields_ready` 54·`failed` 16. KST 현재 모집 중 `open/visible`인 파일 surface pending은 K-Startup 176개/77공고, BizInfo 500개/246공고로 합계 676개/323공고다. 기간·타입 필터를 명시한 이 snapshot을 이전 709개 수치와 같은 모집단으로 합치지 않는다.
+- 2026-09-28 읽기 전용 연결 확인: `NOTEN/changupnote` production 환경에 `CONVERSION_SERVER_URL`, `CONVERSION_SHARED_SECRET`, `CRON_SECRET`이 등록돼 있다. production env가 가리키는 Cloud Run URL의 `GET /`은 앱 401, 같은 production secret으로 없는 job을 GET하면 앱 JSON 404(`job not found`)가 나왔다. 인증·도달성은 확인됐으나 실제 변환 성공·처리량 증거는 아니다. `/healthz`의 Google 404는 기존 배포 기록에도 명시된 프런트엔드 가로채기다.
 
 ## 검증 체크리스트
 
@@ -33,4 +34,5 @@
 - 적용 범위 후보: PR #19의 최신 코드 `db21209`를 `main`에 통합하고, `changupnote` DB에 `0093_conversion_sweep_lease.sql`만 적용한 뒤 `NOTEN/changupnote` 웹을 정확한 통합 SHA로 배포한다. 운영 Cron은 첫 1회 상태·결과를 관측해 재시도/실패/preview_ready 변화와 공고문 원본 결속을 확인한다. 앞서 제시한 `86baf8c` 적용 범위는 새 코드 때문에 폐기했다. 최신 범위 승인 전에는 세 쓰기 단계를 수행하지 않는다.
 - 변환 서버는 인메모리 큐, 기본 동시 작업 2건이며 독립 운영의 CPU 정책과 실제 처리량은 아직 확인되지 않았다. 안정 ID는 살아 있는 같은 인스턴스의 중복 작업을 줄이지만 재시작·다중 인스턴스 간 중복 방지와 676개 backlog 소진 시간은 운영 관측 대상이다.
 - Cloud Run `cunote-conversion` 현재 구성 읽기는 `cunote-codex-dev` gcloud base 계정의 대화형 재인증 만료로 막혔다. 코드 적용 전에도 독립 변환 서버의 CPU 정책·실제 처리량은 미확인이다.
+- Cloud Run `cunote-conversion` 현재 구성 읽기는 `cunote-codex-dev` gcloud base 계정의 대화형 재인증 만료로 막혔다. 코드 적용 전에도 독립 변환 서버의 CPU 정책·실제 처리량은 미확인이다. [Cloud Run 공식 문서](https://docs.cloud.google.com/run/docs/configuring/billing-settings)에 따르면 기본 request-based billing에서는 요청 밖 CPU가 할당되지 않는다. 인메모리 큐가 POST 응답 뒤에 작업하므로 현재 서비스의 CPU 설정을 확인하고 첫 Cron에서 완료율을 관측해야 한다. 과거 배포 기록의 2Gi/2cpu·max-instances1만으로 CPU 지속 할당을 증명할 수 없다.
 - 다른 세션의 dirty `main` 파일과 PR #18의 독립 matching campaign 준비물은 변경하지 않는다. exact19와 별도 matching-only manifest의 grant/receipt 없는 상태는 launch 권한이 아니다.
