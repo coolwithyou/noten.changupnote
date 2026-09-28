@@ -388,3 +388,8 @@
 - 현행 인도 BTS 공고의 검수된 7 criterion을 그대로 읽어 메모리에서만 `size=중소기업`을 자가신고 confidence 0.6으로 가정했다. 이전에는 `조건부/추천0 → eligible/추천1 → 모름/추천1`이어서, 후속 “잘 모르겠어요”가 과거 자가신고 규모를 남겨 추천을 되살리는 결함을 확인했다. core의 unknown 전환에서 해당 축의 사용자 값·evidence·confidence·목록 완전성을 제거하고 공식 원천값은 유지했다. 숫자 구간 답변도 이전 정확 수치를 지워 구간으로 다시 평가하게 했다. 수정 후 같은 실제 공고는 `조건부/추천0 → eligible/추천1 → 조건부/추천0`, 최종 size null이다. 이는 메모리 계산이며 **아스카웍스 실제 규모 확인이나 서비스 DB 쓰기, 실제 추천 1건 달성**은 아니다.
 - `applyCompanyProfileAnswer`의 격리 runtime 저장·재조회 회귀에서 중소기업 답변 뒤 추천1, 모름 뒤 추천0, 새 조회도 추천0 및 unknown 상태를 확인했다. `question-answer-state` 단위 테스트, `pnpm test:profile-answer-consistency`, `pnpm test:matching-unit`, core·web typecheck, `pnpm build:packages`, `pnpm build:web` PASS. 격리 runtime은 PostgreSQL `match_state` writer를 실행하지 않으므로 그 영속 상태는 미검증이다. 실제 계정·브라우저 UAT도 미실행이며 사용자 규모를 임의 저장하지 않았다.
 - 다음 live 파일럿은 **현재 package runtime SHA로 재봉인한 새 exact manifest**가 필요하다. 과거 SHA 승인 질문을 새 범위로 간주하지 않는다. 별도 KISA 1행 격리와 원문 파일 복구도 운영 쓰기 승인 대기 상태다.
+
+## 2026-09-28 14:12 KST 변경된 package runtime의 exact 2건 재준비
+
+- 답변 철회 수정 commit `445b62b` 기준 package build와 freshness PASS. 봉인 classification `367b768b…`의 같은 두 grant를 현재 공급 판정·원문 결속을 다시 거쳐 새 `matching_only` manifest `84bf20ea392c791f49b245ea538fa27f39b9799341ac422604cbd9afc923a588`, inventory `26e064997a9be0ebd119b080750e0bd991df6f3a82360ea0e1d72e560f1f10e0`로 준비했다. 두 파일의 bytes SHA 일치, input/attachment SHA 각각 직전과 일치, validator v27, package runtime `d52420f3c4861c6c4b6c4e44ec7f765776dd710604c08228248b1c3003c6b231`, CLI Opus 5·동시성 1·신청서 제외다. 이 manifest 결속 grant/receipt/status는 0이고 준비 시 모델 호출·서비스 쓰기는 0이다.
+- 새 exact manifest에 대한 사용자 승인 질문을 보냈다. 응답 전에는 grant/launch하지 않으며 과거 `16433fff…` 및 감시 `5f90a58b…`의 승인 질문이나 ack를 이 범위로 이월하지 않는다. 두 공고의 현재 회사 정보만으로 추천 가능 확정이 되지 않는다는 원문 기반 기대 판정도 유지한다.
