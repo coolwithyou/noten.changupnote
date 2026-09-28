@@ -16,6 +16,7 @@ import { expandConfirmedGrantComponentIds } from "../ingestion/grantRevisionInva
 import { runGrantRevisionScopedRefresh } from "../matches/grantRevisionScopedRefreshCore";
 import { prepareLabAnalysis } from "./analyze";
 import { normalizeAnalysisLaunchManifest, readAnalysisLaunchArtifact } from "./launch-batch-artifacts";
+import { classifyNoticePeriod } from "./notice-period";
 
 const SHA = /^[a-f0-9]{64}$/u;
 const CONFIRM = "RECOVER_EXACT_MATCHING_ZIP";
@@ -113,12 +114,13 @@ async function verifyCurrentPlan(plan: RecoveryPlan) {
     id: schema.grants.id, source: schema.grants.source,
     sourceId: schema.grants.sourceId, status: schema.grants.status,
     servingState: schema.grants.servingState,
+    applyStart: schema.grants.applyStart,
     applyEnd: schema.grants.applyEnd,
   }).from(schema.grants).where(eq(schema.grants.id, plan.grantId));
   if (!grant || grant.source !== plan.source || grant.sourceId !== plan.sourceId
     || grant.status !== "open" || grant.servingState !== "visible"
     || grant.applyEnd?.toISOString() !== plan.applyEnd
-    || grant.applyEnd.getTime() < Date.now()) {
+    || classifyNoticePeriod(grant.applyStart, grant.applyEnd) !== "eligible") {
     throw new Error("ZIP recovery grant drift");
   }
   const links = await db.select({

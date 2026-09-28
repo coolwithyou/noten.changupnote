@@ -17,6 +17,7 @@ import {
 import { stableJson } from "../deep-analysis/sourceRevision";
 import { prepareLabAnalysis } from "./analyze";
 import { normalizeAnalysisLaunchManifest, readAnalysisLaunchArtifact } from "./launch-batch-artifacts";
+import { classifyNoticePeriod } from "./notice-period";
 
 const SHA = /^[a-f0-9]{64}$/u;
 const CONFIRM = "RECOVER_EXACT_MATCHING_PDFS";
@@ -152,13 +153,16 @@ async function verifyCurrentPlan(plan: RecoveryPlan) {
     source: schema.grants.source,
     sourceId: schema.grants.sourceId,
     status: schema.grants.status,
+    servingState: schema.grants.servingState,
+    applyStart: schema.grants.applyStart,
     applyEnd: schema.grants.applyEnd,
   }).from(schema.grants).where(inArray(schema.grants.id, plan.targets.map((target) => target.grantId)));
   for (const target of plan.targets) {
     const grant = grants.find((item) => item.id === target.grantId);
     if (!grant || grant.source !== target.source || grant.sourceId !== target.sourceId
-      || grant.status !== "open" || grant.applyEnd?.toISOString() !== target.applyEnd
-      || grant.applyEnd.getTime() < Date.now()) {
+      || grant.status !== "open" || grant.servingState !== "visible"
+      || grant.applyEnd?.toISOString() !== target.applyEnd
+      || classifyNoticePeriod(grant.applyStart, grant.applyEnd) !== "eligible") {
       throw new Error(`PDF recovery grant drift: ${target.sourceId}`);
     }
     const prepared = await prepareLabAnalysis(target.grantId);
@@ -250,7 +254,9 @@ async function main() {
         throw new Error("PDF recovery receipt readback SHA mismatch");
       }
       receiptWritten = true;
-      const passed = result.failedCount === 0 && remaining.every((item) => item.missingPdfCount === 0);
+      const passed = result.candidateCount === plan.pdfCount
+        && result.succeededCount === plan.pdfCount && result.failedCount === 0
+        && remaining.every((item) => item.missingPdfCount === 0);
       console.log(JSON.stringify({ status: passed ? "COMPLETE" : "PARTIAL", planSha256: plan.planSha256,
         receiptSha256: receipt.receiptSha256, succeeded: result.succeededCount,
         failed: result.failedCount, remainingPdfTargets: remaining.filter((item) => item.missingPdfCount > 0).length }));

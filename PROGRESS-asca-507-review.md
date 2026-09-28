@@ -229,3 +229,9 @@
 - ZIP v2의 별도 읽기 전용 preflight를 현재 상태에서 재실행해 동일 계획 `f3b1c42e…`, 원본 1개, material child 5개, 영향 grant 최대 1개, 기존 match_state 1행을 확인했다. 현행 `visible/open` 및 신청 종료 시각도 확인한다.
 - 이전 preflight와 실제 발행 사이에 대상 범위가 바뀌는 위험을 줄이기 위해, publisher의 단일 grant 트랜잭션에서 publication lock 취득 뒤 grant ID·상태·신청 종료, confirmed dedup component, criteria/promoted 개수, match_state 회사 ID 집합 SHA를 exact 계획과 재대조한다. 다르면 첫 DB mutation 전에 실패하고, 이 exact 경로는 serializable isolation을 사용한다. ZIP batch에서 해당 결속을 끝까지 전달한다. 실제 발행 뒤 성공 판정에는 무효화·재계산 각 1행을 요구한다. 이 검사는 트랜잭션 전 수행하는 R2 쓰기를 되돌리지는 못하므로, 발행 실패 시 receipt 대신 lock을 보존하고 수동 조사해야 한다.
 - 변경 후 정상·매칭 회사 drift·promoted criterion drift 트랜잭션 테스트, `verify:ingestion-publish`, `verify:grant-attachment-archive` 27/27, ZIP 계획 계약 2/2, 웹 typecheck, package runtime freshness, `git diff --check` PASS. 운영 DB/R2 write와 모델 실행은 승인 응답 전이다.
+
+## 2026-09-28 당일 마감 원본 복구 preflight 날짜 판정 보정
+
+- 현재 캠페인 `181ea87b…`의 154건을 DB와 읽기 전용으로 재감사했다. material drift 0, 미입력 첨부 24개·15개 target, 공고문 누락 3개·1개 target(`kstartup/175783`)으로 직전 수치와 같다. 이 감사 결과는 의미 검수나 추천 품질 인수가 아니다.
+- PDF 6건 계획의 새 preflight가 `bizinfo/126586`을 drift로 잘못 거부했다. DB 조회 결과 이 공고는 `open/visible`이고 저장된 마감일과 계획 결속이 동일한 `2026-09-28T00:00:00Z`였다. 감사 시각 09:20 KST는 **마감 당일**인데 복구 CLI가 UTC 시각 비교로 09:00 KST 이후를 마감으로 오판한 것이다. 현행 제품 모집기간 계약은 저장 UTC 날짜를 KST 달력일로 해석하고 마감일 전체를 포함한다.
+- PDF·ZIP 복구 preflight 및 ZIP publisher의 exact 트랜잭션 guard에 동일한 `classifyNoticePeriod`를 적용했다. 공고의 `open/visible`, exact 마감일, 현재 KST 기간을 모두 검증한다. PDF receipt의 완료 조건도 후보·성공 건수가 계획한 10개와 정확히 같아야 하도록 좁혔다. 수정 후 실제 현재 PDF 계획은 6개 공고·10개 PDF 원본 SHA 검증까지 읽기 전용 PASS, ZIP 계획은 원본 1개·child 5개·기존 매칭 1행 범위로 읽기 전용 PASS다. 두 쓰기 계획의 승인 범위는 변하지 않았으며 실행하지 않았다.

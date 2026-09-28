@@ -33,6 +33,7 @@ import {
 } from "./grantSourceChangeImpact";
 import type { GrantSupplyAssessment } from "../productReadiness/grantSupply";
 import { stableJson } from "../deep-analysis/sourceRevision";
+import { classifyNoticePeriod } from "../analysis-lab/notice-period";
 
 /** Single-grant publication boundary for an approved exact source recovery. */
 export interface ExactPublicationImpact {
@@ -190,7 +191,7 @@ export async function publishNormalizedGrants<TPayload>(
         if (!previous || previous.grantId !== exact.grantId
           || previous.grant.status !== "open" || previous.grant.servingState !== "visible"
           || previous.grant.applyEnd?.toISOString() !== exact.applyEnd
-          || previous.grant.applyEnd.getTime() < Date.now()
+          || classifyNoticePeriod(previous.grant.applyStart, previous.grant.applyEnd) !== "eligible"
           || component.length !== exact.maxAffectedGrants || component[0] !== exact.grantId
           || previousCriteria.length !== exact.criterionCount
           || previousCriteria.filter((item) => item.stableKey !== null).length !== exact.promotedCriterionCount) {
