@@ -561,6 +561,33 @@ async function run() {
       MatchingAnnouncementInputMissingError);
   }
 
+  // SHA가 맞는 markdown이라도 본문이 비어 있으면 공고문을 읽었다고 표시하지 않는다.
+  {
+    const empty = " \n";
+    const result = await assembleLabInput({
+      grant: GRANT, payload: null,
+      archives: [archive({
+        filename: "모집 공고문.pdf",
+        storageKey: "archive/notice.pdf",
+        sha256: "a".repeat(64),
+        markdownStorageKey: "archive/notice.md",
+        markdownSha256: sha256(empty),
+        markdownBytes: empty.length,
+      })],
+    }, { storage: fakeStorage({ "archive/notice.md": empty }) });
+    assert.deepEqual(result.attachmentPreparationReport?.map((item) => ({
+      role: item.documentRole,
+      outcome: item.inputOutcome,
+      reason: item.missingReason,
+      recovery: item.recovery.mode,
+    })), [{
+      role: "announcement", outcome: "unavailable",
+      reason: "empty_markdown", recovery: "pdf_text_or_ocr",
+    }]);
+    assert.throws(() => assertMatchingAnnouncementCoverage(result.attachmentPreparationReport),
+      MatchingAnnouncementInputMissingError);
+  }
+
   {
     const originalCap = process.env.ANALYSIS_LAB_INPUT_CHAR_CAP;
     const baseline = await assembleLabInput({ grant: GRANT, payload: null, archives: [] }, { storage: fakeStorage({}) });
@@ -582,7 +609,7 @@ async function run() {
     }
   }
 
-  console.log("input.test.ts: 17개 시나리오 전부 통과");
+  console.log("input.test.ts: 첨부 입력 시나리오 통과");
 }
 
 run().catch((error) => {

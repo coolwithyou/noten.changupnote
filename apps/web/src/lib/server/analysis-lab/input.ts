@@ -399,7 +399,7 @@ export function announcementScore(filename: string): number {
 /** 코호트 선정 기준: 이 크기 이상인 본문성 markdown 이 있어야 "딥분석하기 좋은 공고"로 본다. */
 export const BODY_MARKDOWN_MIN_BYTES = 2_000;
 
-export type UnavailableReason = "markdown_missing" | "r2_unconfigured" | "load_failed" | "cap_exceeded";
+export type UnavailableReason = "markdown_missing" | "empty_markdown" | "r2_unconfigured" | "load_failed" | "cap_exceeded";
 export type AttachmentOutcome = "loaded" | "truncated" | "unavailable" | "covered_by_children";
 
 interface AttachmentProvenance {
@@ -416,6 +416,7 @@ interface AttachmentProvenance {
 
 const UNAVAILABLE_REASON_LABELS: Record<UnavailableReason, string> = {
   markdown_missing: "변환 안 됨",
+  empty_markdown: "변환 본문 없음",
   r2_unconfigured: "R2 미설정",
   load_failed: "로드 실패",
   cap_exceeded: "캡 초과 미로드",
@@ -518,16 +519,20 @@ async function loadAttachmentBlocks(
         throw new Error("markdown SHA-256 mismatch");
       }
       const body = stripYamlFrontmatter(raw).trim();
+      if (!body) {
+        provenance.outcome = "unavailable";
+        provenance.unavailableReason = "empty_markdown";
+        unavailable.push({ index, filename: archive.filename, reason: "empty_markdown" });
+        continue;
+      }
       provenance.outcome = "loaded";
       provenance.unavailableReason = null;
-      if (body) {
-        blocks.push({
-          label: `첨부 공고문: ${archive.filename}`,
-          body,
-          attachmentProvenance: provenance,
-        });
-        loadedChars += body.length;
-      }
+      blocks.push({
+        label: `첨부 공고문: ${archive.filename}`,
+        body,
+        attachmentProvenance: provenance,
+      });
+      loadedChars += body.length;
     } catch {
       provenance.outcome = "unavailable";
       provenance.unavailableReason = "load_failed";
