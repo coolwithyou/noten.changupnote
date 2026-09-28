@@ -242,4 +242,14 @@
 - 같은 저장 프로필로 discovery 포함 전체 universe를 `buildTeaser` 읽기 전용 평가한 결과 eligible/recommendable 0, conditional 1,494, ineligible 8, reviewNeeded 1,499였다. 이 중 1,480건은 discovery 원문 검수 전 재고여서 `reviewNeeded`를 지원 가능 후보 또는 품질 통과량으로 해석할 수 없다. 기본 표시 8개에서는 discovery 1개와 verified 7개가 선택됐다. 서버의 확인 질문·노출 주석을 적용하기 전의 core 평가이므로 실제 브라우저 카드 UX 검증을 대신하지 않는다.
 - 같은 평가에서 다음 프로필 질문 축은 `size`였으며 일반 `oneAnswer`는 1건, exact 현행 질문 결속을 요구하는 `oneQuestionAway`는 0건이었다. 따라서 답변 하나가 결과를 바꿀 수 있는 경로는 있지만 현재 사용자 화면에서 정확히 한 질문 뒤 확정될 공고라고는 아직 단정할 수 없다.
 - 실제 서비스와 같은 확인 질문 context를 읽기 전용으로 로드해 verified 22건에 결속했다. 역사/일반 anchor는 25개지만 현행 원문·serving run·v2 3상태 계약까지 통과한 anchor는 0개이고, 서버 주석 뒤에도 `oneQuestionAway=0`이다. 인도 BTS 후보(`126455`)의 단일 미확인 hard trace는 `size / company_profile_missing / company_profile`이며 공고별 확인 질문 수는 0개다. `oneQuestionAway`는 현행 criterion에 결속된 per-notice 확인 질문 약속이므로 이를 일반 기업규모 입력에 재사용하지 않는다. 다음 프로필 질문 `size`와 비영속 가정 시 추천 변화는 별도 사실로 유지한다.
+
+## 2026-09-28 PR 미리보기 브라우저 검증 경계
+
+- draft PR #18의 `f28dd31` 체크는 Vercel/Preview Comments PASS이고 GitHub deployment 원장에도 해당 SHA의 Preview 배포가 생성됐다. 코드가 같은 앞선 `78dae17` 배포는 success였다. 해당 미리보기 앱 URL을 격리된 `agent-browser` 세션에서 열자 애플리케이션 대신 `vercel.com/login`으로 리다이렉트됐다. 따라서 배포 PASS는 확인했지만 아스카웍스 로그인 화면·매칭 카드의 브라우저 UAT는 **미실행**이다. 브라우저 세션은 닫았다.
+- 앱의 개발 서버는 실행 중인 포트가 없어 프로젝트 규칙대로 시작하지 않았다. 미리보기 로그인은 대화형 인증 경계이고, PR의 공개 접근 설정을 임의로 바꾸지 않는다. 새 문서 커밋마다 Vercel 미리보기 작업이 새로 생기므로 다음 근거는 가능한 한 한 번에 기록·커밋한다.
 - 공급 병목은 현행 프로필의 미확인 기업 규모와 원문 조건 검수가 끝난 공고의 매우 작은 수가 함께 만든다. 이를 확인 답변 없이 임의 저장하거나 discovery 1,480건을 자동 추천으로 올리지 않는다. 사용자 대상 실제 추천 품질은 분석 receipt·독립 검수·서비스 연결 후 다시 측정해야 한다.
+
+## 2026-09-28 공급 판정과 campaign 준비 경로 재검토
+
+- 과거 통합 계획의 planner/executor 분리 지적을 현재 코드에서 다시 확인했다. `prepareMatchingInventoryCampaign`은 실제 `assessPublishedGrantSupply`의 계획과 evidence SHA를 읽고, `await_approved_model_run`인 `condition_analysis`만 물리 입력 준비에 넣는다. 자산 조회 불가·기존 분석 검수·재사용·승격 준비 단계는 모델 대상에서 제외된다. child 준비 직전 공급 evidence SHA를 재조회하고, 현행 지원기간·원문 결속은 `prepareExactInventory` 및 target 착수 검증에서 현재 시각으로 다시 확인한다. 이 옛 지적만으로 추가 코드 수정은 정당화되지 않는다.
+- 현재 154건의 공고문 입력 누락 1건(`kstartup/175783`)은 launch의 모델 요청 전 보호로 대상별 실패 격리되지만, 준비 모집단에는 남는다. 통합공고를 실제 개별 지원사업으로 분리하지 않은 상태에서 이를 추천 가능한 분석 공급으로 세지 않는다. campaign 전체의 실행 권한은 여전히 없으며, 이 검토는 모델 호출·운영 쓰기 없이 코드와 기존 감사 산출물만 읽었다.
