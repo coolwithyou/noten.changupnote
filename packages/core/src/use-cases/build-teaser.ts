@@ -161,7 +161,7 @@ export function selectTeaserDisplay(
   );
   const reviewNeededCards = cards.filter(isReviewNeededCard);
   const balancedReviewNeededCards = balanceReviewNeededCards(reviewNeededCards);
-  const { recommendable, reviewNeeded } = selectVisibleTeaserBuckets(
+  const { recommendable, reviewNeeded: selectedReviewNeeded } = selectVisibleTeaserBuckets(
     visibleRecommendableCards,
     balancedReviewNeededCards,
     {
@@ -170,6 +170,7 @@ export function selectTeaserDisplay(
       ...(options.reviewNeededLimit === undefined ? {} : { reviewNeededLimit: options.reviewNeededLimit }),
     },
   );
+  const reviewNeeded = placeDiscoveryReviewSlot(selectedReviewNeeded, balancedReviewNeededCards);
   return {
     matches: [...recommendable, ...reviewNeeded],
     recommendableMatches: recommendable,
@@ -242,17 +243,28 @@ function balanceReviewNeededCards(cards: MatchCard[]): MatchCard[] {
     }
     if (!appended) break;
   }
-  // verified 검토 후보가 먼저 정렬된 것만으로 제한 페이지를 채우면
-  // discovery를 universe에 포함해도 사용자에게는 하나도 보이지 않는다. exact 확인
-  // 질문은 그대로 우선하고, 남은 범용 검토 자리의 첫 카드만 discovery로 보장한다.
-  const firstGenericDiscovery = result.findIndex((card, index) =>
-    index >= oneQuestionAway.length && card.matchingEvidence?.level === "discovery"
-  );
-  if (firstGenericDiscovery > oneQuestionAway.length) {
-    const [discovery] = result.splice(firstGenericDiscovery, 1);
-    if (discovery) result.splice(oneQuestionAway.length, 0, discovery);
-  }
   return result;
+}
+
+/** 검수 전 대표 카드는 남기되, 답변으로 판정이 바뀌는 검수 후보 뒤에 둔다. */
+function placeDiscoveryReviewSlot(selected: MatchCard[], candidates: MatchCard[]): MatchCard[] {
+  const discovery = candidates.find((card) => card.matchingEvidence?.level === "discovery");
+  if (!discovery || selected.length === 0) return selected;
+
+  const selectedDiscovery = selected.filter((card) => card.matchingEvidence?.level === "discovery");
+  if (selectedDiscovery.length > 0) {
+    return [
+      ...selected.filter((card) => card.matchingEvidence?.level !== "discovery"),
+      ...selectedDiscovery,
+    ];
+  }
+
+  for (let index = selected.length - 1; index >= 0; index -= 1) {
+    const card = selected[index]!;
+    if (isOneQuestionAwayCard(card) || isOneAnswerCard(card)) continue;
+    return [...selected.slice(0, index), ...selected.slice(index + 1), discovery];
+  }
+  return selected;
 }
 
 function isOneQuestionAwayCard(card: MatchCard): boolean {
