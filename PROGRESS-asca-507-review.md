@@ -240,4 +240,5 @@
 
 - 저장된 회사 프로필을 수정 없이 읽고 동일 시각(09:24 KST)의 제품 공고 universe와 재매칭했다. universe 1,502건 중 원문 조건 `verified`는 22건, `discovery`는 1,480건이다. verified 22건에서 실제 저장 프로필은 eligible/recommendable 0·conditional 14·ineligible 8이다. 미확인 `size=중소기업`을 비영속으로 가정하면 eligible/recommendable 1·conditional 13·ineligible 8이며, 그 1건은 인도 BTS 전시회다. 실제 회사 규모 확인이나 지원 자격 확정이 아니다.
 - 같은 저장 프로필로 discovery 포함 전체 universe를 `buildTeaser` 읽기 전용 평가한 결과 eligible/recommendable 0, conditional 1,494, ineligible 8, reviewNeeded 1,499였다. 이 중 1,480건은 discovery 원문 검수 전 재고여서 `reviewNeeded`를 지원 가능 후보 또는 품질 통과량으로 해석할 수 없다. 기본 표시 8개에서는 discovery 1개와 verified 7개가 선택됐다. 서버의 확인 질문·노출 주석을 적용하기 전의 core 평가이므로 실제 브라우저 카드 UX 검증을 대신하지 않는다.
+- 같은 평가에서 다음 프로필 질문 축은 `size`였으며 일반 `oneAnswer`는 1건, exact 현행 질문 결속을 요구하는 `oneQuestionAway`는 0건이었다. 따라서 답변 하나가 결과를 바꿀 수 있는 경로는 있지만 현재 사용자 화면에서 정확히 한 질문 뒤 확정될 공고라고는 아직 단정할 수 없다.
 - 공급 병목은 현행 프로필의 미확인 기업 규모와 원문 조건 검수가 끝난 공고의 매우 작은 수가 함께 만든다. 이를 확인 답변 없이 임의 저장하거나 discovery 1,480건을 자동 추천으로 올리지 않는다. 사용자 대상 실제 추천 품질은 분석 receipt·독립 검수·서비스 연결 후 다시 측정해야 한다.
