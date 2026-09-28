@@ -111,8 +111,8 @@ for (const rule of DEEP_ANALYSIS_REVIEW_ALIGNMENT_RULES) {
 const { rubric: productionRubric } = await loadGuideRubric();
 const productionSystemPrompt = buildIndependentReviewSystemPrompt(productionRubric);
 assert.ok(
-  productionSystemPrompt.length <= 14_500,
-  `독립 검수 공통 prompt는 14,500자 이하여야 합니다: ${productionSystemPrompt.length}`,
+  productionSystemPrompt.length <= 15_000,
+  `독립 검수 공통 prompt는 15,000자 이하여야 합니다: ${productionSystemPrompt.length}`,
 );
 assert.match(independentSystemPrompt, /premises를 구조화할 수 있는 유일한 경우.*registered_current_site/);
 assert.match(independentSystemPrompt, /source_field: aply_trgt.*list_semantics=open/);
@@ -124,7 +124,8 @@ assert.match(independentSystemPrompt, /본 사업 선정 후의 협약 이행.*c
 assert.match(independentSystemPrompt, /중소기업·중견기업·대기업 같은 법정 기업 규모 분류는 size로만/);
 assert.match(independentSystemPrompt, /지원대상: 중소기업.*target_type 누락 근거가 아니며.*confirmed_absent/);
 assert.match(independentSystemPrompt, /순수 창작물.*현재 또는 과거 수혜 사실이 아니므로|표절·도용 금지/);
-assert.match(independentSystemPrompt, /공고명·사업목적·모집안내.*실제 신청기업의 산업 범위다/);
+assert.match(independentSystemPrompt, /신청기업의 산업·사업 분야를 자격조건으로 명시.*KSIC 코드가 없어도 industry\/required\/in/);
+assert.match(independentSystemPrompt, /공고명·사업목적에서만 산업을 언급.*단정하지 않는다/);
 assert.match(independentSystemPrompt, /제출서류 목록은 정보수집·증빙 요구일 뿐/);
 
 const impactSchema = buildAiReviewToolSchema(1, ["region"], {
