@@ -449,6 +449,13 @@
 - 두 공고의 v2 계획은 `docs/evidence/2026-09-28-kstartup-179175-179294-pdf-source-recovery-plan.json`, 내부 plan SHA `fa3643a12cab5015e5fab59f8b21c1a8db34e4a4c89f67914c6c754eda6dd665`, 파일 bytes SHA `d2dbf5993065c9773b4612a56f18e3195cfef03d648e34e42c2ed19864e65203`다. 준비 2/2 PDF bytes 검증 및 이 버전 파일의 읽기 전용 preflight `READY_FOR_SOURCE_RECOVERY_APPROVAL` 2/2 PASS. 이 계획의 운영 R2/DB source-only 쓰기는 exact 범위 승인 전이라 실행하지 않았고 receipt도 없다. 원문 복구 후 새 input SHA로 모델 분석·독립 검수·release가 별도로 필요하다.
 - `lab:matching-pdf-source-recovery:test` 3/3, `pnpm --filter web typecheck`, `pnpm verify:deep-analysis-contract`(PDF 텍스트/OCR 및 입력 준비 포함), `git diff --check` PASS. 실제 v2 두 공고의 DB/R2 결속 preflight도 PASS했다. PDF 텍스트 문자 수는 문서 의미 판정이나 최종 추천 품질의 대체 증거가 아니다.
 
+## 2026-09-28 누락 PDF 두 건의 자격 문장 직접 판독
+
+- `179175`와 `179294`의 보관 PDF를 R2에서 읽기만 해 위 v2 계획의 원본 SHA `e752e74e…`·`d092277b…`와 각각 다시 대조했다. 원본은 무시되는 `tmp/pdfs/asca-179175.pdf`(2쪽)·`tmp/pdfs/asca-179294.pdf`(11쪽)에 두고 텍스트 추출과 관련 페이지 렌더를 대조했다. 운영 R2/DB 쓰기와 모델 launch는 0이다.
+- `179175` 공고문 1~2쪽은 전국 예비창업자·7년 이내 창업기업을 대상으로 하면서도 기술·제품·서비스 출시, 연구개발·투자·계약·인증·수상 등 **기사화할 수 있는 성과**와 사실 확인 가능성을 선정 조건으로 둔다. 선정 시 무료 기사 1건을 제공한다. 아스카웍스의 1개월 업력만으로 이 성과·뉴스 가치가 확인되지는 않으므로 확정 추천이 아니다. 과거 독립 검수에서 제출 소재를 필수 자격으로 오인한 이력이 있어, 새 분석은 자격·선정평가·제출자료를 구분해야 한다.
+- `179294` 공고문 1·3~6쪽은 중소기업, 한국 또는 미국 매출, 판매할 제품·서비스, 실리콘밸리 진출 또는 계획, 창업기업 요건과 제외사유를 구분한다. 미국 현지 1주 참여, 영어 의사소통과 출장 가능성도 요구하며 사업화 현금 지원은 없다. 매출·판매 가능한 제품·미국 진출 의향 등 아스카웍스의 현행 증거를 이번 PDF 읽기만으로 확정할 수 없어 추천 가능 건수에 넣지 않는다. 서류·발표 평가지표의 성장성 문구를 신청자격으로 승격하지 않는다.
+- 두 PDF 모두 텍스트층과 보관 SHA가 있어 source-only 복구의 입력 후보라는 사실은 강화됐다. 다만 로컬 판독 결과는 운영 분석 입력·독립 검수·release를 대신하지 않으며, 승인 대기인 v2 계획의 운영 쓰기는 실행하지 않았다.
+
 ## 2026-09-28 변환 대기열의 현행 공고 우선순위
 
 - Vercel 운영 `changupnote` 프로젝트 ID/NOTEN 소유, `noten-dev` CLI 인증을 읽기 전용으로 확인했다. production 환경변수 목록에는 `CONVERSION_SERVER_URL`, `CONVERSION_SHARED_SECRET`, R2 계정/버킷 키가 모두 존재한다(값 비노출). 따라서 변환 미처리를 단순 환경변수 누락으로 확정하지 않는다.
