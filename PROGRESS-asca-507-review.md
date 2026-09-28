@@ -222,3 +222,10 @@
 - 앞서 요청한 ZIP source-only 계획 `945c0ec6…`은 **실행에 사용하지 않는다**. 발행·기존 매칭 최대 1행 재계산까지 포함한 새 exact 계획 `f3b1c42eb5c7d0d912fac260001371080033d9258b7307d79c75fc05588e0096`을 `spike-out/asca-test-20260927/same-material-defect-126497-zip-publisher-plan.json`에 봉인·readback PASS했다. 실행 CLI는 source manifest/input/attachment SHA, 현재 공고·지원 종료·공식 URL/bytes, ZIP material child 5개, dedup component 1·match_state 1·criterion 11·회사 ID 집합 SHA를 읽기 전용으로 재검증한다. preflight PASS, 계획 계약 테스트 2/2 PASS다.
 - 프로젝트 `AGENTS.md`의 exact 운영 변경 경계에 따라 새 ZIP v2 범위 승인을 요청했다. 기존 v1 승인만으로는 실행하지 않는다. PDF 6건 계획 `e12dada0…`도 아직 쓰기 전이며, 이 복구는 document artifact 입력만 추가하고 모델 분석·승격은 별개로 유지한다.
 - ZIP v2 실행 경로는 첨부 선택 `1/1`·공식 URL·원본 SHA를 다시 확인하고, 바이트가 다르면 첫 R2 쓰기 전에 거부한다. publisher 영향 범위를 별도 읽기 전용으로 예행한 결과 dedup component 1·대상 회사 1·planned match_state 1·candidateComplete true였다. 영수증에는 실제 revision/무효화·재계산 수, child 변환 수, ZIP parent 입력 결과를 봉인한다. 확인값 없는 `--write`는 영수증·lock 생성 0으로 거부됐다. ZIP 계획 계약 테스트 2/2, 첨부 아카이브 gate, BizInfo batch 테스트, ingestion publish gate, 웹 typecheck PASS. 이 검증은 실제 운영 쓰기·모델 결과·추천 품질을 대신하지 않는다.
+
+## 2026-09-28 ZIP 발행 직전 영향 범위 재검증
+
+- 감시 §78의 25건 `2efed53b…`·13건 `58920414…`은 이미 별도 캠페인 child 4·5에 결속된 준비물이며 이번 알림은 새 승인으로 취급하지 않았다. exact19 재실행·중복 ack·모델 호출은 하지 않았다.
+- ZIP v2의 별도 읽기 전용 preflight를 현재 상태에서 재실행해 동일 계획 `f3b1c42e…`, 원본 1개, material child 5개, 영향 grant 최대 1개, 기존 match_state 1행을 확인했다. 현행 `visible/open` 및 신청 종료 시각도 확인한다.
+- 이전 preflight와 실제 발행 사이에 대상 범위가 바뀌는 위험을 줄이기 위해, publisher의 단일 grant 트랜잭션에서 publication lock 취득 뒤 grant ID·상태·신청 종료, confirmed dedup component, criteria/promoted 개수, match_state 회사 ID 집합 SHA를 exact 계획과 재대조한다. 다르면 첫 DB mutation 전에 실패하고, 이 exact 경로는 serializable isolation을 사용한다. ZIP batch에서 해당 결속을 끝까지 전달한다. 실제 발행 뒤 성공 판정에는 무효화·재계산 각 1행을 요구한다. 이 검사는 트랜잭션 전 수행하는 R2 쓰기를 되돌리지는 못하므로, 발행 실패 시 receipt 대신 lock을 보존하고 수동 조사해야 한다.
+- 변경 후 정상·매칭 회사 drift·promoted criterion drift 트랜잭션 테스트, `verify:ingestion-publish`, `verify:grant-attachment-archive` 27/27, ZIP 계획 계약 2/2, 웹 typecheck, package runtime freshness, `git diff --check` PASS. 운영 DB/R2 write와 모델 실행은 승인 응답 전이다.

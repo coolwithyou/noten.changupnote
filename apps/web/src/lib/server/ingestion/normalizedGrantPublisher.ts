@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { and, eq, inArray, isNotNull, notInArray } from "drizzle-orm";
 import type {
   Grant,
@@ -31,6 +32,19 @@ import {
   type GrantSourceChangeProjectionInput,
 } from "./grantSourceChangeImpact";
 import type { GrantSupplyAssessment } from "../productReadiness/grantSupply";
+import { stableJson } from "../deep-analysis/sourceRevision";
+
+/** Single-grant publication boundary for an approved exact source recovery. */
+export interface ExactPublicationImpact {
+  grantId: string;
+  sourceId: string;
+  applyEnd: string;
+  maxAffectedGrants: 1;
+  existingMatchStateRows: number;
+  matchCompanyIdsSha256: string;
+  criterionCount: number;
+  promotedCriterionCount: 0;
+}
 
 export interface NormalizedGrantPublishPlan {
   source: GrantSource;
@@ -103,10 +117,15 @@ export async function publishNormalizedGrants<TPayload>(
     source: GrantSource;
     page?: number;
     collectedAt?: Date;
+    exactPublicationImpact?: ExactPublicationImpact;
   },
 ): Promise<NormalizedGrantPublishResult> {
   const collectedAt = options.collectedAt ?? new Date();
   assertEntriesUseSource(options.source, entries);
+  if (options.exactPublicationImpact && (entries.length !== 1
+    || entries[0]?.grant.source_id !== options.exactPublicationImpact.sourceId)) {
+    throw new Error("Exact publication entry scope mismatch");
+  }
 
   const conversionWarnings: string[] = [];
 
@@ -165,6 +184,27 @@ export async function publishNormalizedGrants<TPayload>(
         ? await tx.select().from(schema.grantCriteria)
           .where(eq(schema.grantCriteria.grantId, previous.grantId))
         : [];
+      if (options.exactPublicationImpact) {
+        const exact = options.exactPublicationImpact;
+        const component = expandConfirmedGrantComponentIds([exact.grantId], confirmedLinks);
+        if (!previous || previous.grantId !== exact.grantId
+          || previous.grant.status !== "open" || previous.grant.servingState !== "visible"
+          || previous.grant.applyEnd?.toISOString() !== exact.applyEnd
+          || previous.grant.applyEnd.getTime() < Date.now()
+          || component.length !== exact.maxAffectedGrants || component[0] !== exact.grantId
+          || previousCriteria.length !== exact.criterionCount
+          || previousCriteria.filter((item) => item.stableKey !== null).length !== exact.promotedCriterionCount) {
+          throw new Error("Exact publication grant, component, or criteria drift");
+        }
+        const matches = await tx.select({ companyId: schema.matchState.companyId })
+          .from(schema.matchState).where(eq(schema.matchState.grantId, exact.grantId));
+        const companyIdsSha256 = createHash("sha256")
+          .update(stableJson(matches.map((item) => item.companyId).sort())).digest("hex");
+        if (matches.length !== exact.existingMatchStateRows
+          || companyIdsSha256 !== exact.matchCompanyIdsSha256) {
+          throw new Error("Exact publication match-state scope drift");
+        }
+      }
       // P1 승격 보호(promotion-protected) 판별 — 추가 쿼리 없이, 위에서 이미 읽은
       // previousCriteria(advisory lock 획득 후 재조회 baseline)를 재사용한다.
       const promotionProtected = hasPromotionProtectedCriteria(previousCriteria);
@@ -380,7 +420,7 @@ export async function publishNormalizedGrants<TPayload>(
       promotionProtectedSourceIds: [...promotionProtectedSourceIds].sort(),
       ...(conversionWarnings.length > 0 ? { conversionWarnings } : {}),
     };
-  }, { isolationLevel: "repeatable read" });
+  }, { isolationLevel: options.exactPublicationImpact ? "serializable" : "repeatable read" });
 
   if (result.promotionProtectedCount > 0) {
     // 관측성: 수집 크론(Vercel) 함수 로그에 보호 발동을 1줄로 남긴다 — 커밋된 publish에만 기록.

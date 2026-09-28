@@ -112,10 +112,12 @@ async function verifyCurrentPlan(plan: RecoveryPlan) {
   const [grant] = await db.select({
     id: schema.grants.id, source: schema.grants.source,
     sourceId: schema.grants.sourceId, status: schema.grants.status,
+    servingState: schema.grants.servingState,
     applyEnd: schema.grants.applyEnd,
   }).from(schema.grants).where(eq(schema.grants.id, plan.grantId));
   if (!grant || grant.source !== plan.source || grant.sourceId !== plan.sourceId
-    || grant.status !== "open" || grant.applyEnd?.toISOString() !== plan.applyEnd
+    || grant.status !== "open" || grant.servingState !== "visible"
+    || grant.applyEnd?.toISOString() !== plan.applyEnd
     || grant.applyEnd.getTime() < Date.now()) {
     throw new Error("ZIP recovery grant drift");
   }
@@ -237,6 +239,14 @@ async function main() {
         imageOcr: macosVisionGrantImageOcr, imageOcrName: plan.imageOcr,
         expectedExactAttachment: { sourceId: plan.sourceId, filename: plan.filename,
           sha256: plan.originalSha256, sourceUri: plan.sourceUri },
+        exactPublicationImpact: {
+          grantId: plan.grantId, sourceId: plan.sourceId, applyEnd: plan.applyEnd,
+          maxAffectedGrants: plan.maxAffectedGrants,
+          existingMatchStateRows: plan.maxExistingMatchStateRows,
+          matchCompanyIdsSha256: plan.matchCompanyIdsSha256,
+          criterionCount: plan.criterionCount,
+          promotedCriterionCount: plan.promotedCriterionCount,
+        },
       });
       const result = batch.results[0];
       const prepared = await prepareLabAnalysis(plan.grantId);
@@ -272,6 +282,7 @@ async function main() {
         && result.failureCount === 0
         && (result.revisionCounts as Record<string, number> | undefined)?.changed === 1
         && result.matchStateInvalidatedCount === plan.maxExistingMatchStateRows
+        && result.matchStateRefreshedCount === plan.maxExistingMatchStateRows
         && result.matchStateRefreshRequired === false
         && Array.isArray(result.matchStateRefreshGrantIds)
         && stableJson(result.matchStateRefreshGrantIds) === stableJson([plan.grantId])

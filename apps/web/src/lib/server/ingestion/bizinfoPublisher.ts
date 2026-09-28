@@ -7,6 +7,7 @@ import {
   publishNormalizedGrants,
   type NormalizedGrantPublishPlan,
   type NormalizedGrantPublishResult,
+  type ExactPublicationImpact,
 } from "./normalizedGrantPublisher";
 
 export type BizInfoPublishPlan = NormalizedGrantPublishPlan & { source: "bizinfo" };
@@ -27,6 +28,7 @@ export async function publishBizInfoGrants(
   options: {
     page?: number;
     collectedAt?: Date;
+    exactPublicationImpact?: ExactPublicationImpact;
   } = {},
 ): Promise<BizInfoPublishResult> {
   const published = await publishNormalizedGrants(db, entries, {

@@ -11,6 +11,7 @@ import {
 } from "./grantAttachmentArchive";
 import { buildGrantArchiveAttachmentReceipts } from "./grantArchiveWriteReceipt";
 import { publishBizInfoGrants } from "./bizinfoPublisher";
+import type { ExactPublicationImpact } from "./normalizedGrantPublisher";
 import { fetchBizInfoOfficialDetailAttachmentSnapshot } from "./bizinfoOfficialDetailSnapshot";
 import {
   mergeArchivedKStartupAttachments,
@@ -51,6 +52,7 @@ export interface RunBizInfoAttachmentArchiveBatchInput {
   imageOcrName?: string;
   /** One exact attachment, including its current downloaded bytes, for bounded source recovery. */
   expectedExactAttachment?: { sourceId: string; filename: string; sha256: string; sourceUri?: string };
+  exactPublicationImpact?: ExactPublicationImpact;
   collectedAt?: Date;
   fetchTimeoutMs?: number;
   maxAttachmentBytes?: number;
@@ -173,6 +175,10 @@ export async function runBizInfoAttachmentArchiveBatch(
       throw new Error("Exact BizInfo attachment selection drift");
     }
   }
+  if (input.exactPublicationImpact && (!input.expectedExactAttachment
+    || input.exactPublicationImpact.sourceId !== input.expectedExactAttachment.sourceId)) {
+    throw new Error("Exact publication impact requires the same exact attachment");
+  }
   if (input.write && input.refreshOfficialDetail) {
     assertBizInfoOfficialDetailDryRunBinding({
       sourceIds: requestedSourceIds,
@@ -234,6 +240,7 @@ export async function runBizInfoAttachmentArchiveBatch(
         const published = await publishBizInfoGrants(input.db, [candidate.entry], {
           page: preservedLastPage ?? 1,
           collectedAt,
+          ...(input.exactPublicationImpact ? { exactPublicationImpact: input.exactPublicationImpact } : {}),
         });
         results.push({
           sourceId: candidate.entry.grant.source_id,
