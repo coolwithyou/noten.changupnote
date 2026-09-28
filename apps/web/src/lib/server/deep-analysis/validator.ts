@@ -30,8 +30,9 @@ import {
 } from "./criterion-semantics";
 import { resolveExclusiveBizAgeUpperBound } from "./biz-age-boundary";
 import { resolveTargetTypeListSemantics } from "./target-type-list-semantics";
+import { isUnreadableEligibilityCriterion } from "../analysis-lab/promotion-source-readability";
 
-export const DEEP_ANALYSIS_VALIDATOR_VERSION = "deep-analysis-validator-v26" as const;
+export const DEEP_ANALYSIS_VALIDATOR_VERSION = "deep-analysis-validator-v27" as const;
 
 export type DeepAnalysisValidationIssueCode =
   | "raw_contract_invalid"
@@ -47,6 +48,7 @@ export type DeepAnalysisValidationIssueCode =
   | "logical_conflict"
   | "non_matching_criterion"
   | "source_incomplete"
+  | "eligibility_source_unreadable"
   | "input_not_sealed";
 
 export interface DeepAnalysisValidationIssue {
@@ -108,6 +110,11 @@ export function decideDeepAnalysisValidationRoute(input: {
   if (input.validation.valid) {
     return { route: "accept", repairIssues: [], holdIssues: [] };
   }
+  // 읽을 수 없는 자격 원문은 같은 입력의 모델 repair로 해소할 수 없다.
+  // 다른 오류가 섞여도 새 원문 확보 전까지 이 target을 종결 보류한다.
+  if (input.validation.issues.some((issue) => issue.code === "eligibility_source_unreadable")) {
+    return { route: "hold", repairIssues: [], holdIssues: input.validation.issues };
+  }
   const heldDimensions = new Set<CriterionDimension>();
   for (const issue of input.validation.issues) {
     if (issue.code !== "unresolved_axis") continue;
@@ -163,6 +170,15 @@ export function validateDeepAnalysisResult(input: {
   result: DeepAnalysisModelResult;
 }): DeepAnalysisValidationResult {
   const issues: DeepAnalysisValidationIssue[] = [];
+  input.result.criteria.forEach((criterion, index) => {
+    if (isUnreadableEligibilityCriterion(criterion)) {
+      issues.push({
+        code: "eligibility_source_unreadable",
+        path: `$.criteria.${index}.note`,
+        message: "Eligibility source is explicitly unreadable; a new source-bound run is required.",
+      });
+    }
+  });
   if (!input.seal.sealed) {
     issues.push({
       code: "input_not_sealed",
@@ -309,6 +325,7 @@ export function validateDeepAnalysisResult(input: {
   ]);
   const evidenceIssueCodes = new Set<DeepAnalysisValidationIssueCode>([
     "evidence_not_grounded",
+    "eligibility_source_unreadable",
     "input_not_sealed",
   ]);
   const responseContractValid = !issues.some((issue) => responseIssueCodes.has(issue.code));

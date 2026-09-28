@@ -89,6 +89,35 @@ assert.equal(valid.criteria[0]?.evidenceRefs[0]?.sourceKind, "structured");
 assert.equal(valid.axisCriterionSemanticHashes.region.length, 1);
 assert.deepEqual(valid.sourceLimitations, [], "역사 결과의 optional sourceLimitations 부재를 허용한다");
 
+const unreadableEligibilityResult = result([
+  criterion({ note: "지원 제외 문구는 OCR 손상으로 판독 불가하여 발행하지 않음." }),
+], axes(["region"]));
+const unreadableEligibility = validateDeepAnalysisResult({
+  seal,
+  result: unreadableEligibilityResult,
+});
+assert.equal(unreadableEligibility.valid, false);
+assert.equal(unreadableEligibility.responseContractValid, true);
+assert.equal(unreadableEligibility.evidenceGrounded, false);
+assert.ok(unreadableEligibility.issues.some((issue) => (
+  issue.code === "eligibility_source_unreadable" && issue.path === "$.criteria.0.note"
+)));
+assert.equal(decideDeepAnalysisValidationRoute({
+  result: unreadableEligibilityResult,
+  validation: unreadableEligibility,
+}).route, "hold", "판독 불가 자격은 같은 입력의 모델 repair로 해소하지 않는다");
+assert.equal(decideDeepAnalysisValidationRoute({
+  result: unreadableEligibilityResult,
+  validation: {
+    ...unreadableEligibility,
+    issues: [...unreadableEligibility.issues, {
+      code: "canonical_contract_invalid",
+      path: "$.criteria.0",
+      message: "다른 교정 가능 오류",
+    }],
+  },
+}).route, "hold", "다른 오류가 섞여도 판독 불가 자격을 repair에서 제거할 수 없다");
+
 const currentMissingRawResult: DeepAnalysisModelResult = {
   ...result([criterion()], axes(["region"])),
   sourceLimitations: [],

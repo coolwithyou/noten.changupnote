@@ -351,3 +351,9 @@
 
 - 운영 API 딥분석은 `deep-analysis-normalized-output-v2`를 R2에서 봉인해 release plan을 만든다. 신규 plan은 앞 절의 `planGrantPromotion` 공통 검사에 도달하지만, 이미 봉인된 release의 `verifyDeepAnalysisPromotionSourceArtifact`는 종전에는 output SHA·source/current input만 재검증했다. 현행 normalized output 계약으로 다시 파싱하고 required/exclusion의 명시적 원문 판독 불가를 검사해 `eligibility_source_unreadable` drift로 반환하도록 보강했다. 파싱 실패는 `output_contract`로 차단한다.
 - API normalized output에서도 audit `concur` 상태의 판독 불가 자격 criterion이 `buildDeepAnalysisPromotionPlan`을 통과하지 못하는 회귀를 추가했다. `pnpm verify:deep-analysis-contract`, `pnpm lab:release:test`, `pnpm lab:promote:test`, 웹 typecheck와 diff 검증 PASS. 이는 운영 worker를 켜거나 배포한 증거가 아니다. 운영 main worker는 기존 `observe_only` 경계를 유지하고, 로컬 현행 2건 manifest의 모델 계약도 바꾸지 않는다.
+
+## 2026-09-28 원문 판독 실패의 primary 단계 보류
+
+- 기존 KISA run은 자격 제외 원문을 `OCR 손상으로 판독 불가`라고 스스로 기록했는데도 `primaryValidationOutcome=publishable`로 종결됐다. release 차단은 서비스 발행을 막지만 검수 공급량과 재시도 판단의 과대평가를 남긴다. validator v27에 `eligibility_source_unreadable` 증거 오류를 추가해 `required`·`exclusion` criterion note의 명시적 판독 불가를 `evidenceGrounded=false`로 분류한다. 그 오류가 있으면 다른 교정 가능 오류가 함께 있어도 같은 손상 입력으로 repair를 반복하지 않고 target을 `held/deferred`로 종결한다. 새 원문이 확보되면 새 input/manifest의 분석을 사용해야 한다.
+- synthetic validator 회귀는 계약 형식은 유효하되 증거가 불완전한 상태, mixed issue에서도 hold인 상태를 확인했다. `runValidatedLabPrimary` 회귀는 모델 호출 1회·repair 0회·`held/deferred`를 확인했다. `pnpm verify:deep-analysis-contract`, `pnpm lab:launch:test`, `pnpm lab:matching-campaign:test`(33+2), 웹 typecheck, package runtime freshness와 diff 검증 PASS. 실제 새 모델 품질 평가는 아직 없다.
+- **material validator가 v26→v27로 바뀌었으므로** 앞의 2건 `5f90a58b…`와 152건 준비 child는 현행 live 승인 범위로 사용하지 않는다. 변경을 커밋한 뒤 현재 입력/validator에 결속된 exact 2건만 우선 재준비하고 SHA·대상·grant/receipt 유무를 검증한다. 역사 manifest/receipt는 수정하지 않는다.
