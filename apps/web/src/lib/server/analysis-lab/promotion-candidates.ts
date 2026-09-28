@@ -27,6 +27,7 @@ import { labReviewFilePath } from "./review-store";
 import { labRunFilePath, modelSlug } from "./run-store";
 import { resolveManualConfirmationEvaluationsForSource } from "./manual-confirmation-evaluations";
 import { isPublishableLabRun } from "./run-outcome";
+import { hasUnreadableEligibilitySource } from "./promotion-source-readability";
 import { getCunoteDb } from "../db/client";
 import * as schema from "../db/schema";
 import { prepareDeepAnalysisInput } from "../deep-analysis/prepareInput";
@@ -134,6 +135,9 @@ export async function verifyPromotionSourceArtifact(
   const run = await readRunImpl(artifact.grantId, artifact.runId);
   if (!run) return { ok: false, changed: ["run_missing"] };
   if (!isPublishableLabRun(run)) return { ok: false, changed: ["run_outcome"] };
+  if (hasUnreadableEligibilitySource(run)) {
+    return { ok: false, changed: ["eligibility_source_unreadable"] };
+  }
   const runPath = labRunFilePath(run.source, run.sourceId, run.runId);
   const selectedManual = await resolveManualConfirmationEvaluationsForSource({
     run,

@@ -340,3 +340,9 @@
 
 - 로컬 `spike-out/analysis-lab/**/run-*.json` 1,812개에서 시작 시각 2026-09-01 이후, `claude-opus-5/claude-cli`, `primaryValidationOutcome=publishable`, 유효한 `durationMs` 조건의 **run 788개**를 읽기 전용으로 집계했다. 이는 고유 공고 수가 아니라 실행 횟수다. run 지연 중앙값 162초·p90 405초·p99 640초, 출력 토큰 중앙값 16,619·p90 38,001, 입력 문자 중앙값 4,601·p90 15,704였다. 표본 내 출력 토큰과 지연의 Pearson 상관은 0.68, 입력 문자와 지연은 0.371이다. 인과관계나 신규 모델 성능 보증으로 해석하지 않는다.
 - primary pass 1회/수리 0회 591개는 지연 중앙값 147초·p90 312초, pass 2회/수리 1회 178개는 231초·511초, pass 3회/수리 2회 19개는 411초·615초였다. 현재 152건 준비 묶음을 모델 실행으로 확대하기 전에 exact 2건 파일럿에서 실제 시간·출력 토큰·원문 의미·독립 검수 품질을 함께 측정하는 순서가 합리적이다. 하지만 현행 2건 manifest는 grant/receipt가 없는 준비물이며 사용자 exact live 승인 전 실행하지 않는다.
+
+## 2026-09-28 승격 우회 경로 봉쇄
+
+- 새 판독 불가 조건 보호는 `analysis-launch`·`deep-repair`의 readiness에 있었지만, 일반 사람/감사 release의 `planGrantPromotion`과 이미 봉인된 일반 release가 `lab:promote --write` 직전에 실행하는 `verifyPromotionSourceArtifact`에는 없었다. 일반 경로로 새 plan을 만들거나 과거 plan을 그대로 쓰는 우회를 막기 위해 공통 검사를 두 지점에도 연결했다. `analysis-launch`·`deep-repair` 전용 source verifier는 기존 readiness를 다시 계산하는 경로임을 확인했다.
+- 보관된 실제 KISA `run-2026-09-01T030253.051Z-286bdc`를 새 공통 계획 함수에 직접 넣으면 `자격 조건 원문 판독 불가`로 거부됐다. 같은 run을 일반 source 재검증에 넣으면 `{ok:false, changed:["eligibility_source_unreadable"]}`로 거부됐다. synthetic 회귀는 사람 검수 여부와 관계없이 exclusion의 판독 불가가 plan 작성 및 기존 sealed release 검증을 막는지 확인한다.
+- `pnpm lab:promote:test`, `pnpm lab:release:test`, 웹 typecheck, `git diff --check` PASS. 이 변경은 release 경계만 수정하며 모델 prompt·validator·package runtime은 변경하지 않는다. 과거 적용된 운영 DB row는 자동 수정되지 않으므로 위 1건 격리 승인 대기는 그대로다.
