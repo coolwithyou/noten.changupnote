@@ -448,7 +448,6 @@ export function buildProfilePatch(
     if (years === null || months === null) return { error: "업력은 년/개월 칸에 숫자만 입력해 주세요." };
     if (months > 11) return { error: "개월은 0부터 11까지 입력해 주세요." };
     const monthsTotal = years * 12 + months;
-    if (monthsTotal <= 0) return { error: "업력은 1개월 이상으로 입력해 주세요." };
     return { profile: { biz_age_months: monthsTotal, confidence: { biz_age: 0.78 } } };
   }
 
