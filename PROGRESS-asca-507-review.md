@@ -253,3 +253,10 @@
 
 - 과거 통합 계획의 planner/executor 분리 지적을 현재 코드에서 다시 확인했다. `prepareMatchingInventoryCampaign`은 실제 `assessPublishedGrantSupply`의 계획과 evidence SHA를 읽고, `await_approved_model_run`인 `condition_analysis`만 물리 입력 준비에 넣는다. 자산 조회 불가·기존 분석 검수·재사용·승격 준비 단계는 모델 대상에서 제외된다. child 준비 직전 공급 evidence SHA를 재조회하고, 현행 지원기간·원문 결속은 `prepareExactInventory` 및 target 착수 검증에서 현재 시각으로 다시 확인한다. 이 옛 지적만으로 추가 코드 수정은 정당화되지 않는다.
 - 현재 154건의 공고문 입력 누락 1건(`kstartup/175783`)은 launch의 모델 요청 전 보호로 대상별 실패 격리되지만, 준비 모집단에는 남는다. 통합공고를 실제 개별 지원사업으로 분리하지 않은 상태에서 이를 추천 가능한 분석 공급으로 세지 않는다. campaign 전체의 실행 권한은 여전히 없으며, 이 검토는 모델 호출·운영 쓰기 없이 코드와 기존 감사 산출물만 읽었다.
+
+## 2026-09-28 09:37 KST 공고문 미입력 준비 대상 제외
+
+- `prepareCurrentEligibleMatchingTargets`에서 이미 조립한 입력의 명시적 공고문 첨부가 `loaded|covered_by_children`인지 확인하도록 했다. 미로드·부분 입력 또는 진단 보고서 부재는 `announcement_input_missing`으로 target만 격리하고 `recover_source`를 지정한다. 신청서 등 보조 첨부 누락은 이 검사만으로 격리하지 않는다. 기존 launch 직전 공고문 보호도 유지한다.
+- 코드 commit `87f501c`의 matching campaign suite 33/33·legacy history 2/2, `lab:launch:test`, 웹 typecheck, package runtime freshness, diff 검증 PASS. 테스트는 공고문 누락·보조 첨부 누락·진단 보고서 부재를 분리했다.
+- 09:37:13 KST 현재 읽기 전용 DB와 로컬 준비물로 campaign `196b61ef2b4c8ec5de5899df71225e84415aea5061d34e0ed99ceecc15ca02ca`, classification `baf2d0f796fd049a2fb9319c65920ad6e556c692586d9688a3fa62f1e7d2664b`을 봉인했다. 두 파일 bytes SHA PASS. 모집단 529건의 분류는 reusable 4·primary review 221·prepared 153·source changed 79·quality held 72이며, `175783`은 `preparation:announcement_input_missing`/`recover_source`/campaignEligible false다. §78의 25건 `2efed53b…`·13건 `58920414…`은 새 index에도 동일 child SHA로 남는다. 새 첫 child `c4c1f12a…`는 `not_started`·기존 grant 0·live authority false다.
+- 새 campaign 전체 153건 물리 입력 감사 산출물은 `spike-out/asca-test-20260927/campaign-153-input-audit-20260928.json` (bytes SHA `e7bb3aabbe2dd5231173c472420cd127fa993f96c28993d54a375553417f7dae`)이다. 153/153 material drift 0, 미입력 보조 첨부 21개·14개 target, **명시적 공고문 누락 0**으로 `--require-announcement-coverage` PASS. 이는 원문 조건 의미 검수·모델 품질·서비스 추천 인수가 아니다. 모델 grant/launch, 서비스 DB/R2 쓰기, 승격은 실행하지 않았다.
