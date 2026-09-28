@@ -561,6 +561,22 @@ async function run() {
       MatchingAnnouncementInputMissingError);
   }
 
+  // 사업지침서는 자격·지원 범위를 정할 수 있는 공식 입력이므로 누락되면 대상만 보류한다.
+  {
+    const result = await assembleLabInput({
+      grant: GRANT, payload: null,
+      archives: [archive({
+        filename: "(사업지침서) 2026년 GAP 안전성 분석 지원.pdf",
+        sourceUri: "https://example.com/guideline.pdf",
+        conversionStatus: "skipped",
+      })],
+    }, { storage: fakeStorage({}) });
+    assert.equal(result.attachmentPreparationReport?.[0]?.documentRole, "announcement");
+    assert.equal(result.attachmentPreparationReport?.[0]?.inputOutcome, "unavailable");
+    assert.throws(() => assertMatchingAnnouncementCoverage(result.attachmentPreparationReport),
+      MatchingAnnouncementInputMissingError);
+  }
+
   // SHA가 맞는 markdown이라도 본문이 비어 있으면 공고문을 읽었다고 표시하지 않는다.
   {
     const empty = " \n";
