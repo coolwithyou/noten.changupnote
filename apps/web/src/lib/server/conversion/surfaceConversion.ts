@@ -7,7 +7,7 @@
 //   해당 인덱스는 unique 가 아니므로 애플리케이션에서 select→update/insert 로 멱등 upsert.
 // - extraction_status 전이: pending -> preview_ready (succeeded/partial) | failed (job failed).
 
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import type { GrantSource } from "@cunote/contracts";
 import type { CunoteDbSession } from "../db/client";
@@ -214,7 +214,8 @@ export function preserveRecoveredMarkdown(
 
 /**
  * surface extraction_status 를 전이한다 (계획 8.3).
- * pending -> preview_ready | failed. 이미 fields_ready(Phase 4) 면 강등하지 않는다.
+ * pending -> preview_ready | failed. 독립 폴러가 경합해도 성공한 preview_ready 를
+ * 늦게 끝난 failed 응답이 덮지 않고 fields_ready(Phase 4)도 강등하지 않는다.
  */
 export async function transitionSurfaceStatus(
   db: CunoteDbSession,
@@ -222,15 +223,6 @@ export async function transitionSurfaceStatus(
   next: "preview_ready" | "failed",
   extractionVersion?: string,
 ): Promise<void> {
-  const rows = await db
-    .select({ status: schema.grantApplicationSurfaces.extractionStatus })
-    .from(schema.grantApplicationSurfaces)
-    .where(eq(schema.grantApplicationSurfaces.id, surfaceId))
-    .limit(1);
-  const current = rows[0]?.status;
-  // fields_ready 는 Phase 4 의 상위 상태이므로 강등하지 않는다.
-  if (current === "fields_ready") return;
-
   await db
     .update(schema.grantApplicationSurfaces)
     .set({
@@ -238,5 +230,11 @@ export async function transitionSurfaceStatus(
       ...(extractionVersion ? { extractionVersion } : {}),
       updatedAt: new Date(),
     })
-    .where(eq(schema.grantApplicationSurfaces.id, surfaceId));
+    .where(and(
+      eq(schema.grantApplicationSurfaces.id, surfaceId),
+      next === "failed"
+        ? eq(schema.grantApplicationSurfaces.extractionStatus, "pending")
+        : inArray(schema.grantApplicationSurfaces.extractionStatus,
+          ["pending", "failed", "preview_ready"]),
+    ));
 }

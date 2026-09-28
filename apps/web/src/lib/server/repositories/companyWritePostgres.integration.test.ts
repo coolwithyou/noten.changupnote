@@ -18,6 +18,7 @@ import { verifyLegacyQuestionMigrationReleasePostgres } from "../productReadines
 import { verifyQuestionPreparationAdapterPostgres } from "../productReadiness/questionPreparationAdapterPostgres.integration";
 import { verifyNewGrantFormalSupplyPostgres } from "../productReadiness/newGrantFormalSupplyPostgres.integration";
 import { verifySourceRebindAdapterPostgres } from "../productReadiness/sourceRebindAdapterPostgres.integration";
+import { verifyConversionPollingPostgres } from "../conversion/conversionPollingPostgres.integration";
 
 const socket = process.env.CUNOTE_PRODUCT_TEST_SOCKET ?? "";
 assert.match(socket, /^\/tmp\/cunote-product-pg-[a-zA-Z0-9]+$/);
@@ -33,6 +34,7 @@ try {
       if (statement.trim()) await admin.unsafe(statement);
     }
   }
+  await verifyConversionPollingPostgres({ admin, socket });
   await admin`create role product_test login nosuperuser nobypassrls`;
   await admin`grant usage on schema public, app_private to product_test`;
   await admin`grant select, insert, update, delete on all tables in schema public to product_test`;

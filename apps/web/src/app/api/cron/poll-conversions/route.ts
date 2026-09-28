@@ -32,6 +32,7 @@ export async function GET(request: Request) {
       limit,
       staleMs,
       currentOpenOnly,
+      concurrency: 3,
       // 함수 예산 300초 안에서 여유를 남긴다 (응답 직렬화·콜드스타트 감안).
       budgetMs: 240_000,
       maxAttempts: 60,
