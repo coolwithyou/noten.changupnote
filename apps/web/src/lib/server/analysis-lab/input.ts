@@ -2,7 +2,7 @@
 // ① 공고 구조화 필드 블록(grants 행 + grant_raw.payload 소스별 주요 필드)
 // ② 첨부 markdown 전문 블록들(archive 포인터 또는 같은 원본의 검증된 document artifact
 //    → R2 로드 → stripYamlFrontmatter, 본문성 우선 정렬)
-// 총량 캡(기본 120,000자, env ANALYSIS_LAB_INPUT_CHAR_CAP) 안에서 블록별 chars/truncated 를 기록하고
+// 총량 캡(기본 126,000자, env ANALYSIS_LAB_INPUT_CHAR_CAP) 안에서 블록별 chars/truncated 를 기록하고
 // 최종 입력 텍스트 전체의 sha256 을 산출한다. source_span 검증은 이 최종 텍스트 기준으로 이루어진다.
 // 렌더 방식은 grantAnalysisPilotExtractor 의 renderBalancedPilotInput 을 참고했다.
 import { createHash } from "node:crypto";
@@ -18,7 +18,7 @@ import {
 } from "@/lib/server/storage/r2ObjectStorage";
 import type { LabInputBlock } from "@/lib/server/analysis-lab/lab-contract";
 
-const DEFAULT_INPUT_CHAR_CAP = 120_000;
+const DEFAULT_INPUT_CHAR_CAP = 126_000;
 
 export function labInputCharCap(): number {
   const raw = process.env.ANALYSIS_LAB_INPUT_CHAR_CAP?.trim();
