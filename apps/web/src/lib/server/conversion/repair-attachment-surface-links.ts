@@ -3,7 +3,7 @@ import type { GrantSource } from "@cunote/contracts";
 import { closeCunoteDb, getCunoteDb, type CunoteDbSession } from "../db/client";
 import * as schema from "../db/schema";
 import { loadMonorepoEnv } from "../loadMonorepoEnv";
-import { registerAttachmentConversions } from "./registerAttachmentConversions";
+import { enqueueDeferredAttachmentConversions, registerAttachmentConversions } from "./registerAttachmentConversions";
 
 loadMonorepoEnv();
 
@@ -98,7 +98,11 @@ try {
           }],
         },
       ));
-      results.push({ sourceId: archive.sourceId, filename: archive.filename, ...hook });
+      const enqueued = await enqueueDeferredAttachmentConversions(db, hook.deferredJobs);
+      const { deferredJobs: _deferredJobs, ...hookSummary } = hook;
+      results.push({ sourceId: archive.sourceId, filename: archive.filename,
+        ...hookSummary, jobsEnqueued: enqueued.jobsEnqueued, cacheHits: enqueued.cacheHits,
+        warnings: [...hook.warnings, ...enqueued.warnings] });
     }
     console.log(JSON.stringify({ ...report, results }, null, 2));
   }

@@ -12,7 +12,9 @@ import { buildGrantExtractionManifest } from "@cunote/core";
 import type { CunoteDb, CunoteDbSession } from "../db/client";
 import * as schema from "../db/schema";
 import {
+  enqueueDeferredAttachmentConversions,
   registerAttachmentConversions,
+  type DeferredConversionJob,
   type ArchivedAttachmentRef,
 } from "../conversion/registerAttachmentConversions";
 import { readDetectedSurfaceFormat } from "./grantAttachmentArchive";
@@ -109,6 +111,7 @@ export async function publishNormalizedGrants<TPayload>(
   assertEntriesUseSource(options.source, entries);
 
   const conversionWarnings: string[] = [];
+  const deferredConversionJobs: DeferredConversionJob[] = [];
 
   const result = await db.transaction(async (tx) => {
     const confirmedLinks = await tx
@@ -324,6 +327,7 @@ export async function publishNormalizedGrants<TPayload>(
             attachments: attachmentRefs,
           });
           conversionWarnings.push(...hook.warnings);
+          deferredConversionJobs.push(...hook.deferredJobs);
         }
       } catch (error) {
         // 후크 전체 실패도 아카이브를 막지 않는다.
@@ -382,6 +386,9 @@ export async function publishNormalizedGrants<TPayload>(
     };
   }, { isolationLevel: "repeatable read" });
 
+  const conversionEnqueue = await enqueueDeferredAttachmentConversions(db, deferredConversionJobs);
+  conversionWarnings.push(...conversionEnqueue.warnings);
+
   if (result.promotionProtectedCount > 0) {
     // 관측성: 수집 크론(Vercel) 함수 로그에 보호 발동을 1줄로 남긴다 — 커밋된 publish에만 기록.
     console.warn(
@@ -389,7 +396,10 @@ export async function publishNormalizedGrants<TPayload>(
       + `sourceIds=${result.promotionProtectedSourceIds.join(",")} — 승격 보호 grant는 criteria 교체 스킵(큐레이션 세트 보존)`,
     );
   }
-  return result;
+  return {
+    ...result,
+    ...(conversionWarnings.length > 0 ? { conversionWarnings } : {}),
+  };
 }
 
 function numberField(value: unknown): number {

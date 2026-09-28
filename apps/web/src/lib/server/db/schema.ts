@@ -2080,6 +2080,16 @@ export const auditDispatchItems = pgTable("audit_dispatch_items", {
   `),
 }));
 
+/** One bounded automatic conversion sweep at a time across Vercel instances. */
+export const conversionSweepLeases = pgTable("conversion_sweep_leases", {
+  scope: text("scope").primaryKey(),
+  owner: uuid("owner").notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  scopeCheck: check("conversion_sweep_leases_scope_check", sql`${table.scope} = 'current_inventory'`),
+}));
+
 export const grantAttachmentArchives = pgTable("grant_attachment_archives", {
   id: uuid("id").defaultRandom().primaryKey(),
   source: grantSourceEnum("source").notNull(),
