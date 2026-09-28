@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import type { NormalizedGrant } from "@cunote/contracts";
 import { closeCunoteDb } from "@/lib/server/db/client";
+import { decodeCompanyProfileRows, encodeCompanyProfileRows, type CompanyProfilePersistenceRow } from "../repositories/drizzle";
 
 process.env.CUNOTE_REPOSITORY_ADAPTER = "runtime";
 process.env.CUNOTE_WEB_DATA_SOURCE = "sample";
@@ -227,6 +228,11 @@ try {
   });
   assert.equal(unknown.matching.teaser.counts.recommendable, 0, "모름으로 바꾸면 추천 상태가 철회된다");
   assert.equal(unknown.profile.size, undefined);
+  const storedRows = encodeCompanyProfileRows(sizeCompany.id, unknown.profile, asOf, userId);
+  const decoded = decodeCompanyProfileRows({ id: sizeCompany.id, kind: "active", name: sizeCompany.name },
+    storedRows as CompanyProfilePersistenceRow[]);
+  assert.equal(decoded.size, undefined, "DB row codec 왕복에서 이전 자가신고 규모가 복원되지 않는다");
+  assert.equal(decoded.question_answer_state?.size?.status, "unknown");
   const reopened = await loadOwnedCompanyMatching({ companyId: sizeCompany.id, userId, asOf });
   assert.equal(reopened.teaser.counts.recommendable, 0, "새 조회에서도 철회된 추천이 되살아나지 않는다");
   assert.deepEqual(reopened.unknownDimensions, ["size"]);
