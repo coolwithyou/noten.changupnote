@@ -12,6 +12,7 @@
 
 - `origin/main@83981b3`에서 별도 `codex/conversion-supply-throughput` 브랜치를 만들었다. 대형 matching PR #18의 107개 커밋을 가져오지 않고 변환 코드 커밋 5개의 변경만 적용했다. 변경 범위는 웹 변환·발행/백필 호출처, `0093` DB lease, Vercel Cron, 격리 PostgreSQL 검증이다.
 - 정확한 코드 근거와 이전 작업의 운영 snapshot은 `codex/matching-coverage-artifact-recovery`의 `PROGRESS-asca-507-review.md` §2026-09-28을 참조한다. 운영 snapshot은 배포 이후 결과가 아니다.
+- 2026-09-28T07:43:28Z 운영 DB 읽기 전용 preflight: `changupnote`/role `postgres`, Drizzle 원장 최신 id 94(`0092`), `conversion_sweep_leases` 없음. surface 전체 `pending` 4,050·`preview_ready` 1,406·`fields_ready` 54·`failed` 16. KST 현재 모집 중 `open/visible`인 파일 surface pending은 K-Startup 176개/77공고, BizInfo 500개/246공고로 합계 676개/323공고다. 기간·타입 필터를 명시한 이 snapshot을 이전 709개 수치와 같은 모집단으로 합치지 않는다.
 
 ## 검증 체크리스트
 
@@ -27,5 +28,6 @@
 ## 결정과 경계
 
 - 생산 DB 쓰기와 생산 웹 배포는 프로젝트 AGENTS.md의 별도 명시 승인 단계다. 코드/Preview 검증은 그 승인이 아니다.
+- 적용 범위 후보: PR #19의 코드 HEAD `86baf8c`(뒤의 `e29e849`는 진행 문서만 변경)를 `main`에 통합하고, `changupnote` DB에 `0093_conversion_sweep_lease.sql`만 적용한 뒤 `NOTEN/changupnote` 웹을 정확한 통합 SHA로 배포한다. 운영 Cron은 첫 1회 상태·결과를 관측해 재시도/실패/preview_ready 변화와 공고문 원본 결속을 확인한다. 승인 전에는 이 세 쓰기 단계를 수행하지 않는다.
 - Cloud Run `cunote-conversion` 현재 구성 읽기는 `cunote-codex-dev` gcloud base 계정의 대화형 재인증 만료로 막혔다. 코드 적용 전에도 독립 변환 서버의 CPU 정책·실제 처리량은 미확인이다.
 - 다른 세션의 dirty `main` 파일과 PR #18의 독립 matching campaign 준비물은 변경하지 않는다. exact19와 별도 matching-only manifest의 grant/receipt 없는 상태는 launch 권한이 아니다.
