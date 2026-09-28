@@ -8,8 +8,10 @@ import { isKStartupRecruitmentClosedPayload } from "../repositories/activeGrantF
 import { LabGrantNotFoundError, prepareLabAnalysis } from "./analyze";
 import { scanExistingRuns } from "./batch-runner";
 import { readDeepRepairHistoricalGrantIds } from "./deep-repair-preparation-history";
+import { assertMatchingAnnouncementCoverage, MatchingAnnouncementInputMissingError } from "./matching-announcement-coverage";
 import { readCurrentDeepRepairExecutionProvenance } from "./deep-repair-runtime-provenance";
 import { resolveLabModel } from "./extractor";
+import type { LabAttachmentPreparationDiagnostic } from "./input";
 import {
   encodeCanonical,
   writeAnalysisLaunchArtifact,
@@ -286,7 +288,7 @@ export interface CurrentEligibleMatchingTarget {
   readonly attachmentManifestSha256: string | null;
   readonly closesToday: boolean;
   /** target-local input failure only; shared DB/storage failures reject the snapshot. */
-  readonly preparationFailure?: "grant_missing" | "input_integrity";
+  readonly preparationFailure?: "grant_missing" | "input_integrity" | "announcement_input_missing";
 }
 
 export type CurrentEligibleMatchingCandidate = Pick<CurrentEligibleMatchingTarget, "grantId" | "closesToday">;
@@ -343,7 +345,11 @@ export async function prepareCurrentEligibleMatchingTargets(
   candidates: readonly CurrentEligibleMatchingCandidate[],
   prepare: (grantId: string) => Promise<{
     grant: { id: string };
-    input: { inputSha256: string; attachmentManifestSha256: string };
+    input: {
+      inputSha256: string;
+      attachmentManifestSha256: string;
+      attachmentPreparationReport?: readonly LabAttachmentPreparationDiagnostic[];
+    };
   }> = prepareLabAnalysis,
 ): Promise<ReadonlyMap<string, CurrentEligibleMatchingTarget>> {
   const result = new Map<string, CurrentEligibleMatchingTarget>();
@@ -354,13 +360,16 @@ export async function prepareCurrentEligibleMatchingTargets(
         if (current.grant.id !== candidate.grantId) {
           throw new Error(`입력 준비 target 결속이 다릅니다: ${candidate.grantId}`);
         }
+        assertMatchingAnnouncementCoverage(current.input.attachmentPreparationReport);
         return Object.freeze({
           ...candidate,
           inputSha256: current.input.inputSha256,
           attachmentManifestSha256: current.input.attachmentManifestSha256,
         });
       } catch (error) {
-        const preparationFailure = error instanceof LabGrantNotFoundError
+        const preparationFailure = error instanceof MatchingAnnouncementInputMissingError
+          ? "announcement_input_missing" as const
+          : error instanceof LabGrantNotFoundError
           ? "grant_missing" as const
           : error instanceof Error && (
             error.message === "markdown SHA-256 mismatch"

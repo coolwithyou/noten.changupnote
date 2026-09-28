@@ -13,6 +13,7 @@ import {
   prepareMatchingCampaignLaunch,
 } from "./current-inventory-launch-production";
 import { LabGrantNotFoundError } from "./analyze";
+import type { LabAttachmentPreparationDiagnostic } from "./input";
 import {
   createAnalysisLaunchGrant,
   encodeCanonical,
@@ -194,7 +195,7 @@ test("선택한 입력 준비는 단건 결손을 격리하고 공유 장애를 
   const prepared = await prepareCurrentEligibleMatchingTargets(candidates, async (grantId) => {
     called.push(grantId);
     if (grantId === id(70)) throw new LabGrantNotFoundError(grantId);
-    return { grant: { id: grantId }, input: { inputSha256: hex("a"), attachmentManifestSha256: hex("b") } };
+    return { grant: { id: grantId }, input: { inputSha256: hex("a"), attachmentManifestSha256: hex("b"), attachmentPreparationReport: [] } };
   });
   assert.deepEqual(called, candidates.map((item) => item.grantId));
   assert.equal(prepared.get(id(70))?.preparationFailure, "grant_missing");
@@ -204,6 +205,45 @@ test("선택한 입력 준비는 단건 결손을 격리하고 공유 장애를 
     prepareCurrentEligibleMatchingTargets(candidates, async () => { throw new Error("shared storage unavailable"); }),
     /shared storage unavailable/,
   );
+});
+
+test("모집 공고문 미입력은 준비 단계에서 격리하고 보조 첨부 누락은 유지한다", async () => {
+  const attachment = (documentRole: LabAttachmentPreparationDiagnostic["documentRole"]): LabAttachmentPreparationDiagnostic => ({
+    filename: documentRole === "announcement" ? "통합공고문.pdf" : "신청서.hwp",
+    documentRole,
+    roleBasis: "explicit_filename_hint",
+    conversionStatus: null,
+    inputOutcome: "unavailable",
+    missingReason: "cap_exceeded",
+    relatedDimensions: [],
+    recovery: { possible: true, mode: "increase_input_cap", requiresSourceWrite: false, reason: "test" },
+  });
+  const candidates = [74, 75, 76].map((index) => ({ grantId: id(index), closesToday: false }));
+  const prepared = await prepareCurrentEligibleMatchingTargets(candidates, async (grantId) => ({
+    grant: { id: grantId },
+    input: {
+      inputSha256: hex("a"), attachmentManifestSha256: hex("b"),
+      ...(grantId === id(76) ? {} : {
+        attachmentPreparationReport: [attachment(grantId === id(74) ? "announcement" : "application_form")],
+      }),
+    },
+  }));
+  assert.equal(prepared.get(id(74))?.preparationFailure, "announcement_input_missing");
+  assert.equal(prepared.get(id(74))?.inputSha256, null);
+  assert.equal(prepared.get(id(75))?.inputSha256, hex("a"));
+  assert.equal(prepared.get(id(76))?.preparationFailure, "announcement_input_missing");
+  const classification = classifyMatchingInventorySnapshot({
+    observedAt: "2026-09-28T00:00:00.000Z",
+    targets: candidates.map((candidate) => ({
+      ...prepared.get(candidate.grantId)!,
+      eligibility: { eligible: true as const },
+      readinessNextWork: "condition_analysis" as const,
+      history: { kind: "none" as const },
+    })),
+  });
+  assert.deepEqual(classification.entries.map((entry) => entry.nextAction), [
+    "recover_source", "prepare_matching_only", "recover_source",
+  ]);
 });
 
 test("metadata 후보 중 실행 대상만 준비하고 실패 대상의 사유를 보존한다", async () => {
