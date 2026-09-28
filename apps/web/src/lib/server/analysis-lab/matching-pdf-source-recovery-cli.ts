@@ -43,9 +43,11 @@ interface RecoveryPdf {
 }
 
 interface RecoveryPlan {
-  schema: "matching-pdf-source-recovery-plan-v1";
+  schema: "matching-pdf-source-recovery-plan-v1" | "matching-pdf-source-recovery-plan-v2";
   preparedAt: string;
-  sourceManifestSha256: string;
+  /** v1 binds a prepared launch; v2 repairs current inventory before launch preparation. */
+  sourceManifestSha256?: string;
+  sourceKind?: "current_inventory";
   mode: "source-recovery-only";
   modelCalls: 0;
   servicePromotion: false;
@@ -58,7 +60,7 @@ interface RecoveryPlan {
   planSha256: string;
 }
 
-function sha(value: string): string {
+function sha(value: string | Buffer): string {
   return createHash("sha256").update(value).digest("hex");
 }
 
@@ -76,7 +78,7 @@ export function parseMatchingPdfRecoveryPlan(value: unknown): RecoveryPlan {
     || sha(stableJson(payload)) !== planSha256) {
     throw new Error("PDF recovery plan SHA mismatch");
   }
-  if (source.schema !== "matching-pdf-source-recovery-plan-v1"
+  if (!["matching-pdf-source-recovery-plan-v1", "matching-pdf-source-recovery-plan-v2"].includes(String(source.schema))
     || source.mode !== "source-recovery-only"
     || source.modelCalls !== 0 || source.servicePromotion !== false
     || source.objectStorageWrite !== true || source.databaseWrite !== true
@@ -85,8 +87,13 @@ export function parseMatchingPdfRecoveryPlan(value: unknown): RecoveryPlan {
     || source.targetCount !== source.targets.length
     || source.pdfCount !== source.pdfs.length
     || source.targetCount < 1 || source.pdfCount < 1
-    || typeof source.sourceManifestSha256 !== "string"
-    || !SHA.test(source.sourceManifestSha256)) {
+    || (source.schema === "matching-pdf-source-recovery-plan-v2"
+      && (source.targetCount > 10 || source.pdfCount > 20))
+    || (source.schema === "matching-pdf-source-recovery-plan-v1"
+      ? typeof source.sourceManifestSha256 !== "string"
+        || !SHA.test(source.sourceManifestSha256)
+        || "sourceKind" in source
+      : source.sourceKind !== "current_inventory" || "sourceManifestSha256" in source)) {
     throw new Error("PDF recovery plan contract mismatch");
   }
   const targets = source.targets.map((value) => record(value));
@@ -134,17 +141,19 @@ function candidateRecord(candidate: PdfTextOcrRecoveryCandidate): RecoveryPdf {
 }
 
 async function verifyCurrentPlan(plan: RecoveryPlan) {
-  const sourceManifest = normalizeAnalysisLaunchManifest(
-    await readAnalysisLaunchArtifact("manifests", plan.sourceManifestSha256),
-  );
-  if (sourceManifest.execution.analysisMode !== "matching_only") {
-    throw new Error("PDF recovery source manifest mode mismatch");
-  }
-  for (const target of plan.targets) {
-    const original = sourceManifest.targets.find((item) => item.grantId === target.grantId);
-    if (!original || original.inputSha256 !== target.inputSha256
-      || original.attachmentManifestSha256 !== target.attachmentManifestSha256) {
-      throw new Error(`PDF recovery source manifest binding mismatch: ${target.sourceId}`);
+  if (plan.schema === "matching-pdf-source-recovery-plan-v1") {
+    const sourceManifest = normalizeAnalysisLaunchManifest(
+      await readAnalysisLaunchArtifact("manifests", plan.sourceManifestSha256!),
+    );
+    if (sourceManifest.execution.analysisMode !== "matching_only") {
+      throw new Error("PDF recovery source manifest mode mismatch");
+    }
+    for (const target of plan.targets) {
+      const original = sourceManifest.targets.find((item) => item.grantId === target.grantId);
+      if (!original || original.inputSha256 !== target.inputSha256
+        || original.attachmentManifestSha256 !== target.attachmentManifestSha256) {
+        throw new Error(`PDF recovery source manifest binding mismatch: ${target.sourceId}`);
+      }
     }
   }
   const db = getCunoteDb();
@@ -200,8 +209,89 @@ async function verifyCurrentPlan(plan: RecoveryPlan) {
   return { candidates, storage };
 }
 
+async function prepareCurrentInventoryPlan(grantIds: string[], outputPath: string) {
+  const db = getCunoteDb();
+  const grants = await db.select({
+    id: schema.grants.id,
+    source: schema.grants.source,
+    sourceId: schema.grants.sourceId,
+    status: schema.grants.status,
+    servingState: schema.grants.servingState,
+    applyStart: schema.grants.applyStart,
+    applyEnd: schema.grants.applyEnd,
+  }).from(schema.grants).where(inArray(schema.grants.id, grantIds));
+  const targets: RecoveryTarget[] = [];
+  for (const grantId of grantIds) {
+    const grant = grants.find((item) => item.id === grantId);
+    if (!grant || (grant.source !== "bizinfo" && grant.source !== "kstartup")
+      || grant.status !== "open" || grant.servingState !== "visible"
+      || !grant.applyEnd || classifyNoticePeriod(grant.applyStart, grant.applyEnd) !== "eligible") {
+      throw new Error(`PDF recovery grant is not currently eligible: ${grantId}`);
+    }
+    const prepared = await prepareLabAnalysis(grantId);
+    const missingPdfFiles = prepared.input.attachmentPreparationReport?.filter((item) =>
+      item.inputOutcome === "unavailable" && item.recovery.mode === "pdf_text_or_ocr")
+      .map((item) => item.filename).sort() ?? [];
+    if (missingPdfFiles.length === 0) throw new Error(`No missing PDF text: ${grant.sourceId}`);
+    targets.push({ grantId, source: grant.source, sourceId: grant.sourceId,
+      applyEnd: grant.applyEnd.toISOString(), inputSha256: prepared.input.inputSha256,
+      attachmentManifestSha256: prepared.input.attachmentManifestSha256, missingPdfFiles });
+  }
+  const candidates = await listPdfTextOcrRecoveryCandidates({ db,
+    targets: targets.map((target) => ({ grantId: target.grantId, source: target.source,
+      sourceId: target.sourceId, opaqueCommitmentSha256: target.inputSha256 })) });
+  if (candidates.length < 1 || candidates.length > 20) {
+    throw new Error("PDF recovery candidate count is outside the bounded scope");
+  }
+  const pdfs = candidates.map(candidateRecord).sort((a, b) =>
+    a.sourceId.localeCompare(b.sourceId) || a.sourceAttachment.localeCompare(b.sourceAttachment));
+  for (const target of targets) {
+    const titles = pdfs.filter((pdf) => pdf.grantId === target.grantId)
+      .map((pdf) => pdf.title).sort();
+    if (stableJson(titles) !== stableJson(target.missingPdfFiles)) {
+      throw new Error(`PDF recovery candidate set is incomplete: ${target.sourceId}`);
+    }
+  }
+  const storage = createR2ObjectStorageFromEnv();
+  if (!storage) throw new Error("PDF recovery R2 storage is unavailable");
+  for (const candidate of candidates) {
+    const source = await storage.getObjectBytes(candidate.pdfStorageKey);
+    if (sha(source.body) !== candidate.pdfSha256) {
+      throw new Error(`PDF recovery source bytes drift: ${candidate.target.sourceId}`);
+    }
+  }
+  const payload = { schema: "matching-pdf-source-recovery-plan-v2" as const,
+    preparedAt: new Date().toISOString(), sourceKind: "current_inventory" as const,
+    mode: "source-recovery-only" as const, modelCalls: 0 as const,
+    servicePromotion: false as const, objectStorageWrite: true as const,
+    databaseWrite: true as const, targetCount: targets.length,
+    pdfCount: pdfs.length, targets, pdfs };
+  const plan = parseMatchingPdfRecoveryPlan({ ...payload, planSha256: sha(stableJson(payload)) });
+  await mkdir(dirname(outputPath), { recursive: true });
+  await writeFile(outputPath, `${JSON.stringify(plan, null, 2)}\n`, { flag: "wx" });
+  const readback = parseMatchingPdfRecoveryPlan(JSON.parse(await readFile(outputPath, "utf8")));
+  if (stableJson(readback) !== stableJson(plan)) throw new Error("PDF recovery plan readback mismatch");
+  console.log(JSON.stringify({ status: "PREPARED_SOURCE_RECOVERY_PLAN", path: outputPath,
+    planSha256: plan.planSha256, targetCount: plan.targetCount, pdfCount: plan.pdfCount,
+    sourceBytesVerified: candidates.length, modelCalls: 0, databaseWrite: false,
+    objectStorageWrite: false }));
+}
+
 async function main() {
   const args = process.argv.slice(2).filter((arg) => arg !== "--");
+  if (args.includes("--prepare")) {
+    const ids = args.find((arg) => arg.startsWith("--grant-ids="))?.slice(12).split(",") ?? [];
+    const output = args.find((arg) => arg.startsWith("--output="))?.slice(9);
+    if (args.length !== 3 || !output || ids.length < 1 || ids.length > 10
+      || new Set(ids).size !== ids.length
+      || ids.some((id) => !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/u.test(id))) {
+      throw new Error("usage: --prepare --grant-ids=<uuid,...> --output=<path>");
+    }
+    loadAnalysisLabEnv();
+    try { await prepareCurrentInventoryPlan(ids, output); }
+    finally { await closeCunoteDb(); }
+    return;
+  }
   const planPath = args.find((arg) => arg.startsWith("--plan="))?.slice(7);
   const receiptPath = args.find((arg) => arg.startsWith("--receipt="))?.slice(10);
   const confirm = args.find((arg) => arg.startsWith("--confirm="))?.slice(10);
