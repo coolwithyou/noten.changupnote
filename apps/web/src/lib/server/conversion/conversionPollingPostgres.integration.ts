@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import postgres from "postgres";
 import { drizzle } from "drizzle-orm/postgres-js";
 import * as schema from "../db/schema";
+import type { CunoteDbSession } from "../db/client";
 import { collectPendingSurfaceJobs, pollAndPersistSurfaceJob, type PendingSurfaceJob } from "./pollConversions";
+import { enqueueDeferredAttachmentConversions, registerAttachmentConversions } from "./registerAttachmentConversions";
 import { transitionSurfaceStatus } from "./surfaceConversion";
 import type { ConversionClient } from "./conversionClient";
 
@@ -110,6 +112,41 @@ export async function verifyConversionPollingPostgres(input: {
     const [afterDrift] = await input.admin`select extraction_status as status from grant_application_surfaces
       where id=${surfaceId}`;
     assert.equal(afterDrift?.status, "pending", "source drift cannot promote a stale result");
+
+    const sourceUrl = "https://example.invalid/original.pdf";
+    await input.admin`update grant_attachment_archives set sha256=${sourceSha}
+      where source='kstartup' and source_id=${sourceId} and storage_key=${storageKey}`;
+    await input.admin`update grant_application_surfaces set source_url=${sourceUrl}
+      where id=${surfaceId}`;
+    let submitted = 0;
+    const postCommitClient: ConversionClient = {
+      ...cachedClient,
+      enqueueJob: async (request) => {
+        submitted += 1;
+        const [active] = await input.admin`select count(*)::int as n from pg_stat_activity
+          where application_name='cunote-conversion-poll-fixture'
+            and state='idle in transaction'`;
+        assert.equal(active?.n, 0, "publication must commit before remote registration");
+        return cachedClient.enqueueJob(request);
+      },
+    };
+    const registered = await db.transaction(async (tx) => {
+      const value = await registerAttachmentConversions(tx as unknown as CunoteDbSession, {
+        grantId, source: "kstartup", sourceId, deferEnqueue: true, client: postCommitClient,
+        attachments: [{ filename, storageKey, archiveUrl: sourceUrl, sourceUri: null,
+          sha256: sourceSha, detectedFormat: "pdf" }],
+      });
+      assert.equal(submitted, 0, "surface registration cannot call the remote service in a transaction");
+      return value;
+    });
+    assert.equal(registered.deferredJobs.length, 1);
+    const postCommit = await enqueueDeferredAttachmentConversions(db, registered.deferredJobs,
+      postCommitClient);
+    assert.deepEqual(postCommit, { jobsEnqueued: 0, cacheHits: 1, warnings: [] });
+    assert.equal(submitted, 1);
+    const [afterCommit] = await input.admin`select extraction_status as status
+      from grant_application_surfaces where id=${surfaceId}`;
+    assert.equal(afterCommit?.status, "preview_ready");
     console.log("PASS: conversion poll releases DB during remote I/O, serializes artifacts, preserves ready state and blocks source drift");
   } finally {
     await workerSql.end({ timeout: 5 });
