@@ -11,6 +11,7 @@
 ## 실행 기록
 
 - `origin/main@83981b3`에서 별도 `codex/conversion-supply-throughput` 브랜치를 만들었다. 대형 matching PR #18의 107개 커밋을 가져오지 않고 변환 코드 커밋 5개의 변경만 적용했다. 변경 범위는 웹 변환·발행/백필 호출처, `0093` DB lease, Vercel Cron, 격리 PostgreSQL 검증이다.
+- 후속 검토에서 변환 서버는 진행 중인 SHA 작업을 자동으로 합치지 않고 `jobId`만 멱등 처리함을 확인했다. 웹이 매 스윕마다 새 UUID를 만들던 결함을 `db21209`에서 surface·원문 SHA·converter 버전 기반 안정 ID로 수정했다. 명시적인 failed 복구는 새 ID를 사용한다. 같은 원문에 대한 불필요한 중복 큐 등록을 방지한다.
 - 정확한 코드 근거와 이전 작업의 운영 snapshot은 `codex/matching-coverage-artifact-recovery`의 `PROGRESS-asca-507-review.md` §2026-09-28을 참조한다. 운영 snapshot은 배포 이후 결과가 아니다.
 - 2026-09-28T07:43:28Z 운영 DB 읽기 전용 preflight: `changupnote`/role `postgres`, Drizzle 원장 최신 id 94(`0092`), `conversion_sweep_leases` 없음. surface 전체 `pending` 4,050·`preview_ready` 1,406·`fields_ready` 54·`failed` 16. KST 현재 모집 중 `open/visible`인 파일 surface pending은 K-Startup 176개/77공고, BizInfo 500개/246공고로 합계 676개/323공고다. 기간·타입 필터를 명시한 이 snapshot을 이전 709개 수치와 같은 모집단으로 합치지 않는다.
 
@@ -22,12 +23,14 @@
 - [x] `pnpm test:product-postgres` — 격리 Unix socket·94 migrations·RLS, 변환 source/동시성/lease/공정성
 - [x] `pnpm verify:deep-analysis-contract` — 입력 준비 호출처
 - [x] `pnpm verify:package-runtime-freshness`
-- [x] `git diff --check` 및 [draft PR #19](https://github.com/coolwithyou/noten.changupnote/pull/19) Vercel Preview·Preview Comments PASS (`86baf8c`)
+- [x] `git diff --check` 및 [draft PR #19](https://github.com/coolwithyou/noten.changupnote/pull/19) 기존 Vercel Preview·Preview Comments PASS (`f7bad49`); 최신 코드 `db21209` Preview 확인 대기
+- [x] `db21209` 이후 `pnpm --filter web typecheck`, `pnpm test:product-postgres` 재실행 PASS. 안정 ID 재스윕·새 SHA·명시 실패 복구를 격리 DB 검증에 포함했다.
 - [ ] 운영 적용 범위 승인 후 `0093` 적용 → 정확한 소스 배포 → Cron/변환 처리량 관측
 
 ## 결정과 경계
 
 - 생산 DB 쓰기와 생산 웹 배포는 프로젝트 AGENTS.md의 별도 명시 승인 단계다. 코드/Preview 검증은 그 승인이 아니다.
-- 적용 범위 후보: PR #19의 코드 HEAD `86baf8c`(뒤의 `e29e849`는 진행 문서만 변경)를 `main`에 통합하고, `changupnote` DB에 `0093_conversion_sweep_lease.sql`만 적용한 뒤 `NOTEN/changupnote` 웹을 정확한 통합 SHA로 배포한다. 운영 Cron은 첫 1회 상태·결과를 관측해 재시도/실패/preview_ready 변화와 공고문 원본 결속을 확인한다. 승인 전에는 이 세 쓰기 단계를 수행하지 않는다.
+- 적용 범위 후보: PR #19의 최신 코드 `db21209`를 `main`에 통합하고, `changupnote` DB에 `0093_conversion_sweep_lease.sql`만 적용한 뒤 `NOTEN/changupnote` 웹을 정확한 통합 SHA로 배포한다. 운영 Cron은 첫 1회 상태·결과를 관측해 재시도/실패/preview_ready 변화와 공고문 원본 결속을 확인한다. 앞서 제시한 `86baf8c` 적용 범위는 새 코드 때문에 폐기했다. 최신 범위 승인 전에는 세 쓰기 단계를 수행하지 않는다.
+- 변환 서버는 인메모리 큐, 기본 동시 작업 2건이며 독립 운영의 CPU 정책과 실제 처리량은 아직 확인되지 않았다. 안정 ID는 살아 있는 같은 인스턴스의 중복 작업을 줄이지만 재시작·다중 인스턴스 간 중복 방지와 676개 backlog 소진 시간은 운영 관측 대상이다.
 - Cloud Run `cunote-conversion` 현재 구성 읽기는 `cunote-codex-dev` gcloud base 계정의 대화형 재인증 만료로 막혔다. 코드 적용 전에도 독립 변환 서버의 CPU 정책·실제 처리량은 미확인이다.
 - 다른 세션의 dirty `main` 파일과 PR #18의 독립 matching campaign 준비물은 변경하지 않는다. exact19와 별도 matching-only manifest의 grant/receipt 없는 상태는 launch 권한이 아니다.
