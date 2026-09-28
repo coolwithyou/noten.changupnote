@@ -380,3 +380,11 @@
 - 준비 이후 다른 검수·발행 자산이 생기면 동일 원천 SHA라도 `await_approved_model_run`이 더는 필요한 다음 작업이 아닐 수 있다. matching campaign 정책의 target 착수 검사에서 현행 원천·신청기간 검증 다음에 공급 판정을 다시 읽고, exact grant 1건의 `await_approved_model_run/condition_analysis`일 때만 모델 착수를 허용하도록 했다. 다른 current inventory 정책의 착수 계약은 유지한다. 공급 판정 변경·누락은 해당 target의 착수를 거부하며 기존 receipt를 수정하지 않는다.
 - synthetic 회귀는 정상 단계, `ready` 변경, `condition_review` 변경, 결과 누락, 일반 inventory 비적용을 확인했다. `pnpm lab:launch:test`, 웹 typecheck, diff 검증 PASS. 봉인 inventory `ada5d4…`의 아스카웍스 우선 2건을 현행 DB/R2와 새 함수를 통해 읽기 전용으로 각각 재검증한 결과 둘 다 preflight PASS다. 이는 live 모델 실행·독립 검수·추천 품질 인수가 아니다.
 - `pnpm build:web` PASS, 빌드 뒤 package runtime freshness PASS. Turbopack NFT 경고 2건은 모두 기존 `ingest-bizinfo` → `grantSupply` → `run-store` import trace의 전체 프로젝트 파일 추적이며 컴파일·typecheck를 실패시키지 않았다. 이 빌드는 브라우저 UAT나 공급량 개선의 증거가 아니다.
+
+## 2026-09-28 14:10 KST 아스카웍스 실제 답변 철회 경로
+
+- 감시 fingerprint `b9ca511f…`는 `5f90a58b…`의 **과거 v26 준비물** 알림이다. 기존 기록·ack와 분리된 새로운 실행 권한은 없다. 현행 v27 `16433fff…`도 아래 core package 변경 이후에는 material runtime이 달라져 live 실행 대상으로 사용할 수 없다. 두 준비물 모두 exact19의 19 terminal과 분리한다.
+- 저장된 `(주)아스카웍스` 소유권을 운영 DB에서 읽기 전용으로 확인하고, 제품의 `MATCH_DISCOVERY_CANDIDATES_ENABLED=true` 조회를 재현했다. 1,502개 노출 후보에서 추천 가능 0, `needsProfileInput=1`, `oneAnswer=1`, `oneQuestionAway=0`; 인도 BTS `PBLN_000000000126455`가 첫 카드다. 기본 CLI 환경의 discovery 플래그 없이 본 101건은 제품 설정과 다른 조회이므로 공급량 결론에 사용하지 않는다. 실제 저장 규모는 null이다.
+- 현행 인도 BTS 공고의 검수된 7 criterion을 그대로 읽어 메모리에서만 `size=중소기업`을 자가신고 confidence 0.6으로 가정했다. 이전에는 `조건부/추천0 → eligible/추천1 → 모름/추천1`이어서, 후속 “잘 모르겠어요”가 과거 자가신고 규모를 남겨 추천을 되살리는 결함을 확인했다. core의 unknown 전환에서 해당 축의 사용자 값·evidence·confidence·목록 완전성을 제거하고 공식 원천값은 유지했다. 숫자 구간 답변도 이전 정확 수치를 지워 구간으로 다시 평가하게 했다. 수정 후 같은 실제 공고는 `조건부/추천0 → eligible/추천1 → 조건부/추천0`, 최종 size null이다. 이는 메모리 계산이며 **아스카웍스 실제 규모 확인이나 서비스 DB 쓰기, 실제 추천 1건 달성**은 아니다.
+- `applyCompanyProfileAnswer`의 격리 runtime 저장·재조회 회귀에서 중소기업 답변 뒤 추천1, 모름 뒤 추천0, 새 조회도 추천0 및 unknown 상태를 확인했다. `question-answer-state` 단위 테스트, `pnpm test:profile-answer-consistency`, `pnpm test:matching-unit`, core·web typecheck, `pnpm build:packages`, `pnpm build:web` PASS. 격리 runtime은 PostgreSQL `match_state` writer를 실행하지 않으므로 그 영속 상태는 미검증이다. 실제 계정·브라우저 UAT도 미실행이며 사용자 규모를 임의 저장하지 않았다.
+- 다음 live 파일럿은 **현재 package runtime SHA로 재봉인한 새 exact manifest**가 필요하다. 과거 SHA 승인 질문을 새 범위로 간주하지 않는다. 별도 KISA 1행 격리와 원문 파일 복구도 운영 쓰기 승인 대기 상태다.
