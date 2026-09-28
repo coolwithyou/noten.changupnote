@@ -180,6 +180,35 @@ export async function verifyConversionPollingPostgres(input: {
     const [afterCommit] = await input.admin`select extraction_status as status
       from grant_application_surfaces where id=${surfaceId}`;
     assert.equal(afterCommit?.status, "preview_ready");
+
+    const laterGrantId = crypto.randomUUID();
+    const laterSurfaceId = crypto.randomUUID();
+    const laterSourceId = `conversion-later-${laterSurfaceId}`;
+    await input.admin`update grants set apply_start='2026-01-01T00:00:00Z',
+      apply_end='2030-12-31T00:00:00Z' where id=${grantId}`;
+    await input.admin`update grant_application_surfaces set extraction_status='pending',
+      updated_at='2026-01-01T00:00:00Z' where id=${surfaceId}`;
+    await input.admin`insert into grants
+      (id, source, source_id, title, status, serving_state, overall_confidence, apply_start, apply_end)
+      values (${laterGrantId}, 'kstartup', ${laterSourceId}, '후순위 마감 공고', 'open', 'visible', 1,
+        '2026-01-01T00:00:00Z', '2031-01-31T00:00:00Z')`;
+    await input.admin`insert into grant_attachment_archives
+      (source, source_id, filename, storage_key, sha256)
+      values ('kstartup', ${laterSourceId}, '사업안내.pdf', ${`fixture/${laterSurfaceId}.pdf`}, ${"e".repeat(64)})`;
+    await input.admin`insert into grant_application_surfaces
+      (id, grant_id, source, source_id, type, title, format, source_attachment,
+        extraction_status, updated_at)
+      values (${laterSurfaceId}, ${laterGrantId}, 'kstartup', ${laterSourceId}, 'file_template',
+        '사업안내.pdf', 'pdf', ${`fixture/${laterSurfaceId}.pdf`}, 'pending',
+        '2026-01-02T00:00:00Z')`;
+    const selection = { currentOpenOnly: true, asOf: new Date("2026-09-28T00:00:00Z"), limit: 1 };
+    const [oldest] = await collectPendingSurfaceJobs(db, selection);
+    assert.equal(oldest?.surfaceId, surfaceId);
+    await pollAndPersistSurfaceJob(db, pendingClient, { ...job, sourceUrl },
+      { maxAttempts: 1, intervalMs: 1 });
+    const [next] = await collectPendingSurfaceJobs(db, selection);
+    assert.equal(next?.surfaceId, laterSurfaceId,
+      "a repeatedly pending early deadline cannot starve another current notice");
     console.log("PASS: conversion poll releases DB during remote I/O, serializes artifacts, preserves ready state and blocks source drift");
   } finally {
     await workerSql.end({ timeout: 5 });
