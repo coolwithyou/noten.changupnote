@@ -4,7 +4,7 @@
 // - soffice 프로세스는 문서 1건당 convertDocument 내부에서 새로 띄우고 종료 (프로세스 격리).
 // - POST 는 job 을 큐에 넣고 즉시 queued 로 응답, GET 으로 폴링.
 
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -223,9 +223,10 @@ export class ConversionQueue {
   private async runJob(record: JobRecord): Promise<void> {
     record.status = "running";
     record.startedAt = new Date().toISOString();
-    const workDir = mkdtempSync(join(tmpdir(), "cunote-job."));
+    let workDir: string | null = null;
 
     try {
+      workDir = mkdtempSync(join(tmpdir(), "cunote-job."));
       const body = await this.fetchSource(record.request.sourceObjectUrl);
 
       const result: ConvertDocumentResult = convertDocument(
@@ -289,6 +290,20 @@ export class ConversionQueue {
       record.status = "failed";
       record.error = err instanceof Error ? err.message : String(err);
       record.finishedAt = new Date().toISOString();
+    } finally {
+      // Cloud Run's temporary filesystem consumes instance memory. Keep the
+      // generated files until every R2 upload finishes, then release them on
+      // both success and failure paths.
+      if (workDir !== null) {
+        try {
+          rmSync(workDir, { recursive: true, force: true });
+        } catch (err) {
+          console.warn("[conversion] temporary work directory cleanup failed", {
+            jobId: record.jobId,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
     }
   }
 }
