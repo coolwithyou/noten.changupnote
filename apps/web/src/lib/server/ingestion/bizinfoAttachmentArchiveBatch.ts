@@ -49,6 +49,8 @@ export interface RunBizInfoAttachmentArchiveBatchInput {
     "mode" | "sourceIds" | "officialDetailAttachmentSnapshots" | "candidates">;
   imageOcr?: GrantImageOcrAdapter | null;
   imageOcrName?: string;
+  /** One exact attachment, including its current downloaded bytes, for bounded source recovery. */
+  expectedExactAttachment?: { sourceId: string; filename: string; sha256: string; sourceUri?: string };
   collectedAt?: Date;
   fetchTimeoutMs?: number;
   maxAttachmentBytes?: number;
@@ -159,6 +161,18 @@ export async function runBizInfoAttachmentArchiveBatch(
     candidates.push({ ...candidate, selected });
     remainingAttachments -= selected.length;
   }
+  if (input.expectedExactAttachment) {
+    const expected = input.expectedExactAttachment;
+    if (requestedSourceIds.length !== 1 || requestedSourceIds[0] !== expected.sourceId
+      || !/^[a-f0-9]{64}$/u.test(expected.sha256)
+      || candidates.length !== 1 || candidates[0]?.selected.length !== 1
+      || candidates[0]?.entry.grant.source_id !== expected.sourceId
+      || candidates[0]?.selected[0]?.filename !== expected.filename
+      || expected.sourceUri !== undefined && candidates[0]?.selected[0]?.url !== expected.sourceUri
+      || !candidates[0]?.selected[0]?.url) {
+      throw new Error("Exact BizInfo attachment selection drift");
+    }
+  }
   if (input.write && input.refreshOfficialDetail) {
     assertBizInfoOfficialDetailDryRunBinding({
       sourceIds: requestedSourceIds,
@@ -195,8 +209,13 @@ export async function runBizInfoAttachmentArchiveBatch(
           enabled: true,
           convertHwp: input.convertHwp,
           autoInstallPyhwp: false,
-          allowFailures: true,
+          allowFailures: !input.expectedExactAttachment,
           storage: input.storage,
+          ...(input.expectedExactAttachment ? {
+            expectedDownloadSha256: new Map([[
+              candidate.selected[0]!.url!, input.expectedExactAttachment.sha256,
+            ]]),
+          } : {}),
           ...(input.imageOcr ? { imageOcr: input.imageOcr } : {}),
           ...(input.fetchTimeoutMs !== undefined
             ? { fetchTimeoutMs: input.fetchTimeoutMs }
@@ -221,6 +240,12 @@ export async function runBizInfoAttachmentArchiveBatch(
           archivedCount: bundle.archivedCount,
           convertedCount: bundle.convertedCount,
           failureCount: bundle.failureCount,
+          revisionCounts: published.revisionCounts,
+          matchStateInvalidatedCount: published.matchStateInvalidatedCount,
+          matchStateRefreshedCount: published.matchStateRefreshedCount,
+          matchStateRefreshRequired: published.matchStateRefreshRequired,
+          matchStateRefreshGrantIds: published.matchStateRefreshGrantIds,
+          promotionProtectedCount: published.promotionProtectedCount,
           conversionWarnings: published.conversionWarnings ?? [],
           ...buildGrantArchiveAttachmentReceipts({
             selectedFilenames: candidate.selected.map((attachment) => attachment.filename),

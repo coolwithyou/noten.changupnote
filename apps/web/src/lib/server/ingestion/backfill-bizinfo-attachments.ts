@@ -22,6 +22,11 @@ const maxTotalAttachments = boundedInteger(
   1_000,
 );
 const sourceIds = csvArg(readArg("sourceIds"), 100);
+const exactAttachmentFilename = readArg("exactAttachmentFilename");
+const exactAttachmentSha256 = readArg("exactAttachmentSha256");
+if (Boolean(exactAttachmentFilename) !== Boolean(exactAttachmentSha256)) {
+  throw new Error("exact attachment filename and SHA-256 must be provided together");
+}
 const refreshOfficialDetail = process.argv.includes("--refresh-official-detail");
 const officialDetailPlanPath = readArg("officialDetailPlan");
 const officialDetailDryRunPlan = officialDetailPlanPath
@@ -49,6 +54,13 @@ try {
     maxTotalAttachments,
     maxAttachmentsPerGrant,
     sourceIds,
+    ...(exactAttachmentFilename && exactAttachmentSha256 ? {
+      expectedExactAttachment: {
+        sourceId: sourceIds[0] ?? "",
+        filename: exactAttachmentFilename,
+        sha256: exactAttachmentSha256,
+      },
+    } : {}),
     refreshOfficialDetail,
     ...(officialDetailDryRunPlan ? { officialDetailDryRunPlan } : {}),
     reprocessMissingMarkdown,

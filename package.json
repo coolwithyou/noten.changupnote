@@ -74,6 +74,8 @@
     "lab:matching-campaign:review-audit": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/analysis-lab/matching-review-backlog-audit.ts",
     "lab:matching-pdf-source-recovery": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/analysis-lab/matching-pdf-source-recovery-cli.ts",
     "lab:matching-pdf-source-recovery:test": "TSX_TSCONFIG_PATH=apps/web/tsconfig.json node --import tsx --test apps/web/src/lib/server/analysis-lab/matching-pdf-source-recovery-cli.test.ts",
+    "lab:matching-zip-source-recovery": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/analysis-lab/matching-zip-source-recovery-cli.ts",
+    "lab:matching-zip-source-recovery:test": "TSX_TSCONFIG_PATH=apps/web/tsconfig.json node --import tsx --test apps/web/src/lib/server/analysis-lab/matching-zip-source-recovery-cli.test.ts",
     "lab:matching-campaign:test": "TSX_TSCONFIG_PATH=apps/web/tsconfig.json node --import tsx apps/web/src/lib/server/analysis-lab/matching-inventory-campaign.test.ts && TSX_TSCONFIG_PATH=apps/web/tsconfig.json node --import tsx apps/web/src/lib/server/analysis-lab/legacy-material-history.test.ts",
     "lab:launch:prepare-field-repair": "pnpm verify:package-runtime-freshness && tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/analysis-lab/workspace-field-repair-launch-cli.ts",
     "lab:launch:prepare-terminal-repair": "pnpm verify:package-runtime-freshness && tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/analysis-lab/terminal-repair-launch-cli.ts",

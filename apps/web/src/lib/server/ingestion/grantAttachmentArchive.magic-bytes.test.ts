@@ -225,6 +225,31 @@ async function main(): Promise<void> {
     assert.equal(poster?.conversion?.ocr_provider, "test_vision");
   });
 
+  await check("exact ZIP 원본 SHA가 바뀌면 첫 R2 쓰기 전에 거부", async () => {
+    let writes = 0;
+    const storage = {
+      async putObject(input: { key: string; body: Buffer | string; contentType: string }) {
+        writes += 1;
+        return { key: input.key, url: `https://r2.example/${input.key}` };
+      },
+    } as R2ObjectStorage;
+    const url = "https://origin.example/exact.zip";
+    const zip = writeHwpx([{ name: "notice.txt", data: Buffer.from("지원대상"), method: 0 }]);
+    await assert.rejects(archiveGrantAttachments([{ filename: "첨부파일.zip", url }], {
+      source: "bizinfo",
+      sourceId: "PBLN_EXACT_ZIP",
+      collectedAt: new Date("2026-07-12T00:00:00.000Z"),
+      enabled: true,
+      convertHwp: true,
+      autoInstallPyhwp: false,
+      allowFailures: false,
+      storage,
+      expectedDownloadSha256: new Map([[url, "a".repeat(64)]]),
+      fetchImpl: (async () => new Response(new Uint8Array(zip), { status: 200 })) as typeof fetch,
+    }), /Exact attachment source SHA-256 mismatch/);
+    assert.equal(writes, 0);
+  });
+
   await check("XLSX 첨부는 shared strings와 worksheet 값을 markdown으로 변환", async () => {
     const uploads: string[] = [];
     const storage = {
