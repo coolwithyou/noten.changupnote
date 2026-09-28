@@ -408,3 +408,9 @@
 - 일회성 `tools/run-local-product-uat.mjs`에 회사 A의 `GET /api/web/company-matching → POST /api/web/profile/field(size=중소기업) → GET → POST(unknown) → GET` 수용 검사를 추가했다. 회사 소유자 인증 세션에서 버전 토큰을 이어 사용하고, 알려진 규모의 저장·재조회와 철회 후 unknown 상태·규모 미표시를 검증한다. 앞선 확인 질문 시나리오가 원래 소유자 세션을 종료하므로 이 검사는 별도 정상 로그인 세션을 연다. 첫 시도는 종료된 세션 재사용으로 401이었고, 이 수정 후 동일한 전체 UAT를 처음부터 다시 실행했다.
 - 두 번째 격리 UAT PASS. 영수증 `/private/var/folders/90/3_v527vj59d6wv2ql7_k6rzm0000gn/T/cunote-product-uat-pg-s9Gvni/receipt.json`의 `profileAnswerAcceptance={status:passed,scope:isolated_authenticated_http_db,knownThenUnknown:true}`, source manifest SHA `ee75fb05f8e9ff7eb188c23977a2a0056f5ed12847e5aeee916afd8c782d1ab1`; packages/web/admin build와 계정 인증·회사 격리·확인 질문 시나리오 PASS. UAT는 새 Unix socket DB와 합성 공고를 사용했고 비밀번호는 로그/진행 문서에 기록하지 않았다. 실제 브라우저 버튼 조작, 운영 계정, 운영 R2/모델, 실제 아스카웍스 규모 판정은 이 영수증의 범위 밖이다.
 - `tools/run-local-product-uat.mjs`만 실행 경로로 수정했으므로 분석 모델 계약과 현재 `84bf20ea…` 준비물의 runtime SHA는 바뀌지 않는다.
+
+## 2026-09-28 ICT 파트너십 규모 조건 원문 재대조
+
+- 감시 `b9ca511f…`는 이미 기록·ack된 과거 v26 `5f90a58b…`의 준비 알림이다. 이번 재확인에서도 현행 파일럿은 별도 v27 `84bf20ea…`이며, 이전 감시 알림을 grant·launch 승인으로 이월하지 않는다.
+- BizInfo `PBLN_000000000126531`의 봉인 입력(`651f0e8f…`)을 다시 읽었다. 같은 입력 안에서 구조화 `trgetNm`은 `중소기업`, `bsnsSumryCn`은 `중소ㆍ중견기업`, 모집공고 첨부는 `ICT, AI 분야 중소 · 중견 기업`이라고 명시한다. 보관 NIPA 모집공고 PDF의 bytes SHA `f18bd693…`는 현재 첨부 SHA와 일치한다. [기업마당 상세](https://www.bizinfo.go.kr/sii/siia/selectSIIA200Detail.do?pblancId=PBLN_000000000126531)의 공개 본문도 중소·중견을 표시한다. 독립 검수 sequence 54가 `size` criterion index 0을 `unsure`로 둔 직접 이유는 이 구조화 필드와 첨부의 범위 차이다.
+- 상세 본문이 두 기관에서 일치한다는 사실은 의미 판정의 단서지만, 기존 출처 계약은 공식 구조화 대상과 상세 자격의 명시적 차이를 임의 선택해 해소하지 않는다. 이 건의 `source_review/condition_review`와 독립 검수 `unresolved`를 유지한다. `중견기업`을 자동 확정하거나 아스카웍스 추천 1건으로 계산하지 않는다. 현재 회사 규모도 비어 있다. 공식 범위의 별도 확인과 그 결과에 결속된 후속 검수·release가 필요하다. 이번 대조는 기존 immutable run/aggregate, 서비스 DB/R2, 모델 실행을 변경하지 않았다.
