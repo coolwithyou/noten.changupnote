@@ -124,7 +124,7 @@ export async function collectPendingSurfaceJobs(
     .orderBy(...(options.currentOpenOnly
       ? [
           sql<number>`case when ${surfaces.title} ~* '공고|모집요강|사업안내' then 0 else 1 end`,
-          asc(grants.applyEnd), asc(surfaces.updatedAt), asc(surfaces.id),
+          asc(surfaces.updatedAt), asc(grants.applyEnd), asc(surfaces.id),
         ]
       : [asc(surfaces.updatedAt), asc(surfaces.id)]))
     .limit(limit);
