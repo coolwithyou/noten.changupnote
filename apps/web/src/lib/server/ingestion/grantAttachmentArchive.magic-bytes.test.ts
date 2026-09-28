@@ -185,6 +185,46 @@ async function main(): Promise<void> {
     assert.equal(uploads.length, 3);
   });
 
+  await check("ZIP 안의 모집 포스터는 OCR이 설정되면 정확한 child로 보관", async () => {
+    const storage = {
+      async putObject(input: { key: string; body: Buffer | string; contentType: string }) {
+        return { key: input.key, url: `https://r2.example/${input.key}` };
+      },
+    } as R2ObjectStorage;
+    const zip = writeHwpx([
+      { name: "notice.txt", data: Buffer.from("지원대상: 연구소기업"), method: 0 },
+      { name: "poster.png", data: Buffer.from([137, 80, 78, 71, 1, 2, 3]), method: 0 },
+    ]);
+    const result = await archiveGrantAttachments([{
+      filename: "첨부파일.zip",
+      url: "https://origin.example/bundle.zip",
+    }], {
+      source: "bizinfo",
+      sourceId: "PBLN_ZIP_POSTER",
+      collectedAt: new Date("2026-07-12T00:00:00.000Z"),
+      enabled: true,
+      convertHwp: true,
+      autoInstallPyhwp: false,
+      allowFailures: false,
+      storage,
+      fetchImpl: (async () => new Response(new Uint8Array(zip), {
+        status: 200,
+        headers: { "content-type": "application/zip" },
+      })) as typeof fetch,
+      imageOcr: async () => ({
+        markdown: "모집대상은 연구소기업이며 신청기간은 10월 2일까지입니다.",
+        confidence: 0.82,
+        provider: "test_vision",
+        converter: "test-vision-v1",
+      }),
+    });
+    assert.equal(result.archivedCount, 3);
+    assert.equal(result.convertedCount, 2);
+    const poster = result.attachments.find((item) => item.filename.endsWith(".png"));
+    assert.equal(poster?.conversion?.status, "converted");
+    assert.equal(poster?.conversion?.ocr_provider, "test_vision");
+  });
+
   await check("XLSX 첨부는 shared strings와 worksheet 값을 markdown으로 변환", async () => {
     const uploads: string[] = [];
     const storage = {

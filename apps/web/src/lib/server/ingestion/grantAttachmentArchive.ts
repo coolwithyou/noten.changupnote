@@ -474,6 +474,7 @@ async function archiveContainerAttachment(
       maxEntries: options.archiveMaxEntries ?? 10,
       maxEntryBytes: 20 * 1024 * 1024,
       maxTotalBytes: 50 * 1024 * 1024,
+      includeImages: Boolean(options.imageOcr),
     });
     const nested: ArchivedAttachmentResult[] = [];
     for (const [index, entry] of entries.entries()) {

@@ -3,6 +3,7 @@ import { extname } from "node:path";
 import { unzipSync, type UnzipFileInfo } from "fflate";
 
 const SUPPORTED_DOCUMENT = /\.(?:hwp|hwpx|pdf|docx|txt|xlsx|xlsm|pptx)$/i;
+const OCR_IMAGE = /\.(?:png|jpe?g)$/i;
 const CONTAINER_EXTENSION = /\.(?:zip|xlsx|xlsm|pptx)$/i;
 
 export interface ArchiveContainerInspection {
@@ -71,7 +72,7 @@ export async function inspectArchiveContainer(
 export function extractSupportedArchiveEntries(
   filename: string,
   body: Buffer,
-  options: { maxEntries?: number; maxEntryBytes?: number; maxTotalBytes?: number } = {},
+  options: { maxEntries?: number; maxEntryBytes?: number; maxTotalBytes?: number; includeImages?: boolean } = {},
 ): ExtractedArchiveEntry[] {
   if (containerFormat(filename) !== "zip") return [];
   const maxEntries = boundedInteger(options.maxEntries ?? 10, 1, 100, "maxEntries");
@@ -83,7 +84,8 @@ export function extractSupportedArchiveEntries(
     throw new Error("Archive contains a suspicious path");
   }
   const selected = infos
-    .filter((entry) => SUPPORTED_DOCUMENT.test(entry.name) && entry.originalSize > 0)
+    .filter((entry) => (SUPPORTED_DOCUMENT.test(entry.name)
+      || options.includeImages && OCR_IMAGE.test(entry.name)) && entry.originalSize > 0)
     .sort((left, right) => entryScore(right.name) - entryScore(left.name) || left.name.localeCompare(right.name))
     .slice(0, maxEntries);
   if (selected.some((entry) => entry.originalSize > maxEntryBytes)) {
@@ -139,7 +141,10 @@ export function listVerifiedArchiveMaterialEntries(
   if (material.length > maxEntries) {
     throw new Error(`Archive contains more than ${maxEntries} material entries`);
   }
-  const unsupported = material.filter((entry) => !SUPPORTED_DOCUMENT.test(entry.name));
+  // OCR images remain material. A ZIP parent is covered only when their exact
+  // child bytes and hydrated markdown are also present in the input inventory.
+  const unsupported = material.filter((entry) =>
+    !SUPPORTED_DOCUMENT.test(entry.name) && !OCR_IMAGE.test(entry.name));
   if (unsupported.length > 0) {
     throw new Error(
       `Archive contains unsupported material entries: ${unsupported

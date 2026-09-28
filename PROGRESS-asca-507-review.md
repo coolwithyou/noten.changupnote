@@ -208,3 +208,9 @@
 - source manifest `4459b164…`의 현재 input/attachment SHA, 공고 상태·지원 종료 시각, surface 원본 키·PDF SHA를 묶은 별도 source-only 계획 `e12dada0023d31984956e88ff393fb62a10b006e592422f3f151f5c9e62f3d44`를 `spike-out/asca-test-20260927/same-material-defect10-pdf-recovery-plan.json`에 봉인·readback PASS했다. 대상은 6개 공고·10개 PDF, R2/DB 텍스트 산출물 쓰기만이며 모델 호출·서비스 승격·배포는 범위 밖이다.
 - `lab:matching-pdf-source-recovery -- --plan=<path>`는 source manifest bytes/canonical SHA와 subset material, 현재 공고·입력·PDF 바이트를 재검증하는 읽기 전용 preflight로 PASS했다(6/10, drift 0). `--write`에는 exact plan·receipt 경로·확인값이 필요하고, 동일 receipt 경로의 로컬 lock을 선점한 뒤 실행한다. 결과 receipt는 생성 후 SHA readback을 검증하며, 중간 오류로 receipt가 없으면 lock을 남겨 자동 중복 실행을 막는다. 확인값 없는 쓰기 시도는 exit 1이며 receipt/lock 생성 0을 확인했다. 계약 테스트 3/3, 기존 PDF 복구 테스트, 웹 typecheck, package runtime freshness, diff 검사 PASS. 이번 코드 변경 뒤 기존 모델 실행 package runtime SHA `30aa25ba…`는 동일하다.
 - 프로젝트 `AGENTS.md`의 운영 데이터 변경 경계에 따라 위 exact source-only 계획의 사용자 승인 응답을 요청했다. 아직 R2/DB 복구 쓰기·모델 실행·추천 승격을 하지 않았다. 승인 후에도 실행 직전 preflight 재검증, receipt와 입력 변화·남은 누락 확인이 필수다.
+
+## 2026-09-28 09:13 KST ZIP 내부 모집 포스터 누락 원인과 변환 경로
+
+- 나머지 BizInfo `PBLN_000000000126497`의 보관 ZIP은 SHA 검증 PASS, 5개 entry(신청 관련 HWPX 4·모집 포스터 PNG 1)다. 포스터에는 모집 기간과 연구소기업 자격 조건이 있으므로 비중요 이미지로 면제할 수 없다. 126497을 PDF 10개 source-only 계획에 섞지 않은 이유다. 실제 포스터의 로컬 macOS Vision OCR 사전 검증은 514자·confidence 0.773으로 현행 0.6 임계값을 통과했다.
+- 기존 ZIP child 추출은 HWPX만 선택해 PNG를 누락했다. OCR 어댑터가 명시된 경우에만 PNG/JPEG도 child로 추출·변환하고, ZIP parent의 완전성 검증에는 이미지 entry도 material로 포함하도록 보정했다. 이미지 child가 없으면 parent는 여전히 보류되고, 정확한 child 원본·hydrated OCR 텍스트까지 확인될 때만 parent를 `covered_by_children`으로 다룬다.
+- 실제 보관 ZIP 바이트와 로컬 OCR을 쓰기 없는 저장소 모형에 통과시킨 결과 parent 1·child 5를 모두 아카이브 대상으로 만들고 child 5/5 변환 성공·실패 0이었다. 이는 원본 바이트 기반 변환 실험이며 운영 R2/DB 쓰기나 공식 URL 재다운로드 검증은 아니다. ZIP 변경에 대한 관련 archive/container/input 테스트, 웹 typecheck, package runtime freshness PASS이며 모델 package runtime SHA `30aa25ba…`는 동일하다.

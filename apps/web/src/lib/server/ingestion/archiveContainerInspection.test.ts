@@ -34,6 +34,16 @@ assert.deepEqual(
   ["eligibility.xlsx", "notice.hwpx"],
 );
 assert.equal(listVerifiedArchiveMaterialEntries("첨부파일.zip", nestedOffice).length, 2);
+const mixedWithPoster = writeHwpx([
+  { name: "notice.hwpx", data: Buffer.from("hwpx"), method: 0 },
+  { name: "poster.png", data: Buffer.from("material image"), method: 0 },
+]);
+assert.deepEqual(extractSupportedArchiveEntries("첨부파일.zip", mixedWithPoster)
+  .map((entry) => entry.filename), ["notice.hwpx"]);
+assert.deepEqual(extractSupportedArchiveEntries("첨부파일.zip", mixedWithPoster, { includeImages: true })
+  .map((entry) => entry.filename), ["notice.hwpx", "poster.png"]);
+assert.deepEqual(listVerifiedArchiveMaterialEntries("첨부파일.zip", mixedWithPoster)
+  .map((entry) => entry.filename), ["notice.hwpx", "poster.png"]);
 assert.throws(
   () => listVerifiedArchiveMaterialEntries("첨부파일.zip", writeHwpx(
     Array.from({ length: 101 }, (_, index) => ({
