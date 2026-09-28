@@ -325,7 +325,6 @@ export async function publishNormalizedGrants<TPayload>(
             source: entry.raw.source,
             sourceId: entry.raw.source_id,
             attachments: attachmentRefs,
-            deferEnqueue: true,
           });
           conversionWarnings.push(...hook.warnings);
           deferredConversionJobs.push(...hook.deferredJobs);

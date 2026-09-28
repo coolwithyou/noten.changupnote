@@ -520,7 +520,6 @@ export async function registerMissingDeepAnalysisConversions(input: {
             sourceUri: attachment.sourceUri,
             sha256: attachment.sha256,
           })),
-          deferEnqueue: true,
         }),
       );
       const enqueued = await enqueueDeferredAttachmentConversions(input.db, registered.deferredJobs);

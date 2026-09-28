@@ -334,14 +334,13 @@ async function main(): Promise<void> {
   });
 
   // -------------------------------------------------------------------
-  // 3. registerAttachmentConversions 통합 (fake drizzle 세션, client=null)
+  // 3. registerAttachmentConversions 통합 (fake drizzle 세션, 네트워크 호출 없음)
   await check("detectedFormat='hwp' 는 확장자 .hwpx 를 이기고 surface.format='hwp'", async () => {
     const { db, inserts } = makeFakeDb();
     const result = await registerAttachmentConversions(db, {
       grantId: "grant-1",
       source: SOURCE,
       sourceId: "src-1",
-      client: null,
       attachments: [ref({ filename: "위장.hwpx", detectedFormat: "hwp" })],
     });
     assert.equal(result.surfacesUpserted, 1);
@@ -356,7 +355,6 @@ async function main(): Promise<void> {
       grantId: "grant-1",
       source: SOURCE,
       sourceId: "src-1",
-      client: null,
       attachments: [ref({ filename: "정상.hwpx" })], // detectedFormat 없음(byte-less)
     });
     assert.equal(result.surfacesUpserted, 1);
@@ -369,7 +367,6 @@ async function main(): Promise<void> {
       grantId: "grant-1",
       source: SOURCE,
       sourceId: "src-1",
-      client: null,
       attachments: [ref({ filename: "정체불명.hwpx", detectedFormat: null })],
     });
     assert.equal(result.surfacesUpserted, 0);
@@ -383,7 +380,6 @@ async function main(): Promise<void> {
       grantId: "grant-1",
       source: SOURCE,
       sourceId: "src-1",
-      client: null,
       attachments: [ref({ filename: "첨부.zip" })],
     });
     assert.equal(result.surfacesUpserted, 0);
@@ -397,7 +393,6 @@ async function main(): Promise<void> {
       grantId: "grant-1",
       source: SOURCE,
       sourceId: "src-1",
-      client: null,
       attachments: [
         ref({ filename: "미보관.hwp", storageKey: null }),
         ref({ filename: "해시없음.hwpx", sha256: null }),
@@ -416,7 +411,6 @@ async function main(): Promise<void> {
       grantId: "grant-1",
       source: SOURCE,
       sourceId: "src-1",
-      client: null,
       attachments: [ref({ filename: "모집공고.pdf", storageKey: "grant-archive/body.pdf" })],
     });
     assert.equal(result.surfacesUpserted, 1);
