@@ -16,8 +16,9 @@ loadMonorepoEnv();
 const args = process.argv.slice(2);
 const limit = readPositiveInteger("--limit", 20_000);
 const requestedOutputDirectory = readOptionalText("--output-dir");
-if (args.some((arg) => arg !== "--" && !arg.startsWith("--limit=") && !arg.startsWith("--output-dir="))) {
-  throw new Error("사용법: tsx legacyQuestionMigrationReviewPacket-cli.ts [--limit=20000] [--output-dir=경로]");
+const grantId = readOptionalText("--grant-id");
+if (args.some((arg) => arg !== "--" && !arg.startsWith("--limit=") && !arg.startsWith("--output-dir=") && !arg.startsWith("--grant-id="))) {
+  throw new Error("사용법: tsx legacyQuestionMigrationReviewPacket-cli.ts [--limit=20000] [--output-dir=경로] [--grant-id=UUID]");
 }
 const databaseUrl = process.env.DATABASE_URL ?? process.env.SUPABASE_DB_URL ?? process.env.DIRECT_URL;
 if (!databaseUrl) throw new Error("DATABASE_URL, SUPABASE_DB_URL 또는 DIRECT_URL이 필요합니다.");
@@ -30,7 +31,10 @@ const client = postgres(databaseUrl, {
 try {
   const db = drizzle(client, { schema });
   const bundle = await db.transaction(
-    (tx) => loadLegacyQuestionMigrationReviewBundle({ db: tx, limit }),
+    (tx) => loadLegacyQuestionMigrationReviewBundle({
+      db: tx, limit,
+      ...(grantId ? { grantIds: [grantId] } : {}),
+    }),
     { isolationLevel: "repeatable read", accessMode: "read only" },
   );
   const baseDirectory = requestedOutputDirectory

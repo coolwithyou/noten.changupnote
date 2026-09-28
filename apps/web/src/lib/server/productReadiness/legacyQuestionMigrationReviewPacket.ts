@@ -231,6 +231,7 @@ export async function loadLegacyQuestionMigrationReviewBundle(input: {
   readonly db: CunoteDbSession;
   readonly asOf?: Date;
   readonly limit?: number;
+  readonly grantIds?: readonly string[];
 }): Promise<LegacyQuestionMigrationReviewBundle> {
   const shadowReport = await loadLegacyQuestionMigrationShadow(input);
   const candidateIds = shadowReport.entries.filter(isReviewCandidate).map((entry) => entry.questionId);
