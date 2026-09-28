@@ -8,6 +8,7 @@ import { buildCurrentInventoryLaunchManifest, type CurrentLaunchInventory } from
 import { ANALYSIS_LAB_PROMPT_VERSION } from "@/lib/server/analysis-lab/lab-contract";
 import { DEEP_ANALYSIS_VALIDATOR_VERSION } from "@/lib/server/deep-analysis/validator";
 import {
+  assertMatchingCampaignSupplyBindings,
   isCurrentEligibleMatchingTargetClosingToday,
   prepareCurrentEligibleMatchingTargets,
   prepareMatchingCampaignLaunch,
@@ -1074,6 +1075,25 @@ test("classification SHA 없이는 campaign history bypass prepare에 진입하�
   await assert.rejects(() => prepareMatchingCampaignLaunch({
     grantIds: [id(0)], concurrency: 2, classification, classificationSha256: hex("f"),
   }), /classification SHA/);
+});
+
+test("campaign 직접 준비도 현행 공급 단계와 evidence SHA를 exact 검증한다", () => {
+  const classification = classifyMatchingInventorySnapshot({
+    observedAt: "2026-09-18T00:00:00.000Z",
+    targets: [{
+      ...target(0, { kind: "none" }),
+      supplyAssessment: supplyPlan(0, "await_approved_model_run", "condition_analysis"),
+    }],
+  });
+  const exact = supplyPlan(0, "await_approved_model_run", "condition_analysis");
+  assert.doesNotThrow(() => assertMatchingCampaignSupplyBindings([id(0)], classification, [exact]));
+  assert.throws(() => assertMatchingCampaignSupplyBindings([id(0)], classification, [
+    { ...exact, evidenceSha256: hex("d") },
+  ]), /공급 판정이 변경/);
+  assert.throws(() => assertMatchingCampaignSupplyBindings([id(0)], classification, [
+    { ...exact, stage: "source_review" },
+  ]), /공급 판정이 변경/);
+  assert.throws(() => assertMatchingCampaignSupplyBindings([id(0)], classification, []), /대상 수가 다릅니다/);
 });
 
 test("campaign CLI는 child-size 기본값/옵션과 status/run-next를 엄격히 파싱한다", () => {

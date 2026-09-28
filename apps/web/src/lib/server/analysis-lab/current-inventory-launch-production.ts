@@ -35,6 +35,7 @@ import {
   type ArtifactLossRecoveryAttestation,
 } from "./current-inventory-launch";
 import type { MatchingInventoryClassification } from "./matching-inventory-campaign";
+import { assessPublishedGrantSupply, type GrantSupplyAssessment } from "../productReadiness/grantSupply";
 
 /** 명시된 최대 100건만 읽는다. 모델 호출과 runtime lease, 서비스 DB/R2 쓰기는 하지 않는다. */
 export async function prepareCurrentInventoryLaunch(input: {
@@ -70,12 +71,44 @@ export async function prepareMatchingCampaignLaunch(input: {
     }
     await verifyLegacySourceChange(findMonorepoRoot(), entry);
   }
+  const supply: GrantSupplyAssessment[] = [];
+  // 자산 판정은 R2/DB 읽기를 동반하므로 기존 campaign과 같은 16건 단위로 제한한다.
+  for (let offset = 0; offset < input.grantIds.length; offset += 16) {
+    supply.push(...await assessPublishedGrantSupply({
+      db: getCunoteDb(),
+      grantIds: input.grantIds.slice(offset, offset + 16),
+      asOf: new Date(input.classification.observedAt),
+    }));
+  }
+  assertMatchingCampaignSupplyBindings(input.grantIds, input.classification, supply);
   return prepareExactInventory({
     grantIds: input.grantIds,
     concurrency: input.concurrency,
     analysisMode: "matching_only",
     expectedMatchingCampaignClassification: input.classification,
   }, MATCHING_CAMPAIGN_POLICY);
+}
+
+export function assertMatchingCampaignSupplyBindings(
+  grantIds: readonly string[],
+  classification: MatchingInventoryClassification,
+  assessments: readonly GrantSupplyAssessment[],
+): void {
+  const expected = new Map(classification.entries.map((entry) => [entry.grantId, entry]));
+  const current = new Map(assessments.map((assessment) => [assessment.grantId, assessment]));
+  if (assessments.length !== grantIds.length || current.size !== grantIds.length) {
+    throw new Error("matching campaign 공급 판정 대상 수가 다릅니다.");
+  }
+  for (const grantId of grantIds) {
+    const plan = current.get(grantId);
+    const entry = expected.get(grantId);
+    if (plan?.schema !== "grant-supply-plan-v1"
+      || plan.stage !== "await_approved_model_run"
+      || entry?.supplyStage !== plan.stage
+      || entry.supplyEvidenceSha256 !== plan.evidenceSha256) {
+      throw new Error(`matching campaign child 준비 전 공급 판정이 변경됐습니다: ${grantId}`);
+    }
+  }
 }
 
 /** 원본 불변 산출물이 소실된 역사 target만 현재 입력으로 새 실행 범위를 봉인한다. */

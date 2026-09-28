@@ -10,6 +10,7 @@ import {
   type DeepAnalysisRuntimeAdmissionSnapshot,
 } from "../deep-analysis/runtimeControl";
 import {
+  assertMatchingCampaignSupplyBindings,
   prepareMatchingCampaignLaunch,
   prepareTerminalRepairLaunch,
   prepareCurrentEligibleMatchingTargets,
@@ -597,7 +598,6 @@ function defaultDependencies(): MatchingCampaignProductionDependencies {
     readSupplyPlans: readCurrentMatchingSupplyPlans,
     readHistory: (current) => readVerifiedCurrentLaunchHistory(root, current),
     prepareCurrent: async (grantIds, classification) => {
-      await verifyMatchingCampaignSupplyPlans(grantIds, classification);
       const prepared = await prepareMatchingCampaignLaunch({
         grantIds,
         concurrency: 2,
@@ -652,17 +652,7 @@ async function verifyMatchingCampaignSupplyPlans(
     grantIds.map((grantId) => ({ grantId, closesToday: false })),
     new Date(classification.observedAt),
   );
-  const expected = new Map(classification.entries.map((entry) => [entry.grantId, entry]));
-  for (const grantId of grantIds) {
-    const plan = current.get(grantId);
-    const entry = expected.get(grantId);
-    if (plan?.schema !== "grant-supply-plan-v1"
-      || plan.stage !== "await_approved_model_run"
-      || entry?.supplyStage !== plan.stage
-      || entry.supplyEvidenceSha256 !== plan.evidenceSha256) {
-      throw new Error(`matching campaign child 준비 전 공급 판정이 변경됐습니다: ${grantId}`);
-    }
-  }
+  assertMatchingCampaignSupplyBindings(grantIds, classification, [...current.values()]);
 }
 
 /** 현행 current-inventory artifact만 자동 판정하고 나머지 과거 이력은 fail-safe held로 둔다. */

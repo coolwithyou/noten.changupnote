@@ -369,3 +369,8 @@
 - 152건 물리 입력 감사의 누락 18개 중 BizInfo `PBLN_000000000120498`의 `(사업지침서) 2026년 GAP 안전성 분석 지원.pdf`는 `unknown`으로 분류되어 명시적 공고문 입력 gate를 통과할 수 있었다. 이 파일명은 자격·지원 범위의 공식 지침을 가리키므로 `announcement` 역할 단서에 `사업지침서`를 추가했다. 역할은 입력 완전성 판정에만 쓰고 자격 사실로 승격하지 않는다.
 - 현행 DB/R2를 읽기 전용으로 조립한 해당 공고의 지침서는 `unavailable/markdown_missing`, 별도 모집 공고 HWP는 `loaded`다. 수정 후 `assertMatchingAnnouncementCoverage`는 대상만 `matching_announcement_input_missing`으로 거부한다. 파일명 기반으로 다른 누락 첨부의 의미까지 확정하지 않으며, 지침서 원본 텍스트 복구·원문 검수는 별도 과제다.
 - 아스카웍스 2건 `176968`·`179012`의 현재 input/attachment SHA는 `16433fff…` manifest와 각각 일치하고 입력 gate도 PASS다. `input.test.ts`, announcement gate 테스트, matching campaign 33+2, 웹 typecheck, package runtime freshness, diff 검증 PASS. 모델 호출·서비스 쓰기 0. 이 수정만으로 새 2건의 입력·실행 계약이 바뀌었다는 증거는 없다. exact live 승인 응답 전에는 grant/launch하지 않는다.
+
+## 2026-09-28 campaign 직접 준비의 공급 결속 통합
+
+- 일반 campaign entrypoint는 child 준비 직전 `await_approved_model_run` 공급 단계와 classification evidence SHA를 다시 확인했으나, 공개 `prepareMatchingCampaignLaunch` 직접 호출에는 그 검사가 없었다. 앞의 2건 직접 재준비는 별도 수동 공급 대조가 PASS했지만 호출자마다 이를 기억해야 하는 구조였다. 공통 exact 공급 판정을 준비 함수 안에 넣고 R2/DB 자산 읽기는 기존과 같은 16건 단위로 제한했다. terminal repair의 기존 공급 검사는 같은 판정 함수를 공유한다.
+- 회귀는 exact evidence·단계 drift·대상 수 누락을 분리해 확인했다. `pnpm lab:matching-campaign:test` 34+2, `pnpm lab:launch:test`, 웹 typecheck, package runtime freshness와 diff 검증 PASS. 이 변경은 준비 admission이며 이미 봉인된 `16433fff…`의 두 입력 SHA·모델/validator/package 계약이나 live 권한을 바꾸지 않는다. 서비스 DB/R2 쓰기·모델 호출 0이다.
