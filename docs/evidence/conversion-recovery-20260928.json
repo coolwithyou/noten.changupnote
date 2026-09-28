@@ -1,0 +1,426 @@
+{
+  "checkedAt": "2026-09-28T14:33:59.609Z",
+  "workerSourceCommit": "0c404433fe86dfdeccd42b44119a28e32a10ced0",
+  "fixMergeCommit": "2ce4bc8f1d148ca92a1561fad009d5617852cb2e",
+  "pullRequests": [
+    "https://github.com/coolwithyou/noten.changupnote/pull/21",
+    "https://github.com/coolwithyou/noten.changupnote/pull/22"
+  ],
+  "worker": {
+    "generation": 10,
+    "readyRevision": "cunote-conversion-00010-qxb",
+    "traffic": [
+      {
+        "latestRevision": true,
+        "percent": 100,
+        "revisionName": "cunote-conversion-00010-qxb"
+      }
+    ],
+    "image": "asia-northeast3-docker.pkg.dev/changupnote-com/cunote/conversion@sha256:6df93e7c7024f961898e644ced9ae16395b74e8b773779c25fe5f915d259a1e3",
+    "cpuThrottling": "false",
+    "runtimePreserved": true,
+    "accessPreserved": true
+  },
+  "tests": {
+    "webTypecheck": "PASS",
+    "productPostgres": {
+      "status": "PASS",
+      "migrations": 94,
+      "rls": true
+    },
+    "imageTests": {
+      "status": "PASS",
+      "failurePaths": 11,
+      "quality": 10,
+      "responsivenessMs": 46,
+      "rendererBlockingMs": 3000,
+      "concurrency": 2,
+      "workerFailureCases": 3,
+      "cleanup": "PASS",
+      "hwpEndpoint": "PASS"
+    }
+  },
+  "sourceRecovery": {
+    "verifiedAt": "2026-09-28T14:14:52.190Z",
+    "obsoleteSurfaceIds": [
+      "5ca5024e-830d-4295-9180-28ad572d23cc",
+      "ad4e8431-0a94-4b0a-b82b-c3bcf3f92489",
+      "84f220f1-4688-40b9-aa13-8ba53f9af95e",
+      "c38e4a7b-396a-4ffe-9dd8-b8510a92ff3f"
+    ],
+    "currentAttachments": [
+      {
+        "sourceId": "PBLN_000000000126496",
+        "filename": "★변경 공고문[2026년 충청남도 (예비)사회적기업 사업개발비 지원].hwpx",
+        "sha256": "ed129c866633eea8bdf216669745295b09f99a0a89500fa171e60308bee88df7",
+        "bytes": 580413,
+        "officialHttp": 200,
+        "officialShaMatches": true,
+        "rawBindingMatches": true
+      },
+      {
+        "sourceId": "PBLN_000000000126496",
+        "filename": "★변경 공고문[2026년 충청남도 (예비)사회적기업 사업개발비 지원]+.pdf",
+        "sha256": "3a3325c2b2b3d9d35b2f7bd2217d5568ad43a4060a8b808943625da3c05fbd0d",
+        "bytes": 694253,
+        "officialHttp": 200,
+        "officialShaMatches": true,
+        "rawBindingMatches": true
+      },
+      {
+        "sourceId": "PBLN_000000000126545",
+        "filename": "(최종) 2027년 수출컨소시엄 사업 주관단체 및 과제 모집 공고.hwpx",
+        "sha256": "bc4e3ce9a27d10eb9b4fff7c40dd74d21aef17aec0dff6ff063d7ed2e655b6e8",
+        "bytes": 159583,
+        "officialHttp": 200,
+        "officialShaMatches": true,
+        "rawBindingMatches": true
+      },
+      {
+        "sourceId": "PBLN_000000000126545",
+        "filename": "(최종) 2027년 수출컨소시엄 사업 주관단체 및 과제 모집 공고.pdf",
+        "sha256": "d27d7621f5bbdc674a118ffbf38e24c68b50ca7ba265176fa3f412aadd22476f",
+        "bytes": 616169,
+        "officialHttp": 200,
+        "officialShaMatches": true,
+        "rawBindingMatches": true
+      }
+    ]
+  },
+  "canary": {
+    "count": 6,
+    "artifactCount": 128,
+    "metrics": {
+      "samples": 208,
+      "p95Ms": 19,
+      "maxMs": 48,
+      "errors": 0,
+      "elapsedMs": 153738
+    },
+    "leaseReleased": true,
+    "results": [
+      {
+        "surfaceId": "77d29311-e209-4de4-adc9-ca8d4bea5b0a",
+        "sourceId": "PBLN_000000000126496",
+        "format": "hwpx",
+        "sourceSha256": "ed129c866633eea8bdf216669745295b09f99a0a89500fa171e60308bee88df7",
+        "status": "succeeded",
+        "quality": {
+          "renderEngine": "libreoffice-h2orestart",
+          "pdfRendered": true,
+          "pageImagesRendered": true,
+          "textExtracted": true,
+          "pageCount": 31,
+          "pageImageDpi": 220,
+          "textCoverage": 0.3443951612903226,
+          "warnings": [],
+          "status": "usable_with_review"
+        },
+        "db": {
+          "status": "preview_ready",
+          "artifactCount": 33
+        }
+      },
+      {
+        "surfaceId": "9ed83fb6-3630-4976-9d4b-07ebd743605e",
+        "sourceId": "PBLN_000000000126496",
+        "format": "pdf",
+        "sourceSha256": "3a3325c2b2b3d9d35b2f7bd2217d5568ad43a4060a8b808943625da3c05fbd0d",
+        "status": "succeeded",
+        "quality": {
+          "renderEngine": "pdf-passthrough",
+          "pdfRendered": true,
+          "pageImagesRendered": true,
+          "textExtracted": true,
+          "pageCount": 19,
+          "pageImageDpi": 220,
+          "textCoverage": 0.5453947368421053,
+          "warnings": [],
+          "status": "usable_with_review"
+        },
+        "db": {
+          "status": "preview_ready",
+          "artifactCount": 21
+        }
+      },
+      {
+        "surfaceId": "0ae2f4c5-d29f-4858-ab73-ad9f7e1c0e2a",
+        "sourceId": "PBLN_000000000126545",
+        "format": "pdf",
+        "sourceSha256": "d27d7621f5bbdc674a118ffbf38e24c68b50ca7ba265176fa3f412aadd22476f",
+        "status": "succeeded",
+        "quality": {
+          "renderEngine": "pdf-passthrough",
+          "pdfRendered": true,
+          "pageImagesRendered": true,
+          "textExtracted": true,
+          "pageCount": 19,
+          "pageImageDpi": 220,
+          "textCoverage": 0.7986842105263158,
+          "warnings": [],
+          "status": "usable"
+        },
+        "db": {
+          "status": "preview_ready",
+          "artifactCount": 21
+        }
+      },
+      {
+        "surfaceId": "69289d8a-bc43-428e-8499-5f5e855aca11",
+        "sourceId": "PBLN_000000000126545",
+        "format": "hwpx",
+        "sourceSha256": "bc4e3ce9a27d10eb9b4fff7c40dd74d21aef17aec0dff6ff063d7ed2e655b6e8",
+        "status": "succeeded",
+        "quality": {
+          "renderEngine": "libreoffice-h2orestart",
+          "pdfRendered": true,
+          "pageImagesRendered": true,
+          "textExtracted": true,
+          "pageCount": 26,
+          "pageImageDpi": 220,
+          "textCoverage": 0.5803365384615384,
+          "warnings": [],
+          "status": "usable_with_review"
+        },
+        "db": {
+          "status": "preview_ready",
+          "artifactCount": 28
+        }
+      },
+      {
+        "surfaceId": "ac53f5b4-5103-4b7e-bfea-3be8c6021a3f",
+        "sourceId": "PBLN_000000000126583",
+        "format": "hwp",
+        "sourceSha256": "19705f5c677a5635bd6ce089e8ee84b9714edb164cd25ee64d6f2bd07207759d",
+        "status": "succeeded",
+        "quality": {
+          "renderEngine": "libreoffice-h2orestart",
+          "pdfRendered": true,
+          "pageImagesRendered": true,
+          "textExtracted": true,
+          "pageCount": 11,
+          "pageImageDpi": 220,
+          "textCoverage": 0.33852272727272725,
+          "warnings": [],
+          "status": "usable_with_review"
+        },
+        "db": {
+          "status": "preview_ready",
+          "artifactCount": 14
+        }
+      },
+      {
+        "surfaceId": "ba02e037-94aa-4d69-adee-94e39f388004",
+        "sourceId": "PBLN_000000000126584",
+        "format": "hwp",
+        "sourceSha256": "e38285c3625ae576e2428e562727d3837636e5dcd81c23ce31c70c1c01eccfb4",
+        "status": "succeeded",
+        "quality": {
+          "renderEngine": "libreoffice-h2orestart",
+          "pdfRendered": true,
+          "pageImagesRendered": true,
+          "textExtracted": true,
+          "pageCount": 8,
+          "pageImageDpi": 220,
+          "textCoverage": 0.7225,
+          "warnings": [],
+          "status": "usable"
+        },
+        "db": {
+          "status": "preview_ready",
+          "artifactCount": 11
+        }
+      }
+    ]
+  },
+  "selectionAfterCanary": {
+    "checkedAt": "2026-09-28T14:35:13.991Z",
+    "legacyPending": 664,
+    "currentPending": 660,
+    "obsoleteExcluded": 4,
+    "currentMissingSha": 0
+  },
+  "web": {
+    "id": "dpl_EtSt3khKQWcRBQsdpPMrg6ifyTxe",
+    "url": "changupnote-6h2dhjxpf-noten.vercel.app",
+    "readyState": "READY",
+    "target": "production",
+    "alias": [
+      "changupnote.com",
+      "www.changupnote.com",
+      "changupnote.vercel.app",
+      "changupnote-noten.vercel.app",
+      "changupnote-git-main-noten.vercel.app"
+    ],
+    "aliasAssigned": true,
+    "meta": {
+      "githubCommitSha": "ab4e7254aa5bef09e8c3fb4d0de40394efa696a9"
+    },
+    "crons": [
+      {
+        "path": "/api/cron/ingest-kstartup",
+        "schedule": "0 0,6 * * *"
+      },
+      {
+        "path": "/api/cron/kstartup-details",
+        "schedule": "30 17 * * *"
+      },
+      {
+        "path": "/api/cron/ingest-bizinfo",
+        "schedule": "10 0,6 * * *"
+      },
+      {
+        "path": "/api/cron/poll-conversions",
+        "schedule": "2,7,12,17,22,27,32,37,42,47,52,57 * * * *"
+      },
+      {
+        "path": "/api/cron/grant-cycle-post",
+        "schedule": "40 0,6 * * *"
+      },
+      {
+        "path": "/api/cron/credits-expire-holds",
+        "schedule": "*/5 * * * *"
+      },
+      {
+        "path": "/api/cron/credits-expire-orders",
+        "schedule": "*/10 * * * *"
+      },
+      {
+        "path": "/api/cron/credits-plan-renewals",
+        "schedule": "0 * * * *"
+      },
+      {
+        "path": "/api/cron/credits-expire-lots",
+        "schedule": "0 19 * * *"
+      },
+      {
+        "path": "/api/cron/credits-reconcile",
+        "schedule": "0 20 * * *"
+      }
+    ]
+  },
+  "webSmoke": {
+    "checkedAt": "2026-09-28T14:39:47.338Z",
+    "smoke": [
+      {
+        "path": "/",
+        "status": 200
+      },
+      {
+        "path": "/api/cron/poll-conversions",
+        "status": 401
+      }
+    ]
+  },
+  "cron": {
+    "host": "changupnote-6h2dhjxpf-noten.vercel.app",
+    "path": "/api/cron/poll-conversions",
+    "schedule": "2,7,12,17,22,27,32,37,42,47,52,57 * * * *"
+  },
+  "scheduledRun": {
+    "scheduledAt": "2026-09-28T14:37:00.000Z",
+    "completedAt": "2026-09-28T14:41:01.057Z",
+    "sawActive": true,
+    "leaseReleased": true,
+    "readyTransitions": 17,
+    "newFailures": 0,
+    "touched": 22,
+    "touchedStatus": {
+      "pending": 5,
+      "preview_ready": 17,
+      "failed": 0
+    },
+    "runtime": [
+      {
+        "id": "jslxw-1790606240151-1825dc1c341f",
+        "timestamp": 1790606240151,
+        "deploymentId": "dpl_EwuMaS1pr7RKuWnKQdaBhorqGbth",
+        "domain": "changupnote-qrv1m8ko9-noten.vercel.app",
+        "requestMethod": "GET",
+        "requestPath": "/api/cron/poll-conversions",
+        "responseStatusCode": 200,
+        "environment": "production",
+        "level": "error",
+        "logs": []
+      }
+    ]
+  },
+  "finalSelection": {
+    "checkedAt": "2026-09-28T14:41:34.478Z",
+    "legacyPending": 647,
+    "currentPending": 643,
+    "obsoleteExcluded": 4,
+    "currentMissingSha": 0
+  },
+  "bindings": {
+    "checkedAt": "2026-09-28T14:40:22.210Z",
+    "historyRowsPreserved": 4,
+    "verifiedCurrentReady": 6,
+    "rows": [
+      {
+        "id": "0ae2f4c5-d29f-4858-ab73-ad9f7e1c0e2a",
+        "extraction_status": "preview_ready",
+        "artifacts": 21
+      },
+      {
+        "id": "5ca5024e-830d-4295-9180-28ad572d23cc",
+        "extraction_status": "pending",
+        "artifacts": 0
+      },
+      {
+        "id": "69289d8a-bc43-428e-8499-5f5e855aca11",
+        "extraction_status": "preview_ready",
+        "artifacts": 28
+      },
+      {
+        "id": "77d29311-e209-4de4-adc9-ca8d4bea5b0a",
+        "extraction_status": "preview_ready",
+        "artifacts": 33
+      },
+      {
+        "id": "84f220f1-4688-40b9-aa13-8ba53f9af95e",
+        "extraction_status": "pending",
+        "artifacts": 0
+      },
+      {
+        "id": "9ed83fb6-3630-4976-9d4b-07ebd743605e",
+        "extraction_status": "preview_ready",
+        "artifacts": 21
+      },
+      {
+        "id": "ac53f5b4-5103-4b7e-bfea-3be8c6021a3f",
+        "extraction_status": "preview_ready",
+        "artifacts": 14
+      },
+      {
+        "id": "ad4e8431-0a94-4b0a-b82b-c3bcf3f92489",
+        "extraction_status": "pending",
+        "artifacts": 0
+      },
+      {
+        "id": "ba02e037-94aa-4d69-adee-94e39f388004",
+        "extraction_status": "preview_ready",
+        "artifacts": 11
+      },
+      {
+        "id": "c38e4a7b-396a-4ffe-9dd8-b8510a92ff3f",
+        "extraction_status": "pending",
+        "artifacts": 0
+      }
+    ]
+  },
+  "limitations": [
+    "Single scheduled run extrapolation is not an SLA; document sizes and retries vary.",
+    "Preview readiness verifies conversion artifacts, not model analysis, eligibility, or application authoring quality.",
+    "Legacy replaced surface rows are preserved and excluded only from current automatic supply."
+  ],
+  "fiveMinuteScheduledStart": {
+    "observedAt": "2026-09-28T14:42:19.831Z",
+    "lease": {
+      "scope": "current_inventory",
+      "expires_at": "2026-09-28T14:52:18.638Z",
+      "updated_at": "2026-09-28T14:42:18.638Z",
+      "active": true
+    }
+  }
+}

@@ -13,9 +13,9 @@
 - [x] 별도 스레드 변환 구현: 변환 결과 계약·동시성 상한·temp cleanup 유지.
 - [x] 실제 blocking 변환 중 HTTP 응답, worker 오류·종료, 정상 artifact/cleanup 회귀 검사.
 - [x] 누락4개 exact source URL, archive row, R2 bytes/SHA 읽기 검증 및 복구 경로 확정.
-- [ ] 관련 build/tests 및 source integrity 검증 후 커밋·통합.
-- [ ] exact image digest 배포, runtime 설정 보존, 긴 실제 문서 상태조회 p95/완료율 검증.
-- [ ] 복구4개 DB/R2 결속과 변환 결과 검증, 잔량·시간 추정 갱신.
+- [x] 관련 build/tests 및 source integrity 검증 후 커밋·통합.
+- [x] exact image digest 배포, runtime 설정 보존, 긴 실제 문서 상태조회 p95/완료율 검증.
+- [x] 복구4개 DB/R2 결속과 변환 결과 검증, 잔량·시간 추정 갱신.
 
 ## 결정 로그
 
@@ -36,3 +36,16 @@
 
 - PR21은 `2ce4bc8f1d148ca92a1561fad009d5617852cb2e`로 main 병합. Cloud Build 전체 SUCCESS, native failure11/11·quality10/10·worker 응답46ms/3초 blocking·cleanup·HWP endpoint PASS. 워커 revision10, image `sha256:6df93e7c7024f961898e644ced9ae16395b74e8b773779c25fe5f915d259a1e3`, runtime/access 보존 및 traffic100% 확인.
 - 긴 변환 HTTP 병목 해소 후에도 20분 주기 중 비실행 대기가 남는다. 동일 자동 공급 범위·worker 동시성2·cron limit50/concurrency3/budget240s·DB lease10분을 유지하며 실행 간격만5분으로 조정한다. 매시간2/7/12/.../57분이라 기존17/37/57분 관측과 정각 수집을 유지·분산한다.
+
+- 실제 운영 canary6개(PDF2/HWPX2/HWP2)는 캐시 없이 전건 succeeded/preview_ready. 31쪽 HWPX를 포함하고 상태조회208회 p95 19ms/max48ms/오류0. 전체128개 artifact R2 바이트 SHA 및 DB source/attachment 결속 확인. 원문 교체 대상 최신4개도 포함. 검증 파일 다운로드를 포함해153,738ms, shared lease 정상 해제.
+- PR22 main 병합 `ab4e7254aa5bef09e8c3fb4d0de40394efa696a9`; 별도 코드 변경 없이 cron schedule·설명 주석만5분 주기로 변경. 운영 배포 및23:37 native cron 관측 진행.
+
+## 완료 증거
+
+- Web production `dpl_EtSt3khKQWcRBQsdpPMrg6ifyTxe`, SHA `ab4e7254aa5bef09e8c3fb4d0de40394efa696a9`, READY·production aliases 확인. `/`200, 무인증 cron401. 운영 cron5분 등록 확인.
+- 23:37 native cron HTTP200, 23:37:20–23:40:50 약210초, ready 전환17건·새 실패0, DB lease 해제 확인. 실행 중 HTTP 응답은 실제6건 canary208회 p95 19ms로 독립 검증했다.
+- 최종 current pending 643건, 현행 SHA 누락0, 역사4개 행·artifact 상태 보존. 현행첨부 SHA/DB 결속은 `docs/evidence/conversion-recovery-20260928.json`에 기록했다.
+- 단일 자동 실행17건/5분을 외삽하면 잔량은 약3시간대이며 문서 크기·재시도를 고려한 운영 추정은3–6시간이다. 전체 대기열 완료를 의미하지 않는다.
+- 검증 범위: 변환/원문 공급·DB artifact·native cron. 사용자 브라우저 UAT·모델 분석 품질은 이 수정 범위 밖으로 미실행. 변환 worker 패키지·런타임 입력은0c40443과 최종main이 같음을 git diff로 확인했다.
+
+- 새5분 주기의 다음 native 실행이23:42:18에 DB lease를 획득했다. 이전23:37 실행 종료 뒤 약5분 간격 재착수를 확인했으며, 대기열은 자동 처리 중이다.
