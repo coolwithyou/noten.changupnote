@@ -5,9 +5,10 @@
 import { bootstrapFromEnv } from "./server.js";
 import { hwpToMarkdown } from "./hwp-markdown-adapter.js";
 import { hwpxConvert } from "./hwpx-convert.js";
+import { convertDocumentInWorker } from "./convert-in-worker.js";
 
 const port = Number(process.env.PORT ?? "8080") || 8080;
-const server = bootstrapFromEnv({ hwpToMarkdown, hwpxConvert });
+const server = bootstrapFromEnv({ hwpToMarkdown, hwpxConvert, convertDocument: convertDocumentInWorker });
 
 server.listen(port, () => {
   // eslint-disable-next-line no-console

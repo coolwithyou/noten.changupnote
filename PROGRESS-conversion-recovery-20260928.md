@@ -1,0 +1,32 @@
+# 변환 병목과 원문 누락 복구
+
+## 목표·범위
+
+- 긴 HWP 변환 중에도 HTTP 등록·상태 조회가 응답하도록 동기 변환을 별도 실행 스레드로 분리한다.
+- 현재 pending 중 archive SHA가 없는 exact 4개 surface를 공식 원문·기존 아카이브와 대조해 복구한다.
+- 앞선 승인된 변환 공급 운영 범위 안에서 코드 검증, 정확한 워커 소스 배포 및 소량 실측을 수행한다. 모델 호출·추천 승격은 범위 밖이다.
+- 메인 dirty checkout과 다른 세션 작업은 보존한다. 기존 완료·비활성 워커 checkout에서 origin/main 기반 새 브랜치를 사용한다.
+
+## 체크리스트·검증
+
+- [x] Orca 작업 소유권과 clean branch 확인.
+- [x] 별도 스레드 변환 구현: 변환 결과 계약·동시성 상한·temp cleanup 유지.
+- [x] 실제 blocking 변환 중 HTTP 응답, worker 오류·종료, 정상 artifact/cleanup 회귀 검사.
+- [x] 누락4개 exact source URL, archive row, R2 bytes/SHA 읽기 검증 및 복구 경로 확정.
+- [ ] 관련 build/tests 및 source integrity 검증 후 커밋·통합.
+- [ ] exact image digest 배포, runtime 설정 보존, 긴 실제 문서 상태조회 p95/완료율 검증.
+- [ ] 복구4개 DB/R2 결속과 변환 결과 검증, 잔량·시간 추정 갱신.
+
+## 결정 로그
+
+- 2026-09-28 기존 queue가 convertDocument의 spawnSync 경로를 HTTP 이벤트 루프에서 실행한다. 클라이언트 timeout만 늘리지 않고 이 실행을 worker_threads로 격리한다. queue의 작업수 상한(현행2)이 변환 스레드 상한도 제한한다.
+- Node.js 공식 worker_threads 문서의 Buffer structured clone/exit/error 동작을 확인했다: https://nodejs.org/api/worker_threads.html
+- 신규 원문과 기존 보관 자료가 충돌하면 임의로 SHA를 덮어쓰지 않고 원문 변경으로 분류한다.
+
+- 누락4건 재분류: 공고 `126496`·`126545`의 수정 전 PDF/HWPX4개 surface는 역사 행이며, 현재 raw/archives는 수정·최종 첨부4개로 교체되어 있다. 최신4개 각각을 공식 fileDown URL과 R2에서 읽어 전체SHA를 비교했고 모두 일치했다. 과거 SHA를 현재 원문으로 복원하지 않는다. canonical raw 첨부 identity가 있는 경우 자동 스윕에서 교체 전 surface를 제외하고, 현행 첨부의 실제 SHA 누락은 진단 대상에 남긴다. 기존 행·파일 삭제 없음.
+- HTTP 응답 회귀: 실제 pdftoppm wrapper가3초 동기 blocking 중 상태조회3ms, 동시성2, 정상artifact, worker throw/nonzero/silent exit3경로와 임시파일 정리 PASS. cleanup3경로·quality10개 PASS.
+
+- 웹 typecheck 및 격리 product-postgres(94 migrations/RLS) PASS. 추가 DB 회귀는 교체 전 첨부 제외, 현행 SHA 누락 유지, 역사 조회 보존, canonical key 없는 legacy 보존을 검증한다. 테스트 최초 실패는 fixture JSON을 문자열로 이중 인코딩한 문제였고 postgres.json 바인딩으로 수정했다.
+- 로컬 native failure suite는 LibreOffice 미설치 때문에2개 전제 미충족(9/11). 같은 소스의 Linux Cloud Build 이미지 안에서 전체 native suite를 실행해 배포 전 확인한다. 로컬 hwp-markdown endpoint suite PASS.
+
+- 운영 DB read-only 전체 선택 비교: 이전678개, 수정후674개, 제외된 것은 문제의 역사4개뿐이고 현행 SHA 누락0개. 선택·URL 서명까지802ms. 최신4개는 공식 다운로드와 R2 바이트가 동일하며 raw binding도 일치한다.

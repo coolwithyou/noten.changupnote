@@ -87,6 +87,28 @@ export async function collectPendingSurfaceJobs(
     conditions.push(eq(grants.servingState, "visible"));
     conditions.push(gte(grants.applyEnd, today));
     conditions.push(or(isNull(grants.applyStart), lte(grants.applyStart, today))!);
+    // A corrected announcement leaves historical surfaces behind. Once the raw
+    // snapshot has archived attachment identities, only those identities belong
+    // to automatic current supply. Preserve legacy/unarchived diagnostics when
+    // no authoritative storage-key manifest exists; a missing SHA is not proof
+    // that a current attachment was replaced.
+    conditions.push(sql`not exists (
+      select 1 from grant_raw current_raw
+      where current_raw.source = ${surfaces.source}
+        and current_raw.source_id = ${surfaces.sourceId}
+        and ${surfaces.sourceAttachment} is not null
+        and ${surfaces.sourceAttachment} <> ${surfaces.title}
+        and exists (
+          select 1 from jsonb_array_elements(
+            case when jsonb_typeof(current_raw.attachments) = 'array'
+              then current_raw.attachments else '[]'::jsonb end
+          ) attachment
+          where nullif(attachment->>'storage_key', '') is not null
+        )
+        and not (current_raw.attachments @> jsonb_build_array(
+          jsonb_build_object('storage_key', ${surfaces.sourceAttachment})
+        ))
+    )`);
   }
   if (staleMs > 0) {
     conditions.push(lt(surfaces.updatedAt, new Date(Date.now() - staleMs)));

@@ -16,6 +16,7 @@ import type { R2ObjectStorage, UploadedArtifact } from "./storage.js";
 import { uploadArtifacts } from "./storage.js";
 import {
   CONVERTER_VERSION,
+  type ConvertDocumentInput,
   type ConvertDocumentResult,
   type Phase2ConversionQuality,
 } from "./types.js";
@@ -67,6 +68,7 @@ export interface JobRecord {
 
 /** 다운로드 함수 주입 (테스트에서 로컬 파일로 대체 가능). */
 export type FetchSourceFn = (url: string) => Promise<Buffer>;
+export type DocumentConverter = (input: ConvertDocumentInput) => ConvertDocumentResult | Promise<ConvertDocumentResult>;
 
 export interface QueueConfig {
   storage: R2ObjectStorage;
@@ -76,6 +78,8 @@ export interface QueueConfig {
   hwpToMarkdown?: HwpToMarkdownFn;
   /** hwp→hwpx 변환 함수 주입 (미주입 시 hwpx artifact 스텝 스킵). */
   hwpxConvert?: HwpxConvertFn;
+  /** Production isolates synchronous native conversion from the HTTP event loop. */
+  convertDocument?: DocumentConverter;
   /** 원본 다운로드 함수 (기본: global fetch). */
   fetchSource?: FetchSourceFn;
   /** R2 storage key 프리픽스 override (검증용 conversion-dev). */
@@ -106,8 +110,7 @@ export function cacheKey(sha256: string, converterVersion: string): string {
 export class ConversionQueue {
   private readonly storage: R2ObjectStorage;
   private readonly concurrency: number;
-  private readonly hwpToMarkdown: HwpToMarkdownFn | undefined;
-  private readonly hwpxConvert: HwpxConvertFn | undefined;
+  private readonly convertDocument: DocumentConverter;
   private readonly fetchSource: FetchSourceFn;
   private readonly keyPrefix: string | undefined;
   private readonly defaultDpi: 220 | 300;
@@ -126,8 +129,10 @@ export class ConversionQueue {
   constructor(config: QueueConfig) {
     this.storage = config.storage;
     this.concurrency = config.concurrency ?? 2;
-    this.hwpToMarkdown = config.hwpToMarkdown;
-    this.hwpxConvert = config.hwpxConvert;
+    this.convertDocument = config.convertDocument ?? ((input) => convertDocument(input, {
+      ...(config.hwpToMarkdown ? { hwpToMarkdown: config.hwpToMarkdown } : {}),
+      ...(config.hwpxConvert ? { hwpxConvert: config.hwpxConvert } : {}),
+    }));
     this.fetchSource = config.fetchSource ?? defaultFetchSource;
     this.keyPrefix = config.keyPrefix;
     this.defaultDpi = config.defaultDpi ?? 220;
@@ -229,7 +234,7 @@ export class ConversionQueue {
       workDir = mkdtempSync(join(tmpdir(), "cunote-job."));
       const body = await this.fetchSource(record.request.sourceObjectUrl);
 
-      const result: ConvertDocumentResult = convertDocument(
+      const result: ConvertDocumentResult = await this.convertDocument(
         {
           body,
           filename: record.request.filename,
@@ -248,10 +253,6 @@ export class ConversionQueue {
             ? { requestedArtifacts: record.request.requestedArtifacts }
             : {}),
           workDir,
-        },
-        {
-          ...(this.hwpToMarkdown ? { hwpToMarkdown: this.hwpToMarkdown } : {}),
-          ...(this.hwpxConvert ? { hwpxConvert: this.hwpxConvert } : {}),
         },
       );
 
