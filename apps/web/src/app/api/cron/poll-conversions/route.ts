@@ -4,6 +4,7 @@
 // Vercel Hobby 플랜의 cron 2개 제한으로 vercel.json 에는 등재하지 않는다. 트리거 경로:
 //   1) ingest-kstartup cron 말미의 잔여 예산 스윕 (일 1회 기본선)
 //   2) 수동: curl -H "Authorization: Bearer $CRON_SECRET" .../api/cron/poll-conversions?limit=20
+//      기본은 현재 모집 중인 공고 우선. 역사 pending 복구는 includeHistorical=true.
 //   3) on-demand: 공고 상세 진입 시 grant 단위 폴링 (별도 라우트)
 import { NextResponse } from "next/server";
 import { authorizeCronRequest } from "@/lib/server/auth/cronAuth";
@@ -21,6 +22,7 @@ export async function GET(request: Request) {
   const params = new URL(request.url).searchParams;
   const limit = boundedIntParam(params.get("limit"), 20, 1, 100);
   const staleMs = boundedIntParam(params.get("staleMs"), 0, 0, 7 * 24 * 3600 * 1000);
+  const currentOpenOnly = params.get("includeHistorical") !== "true";
 
   const startedAt = Date.now();
   const db = getCunoteDb();
@@ -29,6 +31,7 @@ export async function GET(request: Request) {
     const summary = await runConversionPollSweep(db, {
       limit,
       staleMs,
+      currentOpenOnly,
       // 함수 예산 300초 안에서 여유를 남긴다 (응답 직렬화·콜드스타트 감안).
       budgetMs: 240_000,
       maxAttempts: 60,
@@ -37,7 +40,7 @@ export async function GET(request: Request) {
 
     return NextResponse.json({
       ok: summary.ok,
-      params: { limit, staleMs },
+      params: { limit, staleMs, currentOpenOnly },
       summary: {
         skippedReason: summary.skippedReason,
         pendingCount: summary.pendingCount,
@@ -58,7 +61,7 @@ export async function GET(request: Request) {
           code: "conversion_sweep_failed",
           message: error instanceof Error ? error.message : "변환 폴링 스윕에 실패했습니다.",
         },
-        params: { limit, staleMs },
+        params: { limit, staleMs, currentOpenOnly },
         elapsedMs: Date.now() - startedAt,
       },
       { status: 500 },

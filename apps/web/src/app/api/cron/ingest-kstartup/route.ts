@@ -158,7 +158,10 @@ async function runTailConversionSweep(db: ReturnType<typeof getCunoteDb>, starte
   }
   try {
     const summary = await runConversionPollSweep(db, {
-      limit: 10,
+      // Remaining function budget bounds the run; a larger cap lets fast/cache-hit
+      // conversions drain current announcement inventory in one cron invocation.
+      limit: 50,
+      currentOpenOnly: true,
       budgetMs: leftoverMs,
       maxAttempts: 60,
       intervalMs: 1000,

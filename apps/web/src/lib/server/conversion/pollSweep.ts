@@ -25,6 +25,9 @@ export interface ConversionPollSweepOptions {
   grantId?: string;
   /** 승인된 source recovery에서만 failed surface를 content-addressed 재등록한다. */
   includeFailed?: boolean;
+  /** Prioritize currently open and visible notices in automatic supply sweeps. */
+  currentOpenOnly?: boolean;
+  asOf?: Date;
   /** job 폴링 최대 시도 (기본 60). */
   maxAttempts?: number;
   /** job 폴링 간격 ms (기본 1000). */
@@ -85,6 +88,8 @@ export async function runConversionPollSweep(
     ...(options.sourceIds?.length ? { sourceIds: options.sourceIds } : {}),
     ...(options.grantId ? { grantId: options.grantId } : {}),
     ...(options.includeFailed ? { includeFailed: true } : {}),
+    ...(options.currentOpenOnly ? { currentOpenOnly: true } : {}),
+    ...(options.asOf ? { asOf: options.asOf } : {}),
   });
   base.pendingCount = jobs.length;
 

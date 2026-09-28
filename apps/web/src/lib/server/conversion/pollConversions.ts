@@ -7,11 +7,12 @@
 //   - 아직이면 queued 로 돌아오고, GET 폴링으로 succeeded/partial/failed 까지 기다린다.
 //   이 흐름은 T8 폴링이자 동시에 재조정 스윕(계획 2장)이다: 큐 유실·후크 누락·재시작을 회복한다.
 
-import { and, eq, inArray, lt, or } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, isNull, lt, lte, or, sql } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import type { GrantSource } from "@cunote/contracts";
 import type { CunoteDb, CunoteDbSession } from "../db/client";
 import * as schema from "../db/schema";
+import { kstDayStartUtc } from "../analysis-lab/notice-period";
 import { createR2ObjectStorageFromEnv } from "../storage/r2ObjectStorage";
 import { CONVERSION_CONVERTER_VERSION, CONVERSION_REQUESTED_ARTIFACTS } from "./constants";
 import type { ConversionClient } from "./conversionClient";
@@ -50,6 +51,9 @@ export interface CollectPendingOptions {
   grantId?: string;
   /** 승인된 복구에서만 failed surface도 같은 content identity로 다시 조정한다. */
   includeFailed?: boolean;
+  /** Automatic supply sweep only: exclude expired/hidden inventory before LIMIT. */
+  currentOpenOnly?: boolean;
+  asOf?: Date;
 }
 
 /**
@@ -65,6 +69,7 @@ export async function collectPendingSurfaceJobs(
   const staleMs = options.staleMs ?? 0;
   const surfaces = schema.grantApplicationSurfaces;
   const archives = schema.grantAttachmentArchives;
+  const grants = schema.grants;
 
   const conditions = [
     options.includeFailed
@@ -75,6 +80,13 @@ export async function collectPendingSurfaceJobs(
   if (options.source) conditions.push(eq(surfaces.source, options.source));
   if (options.sourceIds?.length) conditions.push(inArray(surfaces.sourceId, options.sourceIds));
   if (options.grantId) conditions.push(eq(surfaces.grantId, options.grantId));
+  if (options.currentOpenOnly) {
+    const today = kstDayStartUtc(options.asOf ?? new Date());
+    conditions.push(eq(grants.status, "open"));
+    conditions.push(eq(grants.servingState, "visible"));
+    conditions.push(gte(grants.applyEnd, today));
+    conditions.push(or(isNull(grants.applyStart), lte(grants.applyStart, today))!);
+  }
   if (staleMs > 0) {
     conditions.push(lt(surfaces.updatedAt, new Date(Date.now() - staleMs)));
   }
@@ -93,6 +105,7 @@ export async function collectPendingSurfaceJobs(
       storageKey: archives.storageKey,
     })
     .from(surfaces)
+    .leftJoin(grants, eq(grants.id, surfaces.grantId))
     .leftJoin(
       archives,
       and(
@@ -105,6 +118,12 @@ export async function collectPendingSurfaceJobs(
       ),
     )
     .where(and(...conditions))
+    .orderBy(...(options.currentOpenOnly
+      ? [
+          sql<number>`case when ${surfaces.title} ~* '공고|모집요강|사업안내' then 0 else 1 end`,
+          asc(grants.applyEnd), asc(surfaces.updatedAt), asc(surfaces.id),
+        ]
+      : [asc(surfaces.updatedAt), asc(surfaces.id)]))
     .limit(limit);
 
   // R2 아카이브분은 presigned GET URL 로 공급한다 — 저장된 archive_url(S3 엔드포인트)은
