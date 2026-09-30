@@ -23,6 +23,7 @@
 - [x] 지원 대상 지표·자격 조건 아코디언 요약을 "확인된 조건 N/M · 남은 쟁점 K(· 불일치 J)" 어휘로 — `countHardConditions`+`formatEligibilitySummary` 단일 함수, 아코디언 제목 "자격 조건"(디자인)·트리거 우측 집계·본문 캡션·"필수 · 제외"/"우대 · 집계에 넣지 않아요" 그룹 라벨. 총수 0 은 "매칭 확인 중" 유지. verdict-badge 무변경
 - [x] 대기 양식 준비 요청 캡션 "양식 준비는 화면을 열 때 자동으로 시작되지 않아요. 요청해야 대기 양식을 처리해요." — idle 상태에만 muted 표시, busy 시 Spinner(data-icon). 기존 5상태 메시지 유지(none/unavailable 문구는 디자인과 다르지만 "기존 메시지 유지" 지시에 따름), props `{ grantId }` 불변
 - 검증(2026-09-30): `tsx … grant-overview/logic.test.ts` 통과, `tsx … EligibilityMatchAccordion.render.test.tsx` 통과, `tsx … lib/server/documents/draftResume.test.ts` 통과, 드리프트 49, typecheck — 본인 파일 오류 0(타 WP 파일 `applications/pipeline.ts`·`documents/writingContext.ts` 오류는 별건)
+- [x] **조건 행 재구성(2026-10-01 2차, 미커밋)** — `EligibilityMatchAccordion.tsx`를 디자인 03 `.ct` 구조로 교체: 3열 행(종류 뱃지 필수/제외/우대 + 검수 칩 검수됨/AI가 읽음 · 조건 문장+출처 줄 · 6상태(충족/미충족/내 답 필요/공고별 확인/원문 확인 필요/검토 준비 중)+근거+행동 링크), 내 답 필요 행 `bg-surface-brand` 강조, 모바일 세로 스택. 옛 조건별 Card·2×2 dl 표·StatusBadge 제거. 순수 함수 `logic.ts` `conditionRowStatus`·`conditionTrust`·`conditionRowEvidence`·`conditionRowSource`(+테스트). `GrantOverviewView`는 `evidenceLevel` 1줄만. 인라인 답변(체납 버튼·출생연도 입력)은 API 배선 없어 링크로 대체. 검증: logic·render 테스트 통과, 드리프트 49, 금지 어휘 0, typecheck 본인 파일 0(잔여 `match-results/Programs.render.test.tsx` 2건은 WP-B 2차 작업 중)
 
 ### WP-B 기회 맵 (`01 공고 탐색.dc.html`)
 파일: `apps/web/src/features/match-results/**`
@@ -30,6 +31,7 @@
 - [x] 카드 집계 문구 "확인된 조건 N/M · 남은 쟁점 K(· 불일치 J)" (기존 "충족 확인·미충족·미확인" 대체), 백분율·점수 노출 없음 (`logic.ts` `formatConditionTally`; M=0이면 "매칭 확인 중")
 - [x] discovery reason 라벨: `period_unconfirmed` → "접수 여부 확인 필요", `not_started`/upcoming → "모집 예정 · M/D 접수 시작" (`logic.ts` `DISCOVERY_REASON_LABEL`/`discoveryReasonLabel`; MatchCard에 applyStart가 없어 현재 화면은 "모집 예정"까지만, 날짜는 호출부가 넘길 때 붙음)
 - 검증 결과(2026-09-30): match-results 테스트 12/12 통과, typecheck는 match-results 0건(잔여 오류는 WP-A 파일), 드리프트 49
+- [x] **2026-10-01 구조 재구성(문구 교체가 아니라 DOM·시각 구성 재현)**: 카드 클릭 펼침 상세(ExpandedProgramCard·ConditionRow·NoticeCard 목록)를 걷어내고 디자인 01의 `.card.gc` 2열 요약 카드(`GrantSummaryCard`)·한 줄 행(`GrantListRow`)·섹션 헤더/접기(`MatchSection`)·공통 섹션 0~8(`MatchGroupSections`)로 교체. 자격 상태 줄 헬퍼 `matchConditionStatus`(done/left/mismatch/wait/source). `/dashboard`는 탭 3개·정밀도 게이지 제거, h1 "기회 맵"+기준 캡션+같은 공통 섹션(`DashboardMatchList`가 40건 페이지네이션·확인 시트 담당), 페이지 폭 1100px. 삭제: `DashboardMatchTabs.tsx`, `InlineProfileCondition.tsx`. 검증: match-results 12/12·dashboard 5/5(신규 `DashboardView.render.test.tsx`)·typecheck 통과·드리프트 49·금지 어휘 0. 미커밋, 시각 검수는 사용자 dev 서버 필요
 - 검증: `tsx --tsconfig apps/web/tsconfig.json apps/web/src/features/match-results/logic.test.ts` 등 match-results 테스트 전부, typecheck
 
 ### WP-C 신청 관리 (`02 신청 관리.dc.html`)
@@ -85,6 +87,9 @@
 - **git**: origin/main(ab4e725)은 배포본보다 16커밋 뒤. main 머지·push는 배포 연동 가능성이 있어 사용자 판단으로 남김. 로컬 main의 d7958c6(랜딩 확인 모달 상호 재조회)과 74개 미커밋 변경은 이번 배포에 포함되지 않음.
 - **2026-10-01 새벽 랜딩 재작업·재배포.** 사용자 지적("랜딩도 그대로야"): 첫 반영(c260922)은 카피만 바꾸고 가운데 정렬 히어로+조회 데모 카드 구조를 보존해 예전 화면처럼 보였음. e1baeb4에서 디자인 05대로 2열 히어로(좌 카피·조회 폼, 우 문항별 검토용 초안 카드 목업 `landing-draft-mock.tsx`)·단색 3행 헤드라인·제목 없는 특징 3열(히어로 바로 아래)로 교체, `landing-demo.tsx` 삭제. d6393ef에서 마지막 CTA 라벨 "내 회사로 시작" 통일. 운영 배포 `dpl_8x8VCXE7M6DBgPEocVkipnb7JboN`(중간 `dpl_qdmyUbxrij8vKXaASneSy18rnqGK`), 데스크톱·모바일 스크린샷으로 05·05M과 대조 확인. 프리뷰 배포는 Vercel 배포 보호(SSO)로 외부 확인 불가 → 운영 배포 후 확인하는 방식 사용.
 - **교훈.** "디자인 반영"은 카피 교체가 아니라 화면 구조까지다. 나머지 화면(01~04·06)은 디자인이 구현 구조를 따른 것이라 문구·요소 추가 위주였으나, 로그인 화면은 시각 대조를 아직 못 했음(사용자 계정 필요).
+- **2026-10-01 새벽 구조 재작업 2차(진행 중).** 사용자 지적 "매칭 화면도 예전 화면"이 맞음. 원인: ① 로그인 `/dashboard`(사이드바 "기회 맵")는 `DashboardView`+`DashboardMatchTabs`(탭 3개·정밀도 게이지·NoticeCard)로, WP-B가 고친 `Programs.tsx`(익명 `/matches`)와 다른 컴포넌트 → 로그인 화면엔 아무 변화 없었음. ② `Programs.tsx`도 카드 구조(접힘 NoticeCard→펼침 상세) 유지, 디자인 01의 2열 요약 카드·섹션 행·"공고 보기" 구조 미반영. ③ 02 신청 관리는 그룹 헤더 목록에 3열 블록만 덧붙임(디자인은 그룹 없는 단일 행 카드). ④ 03 조건 행은 옛 2×2 사실 표(디자인은 3열 행+6상태). 서브에이전트 3개 병렬: 기회 맵(match-results+dashboard), 신청 관리(applications), 공고 요약 조건 행(grant-overview). 완료 후 커밋·운영 배포·스크린샷 대조.
+- **2026-10-01 새벽 구조 재작업 2차 결과(커밋 완료).** 3990775 신청 관리(02: 그룹 헤더 제거, `ApplicationDocumentCard` 단일 행 그리드 제목|자격 확인|작성 기능|문서 완성|버튼, 마감 흐림+캡션, 문안만 있고 파일 저장본 없으면 "파일 미반영") · d0b303e 공고 요약(03: `EligibilityMatchAccordion` 3열 조건 행 종류 뱃지+검수 칩 | 조건 문장+출처 | 6상태+근거+링크, `logic.ts` 순수 함수 4개) · 8501ba2 기회 맵(01: `MatchGroupSections` 공통 섹션 0~8, `GrantSummaryCard` 2열 요약 카드, `GrantListRow` 한 줄 행, `MatchSection` 헤더/접기, `/dashboard`는 탭·게이지 제거 후 h1 "기회 맵"+기준 캡션+`DashboardMatchList`; `DashboardMatchTabs`·`InlineProfileCondition` 삭제). 메인 검수에서 가한 수정: 카드 우상단 ⋯ "이 공고 정리" 메뉴(`GrantCardMenu`)를 로그인 회사 결과에만 복원(디자인에 없지만 저장·제외·오류 피드백 경로 보존), "저장 필요" 뱃지를 "파일 미반영"으로 정정(서버가 브라우저 미저장 변경을 모름). 검증: typecheck 통과, `pnpm test:design-r2` 13파일 통과(신규 render 테스트 3개 등록), match-results 12·dashboard 5·applications 3·grant-overview 2 통과, 드리프트 49, 금지 어휘 0.
+- **2차 의도적 차이·후속**: 조건 행 인라인 답변(체납 버튼·출생연도 입력)은 API 배선 없어 링크로 대체 · "공고 원문 보기"는 MatchCard에 외부 URL이 없어 상세 링크 · "모집 예정 · M/D"는 applyStart 부재로 날짜 생략 · 오늘 확인할 것(PrimaryActionCard)은 컴팩트로 유지 · 목록에서 조건별 인라인 프로필 답변 제거(다음 질문 카드·공고 요약이 담당) · **`tools/product-uat/natural-confirmations-browser.mjs:986`이 옛 "카드 접기" 버튼을 기다리므로 그 브라우저 UAT는 새 구조에 맞춰 갱신 필요**.
 
 ## 막힘
 - (없음)
