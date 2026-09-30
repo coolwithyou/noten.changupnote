@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import type {
   ActionResult,
   GrantConfirmationQuestionDto,
@@ -8,6 +8,7 @@ import type {
   GrantConfirmationsResult,
 } from "@cunote/contracts";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import {
   confirmationResponseIsCurrent,
   type ConfirmationRequestScope,
@@ -26,6 +27,8 @@ export function InlineGrantConfirmation({
   onSaved,
   onPrepare,
   onFallback,
+  className,
+  footer,
 }: {
   companyId: string;
   grantId: string;
@@ -33,6 +36,10 @@ export function InlineGrantConfirmation({
   onSaved: (result: GrantConfirmationSubmitResult) => void;
   onPrepare: (grantId: string) => void;
   onFallback: () => void;
+  /** 카드 안에 끼울 때 여백·radius를 맞추기 위한 껍데기 클래스(레이아웃만). */
+  className?: string;
+  /** 박스 맨 아래 슬롯(원문 인용 등). */
+  footer?: ReactNode;
 }) {
   const endpoint = inlineConfirmationEndpoint(grantId, companyId);
   const scopeRef = useRef<ConfirmationRequestScope & { key: string }>({
@@ -168,7 +175,7 @@ export function InlineGrantConfirmation({
   }
 
   return (
-    <section className="mt-4 rounded-2xl border border-brand-tint bg-surface-brand px-4 py-4 sm:px-5">
+    <section className={cn("mt-4 rounded-2xl border border-brand-tint bg-surface-brand px-4 py-4 sm:px-5", className)}>
       <p className="text-xs font-extrabold text-brand">이 조건 하나만 확인하면 돼요</p>
       {loadState === "loading" ? (
         <p className="mt-2 text-sm text-text-secondary" aria-live="polite">확인 질문을 불러오고 있어요…</p>
@@ -241,6 +248,7 @@ export function InlineGrantConfirmation({
           </div>
         </div>
       ) : null}
+      {footer}
     </section>
   );
 }

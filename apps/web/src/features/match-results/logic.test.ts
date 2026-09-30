@@ -15,6 +15,7 @@ import {
   formatMonthDay,
   groupMatchesForDisplay,
   matchDiscoveryCaption,
+  matchConditionStatus,
   matchCardNextActions,
   matchConfirmationCtaState,
   matchCriterionPresentation,
@@ -364,6 +365,53 @@ assert.equal(formatConditionTally({ passed: 5, failed: 0, unknown: 0 }), "확인
 assert.equal(formatConditionTally({ passed: 0, failed: 0, unknown: 0 }), CONDITION_TALLY_PENDING_LABEL);
 assert.equal(CONDITION_TALLY_PENDING_LABEL, "매칭 확인 중");
 assert.doesNotMatch(formatConditionTally({ passed: 3, failed: 1, unknown: 1 }), /%|점수|충족 확인|미충족|미확인/);
+
+// 카드 자격 상태 줄 — 필수·제외 조건만 세고(우대 제외), 원문 미확인·조건 미정리는 분수 없이 상태만 낸다
+const hardTrace = (result: "pass" | "fail" | "unknown", kind: "required" | "exclusion" | "preferred" = "required") => ({
+  criterionId: `c-${kind}-${result}-${Math.random().toString(36).slice(2, 6)}`,
+  dimension: "other",
+  kind,
+  result,
+  label: "조건",
+  sourceSpan: "원문 조건",
+  checklistSection: "needs_check",
+  ...(result === "unknown" ? { unresolvedReason: "company_profile_missing", confirmationNextAction: "company_profile" } : {}),
+});
+const conditionStatusBase = { ...openMatch, matchingEvidence: { level: "verified", sourceRevisionSha256: "a".repeat(64) } };
+assert.deepEqual(
+  matchConditionStatus({ ...conditionStatusBase, ruleTrace: [hardTrace("pass"), hardTrace("pass"), hardTrace("pass", "preferred")] } as unknown as MatchCard),
+  { kind: "done", label: "필수 조건 확인 완료", frac: "확인된 조건 2/2" },
+  "우대 조건은 분모에 넣지 않는다",
+);
+assert.deepEqual(
+  matchConditionStatus({ ...conditionStatusBase, eligibility: "conditional", recommendationTier: "needs_profile_input", ruleTrace: [hardTrace("pass"), hardTrace("unknown"), hardTrace("unknown"), hardTrace("pass", "exclusion")] } as unknown as MatchCard),
+  { kind: "left", label: "남은 쟁점 2", frac: "확인된 조건 2/4" },
+);
+assert.deepEqual(
+  matchConditionStatus({ ...conditionStatusBase, eligibility: "conditional", ruleTrace: [hardTrace("pass"), hardTrace("fail"), hardTrace("unknown")] } as unknown as MatchCard),
+  { kind: "left", label: "남은 쟁점 1", frac: "확인된 조건 1/3 · 불일치 1" },
+  "남은 쟁점이 있으면 상태는 left, 불일치는 분수 줄에 덧붙인다",
+);
+assert.deepEqual(
+  matchConditionStatus({ ...conditionStatusBase, eligibility: "conditional", ruleTrace: [hardTrace("pass"), hardTrace("fail")] } as unknown as MatchCard),
+  { kind: "mismatch", label: "불일치 1", frac: "확인된 조건 1/2 · 불일치 1" },
+);
+assert.deepEqual(
+  matchConditionStatus({ ...reviewMatch, matchingEvidence: { level: "verified", sourceRevisionSha256: "b".repeat(64) } } as unknown as MatchCard),
+  { kind: "wait", label: "검토 준비 중", frac: null },
+  "비교한 필수·제외 조건이 없으면 검토 준비 중",
+);
+assert.deepEqual(
+  matchConditionStatus({ ...openMatch, matchingEvidence: { level: "discovery", sourceRevisionSha256: null, reason: "unreviewed" }, ruleTrace: [hardTrace("pass")] } as unknown as MatchCard),
+  { kind: "source", label: "원문 확인 필요", frac: null },
+  "원문 미확인 카드는 trace가 있어도 분수를 만들지 않는다",
+);
+for (const status of [
+  matchConditionStatus({ ...conditionStatusBase, ruleTrace: [hardTrace("pass"), hardTrace("fail"), hardTrace("unknown")] } as unknown as MatchCard),
+  matchConditionStatus({ ...conditionStatusBase, ruleTrace: [] } as unknown as MatchCard),
+]) {
+  assert.doesNotMatch(`${status.label} ${status.frac ?? ""}`, /%|점수|매칭률|지원 가능/);
+}
 
 // 탐색 사유 라벨 — 단일 매핑 객체, 접수 예정은 시작일을 알 때만 날짜를 붙인다
 assert.equal(discoveryReasonLabel({ state: "review", reason: "period_unconfirmed" }), "접수 여부 확인 필요");

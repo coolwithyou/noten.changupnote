@@ -1063,6 +1063,40 @@ export function formatConditionTally(input: ConditionTallyInput): string {
   return parts.join(" · ");
 }
 
+export type MatchConditionStatusKind = "done" | "left" | "mismatch" | "wait" | "source";
+
+/**
+ * 카드 하단 자격 상태 줄(디자인 01 `.cs`/`.st-src`). 라벨은 헌법 8조 판정 뱃지가 아니라
+ * 집계 어휘("필수 조건 확인 완료 / 남은 쟁점 K / 불일치 J / 검토 준비 중 / 원문 확인 필요")다.
+ */
+export interface MatchConditionStatus {
+  kind: MatchConditionStatusKind;
+  label: string;
+  /** "확인된 조건 N/M(· 불일치 J)". 비교한 필수·제외 조건이 없으면 null. */
+  frac: string | null;
+}
+
+/**
+ * 필수·제외 조건(explainMatch의 passed/failed/unknown)만 세어 상태를 정한다. 우대는 분모에 넣지 않는다.
+ * - discovery(원문 미확인) → source "원문 확인 필요"
+ * - M=0 → wait "검토 준비 중"
+ * - unknown>0 → left "남은 쟁점 K"
+ * - unknown=0·failed>0 → mismatch "불일치 J"(부분 불일치 후보; 전부 불일치는 목록에서 이미 제외)
+ * - unknown=0·failed=0 → done "필수 조건 확인 완료"
+ */
+export function matchConditionStatus(match: MatchCard): MatchConditionStatus {
+  const explanation = explainMatch(match);
+  if (explanation.discovery) return { kind: "source", label: DISCOVERY_REASON_LABEL.source_unconfirmed, frac: null };
+  const total = explanation.passed + explanation.failed + explanation.unknown;
+  if (total === 0) return { kind: "wait", label: "검토 준비 중", frac: null };
+  const frac = explanation.failed > 0
+    ? `확인된 조건 ${explanation.passed}/${total} · 불일치 ${explanation.failed}`
+    : `확인된 조건 ${explanation.passed}/${total}`;
+  if (explanation.unknown > 0) return { kind: "left", label: `남은 쟁점 ${explanation.unknown}`, frac };
+  if (explanation.failed > 0) return { kind: "mismatch", label: `불일치 ${explanation.failed}`, frac };
+  return { kind: "done", label: "필수 조건 확인 완료", frac };
+}
+
 type DiscoveryDecision = ReturnType<typeof projectDiscoveryCard>;
 
 /** 탐색 사유별 표시 라벨의 단일 원천 — 디자인 01(기회 맵) 어휘. */
