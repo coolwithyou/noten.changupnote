@@ -5,10 +5,16 @@ import { normalizeManualProfile } from "@/lib/server/teaser/resolveTeaserCompany
 import {
   buildProfileAnswer,
   buildProfilePatch,
+  CONDITION_TALLY_PENDING_LABEL,
   criterionEvidencePresentation,
   criterionSubjectLabel,
   confirmationResumePath,
+  DISCOVERY_REASON_LABEL,
+  discoveryReasonLabel,
+  formatConditionTally,
+  formatMonthDay,
   groupMatchesForDisplay,
+  matchDiscoveryCaption,
   matchCardNextActions,
   matchConfirmationCtaState,
   matchCriterionPresentation,
@@ -351,6 +357,41 @@ assert.deepEqual(matchConfirmationCtaState({
   showReconfirm: true,
   hasAdminSourceReview: false,
 });
+// 카드 집계 문구 — 디자인 01 어휘 "확인된 조건 N/M · 남은 쟁점 K(· 불일치 J)", 백분율·점수 없음
+assert.equal(formatConditionTally({ passed: 4, failed: 0, unknown: 3 }), "확인된 조건 4/7 · 남은 쟁점 3");
+assert.equal(formatConditionTally({ passed: 1, failed: 1, unknown: 2 }), "확인된 조건 1/4 · 남은 쟁점 2 · 불일치 1");
+assert.equal(formatConditionTally({ passed: 5, failed: 0, unknown: 0 }), "확인된 조건 5/5 · 남은 쟁점 0");
+assert.equal(formatConditionTally({ passed: 0, failed: 0, unknown: 0 }), CONDITION_TALLY_PENDING_LABEL);
+assert.equal(CONDITION_TALLY_PENDING_LABEL, "매칭 확인 중");
+assert.doesNotMatch(formatConditionTally({ passed: 3, failed: 1, unknown: 1 }), /%|점수|충족 확인|미충족|미확인/);
+
+// 탐색 사유 라벨 — 단일 매핑 객체, 접수 예정은 시작일을 알 때만 날짜를 붙인다
+assert.equal(discoveryReasonLabel({ state: "review", reason: "period_unconfirmed" }), "접수 여부 확인 필요");
+assert.equal(discoveryReasonLabel({ state: "upcoming", reason: "not_started" }), "모집 예정");
+assert.equal(discoveryReasonLabel({ state: "upcoming", reason: "not_started" }, { applyStart: "2026-10-21" }), "모집 예정 · 10/21 접수 시작");
+assert.equal(discoveryReasonLabel({ state: "upcoming", reason: "not_started" }, { applyStart: "not-a-date" }), "모집 예정");
+assert.equal(discoveryReasonLabel({ state: "upcoming", reason: "source_unconfirmed" }), "모집 예정", "접수 예정 버킷은 원문 미확인이어도 모집 예정으로 안내한다");
+assert.equal(discoveryReasonLabel({ state: "excluded", reason: "confirmed_mismatch" }), "확인한 필수조건과 회사 정보가 맞지 않습니다.");
+assert.equal(discoveryReasonLabel({ state: "candidate", reason: "related_candidate" }), "확인된 필수조건 불일치 없음");
+assert.equal(discoveryReasonLabel({ state: "review", reason: "source_unconfirmed" }), "원문 확인 필요");
+assert.equal(discoveryReasonLabel({ state: "review", reason: "conditions_unconfirmed" }), "현재 조건과 원문을 다시 확인해 주세요.");
+assert.equal(discoveryReasonLabel({ state: "excluded", reason: "closed" }), "마감한 공고는 검토 목록에 포함하지 않습니다.");
+assert.deepEqual(
+  Object.keys(DISCOVERY_REASON_LABEL).sort(),
+  ["closed", "conditions_unconfirmed", "confirmed_mismatch", "not_started", "period_unconfirmed", "related_candidate", "source_unconfirmed"],
+  "core DiscoveryDecision.reason 전부에 라벨이 있어야 한다",
+);
+for (const label of Object.values(DISCOVERY_REASON_LABEL)) assert.doesNotMatch(label, /지원 가능|매칭률|%/);
+assert.equal(matchDiscoveryCaption(unknownStatusMatch), "접수 여부 확인 필요");
+assert.equal(matchDiscoveryCaption({ ...openMatch, status: "upcoming" } as MatchCard), "모집 예정");
+assert.equal(matchDiscoveryCaption(openMatch), null, "판정 뱃지·집계가 설명하는 카드에는 사유를 중복 표기하지 않는다");
+assert.equal(formatMonthDay("2026-10-05"), "10/5");
+assert.equal(formatMonthDay("2026-10-21T00:30:00+09:00"), "10/21");
+assert.equal(formatMonthDay("2026-10-20T15:30:00Z"), "10/21", "UTC 시각은 KST 날짜로 환산한다");
+assert.equal(formatMonthDay("2026-13-45"), null);
+assert.equal(formatMonthDay("nonsense"), null);
+assert.equal(formatMonthDay(null), null);
+
 const grouped = groupMatchesForDisplay([
   openMatch,
   answerMatch,

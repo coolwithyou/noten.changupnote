@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { MatchCard, NextQuestionDto, ProductTeaserResult } from "@cunote/contracts";
-import { ExpandedProgramCard } from "./Programs";
+import { EXCLUSION_POLICY_NOTE, ExpandedProgramCard, ProgramsExperience } from "./Programs";
 import { InlineProfileCondition, inlineProfileOptions } from "./InlineProfileCondition";
 import { ResultsHero } from "./ResultsHero";
 import { groupMatchesForDisplay } from "./logic";
@@ -97,7 +97,9 @@ const cardHtml = renderToStaticMarkup(
   />,
 );
 
-assert.ok(cardHtml.includes("충족 확인 1 · 미충족 1 · 미확인 2"));
+assert.ok(cardHtml.includes("확인된 조건 1/4 · 남은 쟁점 2 · 불일치 1"), "집계는 디자인 어휘(확인된 조건·남은 쟁점·불일치)만 쓴다");
+assert.doesNotMatch(cardHtml, /충족 확인 \d+ · 미충족/, "옛 집계 줄(충족 확인·미충족·미확인)을 남기지 않는다");
+assert.doesNotMatch(cardHtml, /\d+%/, "카드에 백분율을 노출하지 않는다");
 assert.ok(cardHtml.includes("본점이 부산광역시에 소재한 기업"), "sourceSpan을 공고 조건으로 우선 표시해야 함");
 assert.ok(cardHtml.includes("서울"), "비교한 회사 값을 표시해야 함");
 assert.ok(cardHtml.includes("이 조건과 비교할 회사 정보가 더 필요해요"));
@@ -183,6 +185,43 @@ function teaserFor(match: MatchCard): ProductTeaserResult {
     privacyNote: "",
   } as unknown as ProductTeaserResult;
 }
+
+// 목록 상단 안내 + 접수 여부 미확인 카드의 탐색 사유 라벨(접힌 카드 note)
+const periodUnconfirmedMatch = { ...mixedMatch, grantId: "grant-period", status: "unknown" } as MatchCard;
+const programsHtml = renderToStaticMarkup(
+  <ProgramsExperience
+    teaser={teaserFor(periodUnconfirmedMatch)}
+    onPrepare={noop}
+    onOpenProfile={noop}
+    preparing={false}
+    companyId={null}
+  />,
+);
+assert.equal(EXCLUSION_POLICY_NOTE, "확인한 필수조건이 맞지 않는 공고만 제외했어요. 우대 조건·업종 키워드·빈 정보는 제외 사유가 아니에요.");
+assert.ok(programsHtml.includes(EXCLUSION_POLICY_NOTE), "목록 상단에 제외 정책 안내를 보여 준다");
+assert.equal(programsHtml.split(EXCLUSION_POLICY_NOTE).length - 1, 1, "안내는 한 번만 표시한다");
+assert.ok(programsHtml.includes("접수 여부 확인 필요"), "접수 기간 미확인 카드는 탐색 사유 라벨을 보여 준다");
+assert.ok(programsHtml.includes("공고 조건 확인"));
+assert.doesNotMatch(programsHtml, /충족 확인 \d+ · 미충족/);
+
+// 접수 예정 카드(펼침) — "모집 예정" 라벨 + 집계 문구, 판정 뱃지 대신 접수 예정 뱃지
+const upcomingHtml = renderToStaticMarkup(
+  <ExpandedProgramCard
+    match={{ ...mixedMatch, grantId: "grant-upcoming", status: "upcoming", ruleTrace: [mixedMatch.ruleTrace[3]!] } as MatchCard}
+    status="upcoming"
+    supportSummary={{ kind: "amount", text: "최대 1억 원", accessibleText: "지원 금액 최대 1억 원" }}
+    onClose={noop}
+    onOpenProfile={noop}
+    onPrepare={noop}
+    preparing={false}
+    onOpenConfirmation={noop}
+    virtualBizNo={null}
+    companyId="company-1"
+  />,
+);
+assert.ok(upcomingHtml.includes("모집 예정"), "접수 예정 카드는 모집 예정 라벨을 보여 준다");
+assert.ok(upcomingHtml.includes("접수 예정"));
+assert.ok(upcomingHtml.includes("확인된 조건 1/1 · 남은 쟁점 0"));
 
 const conservativeHero = renderToStaticMarkup(
   <ResultsHero teaser={teaserFor(mixedMatch)} onSave={noop} saving={false} />,

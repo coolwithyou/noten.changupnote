@@ -5,7 +5,7 @@ import type { ActionResult } from "@cunote/contracts";
 import { Button } from "@/components/ui/button";
 import { COMPANY_CONTEXT_HEADER, withCompanyContext } from "@/lib/navigation/companyContext";
 import type { DiscoveryPage, DiscoveryRow } from "@/lib/matches/discoverySelections";
-import { matchDetailHref } from "./logic";
+import { discoveryReasonLabel, matchDetailHref } from "./logic";
 
 /** 회사별로 remount하여 이전 회사의 비동기 응답·목록이 섞이지 않게 한다. */
 export function DiscoverySelectionsPanel({ companyId }: { companyId: string }) {
@@ -82,7 +82,7 @@ function DiscoveryList({ companyId, view, revision, onChanged }: {
       </p>
       {page?.rows.map((row) => <article key={row.match.grantId} className="rounded-xl border border-border-subtle p-4">
         <a className="font-bold text-ink" href={withCompanyContext(matchDetailHref(row.match), companyId)}>{row.match.title}</a>
-        <p className="mt-1 text-sm text-text-secondary">{row.decision.reason === "confirmed_mismatch" ? "확인한 필수조건과 회사 정보가 맞지 않습니다." : "현재 조건과 원문을 다시 확인해 주세요."}</p>
+        <p className="mt-1 text-sm text-text-secondary">{discoveryReasonLabel(row.decision)}</p>
         {row.match.ruleTrace.filter((trace) => trace.result === "fail" && (trace.kind === "required" || trace.kind === "exclusion"))
           .filter((trace) => row.decision.criterionIds.length === 0 || (trace.criterionId && row.decision.criterionIds.includes(trace.criterionId)))
           .map((trace, index) => <p key={`${trace.criterionId}:${index}`} className="mt-2 text-sm text-text-secondary">{trace.sourceSpan || trace.label}</p>)}

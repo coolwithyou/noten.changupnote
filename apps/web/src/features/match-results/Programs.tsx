@@ -13,6 +13,7 @@ import type {
 import { explainMatch } from "@cunote/core";
 import { NoticeCard, type NoticeCardStatus } from "@/components/app/notice-card";
 import { VerdictBadge, type VerdictStatus } from "@/components/app/verdict-badge";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -33,12 +34,14 @@ import { DiscoverySelectionsPanel } from "./DiscoverySelectionsPanel";
 import { InlineGrantConfirmation } from "./InlineGrantConfirmation";
 import { InlineProfileCondition } from "./InlineProfileCondition";
 import {
+  formatConditionTally,
   formatDday,
   groupMatchesForDisplay,
   isUrgentDday,
   matchCriterionPresentation,
   matchConfirmationCtaState,
   matchDetailHref,
+  matchDiscoveryCaption,
   matchVerdictStatus,
   writeSupportCta,
   writeSupportNote,
@@ -46,6 +49,9 @@ import {
 import { buildSupportSummary, type SupportSummary } from "./support-summary";
 
 const DEFAULT_VISIBLE_OPEN = 5;
+/** 목록 상단 한 줄 안내(디자인 01). 제외는 확인된 필수조건 불일치뿐임을 밝힌다. */
+export const EXCLUSION_POLICY_NOTE =
+  "확인한 필수조건이 맞지 않는 공고만 제외했어요. 우대 조건·업종 키워드·빈 정보는 제외 사유가 아니에요.";
 const JourneyContext = createContext<ReturnType<typeof createMatchJourneyRecorder> | null>(null);
 const ProfileQuestionContext = createContext<{
   question: NextQuestionDto | null;
@@ -141,6 +147,9 @@ export function ProgramsExperience({
     <ProfileQuestionContext.Provider value={profileQuestionContextValue}>
     <JourneyContext.Provider value={recordJourney}>
     <div ref={rootRef}>
+      <Alert className="mt-7">
+        <AlertDescription>{EXCLUSION_POLICY_NOTE}</AlertDescription>
+      </Alert>
       {visibleOpen.length > 0 ? (
       <section className="mt-10">
         <h2 className="mb-3 text-[15px] font-extrabold text-ink">
@@ -379,6 +388,8 @@ function ExpandableProgramCard({
   const cardStatus = status === "upcoming" ? status : matchVerdictStatus(match);
   const supportSummary = buildSupportSummary(match);
   const explanation = explainMatch(match);
+  // 접수 예정·접수 여부 미확인 카드는 접힌 상태에서 탐색 사유 라벨을 우선 보여 준다(디자인 01).
+  const discoveryCaption = matchDiscoveryCaption(match);
   if (!open) {
     return (
       <div data-product-grant={match.grantId}>
@@ -388,7 +399,7 @@ function ExpandableProgramCard({
         supportSummary={supportSummary}
         status={status === "closed" ? "closed" : cardStatus}
         {...(isNew === undefined ? {} : { isNew })}
-        note={note ?? explanation.summary}
+        note={note ?? discoveryCaption ?? explanation.summary}
         onClick={() => { recordJourney?.(companyId, match, "card_open"); setOpen(true); }}
         expanded={false}
         {...(className === undefined ? {} : { className })}
@@ -449,6 +460,7 @@ export function ExpandedProgramCard({
 }) {
   const criteria = matchCriterionPresentation(match);
   const explanation = explainMatch(match);
+  const discoveryCaption = matchDiscoveryCaption(match);
   const profileQuestionContext = useContext(ProfileQuestionContext);
   const conditions = [...explanation.conditions].sort(
     (left, right) => conditionOrder(left) - conditionOrder(right),
@@ -529,9 +541,12 @@ export function ExpandedProgramCard({
 
       <div className="mt-4 border-t border-border-subtle pt-4">
         <p className="text-[15px] leading-6 font-semibold text-ink">{explanation.summary}</p>
+        {discoveryCaption ? (
+          <p className="mt-1 text-[13px] leading-5 font-semibold text-brand">{discoveryCaption}</p>
+        ) : null}
         {!explanation.discovery ? (
           <p className="mt-1 text-[13px] leading-5 text-text-secondary">
-            충족 확인 {explanation.passed} · 미충족 {explanation.failed} · 미확인 {explanation.unknown}
+            {formatConditionTally(explanation)}
           </p>
         ) : null}
       </div>
