@@ -88,3 +88,10 @@
 - 운영 `CUNOTE_WRITING_SOURCE_KEY_BASE64`와 R2 설정을 생성/변경하지 않았다. 설정이 없는 환경은 PDF 업로드 비활성, 텍스트 자료 계속 사용. 원본 암호화·키 교체 한계·미참조 암호문 회수 미구현은 [운용 설명](docs/explainers/회사자료-PDF-보관.md)에 기록.
 - `/tmp/cunote-authoring-first-pdf-writing.log` PASS: 기존 작성 근거 suite와 실제 PDF.js 파서·암호화·동시 추출 상한. `/tmp/cunote-authoring-first-pdf-final-pg.log` exit 0(98 migrations): 실제 격리 DB/메모리 저장소 PDF 왕복·재시도·scope·불변성·원본 변조·다운로드 중 철회 포함. 실제 R2·모델 호출 없음.
 - 웹 typecheck `/tmp/cunote-authoring-first-pdf-types.log` exit 0. 새 API route policy 163 methods PASS. PDF 본체/worker가 Next trace에 포함됨을 확인했다. 최신 source 기준 build `/tmp/cunote-authoring-first-pdf-final-build.log` exit 0. 운영 subprocess와 실자료 추출 품질은 미실행.
+
+## 표 넘침 자동 저장 보호
+
+- field-agent의 표 입력 저장 전에 원본 revision과 결과 바이트를 같은 RHWP core로 읽고 해당 표의 모든 셀 조각을 용지 경계와 비교한다. 새 넘침·누락된 셀 위치는 409로 거절하며 객체 업로드/DB head 변경을 하지 않는다. Undo와 수동 편집 저장은 이 자동 입력 보호의 대상이 아니다.
+- 기존 클라이언트는 자동 적용 후 서버 저장 실패 시 native revert를 수행하는 경로를 사용한다. 이 브라우저 rollback은 이번에 실제 실행하지 않았으며 기존 transaction 회귀(`/tmp/cunote-authoring-first-layout-transaction.log`)만 PASS다.
+- `CUNOTE_REQUIRE_WRITING_LAYOUT_SAFETY=1 pnpm test:product-postgres` exit 0(`/tmp/cunote-authoring-first-layout-safety-pg.log`, 98 migrations). 실제 바이오스타 HWPX 원본에서 20문단 넘침을 재현하고 거절 후 업로드 0회·이전 head/원본 SHA 보존을 확인했다. 이는 실패의 안전한 격리 증거이며 3문항 작성 왕복 성공이 아니다.
+- `tableLayoutGuard.test.ts` PASS(여러 쪽 셀 조각, 기존 넘침 개선, 새 넘침/누락/잘못된 page 거절), web typecheck `/tmp/cunote-authoring-first-layout-safety-types.log` exit 0. 별도의 `CUNOTE_REQUIRE_WRITING_FORM_FIXTURES=1` 작성 인수 실패는 유지한다.

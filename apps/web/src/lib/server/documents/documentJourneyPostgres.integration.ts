@@ -15,7 +15,7 @@ import { sha256Hex } from "@/lib/rhwp/documentAgentContract";
 import { extractDocumentEditCandidates } from "@/lib/rhwp/documentAgentCandidates";
 import { applyDocumentAgentEdit, undoDocumentAgentEdit } from "@/lib/rhwp/documentAgentTransaction";
 import { exportVerifiedRhwpDocument, type RhwpDocumentFormat } from "@/lib/rhwp/client";
-import { verifyWritingFormPostgres } from "./writingFormPostgres.integration";
+import { verifyWritingFormPostgres, verifyWritingLayoutSafetyPostgres } from "./writingFormPostgres.integration";
 
 const INSTITUTION_FORM_FIXTURES = [
   {
@@ -171,6 +171,9 @@ export async function verifyDocumentJourneyPostgres(input: { admin: postgres.Sql
     }
     if (process.env.CUNOTE_REQUIRE_WRITING_FORM_FIXTURES === "1") {
       await verifyWritingFormPostgres({ admin: input.admin, access: input.access, storage, rhwp });
+    }
+    if (process.env.CUNOTE_REQUIRE_WRITING_LAYOUT_SAFETY === "1") {
+      await verifyWritingLayoutSafetyPostgres({ admin: input.admin, access: input.access, storage, rhwp });
     }
   } finally {
     await closeCunoteDb();
