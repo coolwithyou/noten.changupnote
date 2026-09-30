@@ -119,3 +119,11 @@
 - 결정: 마감 공고는 사용자 요청대로 새 검토 대상에서 제외한다. 기본 매칭 결과를 덮지 않고 ‘다시 살펴볼 공고’ 목록으로 복원한다. 신규 공급자·유료 호출은 추가하지 않는다.
 - 복원/취소는 회사 공유 선택이며 현재 사용자별 계산된 자격 결과는 그대로 표시한다. CAS 충돌은 자동 덮어쓰지 않고 재조회를 안내한다. 회사별 컴포넌트와 요청 취소로 늦게 도착한 이전 회사 응답을 분리했다. 실제 브라우저 동작은 미검증.
 - 기존 Programs 정적 렌더 회귀 PASS. 첫 typecheck의 fixture 필수 필드 누락을 수정한 뒤 최종 웹 build(`/tmp/cunote-authoring-discovery-build.log`, TypeScript 포함) exit 0. 이 결과는 브라우저 복원 버튼 인수를 대신하지 않는다.
+
+## 바이오스타 표 페이지 분할 후속 실험
+
+- 서버의 마감 처리를 재추적했다. `toMatchCard`가 이미 주어진 `asOf`로 만료 상태를 `closed`에 투영하므로 이번에 기본 추천 경로를 중복 수정하지 않았다.
+- 실패 편집본에서 `pageBreak`만 변경한 기존 실험과 달리, 대상 표의 `treatAsChar=false`를 설정하면 native 5쪽→6쪽으로 분할되고 세 번째 ‘사업화 / 투자유치’ 입력 위치가 unique로 복원됐다. `pageBreak=1`/`2` 단독은 해결하지 못하며 이 fixture에서는 inline 배치가 핵심 분기다. 다른 문서 전체로 일반화하지 않는다.
+- 공개 원본을 새로 열어 이 속성 하나를 명시적으로 바꾼 후 같은 길이의 3개 서술 문항을 모두 입력했다. HWPX export/reopen 후 셀 3/5/11의 문안·나머지 셀 문구 보존, 나머지 표 속성 동일, 기존 용지 넘침 guard PASS. 원본 양식 파일은 변경하지 않았다.
+- 재현: `pnpm exec tsx --tsconfig apps/web/tsconfig.json spike-out/authoring-first/verify-flow-roundtrip.ts`; 로그 `/tmp/cunote-authoring-flow-roundtrip.log`. 검토 파일 `spike-out/authoring-first/narrative-flow-roundtrip.hwpx`, SHA `e505d64c9b4950a5cb0df8c3c2490c2cdadf9a0023ea41bbd269cde4dbb68c23`.
+- 이 실험은 원본 속성을 보존하는 기존 `CUNOTE_REQUIRE_WRITING_FORM_FIXTURES=1` 실패를 대체하지 않는다. 배치 변경으로 x 좌표도 일부 바뀌므로 사용자에게 숨긴 자동 수정은 추가하지 않았다. 실제 Studio에서 표 속성 변경을 선택하고 저장/Undo/외부 한글 재열기한 시각 증거가 필요하다. 사용자 실행 서버 요청은 답변 대기이며 실제 모델 호출은 없다.
