@@ -120,6 +120,22 @@ export function WorkspaceView({
   const [showChat, setShowChat] = useState(false);
   const [writingContextDirty, setWritingContextDirty] = useState(false);
   const [writingSectionsDirty, setWritingSectionsDirty] = useState(false);
+  useEffect(() => {
+    if (!writingContextDirty && !writingSectionsDirty) return;
+    // Next Link의 클라이언트 이동은 beforeunload를 발생시키지 않는다.
+    const preserveWriting = (event: MouseEvent) => {
+      if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      const anchor = event.target instanceof Element ? event.target.closest<HTMLAnchorElement>("a[href]") : null;
+      if (!anchor || anchor.hasAttribute("download") || (anchor.target && anchor.target !== "_self")) return;
+      const destination = new URL(anchor.href, location.href);
+      if (!["http:", "https:"].includes(destination.protocol)) return;
+      if (destination.origin === location.origin && destination.pathname === location.pathname && destination.search === location.search) return;
+      event.preventDefault(); event.stopPropagation();
+      toast.info("회사 자료·사업 설명과 문안의 변경을 먼저 저장해 주세요.");
+    };
+    document.addEventListener("click", preserveWriting, true);
+    return () => document.removeEventListener("click", preserveWriting, true);
+  }, [writingContextDirty, writingSectionsDirty]);
   const [showFieldAgent, setShowFieldAgent] = useState(false);
   const [workingDocument, setWorkingDocument] = useState<RhwpWorkingDocument | null>(null);
   const [studioDocumentActions, setStudioDocumentActions] = useState<RhwpStudioDocumentActionState>({

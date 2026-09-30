@@ -103,3 +103,9 @@
 - `writingConsistency.test.ts` PASS, `/tmp/cunote-authoring-first-consistency-pg.log` exit 0(98 migrations, 실제 저장 문안의 합계 불일치 반환 포함), web typecheck `/tmp/cunote-authoring-first-consistency-types.log` exit 0.
 - 문단 AI의 dynamicContext 전체가 회사 프로필 근거로 분류되던 부분을 수정. 회사 프로필과 승인 작성 지침을 별도 source kind로 보존하고 문단 prompt v4에서 지침 예시를 회사 실적으로 사용하지 않도록 명시했다. `writingGuidanceSources.test.ts`, 기존 chat grounding와 문단 prompt 회귀 PASS. 문항 composition 검증에서도 writing_guide를 회사 사실 근거로 거절한다. 실제 모델의 의미 정확성은 여전히 미검증이다.
 - 저장 문안 UI와 근거 분리까지 웹 build `/tmp/cunote-authoring-first-consistency-build.log` exit 0. 새 회귀는 기존 `test:writing-context`와 `test:document-agent` 명령에 포함했다.
+
+## 브라우저 인수 전 남은 경계
+
+- Next Link 이동은 beforeunload가 발생하지 않아, 회사 자료/문안이 dirty일 때 내부 링크 이동을 막고 저장을 안내하도록 보완했다. 새 탭·다운로드·같은 페이지 anchor는 유지한다. browser history와 프로그램에 의한 router 이동은 실제 인수 대상이며 모든 이탈 방지를 완료했다고 주장하지 않는다.
+- 실제 실행할 [인수 목록](docs/plans/2026-09-30-authoring-first-acceptance.md)에 권한·충돌·문안·PDF·양식 증거와 미완료를 분리했다. 4010/4011에는 여전히 사용자 실행 서버가 없고 실제 사용자/회사 자료·모델 품질 실행 범위도 없다. 운영 쓰기 없이 확인한 코드/격리 증거까지만 현재 결과다.
+- 내부 링크 보호 변경의 web typecheck `/tmp/cunote-authoring-first-navigation-types.log` exit 0. 문서의 상대 링크와 `git diff --check`를 확인했다. 전체 build는 직전 저장 문안/근거 분리 상태의 증거이며 마지막 링크 보호의 실제 브라우저 동작 증거로 대체하지 않는다.
