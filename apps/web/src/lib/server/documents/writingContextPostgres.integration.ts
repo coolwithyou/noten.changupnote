@@ -7,6 +7,7 @@ import { closeCunoteDb } from "../db/client";
 import type { CompanyAccess } from "../auth/companyGuard";
 import { createWritingSource, loadWritingContext, loadWritingGrounding, readWritingSource, saveWritingBrief, withdrawWritingSource } from "./writingContext";
 import { verifyWritingSectionsPostgres } from "./writingSectionsPostgres.integration";
+import { verifyWritingPdfPostgres } from "./writingPdfPostgres.integration";
 
 export async function verifyWritingContextPostgres(input: { admin: postgres.Sql; client: postgres.Sql; socket: string; access: CompanyAccess }) {
   assert.equal(input.socket, process.env.CUNOTE_PRODUCT_TEST_SOCKET);
@@ -107,6 +108,7 @@ export async function verifyWritingContextPostgres(input: { admin: postgres.Sql;
     await saveWritingBrief({ ...context, body: { expectedRevision: 2, brief, sourceIds: [] } });
     assert.equal((await loadWritingGrounding(context)).sources.length, 0);
     await verifyWritingSectionsPostgres(input);
+    await verifyWritingPdfPostgres({ admin, access, draftId, nextDraft });
     console.log("PASS: writing sources/briefs persist, share within company, isolate application and tenant, reject forged/viewer roles, deduplicate retries, CAS concurrent saves, preserve immutable sources and block withdrawn grounding");
   } finally {
     await closeCunoteDb();

@@ -137,6 +137,8 @@ export const SESSION_WEB_ROUTES = [
   "PUT /api/web/document-drafts/[draftId]/writing-sections",
   "POST /api/web/document-drafts/[draftId]/writing-sections",
   "POST /api/web/document-drafts/[draftId]/writing-sources",
+  "POST /api/web/document-drafts/[draftId]/writing-sources/pdf",
+  "GET /api/web/document-drafts/[draftId]/writing-sources/[sourceId]/original",
   "GET /api/web/document-drafts/[draftId]/writing-sources/[sourceId]",
   "DELETE /api/web/document-drafts/[draftId]/writing-sources/[sourceId]",
   "GET /api/web/document-drafts/[draftId]/profile-autofill",

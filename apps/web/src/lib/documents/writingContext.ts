@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+export const WRITING_PDF_MAX_BYTES = 4 * 1024 * 1024;
+
 const text = (max: number) => z.string().max(max).refine((value) => !/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/u.test(value), "제어 문자를 포함할 수 없습니다.");
 export const writingBriefFields = {
   projectName: "이번 사업 이름",
@@ -35,6 +37,10 @@ export const createWritingSourceSchema = z.object({
   }).nullable(),
 }).strict();
 export type CreateWritingSource = z.infer<typeof createWritingSourceSchema>;
+/** 서버 보관 메타데이터. 클라이언트에는 파일명·쪽 수만 직렬화한다. */
+export interface WritingPdfOriginal {
+  storageKey: string; sha256: string; bytes: number; filename: string; pages: number; keyId: string;
+}
 export interface WritingSourceSummary {
   id: string;
   title: string;
@@ -44,6 +50,7 @@ export interface WritingSourceSummary {
   observedDate: string | null;
   createdAt: string;
   withdrawn: boolean;
+  originalPdf?: { filename: string; pages: number; sha256: string };
 }
 export interface WritingContext {
   revision: number;
@@ -52,4 +59,5 @@ export interface WritingContext {
   sources: WritingSourceSummary[];
   sourcesTruncated: boolean;
   canWrite: boolean;
+  canUploadPdf?: boolean;
 }

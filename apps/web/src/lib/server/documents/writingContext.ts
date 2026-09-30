@@ -3,7 +3,7 @@ import { and, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
   createWritingSourceSchema, emptyWritingBrief, saveWritingBriefSchema,
-  type WritingContext, type WritingSourceSummary,
+  type WritingContext, type WritingSourceSummary, type WritingPdfOriginal,
 } from "@/lib/documents/writingContext";
 import { canWriteCompany } from "../auth/companyAccessPolicy";
 import type { CompanyAccess } from "../auth/companyGuard";
@@ -51,11 +51,13 @@ export async function assertWritingDraftAccessInTransaction(tx: CunoteDbSession,
 const sourceSummaryColumns = { id: schema.companyWritingSources.id, title: schema.companyWritingSources.title,
   draftId: schema.companyWritingSources.draftId, kind: schema.companyWritingSources.kind,
   contentSha256: schema.companyWritingSources.contentSha256, observedDate: schema.companyWritingSources.observedDate,
+  originalPdf: schema.companyWritingSources.originalPdf,
   createdAt: schema.companyWritingSources.createdAt, withdrawnAt: schema.companyWritingSources.withdrawnAt };
 
 function summarize(row: Pick<typeof schema.companyWritingSources.$inferSelect, keyof typeof sourceSummaryColumns>): WritingSourceSummary {
   return { id: row.id, title: row.title, scope: row.draftId ? "application" : "company", kind: row.kind,
-    sha256: row.contentSha256, observedDate: row.observedDate, createdAt: row.createdAt.toISOString(), withdrawn: row.withdrawnAt !== null };
+    sha256: row.contentSha256, observedDate: row.observedDate, createdAt: row.createdAt.toISOString(), withdrawn: row.withdrawnAt !== null,
+    ...(row.originalPdf ? { originalPdf: { filename: row.originalPdf.filename, pages: row.originalPdf.pages, sha256: row.originalPdf.sha256 } } : {}) };
 }
 
 async function readContext(tx: CunoteDbSession, access: CompanyAccess, draftId: string, writable: boolean): Promise<WritingContext> {
@@ -68,20 +70,21 @@ async function readContext(tx: CunoteDbSession, access: CompanyAccess, draftId: 
   if (missing.length) visible.push(...await tx.select(sourceSummaryColumns).from(schema.companyWritingSources)
     .where(and(sourceScope(access, draftId), inArray(schema.companyWritingSources.id, missing))));
   return { revision: saved?.revision ?? 0, brief: saved?.brief ?? emptyWritingBrief(), sourceIds: saved?.sourceIds ?? [],
-    sources: visible.map(summarize), sourcesTruncated: sources.length > 200, canWrite: writable };
+    sources: visible.map(summarize), sourcesTruncated: sources.length > 200, canWrite: writable,
+    canUploadPdf: writable && ["CUNOTE_WRITING_SOURCE_KEY_BASE64", "R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY", "R2_BUCKET", "R2_BUCKET_URL"].every(key => Boolean(process.env[key]?.trim())) };
 }
 
 export function loadWritingContext(input: { access: CompanyAccess; draftId: string }) {
   return withDraft(input.access, input.draftId, false, (tx, writable) => readContext(tx, input.access, input.draftId, writable));
 }
 
-export async function createWritingSource(input: { access: CompanyAccess; draftId: string; body: unknown }): Promise<WritingSourceSummary> {
+export async function createWritingSource(input: { access: CompanyAccess; draftId: string; body: unknown; originalPdf?: WritingPdfOriginal }): Promise<WritingSourceSummary> {
   const body = parse(createWritingSourceSchema, input.body);
   const contentSha256 = createHash("sha256").update(body.content).digest("hex");
   const draftId = body.scope === "application" ? input.draftId : null;
   return withDraft(input.access, input.draftId, true, async (tx) => {
     const values = { companyId: input.access.companyId, draftId, requestId: body.requestId, title: body.title,
-      content: body.content, contentSha256, kind: body.kind, observedDate: body.observedDate, createdBy: input.access.userId };
+      content: body.content, contentSha256, originalPdf: input.originalPdf ?? null, kind: body.kind, observedDate: body.observedDate, createdBy: input.access.userId };
     const [created] = await tx.insert(schema.companyWritingSources).values(values).onConflictDoNothing({
       target: [schema.companyWritingSources.companyId, schema.companyWritingSources.requestId],
     }).returning();
@@ -90,11 +93,26 @@ export async function createWritingSource(input: { access: CompanyAccess; draftI
       eq(schema.companyWritingSources.companyId, input.access.companyId), eq(schema.companyWritingSources.requestId, body.requestId),
     ));
     if (!prior || prior.draftId !== draftId || prior.contentSha256 !== contentSha256 || prior.title !== body.title
-      || prior.kind !== body.kind || prior.observedDate !== body.observedDate) {
+      || prior.kind !== body.kind || prior.observedDate !== body.observedDate
+      || Boolean(prior.originalPdf) !== Boolean(input.originalPdf)
+      || (input.originalPdf && (prior.originalPdf?.sha256 !== input.originalPdf.sha256 || prior.originalPdf.filename !== input.originalPdf.filename
+        || prior.originalPdf.storageKey !== input.originalPdf.storageKey || prior.originalPdf.keyId !== input.originalPdf.keyId))) {
       throw new WritingContextError("writing_request_conflict", "같은 저장 요청의 내용이 변경되었습니다. 새 요청으로 저장해 주세요.", 409);
     }
     // 재시도로 철회한 자료를 되살리지 않는다.
     return summarize(prior);
+  });
+}
+
+/** 공개 URL을 반환하지 않는다. 원본 다운로드 서비스 안에서만 사용하는 회사 권한 검사다. */
+export function readWritingPdfReference(input: { access: CompanyAccess; draftId: string; sourceId: string }) {
+  parse(uuid, input.sourceId);
+  return withDraft(input.access, input.draftId, false, async tx => {
+    const [row] = await tx.select({ original: schema.companyWritingSources.originalPdf, requestId: schema.companyWritingSources.requestId,
+      draftId: schema.companyWritingSources.draftId }).from(schema.companyWritingSources).where(and(sourceScope(input.access, input.draftId),
+        eq(schema.companyWritingSources.id, input.sourceId), isNull(schema.companyWritingSources.withdrawnAt)));
+    if (!row?.original) throw new WritingContextError("writing_source_unavailable", "원본 자료가 없거나 사용 중단되었습니다.", 404);
+    return { ...row, original: row.original };
   });
 }
 

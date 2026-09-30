@@ -20,7 +20,7 @@ import {
   varchar,
 } from "drizzle-orm/pg-core";
 import type { WritingComposition } from "../../documents/writingComposition";
-import type { WritingBrief } from "../../documents/writingContext";
+import type { WritingBrief, WritingPdfOriginal } from "../../documents/writingContext";
 import type { DraftFieldAnswer } from "../documents/fieldAnswers";
 import type { ChatMessageContent } from "../../chat/messageContent";
 import type { StudioFieldRestoreFormatV1 } from "../../rhwp/studioDocumentAgentProtocol";
@@ -2245,6 +2245,7 @@ export const companyWritingSources = pgTable("company_writing_sources", {
   title: text("title").notNull(),
   content: text("content").notNull(),
   contentSha256: text("content_sha256").notNull(),
+  originalPdf: jsonb("original_pdf").$type<WritingPdfOriginal>(),
   kind: text("kind").$type<"user_statement" | "company_document">().notNull(),
   observedDate: text("observed_date"),
   createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),

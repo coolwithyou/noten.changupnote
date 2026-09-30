@@ -80,3 +80,11 @@
 - 레이아웃 후속: 설치된 core의 `reflowLinesegs()`는 해당 편집본에서 0을 반환하며 문제가 유지된다. 표 pageBreak 값을 재설정해도 이 fixture의 잘림은 유지(`/tmp/cunote-authoring-first-reflow.log`). upstream [#7288](https://github.com/edwardkim/rhwp/issues/7288)에도 0.8.6의 표 페이지 분할·용지 밖 넘침 신고가 열려 있다. 같은 원인이라고 확정하지 않으며 의존성을 무조건 올리거나 원본 표 속성을 제품에서 바꾸지 않는다.
 - 브라우저 검증용으로 사용자가 직접 실행할 authoring-first 개발 서버와 테스트 회사 정보를 비동기로 요청했다. 서버 시작 금지 규칙은 유지하고 독립 구현을 계속한다.
 - 문안 패널까지 웹 build `/tmp/cunote-authoring-first-manuscript-build.log` exit 0, route policy 161 API methods PASS, `git diff --check` PASS.
+
+## 회사 PDF 자료
+
+- 0097에 원본 PDF 불변 메타데이터 추가. 별도 Node PDF.js 프로세스에서 텍스트 추출 후 AES-256-GCM 암호문만 R2 adapter에 저장한다. 회사/신청/요청/원본 SHA를 인증 문맥으로 결속하며 원본 다운로드는 회사 권한·자료 철회·암호문/원본 SHA를 재검사한다.
+- 4MiB·30쪽·30,000자, 20초, V8 heap 128MiB, 프로세스당 동시 추출 2개 상한. 스캔/암호/빈 텍스트 페이지/부분 실패는 보관 완료로 처리하지 않는다. 새 PDF는 사용자가 추출 결과를 확인하고 선택하기 전 생성 자료에 자동 편입하지 않는다.
+- 운영 `CUNOTE_WRITING_SOURCE_KEY_BASE64`와 R2 설정을 생성/변경하지 않았다. 설정이 없는 환경은 PDF 업로드 비활성, 텍스트 자료 계속 사용. 원본 암호화·키 교체 한계·미참조 암호문 회수 미구현은 [운용 설명](docs/explainers/회사자료-PDF-보관.md)에 기록.
+- `/tmp/cunote-authoring-first-pdf-writing.log` PASS: 기존 작성 근거 suite와 실제 PDF.js 파서·암호화·동시 추출 상한. `/tmp/cunote-authoring-first-pdf-final-pg.log` exit 0(98 migrations): 실제 격리 DB/메모리 저장소 PDF 왕복·재시도·scope·불변성·원본 변조·다운로드 중 철회 포함. 실제 R2·모델 호출 없음.
+- 웹 typecheck `/tmp/cunote-authoring-first-pdf-types.log` exit 0. 새 API route policy 163 methods PASS. PDF 본체/worker가 Next trace에 포함됨을 확인했다. 최신 source 기준 build `/tmp/cunote-authoring-first-pdf-final-build.log` exit 0. 운영 subprocess와 실자료 추출 품질은 미실행.

@@ -15,7 +15,8 @@ export function writingGroundingSources(input: {
     if (sha256 !== source.sha256) throw new Error("회사 자료의 내용과 출처 해시가 일치하지 않습니다.");
     return { sourceId: `company_material:${source.id}:${source.sha256}`, kind: "company_material", title: source.title,
       content: source.content, sha256, provenance: { companyId: input.companyId, draftId: input.draftId,
-        sourceId: source.id, observedDate: source.observedDate, sourceKind: source.kind, verification: "user_provided" } };
+        sourceId: source.id, observedDate: source.observedDate, sourceKind: source.kind, verification: "user_provided",
+        ...(source.originalPdf ? { originalPdf: source.originalPdf } : {}) } };
   });
   const brief = (Object.keys(writingBriefFields) as (keyof WritingBrief)[])
     .filter((key) => input.brief[key].trim()).map((key) => `${writingBriefFields[key]}: ${input.brief[key]}`).join("\n");

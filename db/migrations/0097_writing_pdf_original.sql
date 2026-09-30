@@ -1,0 +1,1 @@
+ALTER TABLE "company_writing_sources" ADD COLUMN "original_pdf" jsonb;
