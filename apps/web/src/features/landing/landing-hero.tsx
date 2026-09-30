@@ -1,5 +1,5 @@
 import { BizLookupForm } from "./biz-lookup-form";
-import { LandingDemo } from "./landing-demo";
+import { LandingDraftMock } from "./landing-draft-mock";
 
 /** 디자인 2라운드(05 랜딩 히어로) 카피. 렌더 테스트가 같은 원천을 단언한다. */
 export const LANDING_HERO_COPY = {
@@ -11,12 +11,10 @@ export const LANDING_HERO_COPY = {
 } as const;
 
 /**
- * 랜딩 히어로(작성 중심 교체안). 유일한 행동은 사업자번호 조회이며, 아래 데모가
- * 조회 → 매칭 → 지원서 작성의 제품 흐름을 짧은 데모로 보여준다.
- * openCount는 페이지 계약을 유지하려고 받지만, 디자인 2라운드 히어로에는 공고 수 필이 없어 표시하지 않는다.
+ * 랜딩 히어로(디자인 2라운드 05, 작성 중심). 좌측은 카피와 사업자번호 조회, 우측은
+ * 문항별 검토용 초안 카드 목업이다. 유일한 행동은 사업자번호 조회다.
  */
-export function LandingHero({ comparisonCount }: { openCount: number; comparisonCount: number }) {
-  const [line1, line2, line3] = LANDING_HERO_COPY.headline;
+export function LandingHero() {
   return (
     <section className="relative overflow-hidden bg-landing-hero">
       <span
@@ -27,31 +25,29 @@ export function LandingHero({ comparisonCount }: { openCount: number; comparison
         aria-hidden
         className="pointer-events-none absolute -top-28 -right-28 size-[560px] rounded-full bg-landing-orb-mint"
       />
-      <div className="relative mx-auto flex max-w-[1440px] flex-col items-center px-4 pt-16 text-center sm:px-10 sm:pt-[88px]">
-        <p className="text-[13px] font-extrabold tracking-[0.02em] break-keep text-brand">{LANDING_HERO_COPY.eyebrow}</p>
+      <div className="relative mx-auto grid max-w-[1200px] gap-9 px-5 pt-12 pb-14 sm:px-10 sm:pt-[72px] sm:pb-20 lg:grid-cols-[minmax(0,1.12fr)_minmax(0,0.88fr)] lg:items-center lg:gap-12">
+        <div className="text-left">
+          <p className="text-[13px] font-extrabold tracking-[0.02em] break-keep text-brand">{LANDING_HERO_COPY.eyebrow}</p>
 
-        <h1 className="mt-5 text-[38px] leading-[1.25] font-extrabold tracking-[-1px] break-keep text-balance text-ink-strong sm:mt-[18px] sm:text-[54px] sm:tracking-[-1.4px]">
-          <span className="bg-landing-text bg-clip-text text-transparent">{line1}</span>
-          <br className="hidden sm:inline" />
-          {" "}
-          {line2}
-          <br className="hidden sm:inline" />
-          {" "}
-          {line3}
-        </h1>
+          <h1 className="mt-[18px] text-[32px] leading-[1.24] font-extrabold tracking-[-0.8px] break-keep text-ink-strong sm:text-[44px] sm:tracking-[-1.2px]">
+            {LANDING_HERO_COPY.headline.map((line) => (
+              <span key={line} className="block">
+                {line}
+              </span>
+            ))}
+          </h1>
 
-        <p className="mx-auto mt-4 max-w-[680px] text-base break-keep text-text-secondary sm:text-[17px]">
-          {LANDING_HERO_COPY.sub}
-        </p>
+          <p className="mt-6 max-w-[580px] text-base leading-[1.6] break-keep text-text-nav sm:text-[19px]">
+            {LANDING_HERO_COPY.sub}
+          </p>
 
-        <div className="mt-8 w-full sm:mt-9">
-          <BizLookupForm inputId="hero-biz" attachRef ctaLabel={LANDING_HERO_COPY.cta} />
+          <div className="mt-8 w-full">
+            <BizLookupForm inputId="hero-biz" attachRef ctaLabel={LANDING_HERO_COPY.cta} className="mx-0 max-w-[560px]" />
+          </div>
+          <p className="mt-3.5 max-w-[560px] text-sm break-keep text-text-secondary">{LANDING_HERO_COPY.trust}</p>
         </div>
-        <p className="mt-3.5 max-w-[680px] text-[13px] break-keep text-text-tertiary">{LANDING_HERO_COPY.trust}</p>
 
-        <div className="mt-12 w-full sm:mt-14">
-          <LandingDemo comparisonCount={comparisonCount} />
-        </div>
+        <LandingDraftMock className="lg:-rotate-[1.2deg]" />
       </div>
     </section>
   );

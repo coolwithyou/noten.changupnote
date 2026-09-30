@@ -94,11 +94,8 @@ function landingDeadline(banner: LandingGrantBanner): string | null {
 /** 디자인 정본의 블루 2장 + 민트 1장 세 단계 안내. */
 export function HowItWorks() {
   return (
-    <section className="px-4 py-20 text-center sm:px-10 sm:py-[88px]">
-      <h2 className="text-[28px] font-extrabold tracking-[-0.6px] text-ink-strong sm:text-[32px]">
-        정보 확인부터 지원서 작성까지
-      </h2>
-      <div className="mx-auto mt-10 grid max-w-[1000px] gap-4 text-left lg:grid-cols-3">
+    <section className="px-5 pt-2 pb-16 sm:px-10 sm:pt-4 sm:pb-[88px]" aria-label="창업노트가 하는 일">
+      <div className="mx-auto grid max-w-[1200px] gap-5 text-left lg:grid-cols-3">
         {STEPS.map((step) => (
           <Card
             key={step.n}
