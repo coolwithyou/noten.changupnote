@@ -13,6 +13,7 @@ import { redirectOnAuthRequired } from "@/lib/server/auth/pageRedirect";
 import { fallbackHeaderUserForDemoAccess, getOptionalHeaderUser } from "@/lib/server/auth/session";
 import { getRemainingAssistantUses } from "@/lib/server/credits/remainingUses";
 import { getGrantPreviewAvailability } from "@/lib/server/documents/documentPreview";
+import { loadDraftResume } from "@/lib/server/documents/draftResume";
 import { loadGrantPreparation } from "@/lib/server/documents/grantPreparation";
 import { loadGrantApplySheetForHandoff } from "@/lib/server/grantApplySheetHandoff";
 import { recordLessonExposures, type LessonExposureInput } from "@/lib/server/knowledge/knowledgeRepo";
@@ -52,11 +53,13 @@ export default async function GrantDetailPage({ params, searchParams }: GrantDet
       ? { virtualBizNo: virtualScenario.bizNo }
       : { companyId: access!.companyId, userId: access!.userId });
   if (!sheet) notFound();
-  const [preparation, previewAvailability, lessonGuide, remainingUses] = await Promise.all([
+  const [preparation, previewAvailability, lessonGuide, remainingUses, draftResume] = await Promise.all([
     access ? loadInitialPreparation(sheet.grant.id, access, sheet) : Promise.resolve(null),
     virtualScenario ? Promise.resolve(null) : loadPreviewAvailability(sheet.grant.id),
     loadLessonGuide(sheet.grant.title, sheet.grant.agency),
     virtualScenario || adminIdentity ? Promise.resolve(null) : getRemainingAssistantUses(),
+    // 저장본 재개(장면 F)는 실제 회사 접근에서만. 가상 기업·관리자 미리보기는 저장본이 없다.
+    access ? loadDraftResumeSafe(sheet.grant.id, access) : Promise.resolve(null),
   ]);
   const fieldLessonTips = await loadFieldLessonTips(sheet, preparation);
   // 노출 텔레메트리(지식 루프 K1): 매칭 결과를 렌더 시점에 raw 기록한다.
@@ -82,9 +85,23 @@ export default async function GrantDetailPage({ params, searchParams }: GrantDet
         virtualCompanyBizNo={virtualScenario?.bizNo ?? null}
         adminPreview={Boolean(adminIdentity)}
         handoffKey={adminIdentity ? null : handoffKey}
+        draftResume={draftResume}
       />
     </AppShell>
   );
+}
+
+// 저장본 재개 요약(디자인 2라운드 03 장면 F). 실패해도 페이지는 깨지지 않게 null 폴백 — 그러면 작성 시작 CTA 로 돌아간다.
+async function loadDraftResumeSafe(
+  grantId: string,
+  access: NonNullable<Awaited<ReturnType<typeof loadGrantAccess>>>,
+) {
+  try {
+    return await loadDraftResume({ grantId, companyId: access.companyId, userId: access.userId });
+  } catch (error) {
+    console.warn(`Draft resume load failed: ${error instanceof Error ? error.message : String(error)}`);
+    return null;
+  }
 }
 
 function firstParam(value: string | string[] | undefined): string | undefined {

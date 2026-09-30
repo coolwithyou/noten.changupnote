@@ -2,10 +2,12 @@ import type { ApplySheet } from "@cunote/contracts";
 import Link from "next/link";
 import { VerdictBadge } from "@/components/app/verdict-badge";
 import { Accordion } from "@/components/ui/accordion";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import type { GrantPreviewAvailability } from "@/lib/server/documents/documentPreview";
+import type { DraftResumeSummary } from "@/lib/documents/draftResume";
 import type { GrantLessonGuideDto } from "@/lib/server/knowledge/lessonContext";
 import { ConversionPollTrigger } from "@/features/apply-sheet/ConversionPollTrigger";
 import { EligibilityMatchAccordion } from "./EligibilityMatchAccordion";
@@ -13,6 +15,9 @@ import { GrantWorkspaceLink } from "./GrantWorkspaceLink";
 import { RequiredDocumentsAccordion } from "./RequiredDocumentsAccordion";
 import { LessonGuideAccordion } from "./LessonGuideAccordion";
 import {
+  countHardConditions,
+  describeFailedCondition,
+  failedHardConditions,
   formatDday,
   formatEligibilitySummary,
   formatSupportAmount,
@@ -39,10 +44,13 @@ export function GrantOverviewView({
   adminPreview = false,
   handoffKey = null,
   companyId = null,
+  draftResume = null,
 }: {
   sheet: ApplySheet;
   lessonGuide?: GrantLessonGuideDto | null;
   previewAvailability?: GrantPreviewAvailability | null;
+  /** 회사·공고별 서버 저장본 요약. 있으면 작성 시작 대신 "문서 열기"로 같은 workspace 에 돌아간다. */
+  draftResume?: DraftResumeSummary | null;
   /** 남은 도우미 횟수(서버 환산). null 이면 과금 칩 비노출. */
   remainingUses?: number | null;
   /** 가상 기업 상세와 비영속 workspace 미리보기를 구분해 안내한다. */
@@ -64,19 +72,19 @@ export function GrantOverviewView({
   ].filter((value): value is string => value !== null).join("&");
   const workspaceHref = `/grants/${encodeURIComponent(grantId)}/workspace${workspaceQuery ? `?${workspaceQuery}` : ""}`;
   const verdict = grantOverviewVerdict(sheet);
-  const cta = grantOverviewCta(sheet, previewAvailability);
+  const cta = grantOverviewCta(sheet, previewAvailability, draftResume);
   const discovery = sheet.matchingEvidence?.level === "discovery";
   const sourceOnly = discovery && cta.mode === "unknown";
+  // 디자인 03 장면 F: 저장본으로 돌아가는 화면에서는 준비 요청을 내리지 않는다(workspace 가 같은 트리거를 제공).
   const showConversionPoll = !adminPreview && !virtualCompanyBizNo && !virtualCompanyName
+    && cta.mode !== "resume"
     && (previewAvailability?.pendingSurfaceCount ?? 0) > 0;
-  const hardConditions = [...sheet.satisfied, ...sheet.needsCheck]
-    .filter((trace) => trace.kind === "required" || trace.kind === "exclusion");
-  const satisfiedConditionCount = hardConditions.filter((trace) => trace.result === "pass").length;
-  const failedConditionCount = hardConditions.filter((trace) => trace.result === "fail").length;
-  const unknownConditionCount = hardConditions.length - satisfiedConditionCount - failedConditionCount;
-  // 과금 접점 ①: 도우미 사용(초안 생성)이 시작되는 모드에서만 시작 고지 칩을 노출한다.
+  const conditionCounts = countHardConditions(sheet);
+  const failedConditions = failedHardConditions(sheet);
+  // 과금 접점 ①: 도우미 사용(초안 생성)이 시작되거나 이어지는 모드에서만 시작 고지 칩을 노출한다.
   const usageChipRemaining =
-    typeof remainingUses === "number" && (cta.mode === "manual_form" || cta.mode === "ai_draft")
+    typeof remainingUses === "number"
+      && (cta.mode === "manual_form" || cta.mode === "ai_draft" || cta.mode === "resume")
       ? remainingUses
       : null;
 
@@ -118,6 +126,23 @@ export function GrantOverviewView({
         </div>
       ) : null}
 
+      {/* 디자인 03 장면 C: 명백한 불일치가 있어도 작성 CTA 는 그대로 두고 쟁점만 알린다. */}
+      {failedConditions.length > 0 ? (
+        <Alert variant="destructive" className="mt-5 rounded-2xl px-4 py-3.5 leading-6">
+          <AlertTitle className="font-extrabold">
+            중요 자격 쟁점 {failedConditions.length.toLocaleString("ko-KR")}건
+          </AlertTitle>
+          <AlertDescription className="text-sm leading-6">
+            <span>
+              {failedConditions.map((trace) => describeFailedCondition(trace)).join(" ")}
+              {" "}
+              작성은 계속할 수 있고 기존 작성본은 잠기거나 삭제되지 않아요. 회사 정보가 다르면{" "}
+              <Link href="/settings?section=company">회사 프로필에서 정정</Link>하세요.
+            </span>
+          </AlertDescription>
+        </Alert>
+      ) : null}
+
       {/* ② 핵심 3지표 */}
       <section className="mt-7" aria-label="공고 핵심 정보">
         <dl className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)_auto_minmax(0,1fr)] overflow-hidden rounded-2xl border border-border-subtle">
@@ -128,9 +153,9 @@ export function GrantOverviewView({
           <GrantMetric
             label="지원 대상"
             value={formatEligibilitySummary(
-              satisfiedConditionCount,
-              unknownConditionCount,
-              failedConditionCount,
+              conditionCounts.passed,
+              conditionCounts.unknown,
+              conditionCounts.failed,
             )}
           />
         </dl>

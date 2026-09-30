@@ -1,8 +1,10 @@
 import type { ApplySheet, RuleTraceChip, SupportAmount } from "@cunote/contracts";
 import type { VerdictStatus } from "@/components/app/verdict-badge";
 import type { GrantPreviewAvailability } from "@/lib/server/documents/documentPreview";
+import { formatDraftResumeCaption, type DraftResumeSummary } from "@/lib/documents/draftResume";
 
 export type GrantOverviewCtaMode =
+  | "resume"
   | "manual_form"
   | "ai_draft"
   | "web_form_guide"
@@ -101,8 +103,38 @@ export function grantOverviewTraceAction(
 /**
  * 작성 지원 모드는 현재 상세 로더가 이미 제공하는 서식 보관본·변환·작성형 서류·접수 방법만으로 판정한다.
  * 정보가 부족하면 초안/서식 채움을 약속하지 않고 unknown으로 남긴다.
+ *
+ * 저장본이 있으면(디자인 2라운드 03 장면 F) 작성 시작 대신 같은 workspace 로 돌아가는 "문서 열기"로
+ * 바꾼다. 원래 모드가 실제 작성이 시작되는 manual_form·ai_draft 일 때만이며, 준비 필요·안내·unknown
+ * 모드는 저장본과 무관하게 원래 CTA 를 유지한다.
  */
 export function grantOverviewCta(
+  sheet: ApplySheet,
+  availability: GrantPreviewAvailability | null,
+  draftResume: DraftResumeSummary | null = null,
+  options: { now?: Date } = {},
+): GrantOverviewCta {
+  const base = baseGrantOverviewCta(sheet, availability);
+  if (
+    draftResume
+    && draftResume.savedCount > 0
+    && (base.mode === "manual_form" || base.mode === "ai_draft")
+  ) {
+    return {
+      mode: "resume",
+      label: "문서 열기",
+      caption: formatDraftResumeCaption({
+        savedCount: draftResume.savedCount,
+        lastSavedAt: draftResume.lastSavedAt,
+        ...(options.now ? { now: options.now } : {}),
+      }),
+      variant: "default",
+    };
+  }
+  return base;
+}
+
+function baseGrantOverviewCta(
   sheet: ApplySheet,
   availability: GrantPreviewAvailability | null,
 ): GrantOverviewCta {
@@ -167,17 +199,68 @@ export function grantOverviewCta(
   };
 }
 
+export interface EligibilityConditionCounts {
+  /** 필수·제외 조건 총수(M). */
+  total: number;
+  /** 회사 정보와 비교해 통과한 조건 수(N). */
+  passed: number;
+  /** 명백한 불일치(fail) 수(J). */
+  failed: number;
+  /** 답하거나 원문을 봐야 하는 남은 쟁점 수(K = M − N − J). */
+  unknown: number;
+}
+
+/** 판정에 쓰인 필수·제외 조건만 센다. 우대 조건은 집계에 넣지 않는다. */
+export function countHardConditions(
+  sheet: Pick<ApplySheet, "satisfied" | "needsCheck">,
+): EligibilityConditionCounts {
+  const hard = hardConditions(sheet);
+  const passed = hard.filter((trace) => trace.result === "pass").length;
+  const failed = hard.filter((trace) => trace.result === "fail").length;
+  return { total: hard.length, passed, failed, unknown: hard.length - passed - failed };
+}
+
+/** 필수·제외 조건 중 명백한 불일치(fail)만 돌려준다(콜아웃 "중요 자격 쟁점 N건"의 근거). */
+export function failedHardConditions(
+  sheet: Pick<ApplySheet, "satisfied" | "needsCheck">,
+): RuleTraceChip[] {
+  return hardConditions(sheet).filter((trace) => trace.result === "fail");
+}
+
+/**
+ * 불일치 조건 한 건을 콜아웃 문장으로 만든다. 디자인 문장("대표자 만 39세 이하 — 회사 정보의
+ * 대표자 출생연도 1984년과 맞지 않아요")의 구조를 따르되 회사값이 비어 있으면 값 없이 말한다.
+ */
+export function describeFailedCondition(trace: RuleTraceChip): string {
+  const label = trace.label?.trim() || trace.sourceSpan?.trim() || "자격 조건";
+  const companyValue = trace.companyValue?.trim();
+  return companyValue
+    ? `${label} — 회사 정보(${companyValue})와 맞지 않아요.`
+    : `${label} — 현재 회사 정보와 맞지 않아요.`;
+}
+
+/**
+ * 집계 어휘(결정 D1): "확인된 조건 N/M · 남은 쟁점 K", 불일치가 있으면 " · 불일치 J"를 붙인다.
+ * 필수·제외 조건이 하나도 정리되지 않았으면(총수 0) 기존 "매칭 확인 중"을 유지한다.
+ */
 export function formatEligibilitySummary(
   satisfiedCount: number,
   unknownCount: number,
   failedCount = 0,
 ): string {
-  if (satisfiedCount === 0 && unknownCount === 0 && failedCount === 0) return "매칭 확인 중";
-  return [
-    `충족 확인 ${satisfiedCount.toLocaleString("ko-KR")}`,
-    `미충족 ${failedCount.toLocaleString("ko-KR")}`,
-    `미확인 ${unknownCount.toLocaleString("ko-KR")}`,
-  ].join(" · ");
+  const total = satisfiedCount + unknownCount + failedCount;
+  if (total === 0) return "매칭 확인 중";
+  const parts = [
+    `확인된 조건 ${satisfiedCount.toLocaleString("ko-KR")}/${total.toLocaleString("ko-KR")}`,
+    `남은 쟁점 ${unknownCount.toLocaleString("ko-KR")}`,
+  ];
+  if (failedCount > 0) parts.push(`불일치 ${failedCount.toLocaleString("ko-KR")}`);
+  return parts.join(" · ");
+}
+
+function hardConditions(sheet: Pick<ApplySheet, "satisfied" | "needsCheck">): RuleTraceChip[] {
+  return [...sheet.satisfied, ...sheet.needsCheck]
+    .filter((trace) => trace.kind === "required" || trace.kind === "exclusion");
 }
 
 export function formatSupportAmount(amount: SupportAmount): string {

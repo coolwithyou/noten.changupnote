@@ -2,6 +2,9 @@ import assert from "node:assert/strict";
 import type { ApplySheet } from "@cunote/contracts";
 import type { GrantPreviewAvailability } from "@/lib/server/documents/documentPreview";
 import {
+  countHardConditions,
+  describeFailedCondition,
+  failedHardConditions,
   formatDday,
   formatEligibilitySummary,
   formatSupportAmount,
@@ -303,8 +306,57 @@ assert.equal(
   "최대 3,000만 원",
 );
 assert.equal(formatDday(21), "D-21");
-assert.equal(formatEligibilitySummary(3, 2), "충족 확인 3 · 미충족 0 · 미확인 2");
-assert.equal(formatEligibilitySummary(1, 2, 1), "충족 확인 1 · 미충족 1 · 미확인 2");
+// 집계 어휘(결정 D1): "확인된 조건 N/M · 남은 쟁점 K", 불일치가 있을 때만 " · 불일치 J".
+assert.equal(formatEligibilitySummary(3, 2), "확인된 조건 3/5 · 남은 쟁점 2");
+assert.equal(formatEligibilitySummary(1, 2, 1), "확인된 조건 1/4 · 남은 쟁점 2 · 불일치 1");
+assert.equal(formatEligibilitySummary(4, 0), "확인된 조건 4/4 · 남은 쟁점 0");
+assert.equal(formatEligibilitySummary(0, 0, 0), "매칭 확인 중");
+
+// 필수·제외 조건만 센다. 우대 조건은 총수에도 남은 쟁점에도 들어가지 않는다.
+const countedSheet = {
+  satisfied: [
+    { kind: "required", result: "pass", label: "부산 소재" },
+    { kind: "preferred", result: "pass", label: "여성기업" },
+  ],
+  needsCheck: [
+    { kind: "required", result: "fail", label: "대표자 만 39세 이하", companyValue: "1984년생" },
+    { kind: "exclusion", result: "unknown", label: "국세·지방세 체납" },
+    { kind: "required", result: "text_only", label: "중소기업" },
+    { kind: "preferred", result: "unknown", label: "수출 실적" },
+  ],
+} as unknown as Pick<ApplySheet, "satisfied" | "needsCheck">;
+assert.deepEqual(countHardConditions(countedSheet), { total: 4, passed: 1, failed: 1, unknown: 2 });
+assert.deepEqual(failedHardConditions(countedSheet).map((trace) => trace.label), ["대표자 만 39세 이하"]);
+assert.equal(
+  describeFailedCondition(failedHardConditions(countedSheet)[0]!),
+  "대표자 만 39세 이하 — 회사 정보(1984년생)와 맞지 않아요.",
+);
+assert.equal(
+  describeFailedCondition({ kind: "required", result: "fail", label: "  ", sourceSpan: "창업 7년 이내" } as ApplySheet["needsCheck"][number]),
+  "창업 7년 이내 — 현재 회사 정보와 맞지 않아요.",
+);
+assert.deepEqual(countHardConditions({ satisfied: [], needsCheck: [] }), { total: 0, passed: 0, failed: 0, unknown: 0 });
+
+// 저장본이 있으면 작성 시작 모드(manual_form·ai_draft)만 "문서 열기"로 바뀐다(디자인 03 장면 F).
+const resume = { savedCount: 3, lastSavedAt: new Date("2026-09-30T09:06:00Z") };
+const resumeNow = new Date("2026-09-30T12:00:00Z");
+assert.deepEqual(grantOverviewCta(templateSheet, previewFixture(), resume, { now: resumeNow }), {
+  mode: "resume",
+  label: "문서 열기",
+  caption: "저장본 3 · 마지막 서버 저장 오늘 18:06 · 같은 문서와 작성 상태로 돌아가요",
+  variant: "default",
+});
+assert.equal(
+  grantOverviewCta(sheetFixture({
+    draftableDocuments: [{ hwpxTemplateAvailable: false }] as ApplySheet["applicationPrep"]["draftableDocuments"],
+  }), previewFixture(), resume).mode,
+  "resume",
+);
+assert.equal(grantOverviewCta(templateSheet, previewFixture(), null).mode, "manual_form");
+assert.equal(grantOverviewCta(templateSheet, previewFixture(), { savedCount: 0, lastSavedAt: resume.lastSavedAt }).mode, "manual_form");
+assert.equal(grantOverviewCta(sheetFixture(), previewFixture({ pendingSurfaceCount: 2 }), resume).mode, "preparation_needed");
+assert.equal(grantOverviewCta(sheetFixture({ applyMethod: "온라인 접수" }), previewFixture(), resume).mode, "web_form_guide");
+assert.equal(grantOverviewCta(sheetFixture(), previewFixture(), resume).mode, "unknown");
 
 // 자격 미확정/마감은 기존 원본 편집을 잠그지 않는다. 미리보기만으로 양식 채움을 약속하지 않는다.
 for (const status of ["open", "closed"] as const) {

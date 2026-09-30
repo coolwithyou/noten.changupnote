@@ -55,7 +55,10 @@ const html = renderToStaticMarkup(
   </Accordion>,
 );
 
-assert.ok(html.includes("충족 확인 0 · 미충족 1 · 미확인 2"));
+assert.ok(html.includes("확인된 조건 0/3 · 남은 쟁점 2 · 불일치 1"));
+assert.ok(html.includes("자격 조건"));
+assert.ok(html.includes("작성 시작 여부와는 별개예요"));
+assert.ok(!html.includes("충족 확인 0"));
 assert.ok(html.includes("본점이 부산에 소재한 기업"));
 assert.ok(html.includes("최근 매출 10억원 이하"));
 assert.ok(html.includes("회사 정보"));

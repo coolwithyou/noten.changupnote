@@ -6,6 +6,7 @@ import { Empty, EmptyDescription } from "@/components/ui/empty";
 import { StatusBadge } from "@/components/app/status-badge";
 import { buttonVariants } from "@/components/ui/button";
 import { withCompanyContext } from "@/lib/navigation/companyContext";
+import { countHardConditions, formatEligibilitySummary } from "./logic";
 
 type ExplainedCondition = ReturnType<typeof explainCondition>;
 
@@ -33,21 +34,25 @@ export function EligibilityMatchAccordion({
   const preferredConditions = all
     .filter((trace) => trace.kind === "preferred")
     .map(explainCondition);
-  const passed = hardConditions.filter((condition) => condition.trace.result === "pass").length;
-  const failed = hardConditions.filter((condition) => condition.trace.result === "fail").length;
-  const unknown = hardConditions.filter((condition) => condition.pending).length;
+  // 지표 카드("지원 대상")와 같은 집계 함수를 써서 어휘가 갈리지 않게 한다(결정 D1).
+  const counts = countHardConditions({ satisfied, needsCheck });
+  const summary = formatEligibilitySummary(counts.passed, counts.unknown, counts.failed);
 
   return (
     <AccordionItem value="eligibility" className="border-b border-border-subtle">
       <AccordionTrigger className="px-1 py-[18px] text-[15.5px] font-semibold hover:no-underline">
-        자격 요건
+        <span>자격 조건</span>
+        <span className="ml-auto pr-2 text-right text-xs font-medium text-muted-foreground tabular-nums">
+          {summary}
+        </span>
       </AccordionTrigger>
       <AccordionContent className="px-1 pb-5">
         <p className="text-xs text-muted-foreground">
-          충족 확인 {passed.toLocaleString("ko-KR")} · 미충족 {failed.toLocaleString("ko-KR")} · 미확인 {unknown.toLocaleString("ko-KR")}
+          확인된 조건은 회사 정보와 비교한 결과이고, 남은 쟁점은 답하거나 원문을 봐야 해요. 작성 시작 여부와는 별개예요.
         </p>
+        <h4 className="mt-4 text-xs font-extrabold text-muted-foreground">필수 · 제외</h4>
         {hardConditions.length > 0 ? (
-          <div className="mt-4 grid gap-3">
+          <div className="mt-2 grid gap-3">
             {hardConditions.map((condition, index) => (
               <ConditionItem
                 key={`${condition.trace.criterionId ?? condition.trace.dimension}-${condition.trace.kind}-${index}`}
@@ -60,13 +65,13 @@ export function EligibilityMatchAccordion({
             ))}
           </div>
         ) : (
-          <Empty className="panel-empty mt-4">
+          <Empty className="panel-empty mt-2">
             <EmptyDescription>비교할 필수·제외 조건이 아직 정리되지 않았어요. 공고 원문을 확인해 주세요.</EmptyDescription>
           </Empty>
         )}
         {preferredConditions.length > 0 ? (
           <section className="mt-5 border-t border-border-subtle pt-4">
-            <h4 className="text-sm font-semibold text-foreground">우대·평가 참고</h4>
+            <h4 className="text-xs font-extrabold text-muted-foreground">우대 · 집계에 넣지 않아요</h4>
             <div className="mt-2 grid gap-3">
               {preferredConditions.map((condition, index) => (
                 <ConditionItem
