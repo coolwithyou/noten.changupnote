@@ -104,8 +104,9 @@ export async function verifyWritingSectionsPostgres(input: { admin: postgres.Sql
     assert.equal(retried.sections[0]?.proposal?.status, 'failed'); assert.equal(calls, 2);
     await admin`delete from grant_document_fields where id=${fieldId}`;
     assert.equal((await loadWritingSections(context)).sections[0]?.available, false);
-    await saveWritingSection({ ...context, body: { fieldId, expectedRevision: 3, text: '문항 삭제 후에도 보관한 문안 수정' } });
+    await saveWritingSection({ ...context, body: { fieldId, expectedRevision: 3, text: '문항 삭제 후에도 보관한 문안 수정\n총사업비: 1억원\n정부지원금: 7000만원\n자부담: 2000만원' } });
     assert.equal((await loadWritingSections(context)).sections[0]?.revision, 4);
+    assert.equal((await loadWritingSections(context)).consistency?.issues[0]?.kind, 'budget_total');
     assert.equal((await client.begin(async tx => {
       await tx`select set_config('app.current_user_id',${outsider},true)`;
       return tx`select composition from document_writing_section_runs where draft_id=${draftId}`;

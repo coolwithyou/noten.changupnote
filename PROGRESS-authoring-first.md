@@ -95,3 +95,11 @@
 - 기존 클라이언트는 자동 적용 후 서버 저장 실패 시 native revert를 수행하는 경로를 사용한다. 이 브라우저 rollback은 이번에 실제 실행하지 않았으며 기존 transaction 회귀(`/tmp/cunote-authoring-first-layout-transaction.log`)만 PASS다.
 - `CUNOTE_REQUIRE_WRITING_LAYOUT_SAFETY=1 pnpm test:product-postgres` exit 0(`/tmp/cunote-authoring-first-layout-safety-pg.log`, 98 migrations). 실제 바이오스타 HWPX 원본에서 20문단 넘침을 재현하고 거절 후 업로드 0회·이전 head/원본 SHA 보존을 확인했다. 이는 실패의 안전한 격리 증거이며 3문항 작성 왕복 성공이 아니다.
 - `tableLayoutGuard.test.ts` PASS(여러 쪽 셀 조각, 기존 넘침 개선, 새 넘침/누락/잘못된 page 거절), web typecheck `/tmp/cunote-authoring-first-layout-safety-types.log` exit 0. 별도의 `CUNOTE_REQUIRE_WRITING_FORM_FIXTURES=1` 작성 인수 실패는 유지한다.
+
+## 저장 문안 점검과 지침 분리
+
+- 보관한 문안/사업 설명에 명시된 `항목: 값`의 사업명·사업기간 순서·동일 연도/실적/목표 수치와 한 문안 안의 총사업비=정부지원금+자부담을 점검한다. 단위 환산은 정수 연산으로 수행하며, 연도/목표가 다른 값·복합 단위·자유 문장·빠진 합계 항목은 추측하지 않는다. 자동 수정이나 제출 가능 판정은 없다.
+- 점검 UI는 저장된 문안만 대상으로 표시하고 미저장 변경이 있으면 저장을 안내한다. 실제 HWP/HWPX의 전체 문서 일관성 검증과 구분한다. 문안 변경을 저장하면 이전 점검 결과를 지운다.
+- `writingConsistency.test.ts` PASS, `/tmp/cunote-authoring-first-consistency-pg.log` exit 0(98 migrations, 실제 저장 문안의 합계 불일치 반환 포함), web typecheck `/tmp/cunote-authoring-first-consistency-types.log` exit 0.
+- 문단 AI의 dynamicContext 전체가 회사 프로필 근거로 분류되던 부분을 수정. 회사 프로필과 승인 작성 지침을 별도 source kind로 보존하고 문단 prompt v4에서 지침 예시를 회사 실적으로 사용하지 않도록 명시했다. `writingGuidanceSources.test.ts`, 기존 chat grounding와 문단 prompt 회귀 PASS. 문항 composition 검증에서도 writing_guide를 회사 사실 근거로 거절한다. 실제 모델의 의미 정확성은 여전히 미검증이다.
+- 저장 문안 UI와 근거 분리까지 웹 build `/tmp/cunote-authoring-first-consistency-build.log` exit 0. 새 회귀는 기존 `test:writing-context`와 `test:document-agent` 명령에 포함했다.

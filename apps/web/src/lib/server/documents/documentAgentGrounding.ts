@@ -4,6 +4,7 @@ import { canonicalJson } from "@/lib/rhwp/documentAgentContract";
 import type { CompanyAccess } from "../auth/companyGuard";
 import { loadWritingGrounding } from "./writingContext";
 import { writingGroundingSources } from "./writingGroundingSources";
+import { writingGuidanceSources } from "./writingGuidanceSources";
 import { buildGrantGrounding } from "../chat/grounding";
 
 import { loadVerifiedDeepSources, type DocumentAgentGroundingSource, type DocumentAgentGroundingBundle } from "../analysis-serving/verifiedDeepSources";
@@ -51,16 +52,7 @@ export async function buildDocumentAgentGrounding(input: {
       provenance: { filename: document.filename },
     }));
   }
-  if (grounding.dynamicContext.trim()) {
-    const content = grounding.dynamicContext.trim();
-    sources.push(makeSource({
-      sourceId: `company_profile:verified_context:${sha256(content)}`,
-      kind: "company_profile",
-      title: "현재 회사 확인 정보와 승인된 작성 가이드",
-      content,
-      provenance: { companyId: input.access.companyId },
-    }));
-  }
+  sources.push(...writingGuidanceSources(grounding, input.access.companyId));
 
   const [deep, writing] = await Promise.all([
     loadVerifiedDeepSources(input.grantId),

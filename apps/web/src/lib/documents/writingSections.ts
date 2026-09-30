@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { WritingComposition } from "./writingComposition";
+import type { WritingConsistencyReport } from "./writingConsistency";
 
 const sectionIdentity = { fieldId: z.string().uuid(), expectedRevision: z.number().int().min(0) };
 export const saveWritingSectionSchema = z.object({ ...sectionIdentity,
@@ -23,4 +24,4 @@ export interface WritingSection {
   text: string;
   proposal: WritingSectionProposal | null;
 }
-export interface WritingSections { sections: WritingSection[]; canWrite: boolean; canGenerate: boolean }
+export interface WritingSections { sections: WritingSection[]; canWrite: boolean; canGenerate: boolean; consistency: WritingConsistencyReport | null }

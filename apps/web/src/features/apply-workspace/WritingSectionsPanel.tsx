@@ -32,6 +32,7 @@ export function WritingSectionsPanel({ draftId, onDirtyChange }: { draftId: stri
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [compare, setCompare] = useState(false);
+  const [showChecks, setShowChecks] = useState(false);
   const pending = useRef<{ fieldId: string; revision: number; requestId: string } | null>(null);
   const endpoint = `/api/web/document-drafts/${encodeURIComponent(draftId)}/writing-sections`;
   const section = data?.sections.find(section => section.fieldId === fieldId);
@@ -69,7 +70,7 @@ export function WritingSectionsPanel({ draftId, onDirtyChange }: { draftId: stri
     const saved = await request<{ revision: number; text: string }>(endpoint, { method: "PUT",
       body: JSON.stringify({ fieldId, expectedRevision: editor.revision, text: editor.text }) });
     setEditors(current => ({ ...current, [fieldId]: { ...saved, savedText: saved.text } }));
-    setData(current => current ? { ...current, sections: current.sections.map(section => section.fieldId === fieldId ? { ...section, ...saved } : section) } : current);
+    setData(current => current ? { ...current, consistency: null, sections: current.sections.map(section => section.fieldId === fieldId ? { ...section, ...saved } : section) } : current);
     return saved.revision;
   }
   function changeText(text: string) {
@@ -90,6 +91,17 @@ export function WritingSectionsPanel({ draftId, onDirtyChange }: { draftId: stri
           {!data ? <Button disabled={busy} onClick={() => void run(refresh)}>{busy ? "불러오는 중…" : "다시 불러오기"}</Button> : <>
             {!data.canWrite ? <p>읽기 권한으로 열었어요. 저장한 문안을 확인하고 복사할 수 있어요.</p> : null}
             {data.sections.length === 0 ? <p>이 양식에서 확인된 서술형 문항이 아직 없어요. 양식 준비 상태를 확인하거나 문서에서 직접 작성해 주세요.</p> : null}
+            {data.sections.length ? <>
+              <Button variant="outline" disabled={busy || dirty} onClick={() => void run(async () => { await refresh(); setShowChecks(true); })}>저장 문안의 사업명·수치 점검</Button>
+              {dirty ? <p className="text-sm text-muted-foreground">문안 변경을 저장한 뒤 점검할 수 있어요.</p> : null}
+              {showChecks && data.consistency ? <Card variant="workspace"><CardHeader><CardTitle>저장 문안 점검</CardTitle></CardHeader><CardContent className="flex flex-col gap-3">
+                <p className="text-sm text-muted-foreground">보관한 문안 {data.consistency.checkedSections}개와 사업 설명에서 ‘항목: 값’으로 명시한 내용을 대조했어요. 실제 양식 파일의 전체 내용과 자유 문장의 의미는 별도로 검토해 주세요.</p>
+                {data.consistency.issues.length ? data.consistency.issues.map((issue, index) => <div key={index}>
+                  <p>{issue.message}</p>
+                  <ul className="list-disc pl-5">{issue.entries.map((entry, i) => <li key={i}>{entry.label}: {entry.value}</li>)}</ul>
+                </div>) : <p>인식한 수치 항목 {data.consistency.recognizedValues}개와 명시된 사업명·기간에서 대조 가능한 불일치를 찾지 못했어요. 모든 내용의 정확성을 확인한 결과는 아닙니다.</p>}
+              </CardContent></Card> : null}
+            </> : null}
             {section && editor ? <>
               <Field><FieldLabel htmlFor="writing-section-choice">작성할 문항</FieldLabel>
                 <Select value={fieldId} disabled={busy} items={data.sections.map(section => ({ value: section.fieldId, label: section.label }))}

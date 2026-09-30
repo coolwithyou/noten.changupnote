@@ -3,6 +3,7 @@ import { and, desc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { saveWritingSectionSchema, generateWritingSectionSchema, type WritingSection, type WritingSections } from "@/lib/documents/writingSections";
 import { isManualLabel } from "@/lib/documents/manualFieldPolicy";
+import { checkWritingConsistency } from "@/lib/documents/writingConsistency";
 import { canonicalJson } from "@/lib/rhwp/documentAgentContract";
 import type { CompanyAccess } from "../auth/companyGuard";
 import { getCunoteDb, withCunoteDbUser, type CunoteDbSession } from "../db/client";
@@ -71,8 +72,13 @@ export async function loadWritingSections(input: Scope): Promise<WritingSections
     const latest = await tx.selectDistinctOn([runs.fieldId]).from(runs).where(eq(runs.draftId, input.draftId))
       .orderBy(runs.fieldId, desc(runs.createdAt), desc(runs.id));
     const currentBinding = await binding(tx, input);
+    const [brief] = await tx.select({ brief: schema.documentWritingBriefs.brief }).from(schema.documentWritingBriefs)
+      .where(eq(schema.documentWritingBriefs.draftId, input.draftId));
     const ids = [...new Set([...fields.map(field => field.fieldId), ...saved.map(row => row.fieldId)])];
-    return { canWrite: writable, canGenerate: writable && isWritingSectionAgentEnabled(), sections: ids.map(fieldId => {
+    return { canWrite: writable, canGenerate: writable && isWritingSectionAgentEnabled(),
+      consistency: checkWritingConsistency({ projectName: brief?.brief.projectName ?? "", budget: brief?.brief.budget ?? "",
+        sections: saved.map(row => ({ fieldId: row.fieldId, label: row.label, text: row.content })) }),
+      sections: ids.map(fieldId => {
       const field = fields.find(field => field.fieldId === fieldId);
       const row = saved.find(row => row.fieldId === fieldId);
       return { fieldId, label: field?.label ?? row!.label, guidance: field?.guidance ?? null, available: Boolean(field),

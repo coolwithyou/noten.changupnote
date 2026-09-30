@@ -359,6 +359,9 @@ export interface GrantGrounding {
   documents: GroundingDocumentBlock[];
   /** 세션 안정 가변 정보(lesson·프로필·절단/한계 고지) — 첫 사용자 메시지에 붙인다(캐시 브레이크포인트 이후). */
   dynamicContext: string;
+  /** 문서 작성 근거에서 회사 사실과 작성 지침을 섞지 않도록 원래 블록도 보존한다. */
+  profileSummary: string;
+  lessonBlock: string;
   /** per-메시지 가변 fieldContext 데이터 경계 블록(있을 때만) — 현재 사용자 메시지에 붙인다. */
   fieldContextBlock?: string;
   /** 본문성 소스 부재 여부(첫 메시지 한계 고지 판단·telemetry). */
@@ -398,6 +401,8 @@ export function assembleGrounding(input: {
   const result: GrantGrounding = {
     system: buildChatSystemPrompt(),
     documents,
+    profileSummary: input.profileSummary,
+    lessonBlock: input.lessonBlock,
     dynamicContext: buildDynamicContext({
       lessonBlock: input.lessonBlock,
       profileSummary: input.profileSummary,
