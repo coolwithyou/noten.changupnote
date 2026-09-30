@@ -83,6 +83,8 @@
 - **배포**: 워크트리 HEAD 675ac15를 `.git`·node_modules 제외 사본(`scratchpad/deploy/changupnote-675ac15`, 루트 `.vercel/project.json` 복사)에서 `vercel deploy --prod --yes --scope noten` → `dpl_J2eadgJZQTAY3DPhQ8iq8sZzWogK` READY(production). 직전 운영 배포는 09-28 23:36(origin/main ab4e725 상당).
 - **운영 env 미설정으로 비활성인 기능**: `CUNOTE_WRITING_SOURCE_KEY_BASE64` 없음 → 회사 자료 PDF 업로드 비활성(텍스트 자료는 동작), `CUNOTE_WRITING_SECTION_AGENT_ENABLED` 없음 → 문항별 문안 "초안 요청"·신청 관리 "문안 제안" 비표시. 켜려면 Vercel production env 추가 후 재배포(PDF 키는 분실 시 기존 원본 복호 불가 — 보관 정책 결정 필요).
 - **git**: origin/main(ab4e725)은 배포본보다 16커밋 뒤. main 머지·push는 배포 연동 가능성이 있어 사용자 판단으로 남김. 로컬 main의 d7958c6(랜딩 확인 모달 상호 재조회)과 74개 미커밋 변경은 이번 배포에 포함되지 않음.
+- **2026-10-01 새벽 랜딩 재작업·재배포.** 사용자 지적("랜딩도 그대로야"): 첫 반영(c260922)은 카피만 바꾸고 가운데 정렬 히어로+조회 데모 카드 구조를 보존해 예전 화면처럼 보였음. e1baeb4에서 디자인 05대로 2열 히어로(좌 카피·조회 폼, 우 문항별 검토용 초안 카드 목업 `landing-draft-mock.tsx`)·단색 3행 헤드라인·제목 없는 특징 3열(히어로 바로 아래)로 교체, `landing-demo.tsx` 삭제. d6393ef에서 마지막 CTA 라벨 "내 회사로 시작" 통일. 운영 배포 `dpl_8x8VCXE7M6DBgPEocVkipnb7JboN`(중간 `dpl_qdmyUbxrij8vKXaASneSy18rnqGK`), 데스크톱·모바일 스크린샷으로 05·05M과 대조 확인. 프리뷰 배포는 Vercel 배포 보호(SSO)로 외부 확인 불가 → 운영 배포 후 확인하는 방식 사용.
+- **교훈.** "디자인 반영"은 카피 교체가 아니라 화면 구조까지다. 나머지 화면(01~04·06)은 디자인이 구현 구조를 따른 것이라 문구·요소 추가 위주였으나, 로그인 화면은 시각 대조를 아직 못 했음(사용자 계정 필요).
 
 ## 막힘
 - (없음)
