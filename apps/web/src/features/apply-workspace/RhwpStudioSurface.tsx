@@ -114,6 +114,8 @@ import {
   type ScheduleTableTarget,
 } from "@/lib/rhwp/scheduleTable";
 import { applyTablePagination, inspectTablePagination, type TablePaginationTarget } from "@/lib/rhwp/tablePagination";
+import { inspectDocumentConsistency, type DocumentConsistencyReport } from "@/lib/rhwp/documentConsistency";
+import type { WritingBrief } from "@/lib/documents/writingContext";
 import type { ScheduleTablePlan } from "@/lib/rhwp/scheduleTableContract";
 import {
   commitStudioSnapshot,
@@ -258,6 +260,7 @@ export interface RhwpStudioSurfaceHandle {
   applyTablePagination(target: TablePaginationTarget): Promise<{ afterDocumentSha256: string }>;
   undoTablePagination(): Promise<void>;
   canUndoTablePagination(): boolean;
+  inspectDocumentConsistency(brief: Pick<WritingBrief, "projectName" | "budget">): Promise<DocumentConsistencyReport>;
 }
 
 export interface RhwpStudioDocumentActionState {
@@ -2641,6 +2644,19 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
   const undoPagination = useCallback(() => undoTableEdit("pagination"), [undoTableEdit]);
   const canUndoScheduleTable = useCallback(() => tableEditUndoRef.current?.kind === "schedule", []);
   const canUndoPagination = useCallback(() => tableEditUndoRef.current?.kind === "pagination", []);
+  const inspectConsistency = useCallback(async (brief: Pick<WritingBrief, "projectName" | "budget">) => {
+    const sourceSeq = requestSeq.current;
+    let locked = false;
+    try {
+      beginAgentMutation(); locked = true;
+      const current = await readCurrentScheduleDocument();
+      const rhwp = await loadRhwp();
+      if (sourceSeq !== requestSeq.current) throw new Error("문서가 전환됐습니다. 현재 문서에서 다시 점검해 주세요.");
+      const document = new rhwp.HwpDocument(current.bytes);
+      try { return inspectDocumentConsistency(document, current.documentSha256, brief); }
+      finally { document.free(); }
+    } finally { if (locked && sourceSeq === requestSeq.current) finishAgentMutation(); }
+  }, [beginAgentMutation, finishAgentMutation, readCurrentScheduleDocument]);
   const inspectPagination = useCallback(async () => {
     if (transport.mode !== "persistent") throw new Error("서버에 저장되는 문서 초안이 아닙니다.");
     let locked = false;
@@ -2676,6 +2692,7 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
     applyTablePagination: applyPagination,
     undoTablePagination: undoPagination,
     canUndoTablePagination: canUndoPagination,
+    inspectDocumentConsistency: inspectConsistency,
   }), [
     applyProfileAutofill,
     undoAutomaticProfileAutofill,
@@ -2693,7 +2710,7 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
     saveCurrent,
     undoFieldSuggestion,
     undoScheduleTable,
-    canUndoScheduleTable, inspectPagination, applyPagination, undoPagination, canUndoPagination,
+    canUndoScheduleTable, inspectPagination, applyPagination, undoPagination, canUndoPagination, inspectConsistency,
   ]);
 
   const saving = isStudioSaveInFlight(saveState);

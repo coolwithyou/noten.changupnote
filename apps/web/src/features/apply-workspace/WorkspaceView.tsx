@@ -61,6 +61,7 @@ import type { InstitutionContact } from "./workspacePresentation";
 import { WritingContextPanel } from "./WritingContextPanel";
 import { WritingSectionsPanel } from "./WritingSectionsPanel";
 import { TablePaginationPanel } from "./TablePaginationPanel";
+import { DocumentConsistencyPanel } from "./DocumentConsistencyPanel";
 import { workspaceReadiness } from "./workspaceReadiness";
 import { withCompanyContext } from "@/lib/navigation/companyContext";
 
@@ -637,6 +638,7 @@ export function WorkspaceView({
           {!readOnlyPreview && data.draftId ? <WritingContextPanel key={data.draftId} draftId={data.draftId} onDirtyChange={setWritingContextDirty} /> : null}
           {!readOnlyPreview && data.draftId ? <WritingSectionsPanel key={data.draftId} draftId={data.draftId} onDirtyChange={setWritingSectionsDirty} /> : null}
           {!readOnlyPreview && integratedFieldEditor && data.draftId ? <TablePaginationPanel key={currentStudioSourceKey} getSurface={() => studioSurfaceRef.current} onBusyChange={setTablePaginationBusy} /> : null}
+          {!readOnlyPreview && integratedFieldEditor && data.draftId ? <DocumentConsistencyPanel key={`check:${currentStudioSourceKey}`} draftId={data.draftId} getSurface={() => studioSurfaceRef.current} disabled={writingContextDirty || tablePaginationBusy} /> : null}
           {canUndoAutomaticProfileAutofill ? (
             <Button
               type="button"

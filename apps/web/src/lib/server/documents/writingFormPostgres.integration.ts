@@ -17,6 +17,7 @@ import { loadExactDraftRevisionFile, saveStudioSnapshot } from "./documentRevisi
 import { assertTableLayoutDoesNotOverflow } from "@/lib/rhwp/tableLayoutGuard";
 import { transitionFieldAgentSuggestion } from "./fieldAgentRuns";
 import { applyTablePagination, inspectTablePagination } from "@/lib/rhwp/tablePagination";
+import { inspectDocumentConsistency } from "@/lib/rhwp/documentConsistency";
 
 // 공개 기관 원본 + 합성 회사 자료다. 실제 기업의 적격성/모델 품질/브라우저 UAT 증거가 아니다.
 const FIXTURE = {
@@ -125,6 +126,11 @@ export async function verifyWritingFormPostgres(input: {
       } finally { reopened.free(); }
     }
     assert.equal(changed.size, 3);
+    const checkedText = document.getTextFileText();
+    const consistency = inspectDocumentConsistency(document, hash(exportVerifiedRhwpDocument({ rhwp: input.rhwp, document, format: 'hwpx' }).bytes), { projectName: '', budget: '' });
+    assert.ok(consistency.report.checkedSections > 0, '실제 작성 파일의 본문/표를 점검한다');
+    assert.equal(consistency.skippedTables, 0, '이 양식의 표를 읽지 못한 경우를 숨기지 않는다');
+    assert.equal(document.getTextFileText(), checkedText, '현재 파일 점검은 문구를 변경하지 않는다');
     assert.equal(hash(readFileSync(FIXTURE.path)), FIXTURE.sha256, '원본 파일은 수정하지 않는다');
     console.log(`PASS: actual business-plan HWPX: company source + brief -> ${input.allowTablePagination ? 'explicit table pagination -> ' : ''}3 uniquely bound narrative cells -> multi-paragraph native edit -> ${changeSeq} DB revisions -> exact reopen; untouched cells preserved (synthetic composition, no browser/model/external-editor claim)`);
   } finally { document.free(); }
