@@ -18,7 +18,7 @@
  */
 import { and, eq } from "drizzle-orm";
 import type { Grant } from "@cunote/contracts";
-import { getCunoteDb } from "../db/client";
+import { getCunoteDb, type CunoteDbSession } from "../db/client";
 import * as schema from "../db/schema";
 
 /**
@@ -30,8 +30,7 @@ export async function resolveArchiveStorageKey(input: {
   source: Grant["source"];
   sourceId: string;
   filename: string;
-}): Promise<{ storageKey: string | null } | null> {
-  const db = getCunoteDb();
+}, db: CunoteDbSession = getCunoteDb()): Promise<{ storageKey: string | null } | null> {
   const [row] = await db
     .select({ storageKey: schema.grantAttachmentArchives.storageKey })
     .from(schema.grantAttachmentArchives)
@@ -77,8 +76,7 @@ export async function loadConnectedDocumentFields(input: {
   sourceId: string;
   surfaceId?: string | null;
   sourceAttachment?: string | null;
-}): Promise<ConnectedDocumentField[]> {
-  const db = getCunoteDb();
+}, db: CunoteDbSession = getCunoteDb()): Promise<ConnectedDocumentField[]> {
 
   const where = input.surfaceId
     ? eq(schema.grantDocumentFields.surfaceId, input.surfaceId)

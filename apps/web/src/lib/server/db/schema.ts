@@ -2273,6 +2273,44 @@ export const documentWritingBriefs = pgTable("document_writing_briefs", {
   revisionCheck: check("document_writing_briefs_revision_check", sql`${table.revision} > 0`),
 }));
 
+/** 문안 보관은 실제 HWP/HWPX 입력·저장 상태와 별개다. 원문 필드 삭제 후에도 보관한다. */
+export const documentWritingSections = pgTable("document_writing_sections", {
+  draftId: uuid("draft_id").notNull().references(() => grantDocumentDrafts.id, { onDelete: "cascade" }),
+  fieldId: uuid("field_id").notNull(),
+  companyId: uuid("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  label: text("label").notNull(),
+  revision: integer("revision").notNull(),
+  content: text("content").notNull(),
+  updatedBy: uuid("updated_by").references(() => users.id, { onDelete: "set null" }),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  pk: primaryKey({ columns: [table.draftId, table.fieldId] }),
+  companyIdx: index("document_writing_sections_company_idx").on(table.companyId),
+  updaterIdx: index("document_writing_sections_updater_idx").on(table.updatedBy),
+  valueCheck: check("document_writing_sections_value_check", sql`${table.revision} > 0 and char_length(${table.content}) <= 12000`),
+}));
+
+export const documentWritingSectionRuns = pgTable("document_writing_section_runs", {
+  id: uuid("id").primaryKey(),
+  draftId: uuid("draft_id").notNull().references(() => grantDocumentDrafts.id, { onDelete: "cascade" }),
+  fieldId: uuid("field_id").notNull(),
+  companyId: uuid("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  baseRevision: integer("base_revision").notNull(),
+  writingBinding: text("writing_binding").notNull(),
+  fieldBinding: text("field_binding").notNull(),
+  status: text("status").$type<"running" | "ready" | "failed">().notNull(),
+  composition: jsonb("composition").$type<WritingComposition>(),
+  errorCode: text("error_code"),
+  createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+}, (table) => ({
+  draftIdx: index("document_writing_section_runs_draft_idx").on(table.draftId, table.fieldId, table.createdAt),
+  companyIdx: index("document_writing_section_runs_company_idx").on(table.companyId),
+  creatorIdx: index("document_writing_section_runs_creator_idx").on(table.createdBy),
+  stateCheck: check("document_writing_section_runs_state_check", sql`${table.status} in ('running', 'ready', 'failed') and ${table.baseRevision} >= 0`),
+}));
+
 export const grantDocumentDraftEvents = pgTable("grant_document_draft_events", {
   id: uuid("id").defaultRandom().primaryKey(),
   draftId: uuid("draft_id").notNull().references(() => grantDocumentDrafts.id, { onDelete: "cascade" }),

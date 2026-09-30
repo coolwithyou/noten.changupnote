@@ -59,6 +59,7 @@ import {
 } from "./RhwpStudioSurface";
 import type { InstitutionContact } from "./workspacePresentation";
 import { WritingContextPanel } from "./WritingContextPanel";
+import { WritingSectionsPanel } from "./WritingSectionsPanel";
 import { workspaceReadiness } from "./workspaceReadiness";
 import { withCompanyContext } from "@/lib/navigation/companyContext";
 
@@ -118,6 +119,7 @@ export function WorkspaceView({
   const [suggestingLabels, setSuggestingLabels] = useState<Set<string>>(() => new Set());
   const [showChat, setShowChat] = useState(false);
   const [writingContextDirty, setWritingContextDirty] = useState(false);
+  const [writingSectionsDirty, setWritingSectionsDirty] = useState(false);
   const [showFieldAgent, setShowFieldAgent] = useState(false);
   const [workingDocument, setWorkingDocument] = useState<RhwpWorkingDocument | null>(null);
   const [studioDocumentActions, setStudioDocumentActions] = useState<RhwpStudioDocumentActionState>({
@@ -609,6 +611,7 @@ export function WorkspaceView({
         </div>
         <div className="flex flex-wrap items-center justify-end gap-3">
           {!readOnlyPreview && data.draftId ? <WritingContextPanel key={data.draftId} draftId={data.draftId} onDirtyChange={setWritingContextDirty} /> : null}
+          {!readOnlyPreview && data.draftId ? <WritingSectionsPanel key={data.draftId} draftId={data.draftId} onDirtyChange={setWritingSectionsDirty} /> : null}
           {canUndoAutomaticProfileAutofill ? (
             <Button
               type="button"
@@ -624,7 +627,7 @@ export function WorkspaceView({
           {data.documents.length > 1 && data.activeDocumentKey ? (
             <Select
               value={data.activeDocumentKey}
-              disabled={suggestingLabels.size > 0 || automaticProfileBusy || writingContextDirty}
+              disabled={suggestingLabels.size > 0 || automaticProfileBusy || writingContextDirty || writingSectionsDirty}
               // Base UI Select 는 items 를 줘야 SelectValue 가 raw value(documentKey) 대신 label 을 렌더한다.
               items={data.documents.map((document) => ({ value: document.documentKey, label: document.label }))}
               onValueChange={(next) => {

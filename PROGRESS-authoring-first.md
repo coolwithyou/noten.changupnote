@@ -68,3 +68,15 @@
 - 최신 UI/서버 번들 build `/tmp/cunote-authoring-first-current-build.log` exit 0. grant-overview logic와 route policy(158 API methods) PASS. 그 뒤 제안 이력의 회사 scope 재검사를 추가해 별도 PG/typecheck 진행.
 - 기존 field-agent GET 이력이 created_by만으로 조회되던 간격을 보완: 현재 membership과 draft.companyId를 검사한 후 근거/문단을 반환. 다른 회사가 선택된 동일 사용자와 membership 철회 사례를 격리 DB 회귀에 추가.
 - 추가 권한 변경까지 `/tmp/cunote-authoring-first-access-pg.log` PASS(96 migrations, 기관 HWP/HWPX 포함), `/tmp/cunote-authoring-first-final-types.log` web typecheck PASS. 서술형 3문항 별도 회귀는 여전히 미통과이며 이 PASS에 포함하지 않는다.
+
+## 자동 입력 위치와 독립적인 문안 보관
+
+- `document_writing_sections`와 요청별 `document_writing_section_runs`를 추가(0096). 회사 권한·RLS를 적용하고 문안의 CAS 버전과 생성 요청을 분리했다. 입력 위치나 native revision 없이 기존 양식의 서술형 문항을 작성·저장·복사한다. 분석에서 문항이 사라져도 저장한 문안은 유지한다.
+- 같은 요청 ID는 모델을 다시 호출하지 않는다. 문항별 진행 중 요청은 중복 착수를 거절하고 90초가 지난 요청은 실패로 표시한다. 생성 중 문안 수정은 보존하고 오래된 제안으로 표시한다. 회사 자료 철회·사업 설명·문항 변경이 발생하면 생성 결과를 저장하지 않는다.
+- `WritingSectionsPanel`에서 문안 저장·복원·충돌 비교·초안/질문/인용 확인·복사를 지원한다. 이 저장은 실제 양식 파일 반영이 아니라고 표시한다. 새 AI 경로는 독립 `CUNOTE_WRITING_SECTION_AGENT_ENABLED=true|1`일 때만 열리며 기본 비활성이다. 플래그가 꺼져도 저장 문안의 조회·수정·복사는 유지한다.
+- `/tmp/cunote-authoring-first-manuscript-pg.log` exit 0: 97 migrations, 실제 PostgreSQL의 문안 권한/RLS/CAS, 중복·동시 생성, 생성 중 수정·철회, 만료 요청 재시도, 문항 삭제 후 보존. 생성기는 주입한 합성 응답이며 실제 모델 품질 증거가 아니다. 이번 실행의 기관 원본 fixture는 SKIP이며 이전 기관 파일 PASS를 반복 실행하지 않았다.
+- `/tmp/cunote-authoring-first-manuscript-types.log` web typecheck exit 0. 4010/4011 listener 재확인 결과 없음. 브라우저 인수와 외부 한글 검증은 미실행.
+- 기존 field-agent 원장은 `base_revision_id`와 물리 입력 target을 필수로 요구한다. 이를 가짜 좌표로 채우거나 nullable로 완화하지 않고 문안 생성 요청만 별도 원장에 보관했다. 문안은 저장/생성 상태를 가지며 실제 파일 적용·Undo는 기존 원장이 담당한다.
+- 레이아웃 후속: 설치된 core의 `reflowLinesegs()`는 해당 편집본에서 0을 반환하며 문제가 유지된다. 표 pageBreak 값을 재설정해도 이 fixture의 잘림은 유지(`/tmp/cunote-authoring-first-reflow.log`). upstream [#7288](https://github.com/edwardkim/rhwp/issues/7288)에도 0.8.6의 표 페이지 분할·용지 밖 넘침 신고가 열려 있다. 같은 원인이라고 확정하지 않으며 의존성을 무조건 올리거나 원본 표 속성을 제품에서 바꾸지 않는다.
+- 브라우저 검증용으로 사용자가 직접 실행할 authoring-first 개발 서버와 테스트 회사 정보를 비동기로 요청했다. 서버 시작 금지 규칙은 유지하고 독립 구현을 계속한다.
+- 문안 패널까지 웹 build `/tmp/cunote-authoring-first-manuscript-build.log` exit 0, route policy 161 API methods PASS, `git diff --check` PASS.
