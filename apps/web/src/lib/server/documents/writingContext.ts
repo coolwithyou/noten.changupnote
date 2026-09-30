@@ -3,7 +3,7 @@ import { and, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
   createWritingSourceSchema, emptyWritingBrief, saveWritingBriefSchema,
-  type WritingContext, type WritingSourceSummary, type WritingPdfOriginal,
+  type CreateWritingSource, type WritingContext, type WritingSourceSummary, type WritingPdfOriginal,
 } from "@/lib/documents/writingContext";
 import { canWriteCompany } from "../auth/companyAccessPolicy";
 import type { CompanyAccess } from "../auth/companyGuard";
@@ -33,28 +33,37 @@ async function withDraft<T>(access: CompanyAccess, draftId: string, write: boole
   });
 }
 
-export async function assertWritingDraftAccessInTransaction(tx: CunoteDbSession, access: CompanyAccess, draftId: string, write: boolean): Promise<boolean> {
-  parse(uuid, draftId);
+/** draft와 무관한 회사 membership 검사. 회사 단위 자료함(companyWritingSources)과 공유한다. */
+export async function assertWritingMemberInTransaction(tx: CunoteDbSession, access: CompanyAccess, write: boolean): Promise<boolean> {
   if (access.mode === "demo") throw new WritingContextError("writing_session_required", "회사 자료를 저장하려면 로그인해 주세요.", 403);
   const [member] = await tx.select({ role: schema.userCompany.role }).from(schema.userCompany)
     .where(and(eq(schema.userCompany.companyId, access.companyId), eq(schema.userCompany.userId, access.userId))).for("share");
   if (!member || (write && !canWriteCompany(member.role))) {
     throw new WritingContextError("writing_forbidden", "작성 자료에 접근할 권한이 없습니다.", 403);
   }
+  return canWriteCompany(member.role);
+}
+
+export async function assertWritingDraftAccessInTransaction(tx: CunoteDbSession, access: CompanyAccess, draftId: string, write: boolean): Promise<boolean> {
+  parse(uuid, draftId);
+  const writable = await assertWritingMemberInTransaction(tx, access, write);
   const [draft] = await tx.select({ id: schema.grantDocumentDrafts.id }).from(schema.grantDocumentDrafts)
     .where(and(eq(schema.grantDocumentDrafts.id, draftId), eq(schema.grantDocumentDrafts.companyId, access.companyId)))
     .for(write ? "update" : "share");
   if (!draft) throw new WritingContextError("writing_draft_not_found", "작성 문서를 찾지 못했습니다.", 404);
-  return canWriteCompany(member.role);
+  return writable;
 }
 
-const sourceSummaryColumns = { id: schema.companyWritingSources.id, title: schema.companyWritingSources.title,
+export const sourceSummaryColumns = { id: schema.companyWritingSources.id, title: schema.companyWritingSources.title,
   draftId: schema.companyWritingSources.draftId, kind: schema.companyWritingSources.kind,
   contentSha256: schema.companyWritingSources.contentSha256, observedDate: schema.companyWritingSources.observedDate,
   originalPdf: schema.companyWritingSources.originalPdf,
   createdAt: schema.companyWritingSources.createdAt, withdrawnAt: schema.companyWritingSources.withdrawnAt };
 
-function summarize(row: Pick<typeof schema.companyWritingSources.$inferSelect, keyof typeof sourceSummaryColumns>): WritingSourceSummary {
+/** PDF 보관에 필요한 키·저장소 환경이 모두 있을 때만 업로드 UI를 연다. */
+export const canUploadWritingPdf = () => ["CUNOTE_WRITING_SOURCE_KEY_BASE64", "R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY", "R2_BUCKET", "R2_BUCKET_URL"].every(key => Boolean(process.env[key]?.trim()));
+
+export function summarize(row: Pick<typeof schema.companyWritingSources.$inferSelect, keyof typeof sourceSummaryColumns>): WritingSourceSummary {
   return { id: row.id, title: row.title, scope: row.draftId ? "application" : "company", kind: row.kind,
     sha256: row.contentSha256, observedDate: row.observedDate, createdAt: row.createdAt.toISOString(), withdrawn: row.withdrawnAt !== null,
     ...(row.originalPdf ? { originalPdf: { filename: row.originalPdf.filename, pages: row.originalPdf.pages, sha256: row.originalPdf.sha256 } } : {}) };
@@ -71,7 +80,7 @@ async function readContext(tx: CunoteDbSession, access: CompanyAccess, draftId: 
     .where(and(sourceScope(access, draftId), inArray(schema.companyWritingSources.id, missing))));
   return { revision: saved?.revision ?? 0, brief: saved?.brief ?? emptyWritingBrief(), sourceIds: saved?.sourceIds ?? [],
     sources: visible.map(summarize), sourcesTruncated: sources.length > 200, canWrite: writable,
-    canUploadPdf: writable && ["CUNOTE_WRITING_SOURCE_KEY_BASE64", "R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY", "R2_BUCKET", "R2_BUCKET_URL"].every(key => Boolean(process.env[key]?.trim())) };
+    canUploadPdf: writable && canUploadWritingPdf() };
 }
 
 export function loadWritingContext(input: { access: CompanyAccess; draftId: string }) {
@@ -80,28 +89,34 @@ export function loadWritingContext(input: { access: CompanyAccess; draftId: stri
 
 export async function createWritingSource(input: { access: CompanyAccess; draftId: string; body: unknown; originalPdf?: WritingPdfOriginal }): Promise<WritingSourceSummary> {
   const body = parse(createWritingSourceSchema, input.body);
-  const contentSha256 = createHash("sha256").update(body.content).digest("hex");
   const draftId = body.scope === "application" ? input.draftId : null;
-  return withDraft(input.access, input.draftId, true, async (tx) => {
-    const values = { companyId: input.access.companyId, draftId, requestId: body.requestId, title: body.title,
-      content: body.content, contentSha256, originalPdf: input.originalPdf ?? null, kind: body.kind, observedDate: body.observedDate, createdBy: input.access.userId };
-    const [created] = await tx.insert(schema.companyWritingSources).values(values).onConflictDoNothing({
-      target: [schema.companyWritingSources.companyId, schema.companyWritingSources.requestId],
-    }).returning();
-    if (created) return summarize(created);
-    const [prior] = await tx.select().from(schema.companyWritingSources).where(and(
-      eq(schema.companyWritingSources.companyId, input.access.companyId), eq(schema.companyWritingSources.requestId, body.requestId),
-    ));
-    if (!prior || prior.draftId !== draftId || prior.contentSha256 !== contentSha256 || prior.title !== body.title
-      || prior.kind !== body.kind || prior.observedDate !== body.observedDate
-      || Boolean(prior.originalPdf) !== Boolean(input.originalPdf)
-      || (input.originalPdf && (prior.originalPdf?.sha256 !== input.originalPdf.sha256 || prior.originalPdf.filename !== input.originalPdf.filename
-        || prior.originalPdf.storageKey !== input.originalPdf.storageKey || prior.originalPdf.keyId !== input.originalPdf.keyId))) {
-      throw new WritingContextError("writing_request_conflict", "같은 저장 요청의 내용이 변경되었습니다. 새 요청으로 저장해 주세요.", 409);
-    }
-    // 재시도로 철회한 자료를 되살리지 않는다.
-    return summarize(prior);
-  });
+  return withDraft(input.access, input.draftId, true, (tx) => insertWritingSourceInTransaction(tx, {
+    access: input.access, draftId, body, ...(input.originalPdf ? { originalPdf: input.originalPdf } : {}),
+  }));
+}
+
+/** 호출자는 같은 transaction에서 회사(또는 draft) 쓰기 권한을 확보한다. 같은 requestId의 재시도는 저장된 행을 그대로 돌려준다. */
+export async function insertWritingSourceInTransaction(tx: CunoteDbSession, input: { access: CompanyAccess; draftId: string | null; body: CreateWritingSource; originalPdf?: WritingPdfOriginal }): Promise<WritingSourceSummary> {
+  const { access, draftId, body } = input;
+  const contentSha256 = createHash("sha256").update(body.content).digest("hex");
+  const values = { companyId: access.companyId, draftId, requestId: body.requestId, title: body.title,
+    content: body.content, contentSha256, originalPdf: input.originalPdf ?? null, kind: body.kind, observedDate: body.observedDate, createdBy: access.userId };
+  const [created] = await tx.insert(schema.companyWritingSources).values(values).onConflictDoNothing({
+    target: [schema.companyWritingSources.companyId, schema.companyWritingSources.requestId],
+  }).returning();
+  if (created) return summarize(created);
+  const [prior] = await tx.select().from(schema.companyWritingSources).where(and(
+    eq(schema.companyWritingSources.companyId, access.companyId), eq(schema.companyWritingSources.requestId, body.requestId),
+  ));
+  if (!prior || prior.draftId !== draftId || prior.contentSha256 !== contentSha256 || prior.title !== body.title
+    || prior.kind !== body.kind || prior.observedDate !== body.observedDate
+    || Boolean(prior.originalPdf) !== Boolean(input.originalPdf)
+    || (input.originalPdf && (prior.originalPdf?.sha256 !== input.originalPdf.sha256 || prior.originalPdf.filename !== input.originalPdf.filename
+      || prior.originalPdf.storageKey !== input.originalPdf.storageKey || prior.originalPdf.keyId !== input.originalPdf.keyId))) {
+    throw new WritingContextError("writing_request_conflict", "같은 저장 요청의 내용이 변경되었습니다. 새 요청으로 저장해 주세요.", 409);
+  }
+  // 재시도로 철회한 자료를 되살리지 않는다.
+  return summarize(prior);
 }
 
 /** 공개 URL을 반환하지 않는다. 원본 다운로드 서비스 안에서만 사용하는 회사 권한 검사다. */
