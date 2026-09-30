@@ -29,6 +29,7 @@ import { withCompanyContext } from "@/lib/navigation/companyContext";
 import { createMatchJourneyRecorder } from "@/lib/client/matchJourney";
 import { observeProductCards } from "@/lib/client/productCardExposure";
 import { ConfirmationSheet } from "./ConfirmationSheet";
+import { DiscoverySelectionsPanel } from "./DiscoverySelectionsPanel";
 import { InlineGrantConfirmation } from "./InlineGrantConfirmation";
 import { InlineProfileCondition } from "./InlineProfileCondition";
 import {
@@ -233,7 +234,7 @@ export function ProgramsExperience({
           companyId={companyId}
         />
         ) : null}
-        {unavailable.length > 0 ? (
+        {!companyId && unavailable.length > 0 ? (
         <ResultBucket
           label="제외된 공고 보기"
           matches={unavailable}
@@ -247,6 +248,7 @@ export function ProgramsExperience({
           companyId={companyId}
         />
         ) : null}
+        {companyId && !virtualBizNo ? <DiscoverySelectionsPanel key={companyId} companyId={companyId} /> : null}
         {groups.upcoming.length > 0 ? (
         <ResultBucket
           label="접수 예정"

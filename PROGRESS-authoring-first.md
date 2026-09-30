@@ -109,3 +109,13 @@
 - Next Link 이동은 beforeunload가 발생하지 않아, 회사 자료/문안이 dirty일 때 내부 링크 이동을 막고 저장을 안내하도록 보완했다. 새 탭·다운로드·같은 페이지 anchor는 유지한다. browser history와 프로그램에 의한 router 이동은 실제 인수 대상이며 모든 이탈 방지를 완료했다고 주장하지 않는다.
 - 실제 실행할 [인수 목록](docs/plans/2026-09-30-authoring-first-acceptance.md)에 권한·충돌·문안·PDF·양식 증거와 미완료를 분리했다. 4010/4011에는 여전히 사용자 실행 서버가 없고 실제 사용자/회사 자료·모델 품질 실행 범위도 없다. 운영 쓰기 없이 확인한 코드/격리 증거까지만 현재 결과다.
 - 내부 링크 보호 변경의 web typecheck `/tmp/cunote-authoring-first-navigation-types.log` exit 0. 문서의 상대 링크와 `git diff --check`를 확인했다. 전체 build는 직전 저장 문안/근거 분리 상태의 증거이며 마지막 링크 보호의 실제 브라우저 동작 증거로 대체하지 않는다.
+
+## 제외 공고 조회와 사용자 복원
+
+- 목표: 추천 페이지에서 빠진 활성 공고의 제외 이유를 별도 조회하고 회사별 복원을 저장한다. 매칭 적격성과 작성본은 변경하지 않고 마감은 복원보다 우선한다.
+- [x] 전체 활성 카드 집합의 제외/복원 페이지와 회사 문맥 API: `discoverySelections.test.ts` PASS, route policy 165 API methods PASS. 추천 페이지와 별도 조회하며 서버의 전체 활성 집합 상한 초과 오류를 숨기지 않는다.
+- [x] 0098 회사별 복원 선택/CAS/RLS와 현재 membership 재검사: `pnpm test:product-postgres` exit 0, 99 migrations(`/tmp/cunote-authoring-discovery-pg.log`). 동시 저장 1회 성공, 회사 간 격리·viewer/철회 권한·마감/숨긴 공고 차단 PASS.
+- [ ] UI 복원/취소·페이지 조회·회사 전환: web build 및 사용자 실행 서버에서 브라우저 인수.
+- 결정: 마감 공고는 사용자 요청대로 새 검토 대상에서 제외한다. 기본 매칭 결과를 덮지 않고 ‘다시 살펴볼 공고’ 목록으로 복원한다. 신규 공급자·유료 호출은 추가하지 않는다.
+- 복원/취소는 회사 공유 선택이며 현재 사용자별 계산된 자격 결과는 그대로 표시한다. CAS 충돌은 자동 덮어쓰지 않고 재조회를 안내한다. 회사별 컴포넌트와 요청 취소로 늦게 도착한 이전 회사 응답을 분리했다. 실제 브라우저 동작은 미검증.
+- 기존 Programs 정적 렌더 회귀 PASS. 첫 typecheck의 fixture 필수 필드 누락을 수정한 뒤 최종 웹 build(`/tmp/cunote-authoring-discovery-build.log`, TypeScript 포함) exit 0. 이 결과는 브라우저 복원 버튼 인수를 대신하지 않는다.

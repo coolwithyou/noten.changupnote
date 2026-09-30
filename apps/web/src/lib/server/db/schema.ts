@@ -788,6 +788,21 @@ export const grants = pgTable("grants", {
   agencyPrimaryIdx: index("grants_agency_primary_idx").on(table.agencyPrimary),
 }));
 
+/** 탐색 목록 복원은 적격 판정·신청 상태와 별도로 보존한다. */
+export const companyDiscoverySelections = pgTable("company_discovery_selections", {
+  companyId: uuid("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  grantId: uuid("grant_id").notNull().references(() => grants.id, { onDelete: "cascade" }),
+  restored: boolean("restored").notNull(),
+  revision: integer("revision").notNull(),
+  updatedBy: uuid("updated_by").references(() => users.id, { onDelete: "set null" }),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  pk: primaryKey({ columns: [table.companyId, table.grantId] }),
+  grantIdx: index("company_discovery_selections_grant_idx").on(table.grantId),
+  updaterIdx: index("company_discovery_selections_updater_idx").on(table.updatedBy),
+  revisionCheck: check("company_discovery_selections_revision_check", sql`${table.revision} > 0`),
+}));
+
 export const grantCriteria = pgTable("grant_criteria", {
   id: uuid("id").defaultRandom().primaryKey(),
   grantId: uuid("grant_id").notNull().references(() => grants.id, { onDelete: "cascade" }),

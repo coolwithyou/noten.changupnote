@@ -77,6 +77,8 @@ export const SESSION_WEB_ROUTES = [
   "GET /api/web/dashboard/report",
   "GET /api/web/companies",
   "GET /api/web/company-matching",
+  "GET /api/web/company-matching/discovery",
+  "PUT /api/web/company-matching/discovery",
   "POST /api/web/company-matching/exposure",
   "POST /api/web/companies",
   "POST /api/web/companies/enrich",
