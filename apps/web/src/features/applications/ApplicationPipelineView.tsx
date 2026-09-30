@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState, type ReactNode } from "react";
 import {
   Archive,
   BellRing,
@@ -22,9 +22,11 @@ import type {
   ApplicationPipelineItem,
   ApplicationPipelineResult,
   ApplicationStage,
+  ApplicationWritingStatus,
 } from "@/lib/server/applications/pipeline";
 import { URGENT_MAX_DDAY } from "@/components/app/notice-card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -54,6 +56,7 @@ import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
+import { koreaDateParts } from "@/lib/calendar/dates";
 import { cn } from "@/lib/utils";
 
 type ApplicationGroup = "active" | "waiting" | "closed";
@@ -177,11 +180,19 @@ export function ApplicationPipelineView({
 
   return (
     <div className="mx-auto flex w-full max-w-[760px] flex-col gap-8 px-5 py-9 sm:px-6 sm:py-13">
-      <header className="flex items-center justify-between gap-4">
-        <h1 className="text-[26px] leading-tight font-extrabold tracking-[-0.02em] text-foreground">
-          내 신청 현황
-        </h1>
-        <a className={buttonVariants({ variant: "outline", size: "sm" })} href="/applications/calendar">
+      <header className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+        <div className="flex min-w-0 flex-col gap-1">
+          <h1 className="text-[26px] leading-tight font-extrabold tracking-[-0.02em] text-foreground">
+            신청 관리
+          </h1>
+          <p className="text-[13.5px] leading-5 break-keep text-muted-foreground">
+            작성 중인 문서로 돌아가는 곳이에요 · 후보 순위가 바뀌어도 여기 목록은 유지돼요
+          </p>
+        </div>
+        <a
+          className={cn(buttonVariants({ variant: "outline", size: "sm" }), "shrink-0 self-start")}
+          href="/applications/calendar"
+        >
           <CalendarDays data-icon="inline-start" />
           캘린더로 보기
         </a>
@@ -201,54 +212,84 @@ export function ApplicationPipelineView({
         </Alert>
       ) : null}
 
-      <div className="flex flex-col gap-8" aria-label="신청 관리" data-application-board>
-        {GROUPS.map((group) => {
-          const groupItems = groupedItems[group.id];
-          return (
-            <section className="flex flex-col gap-2" key={group.id} aria-labelledby={`application-group-${group.id}`}>
-              <h2
-                className="px-1 text-[13px] font-extrabold text-muted-foreground"
-                id={`application-group-${group.id}`}
-              >
-                {group.title} ({groupItems.length.toLocaleString("ko-KR")})
-              </h2>
-              <Card className={cn("gap-0 py-0", group.id === "closed" && "opacity-70")}>
-                {groupItems.length > 0 ? (
-                  <CardContent className="px-0">
-                    {groupItems.map((item, index) => (
-                      <div key={item.grantId}>
-                        {index > 0 ? <Separator /> : null}
-                        <ApplicationRow
-                          item={item}
-                          pending={pendingGrantId === item.grantId}
-                          onEdit={(mode) => setEditor({ grantId: item.grantId, mode })}
-                          onMove={moveItem}
-                        />
-                      </div>
-                    ))}
-                  </CardContent>
-                ) : (
-                  <CardContent>
-                    <Empty className="min-h-36">
-                      <EmptyHeader>
-                        <EmptyTitle>{group.title}인 신청이 없습니다.</EmptyTitle>
-                        <EmptyDescription>{emptyGroupCopy(group.id)}</EmptyDescription>
-                      </EmptyHeader>
-                      {group.id === "active" ? (
-                        <EmptyContent>
-                          <a className={buttonVariants({ variant: "outline", size: "sm" })} href="/dashboard">
-                            새 기회 보기
-                          </a>
-                        </EmptyContent>
-                      ) : null}
-                    </Empty>
-                  </CardContent>
-                )}
-              </Card>
-            </section>
-          );
-        })}
-      </div>
+      {items.length === 0 ? (
+        <Card className="border-dashed py-0">
+          <CardContent className="py-8">
+            <Empty className="min-h-48">
+              <EmptyHeader>
+                <EmptyTitle>아직 작성 중인 문서가 없어요</EmptyTitle>
+                <EmptyDescription>기회 맵에서 공고를 고르거나 공고 링크로 시작하세요</EmptyDescription>
+              </EmptyHeader>
+              <EmptyContent>
+                <a className={buttonVariants({ size: "sm" })} href="/dashboard">
+                  기회 맵으로
+                </a>
+              </EmptyContent>
+            </Empty>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="flex flex-col gap-8" aria-label="신청 관리" data-application-board>
+          {GROUPS.map((group) => {
+            const groupItems = groupedItems[group.id];
+            return (
+              <section className="flex flex-col gap-2" key={group.id} aria-labelledby={`application-group-${group.id}`}>
+                <h2
+                  className="px-1 text-[13px] font-extrabold text-muted-foreground"
+                  id={`application-group-${group.id}`}
+                >
+                  {group.title} ({groupItems.length.toLocaleString("ko-KR")})
+                </h2>
+                <Card className={cn("gap-0 py-0", group.id === "closed" && "opacity-70")}>
+                  {groupItems.length > 0 ? (
+                    <CardContent className="px-0">
+                      {groupItems.map((item, index) => (
+                        <div key={item.grantId}>
+                          {index > 0 ? <Separator /> : null}
+                          <ApplicationRow
+                            item={item}
+                            now={pipeline.generatedAt}
+                            pending={pendingGrantId === item.grantId}
+                            onEdit={(mode) => setEditor({ grantId: item.grantId, mode })}
+                            onMove={moveItem}
+                          />
+                        </div>
+                      ))}
+                    </CardContent>
+                  ) : (
+                    <CardContent>
+                      <Empty className="min-h-36">
+                        <EmptyHeader>
+                          <EmptyTitle>{group.title}인 신청이 없습니다.</EmptyTitle>
+                          <EmptyDescription>{emptyGroupCopy(group.id)}</EmptyDescription>
+                        </EmptyHeader>
+                        {group.id === "active" ? (
+                          <EmptyContent>
+                            <a className={buttonVariants({ variant: "outline", size: "sm" })} href="/dashboard">
+                              새 기회 보기
+                            </a>
+                          </EmptyContent>
+                        ) : null}
+                      </Empty>
+                    </CardContent>
+                  )}
+                </Card>
+              </section>
+            );
+          })}
+        </div>
+      )}
+
+      {items.length > 0 ? (
+        <div className="flex flex-col gap-1.5 text-[13px] leading-5 text-muted-foreground">
+          <p className="break-keep">
+            문항 완전성이 확인되지 않은 문서에는 완료율을 표시하지 않아요. 다운로드는 제출 완료가 아닙니다.
+          </p>
+          <a className="w-fit font-semibold text-primary hover:underline" href="/dashboard">
+            기회 맵에서 공고 더 보기 →
+          </a>
+        </div>
+      ) : null}
 
       <div className="flex justify-center gap-4 text-[13px] font-semibold text-muted-foreground">
         <a className="hover:text-foreground" href="/api/web/applications/report">리포트 내려받기</a>
@@ -280,131 +321,292 @@ export function ApplicationPipelineView({
 
 function ApplicationRow({
   item,
+  now,
   pending,
   onEdit,
   onMove,
 }: {
   item: ApplicationPipelineItem;
+  /** 서버 생성 시각(ISO). "오늘" 판정을 SSR·hydration에서 같은 기준으로 하기 위해 쓴다. */
+  now: string;
   pending: boolean;
   onEdit: (mode: EditorMode) => void;
   onMove: (item: ApplicationPipelineItem, kind: FeedbackKind, stage: ApplicationStage) => Promise<boolean>;
 }) {
   const primary = primaryAction(item);
-  const deadlineLabel = showsDeadline(item.stage) ? formatDday(item.dDay) : null;
+  const writing = item.writing ?? null;
+  const closed = writing?.completion.closed ?? false;
+  // 마감은 제목 위 뱃지로 표기하므로 메타 줄의 D-day 표기는 접수 중일 때만 남긴다.
+  const deadlineLabel = !closed && showsDeadline(item.stage) ? formatDday(item.dDay) : null;
+  const closedWithSavedWork = closed && writing !== null && hasSavedWork(item, writing);
   return (
     <article
-      className="flex flex-col gap-4 px-5 py-5 sm:flex-row sm:items-center sm:gap-4 sm:px-[22px]"
+      className="flex flex-col gap-4 px-5 py-5 sm:px-[22px]"
       data-package-href={`/api/web/grants/${encodeURIComponent(item.grantId)}/package`}
     >
-      <div className="min-w-0 flex-1">
-        <h3 className="truncate text-base font-bold text-foreground">{item.title}</h3>
-        <p className={cn(
-          "mt-1 line-clamp-1 text-[13.5px] leading-5 text-muted-foreground",
-          item.stage === "selected" && "font-bold text-brand-mint-ink",
-          (item.stage === "rejected" || item.stage === "blocked") && "font-semibold text-destructive"
-        )}>
-          {applicationStatusLine(item)}
-          {deadlineLabel ? (
-            <>
-              {" · "}
-              <span
-                className={cn(
-                  "font-bold",
-                  isUrgentDday(item.dDay) ? "text-destructive" : "text-muted-foreground",
-                )}
-              >
-                {deadlineLabel}
-              </span>
-            </>
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:gap-4">
+        <div className="min-w-0 flex-1">
+          {closed && item.applyEnd ? (
+            <Badge className="mb-1.5" variant="secondary">마감 {formatShortDate(item.applyEnd)}</Badge>
           ) : null}
-        </p>
+          <h3 className={cn("truncate text-base font-bold text-foreground", closed && "text-muted-foreground")}>
+            {item.title}
+          </h3>
+          <p className={cn(
+            "mt-1 line-clamp-1 text-[13.5px] leading-5 text-muted-foreground",
+            item.stage === "selected" && "font-bold text-brand-mint-ink",
+            (item.stage === "rejected" || item.stage === "blocked") && "font-semibold text-destructive"
+          )}>
+            {item.agency ? <>{item.agency}{" · "}</> : null}
+            {applicationStatusLine(item)}
+            {deadlineLabel ? (
+              <>
+                {" · "}
+                <span
+                  className={cn(
+                    "font-bold",
+                    isUrgentDday(item.dDay) ? "text-destructive" : "text-muted-foreground",
+                  )}
+                >
+                  {deadlineLabel}
+                </span>
+              </>
+            ) : null}
+            {writing?.capability.originalFormat ? (
+              <>{" · "}원본 {writing.capability.originalFormat.toUpperCase()}</>
+            ) : null}
+          </p>
+        </div>
+
+        <div className="flex shrink-0 items-center justify-end gap-2">
+          {primary.kind === "link" ? (
+            <a className={buttonVariants({ variant: primary.variant, size: "sm" })} href={primary.href}>
+              {primary.label}
+            </a>
+          ) : (
+            <Button size="sm" variant={primary.variant} disabled={pending} onClick={() => onEdit("result")}>
+              {pending ? <Loader2 className="animate-spin" data-icon="inline-start" /> : null}
+              {primary.label}
+            </Button>
+          )}
+
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              render={
+                <Button
+                  aria-label={`${item.title} 추가 작업`}
+                  disabled={pending}
+                  size="icon-sm"
+                  variant="ghost"
+                />
+              }
+            >
+              {pending ? <Loader2 className="animate-spin" /> : <MoreHorizontal />}
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="min-w-44">
+              <DropdownMenuLinkItem href={item.detailHref}>
+                <FileText />
+                공고 보기
+              </DropdownMenuLinkItem>
+              <DropdownMenuItem onClick={() => onEdit("management")}>
+                <BellRing />
+                메모·리마인더
+              </DropdownMenuItem>
+              {item.applyEnd || item.reminderAt ? (
+                <DropdownMenuLinkItem href={`/api/web/applications/${encodeURIComponent(item.grantId)}/calendar`}>
+                  <CalendarDays />
+                  일정 .ics 내려받기
+                </DropdownMenuLinkItem>
+              ) : null}
+              <DropdownMenuLinkItem href={`/api/web/grants/${encodeURIComponent(item.grantId)}/package`}>
+                <Download />
+                서류 패키지
+              </DropdownMenuLinkItem>
+              {item.stage !== "dismissed" ? (
+                <DropdownMenuLinkItem href={`/api/web/applications/${encodeURIComponent(item.grantId)}/reminder-email`}>
+                  <Mail />
+                  리마인더 메일
+                </DropdownMenuLinkItem>
+              ) : null}
+              <DropdownMenuSeparator />
+              {item.stage === "submitted" ? (
+                <DropdownMenuItem onClick={() => onEdit("result")}>
+                  <CheckCircle2 />
+                  결과 입력
+                </DropdownMenuItem>
+              ) : null}
+              {canMarkSubmitted(item.stage) ? (
+                <DropdownMenuItem onClick={() => void onMove(item, "applied", "submitted")}>
+                  <Send />
+                  제출 완료로 이동
+                </DropdownMenuItem>
+              ) : null}
+              {item.stage === "recommended" ? (
+                <DropdownMenuItem onClick={() => void onMove(item, "saved", "saved")}>
+                  <Save />
+                  저장
+                </DropdownMenuItem>
+              ) : null}
+              {item.stage === "dismissed" ? (
+                <DropdownMenuItem onClick={() => void onMove(item, "saved", "saved")}>
+                  <Save />
+                  진행 중으로 되돌리기
+                </DropdownMenuItem>
+              ) : item.stage !== "selected" && item.stage !== "rejected" && item.stage !== "blocked" ? (
+                <DropdownMenuItem onClick={() => void onMove(item, "dismissed", "dismissed")}>
+                  <Archive />
+                  보류로 이동
+                </DropdownMenuItem>
+              ) : null}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
       </div>
 
-      <div className="flex shrink-0 items-center justify-end gap-2">
-        {primary.kind === "link" ? (
-          <a className={buttonVariants({ variant: primary.variant, size: "sm" })} href={primary.href}>
-            {primary.label}
-          </a>
-        ) : (
-          <Button size="sm" variant={primary.variant} disabled={pending} onClick={() => onEdit("result")}>
-            {pending ? <Loader2 className="animate-spin" data-icon="inline-start" /> : null}
-            {primary.label}
-          </Button>
-        )}
-
-        <DropdownMenu>
-          <DropdownMenuTrigger
-            render={
-              <Button
-                aria-label={`${item.title} 추가 작업`}
-                disabled={pending}
-                size="icon-sm"
-                variant="ghost"
-              />
-            }
-          >
-            {pending ? <Loader2 className="animate-spin" /> : <MoreHorizontal />}
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="min-w-44">
-            <DropdownMenuLinkItem href={item.detailHref}>
-              <FileText />
-              공고 보기
-            </DropdownMenuLinkItem>
-            <DropdownMenuItem onClick={() => onEdit("management")}>
-              <BellRing />
-              메모·리마인더
-            </DropdownMenuItem>
-            {item.applyEnd || item.reminderAt ? (
-              <DropdownMenuLinkItem href={`/api/web/applications/${encodeURIComponent(item.grantId)}/calendar`}>
-                <CalendarDays />
-                일정 .ics 내려받기
-              </DropdownMenuLinkItem>
-            ) : null}
-            <DropdownMenuLinkItem href={`/api/web/grants/${encodeURIComponent(item.grantId)}/package`}>
-              <Download />
-              서류 패키지
-            </DropdownMenuLinkItem>
-            {item.stage !== "dismissed" ? (
-              <DropdownMenuLinkItem href={`/api/web/applications/${encodeURIComponent(item.grantId)}/reminder-email`}>
-                <Mail />
-                리마인더 메일
-              </DropdownMenuLinkItem>
-            ) : null}
-            <DropdownMenuSeparator />
-            {item.stage === "submitted" ? (
-              <DropdownMenuItem onClick={() => onEdit("result")}>
-                <CheckCircle2 />
-                결과 입력
-              </DropdownMenuItem>
-            ) : null}
-            {canMarkSubmitted(item.stage) ? (
-              <DropdownMenuItem onClick={() => void onMove(item, "applied", "submitted")}>
-                <Send />
-                제출 완료로 이동
-              </DropdownMenuItem>
-            ) : null}
-            {item.stage === "recommended" ? (
-              <DropdownMenuItem onClick={() => void onMove(item, "saved", "saved")}>
-                <Save />
-                저장
-              </DropdownMenuItem>
-            ) : null}
-            {item.stage === "dismissed" ? (
-              <DropdownMenuItem onClick={() => void onMove(item, "saved", "saved")}>
-                <Save />
-                진행 중으로 되돌리기
-              </DropdownMenuItem>
-            ) : item.stage !== "selected" && item.stage !== "rejected" && item.stage !== "blocked" ? (
-              <DropdownMenuItem onClick={() => void onMove(item, "dismissed", "dismissed")}>
-                <Archive />
-                보류로 이동
-              </DropdownMenuItem>
-            ) : null}
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </div>
+      {writing ? <WritingStatusColumns item={item} now={now} writing={writing} /> : null}
+      {closedWithSavedWork ? (
+        <p className="text-xs leading-5 text-muted-foreground">마감된 공고의 저장본은 열고 내보낼 수 있어요</p>
+      ) : null}
     </article>
   );
+}
+
+/** 디자인 02의 `.tri` 3열 — 자격 확인 / 작성 기능 / 문서 완성. 백분율·완료율은 만들지 않는다. */
+function WritingStatusColumns({
+  item,
+  now,
+  writing,
+}: {
+  item: ApplicationPipelineItem;
+  now: string;
+  writing: ApplicationWritingStatus;
+}) {
+  return (
+    <dl className="grid gap-3 sm:grid-cols-3 sm:gap-4" aria-label="문서 진행 상태">
+      <WritingStatusCell label="자격 확인" {...eligibilityCell(item, writing)} />
+      <WritingStatusCell label="작성 기능" {...capabilityCell(item, writing)} />
+      <WritingStatusCell label="문서 완성" {...completionCell(item, writing, now)} />
+    </dl>
+  );
+}
+
+interface WritingStatusCellContent {
+  value: ReactNode;
+  muted?: boolean;
+  sub?: ReactNode;
+}
+
+function WritingStatusCell({ label, value, muted, sub }: WritingStatusCellContent & { label: string }) {
+  return (
+    <div className="flex min-w-0 gap-3 sm:flex-col sm:gap-1">
+      <dt className="w-15 shrink-0 text-xs font-bold text-muted-foreground sm:w-auto">{label}</dt>
+      <dd className="flex min-w-0 flex-col gap-0.5">
+        <span
+          className={cn(
+            "text-[13.5px] leading-5 font-semibold break-keep text-foreground",
+            muted && "font-medium text-muted-foreground",
+          )}
+        >
+          {value}
+        </span>
+        {sub ? <span className="text-xs leading-5 text-muted-foreground">{sub}</span> : null}
+      </dd>
+    </div>
+  );
+}
+
+function eligibilityCell(item: ApplicationPipelineItem, writing: ApplicationWritingStatus): WritingStatusCellContent {
+  if (writing.completion.closed) return { value: "마감 공고 · 새 후보에서 제외", muted: true };
+  const { confirmed, total, remaining, mismatched } = writing.eligibility;
+  if (total === 0) {
+    return { value: item.outsideMatches ? "매칭 밖 · 직접 준비" : "필수 조건 판정 없음", muted: true };
+  }
+  const value = `확인된 조건 ${confirmed}/${total} · 남은 쟁점 ${remaining}`;
+  if (mismatched > 0) {
+    return { value, sub: <span className="font-bold text-destructive">명백한 불일치 {mismatched}</span> };
+  }
+  if (remaining === 0) {
+    return {
+      value,
+      sub: (
+        <span className="inline-flex items-center gap-1.5 font-bold text-brand-mint-ink">
+          <span aria-hidden className="inline-block size-1.5 rounded-full bg-brand-mint" />
+          필수 조건 확인 완료
+        </span>
+      ),
+    };
+  }
+  return { value };
+}
+
+function capabilityCell(item: ApplicationPipelineItem, writing: ApplicationWritingStatus): WritingStatusCellContent {
+  const { originalEdit, autofill, sectionDrafting } = writing.capability;
+  const segments: Array<{ text: string; muted?: boolean }> = [];
+  if (writing.completion.closed && hasSavedWork(item, writing)) {
+    if (originalEdit) segments.push({ text: "원본 편집" });
+    segments.push({ text: "내보내기" });
+  } else {
+    if (originalEdit) {
+      segments.push({ text: "원본 편집" });
+      segments.push(autofill
+        ? { text: `항목 자동 반영 ${autofill.bound}/${autofill.total} 위치 확인` }
+        : { text: "항목 자동 반영 미연결(양식 준비 대기)", muted: true });
+    }
+    if (sectionDrafting) segments.push({ text: "문안 제안" });
+  }
+  if (segments.length === 0) return { value: "작성 기능 미연결", muted: true };
+  return {
+    value: segments.map((segment, index) => (
+      <Fragment key={segment.text}>
+        {index > 0 ? " · " : null}
+        <span className={cn(segment.muted && "font-medium text-muted-foreground")}>{segment.text}</span>
+      </Fragment>
+    )),
+  };
+}
+
+function completionCell(
+  item: ApplicationPipelineItem,
+  writing: ApplicationWritingStatus,
+  now: string,
+): WritingStatusCellContent {
+  const completion = writing.completion;
+  if (!hasSavedWork(item, writing)) return { value: "저장본 없음", muted: true };
+  const written = completion.sectionsTotal === null
+    ? `작성한 문항 ${completion.sectionsWritten}`
+    : `작성한 문항 ${completion.sectionsWritten}/${completion.sectionsTotal}`;
+  if (completion.closed) {
+    return { value: completion.lastSavedAt ? `${written} · 저장 ${formatCalendarDate(completion.lastSavedAt)}` : written };
+  }
+  return {
+    value: `${written} · 검토할 사실 ${completion.factsToReview}`,
+    sub: completion.lastSavedAt ? `마지막 서버 저장 ${formatSavedAt(completion.lastSavedAt, now)}` : null,
+  };
+}
+
+/** 스튜디오 저장본·문안 저장·초안 행 중 하나라도 있으면 "돌아갈 문서"가 있다. */
+function hasSavedWork(item: ApplicationPipelineItem, writing: ApplicationWritingStatus): boolean {
+  return writing.completion.savedCount > 0 || writing.completion.sectionsWritten > 0 || item.draftCount > 0;
+}
+
+function formatSavedAt(value: string, now: string): string {
+  const saved = koreaDateParts(value);
+  const today = koreaDateParts(now);
+  if (saved.year === today.year && saved.month === today.month && saved.day === today.day) {
+    const time = new Intl.DateTimeFormat("ko-KR", {
+      hour: "2-digit",
+      minute: "2-digit",
+      hourCycle: "h23",
+      timeZone: "Asia/Seoul",
+    }).format(new Date(value));
+    return `오늘 ${time}`;
+  }
+  return formatCalendarDate(value);
+}
+
+function formatShortDate(value: string): string {
+  const { month, day } = koreaDateParts(value);
+  return `${month}/${day}`;
 }
 
 function ApplicationManagementDialog({
@@ -556,20 +758,16 @@ function groupPipelineItems(items: ApplicationPipelineItem[]): Record<Applicatio
 function primaryAction(item: ApplicationPipelineItem):
   | { kind: "link"; href: string; label: string; variant: "default" | "outline" }
   | { kind: "dialog"; label: string; variant: "outline" } {
-  if (item.stage === "preparing") {
+  if (item.stage === "preparing" || item.stage === "saved" || item.stage === "recommended") {
+    // 저장본 있음 → 문서 열기 / 없음 → 작성 시작 / 마감 공고의 저장본 → 저장본 열기. href는 동일하다.
+    const writing = item.writing ?? null;
+    const saved = writing ? hasSavedWork(item, writing) : item.draftCount > 0;
+    const closed = writing?.completion.closed ?? false;
     return {
       kind: "link",
       href: `/grants/${encodeURIComponent(item.grantId)}/workspace`,
-      label: item.draftCount > 0 ? "이어서 작성" : "작성 시작",
-      variant: "default",
-    };
-  }
-  if (item.stage === "saved" || item.stage === "recommended") {
-    return {
-      kind: "link",
-      href: `/grants/${encodeURIComponent(item.grantId)}/workspace`,
-      label: "작성 시작",
-      variant: "default",
+      label: closed && saved ? "저장본 열기" : saved ? "문서 열기" : "작성 시작",
+      variant: closed && saved ? "outline" : "default",
     };
   }
   if (item.stage === "submitted") {
