@@ -172,6 +172,9 @@ export async function verifyDocumentJourneyPostgres(input: { admin: postgres.Sql
     if (process.env.CUNOTE_REQUIRE_WRITING_FORM_FIXTURES === "1") {
       await verifyWritingFormPostgres({ admin: input.admin, access: input.access, storage, rhwp });
     }
+    if (process.env.CUNOTE_REQUIRE_WRITING_FLOW_FIXTURES === "1") {
+      await verifyWritingFormPostgres({ admin: input.admin, access: input.access, storage, rhwp, allowTablePagination: true });
+    }
     if (process.env.CUNOTE_REQUIRE_WRITING_LAYOUT_SAFETY === "1") {
       await verifyWritingLayoutSafetyPostgres({ admin: input.admin, access: input.access, storage, rhwp });
     }

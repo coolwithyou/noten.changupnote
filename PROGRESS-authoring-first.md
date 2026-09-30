@@ -127,3 +127,12 @@
 - 공개 원본을 새로 열어 이 속성 하나를 명시적으로 바꾼 후 같은 길이의 3개 서술 문항을 모두 입력했다. HWPX export/reopen 후 셀 3/5/11의 문안·나머지 셀 문구 보존, 나머지 표 속성 동일, 기존 용지 넘침 guard PASS. 원본 양식 파일은 변경하지 않았다.
 - 재현: `pnpm exec tsx --tsconfig apps/web/tsconfig.json spike-out/authoring-first/verify-flow-roundtrip.ts`; 로그 `/tmp/cunote-authoring-flow-roundtrip.log`. 검토 파일 `spike-out/authoring-first/narrative-flow-roundtrip.hwpx`, SHA `e505d64c9b4950a5cb0df8c3c2490c2cdadf9a0023ea41bbd269cde4dbb68c23`.
 - 이 실험은 원본 속성을 보존하는 기존 `CUNOTE_REQUIRE_WRITING_FORM_FIXTURES=1` 실패를 대체하지 않는다. 배치 변경으로 x 좌표도 일부 바뀌므로 사용자에게 숨긴 자동 수정은 추가하지 않았다. 실제 Studio에서 표 속성 변경을 선택하고 저장/Undo/외부 한글 재열기한 시각 증거가 필요하다. 사용자 실행 서버 요청은 답변 대기이며 실제 모델 호출은 없다.
+
+## 선택적 표 쪽 나눔 구현
+
+- 목표: 사용자가 선택한 표의 inline 배치만 해제하고 새 revision 저장·즉시 Undo를 제공한다. 문항 초안 생성/자동 반영에서 몰래 호출하지 않는다.
+- [x] `tablePagination` 문서 SHA·표 preimage·문구/셀 속성 보존과 native export/reopen 검증: `CUNOTE_REQUIRE_WRITING_FLOW_FIXTURES=1 pnpm test:product-postgres` exit 0(`/tmp/cunote-authoring-pagination-pg.log`, 99 migrations). 실제 3개 문항, 5개 DB revisions, 셀/문구 보존, 오래된 문서와 변조된 표 대상 거절 PASS. 원본 배치 유지 경로의 실패와 구분한다.
+- [x] 기존 일정표의 load/save/rollback/Undo 경로를 공유하고 작업 종류를 구분: `test:document-agent`와 `test:apply-workspace` PASS(`/tmp/cunote-authoring-pagination-agent.log`, `/tmp/cunote-authoring-pagination-workspace.log`). web typecheck와 최종 build(`/tmp/cunote-authoring-pagination-build.log`) exit 0. 이후 공통 저장 경로의 체크포인트·불명확한 응답 처리 변경은 build와 기존 오류 분류 계약으로 검증했으며 실제 브라우저 장애 주입은 미실행이다.
+- [ ] 문서별 패널에서 대상 선택·배치 영향 안내·되돌리기와 문서 전환 차단. 실제 브라우저/외부 한글은 사용자 실행 서버와 검토 환경에 의존한다.
+- `표 쪽 나눔` 패널과 대상별 명시적 적용/Undo를 연결했다. inline=true, 원래 cell 단위 페이지 분할인 표만 대상으로 노출한다. 표 확인 뒤 문서가 바뀌면 재확인을 요구한다. 미저장 작업본은 변경 전에 체크포인트로 보관하고, 응답 불명확 시 rollback 성공으로 오인하지 않고 편집을 잠근다. 문서 source가 바뀐 작업은 새 editor에 복구/완료를 전달하지 않는다.
+- 첫 통합 실행은 3문항/DB 5개 왕복을 통과한 뒤 후속 자료 테스트의 ‘회사는 자료가 0개’ 전제에서 실패했다. 기존 회사 공통 자료 수를 기준으로 신규 중복 요청이 정확히 1개만 늘리는지 검증하도록 수정한 최종 실행은 통과했다.

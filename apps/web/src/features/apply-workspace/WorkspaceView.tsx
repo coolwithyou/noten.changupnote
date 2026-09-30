@@ -60,6 +60,7 @@ import {
 import type { InstitutionContact } from "./workspacePresentation";
 import { WritingContextPanel } from "./WritingContextPanel";
 import { WritingSectionsPanel } from "./WritingSectionsPanel";
+import { TablePaginationPanel } from "./TablePaginationPanel";
 import { workspaceReadiness } from "./workspaceReadiness";
 import { withCompanyContext } from "@/lib/navigation/companyContext";
 
@@ -120,8 +121,9 @@ export function WorkspaceView({
   const [showChat, setShowChat] = useState(false);
   const [writingContextDirty, setWritingContextDirty] = useState(false);
   const [writingSectionsDirty, setWritingSectionsDirty] = useState(false);
+  const [tablePaginationBusy, setTablePaginationBusy] = useState(false);
   useEffect(() => {
-    if (!writingContextDirty && !writingSectionsDirty) return;
+    if (!writingContextDirty && !writingSectionsDirty && !tablePaginationBusy) return;
     // Next Link의 클라이언트 이동은 beforeunload를 발생시키지 않는다.
     const preserveWriting = (event: MouseEvent) => {
       if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
@@ -131,11 +133,17 @@ export function WorkspaceView({
       if (!["http:", "https:"].includes(destination.protocol)) return;
       if (destination.origin === location.origin && destination.pathname === location.pathname && destination.search === location.search) return;
       event.preventDefault(); event.stopPropagation();
-      toast.info("회사 자료·사업 설명과 문안의 변경을 먼저 저장해 주세요.");
+      toast.info(tablePaginationBusy ? "표 배치 변경이 끝난 뒤 이동해 주세요." : "회사 자료·사업 설명과 문안의 변경을 먼저 저장해 주세요.");
     };
     document.addEventListener("click", preserveWriting, true);
     return () => document.removeEventListener("click", preserveWriting, true);
-  }, [writingContextDirty, writingSectionsDirty]);
+  }, [writingContextDirty, writingSectionsDirty, tablePaginationBusy]);
+  useEffect(() => {
+    if (!tablePaginationBusy) return;
+    const preserveTableChange = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ""; };
+    window.addEventListener("beforeunload", preserveTableChange);
+    return () => window.removeEventListener("beforeunload", preserveTableChange);
+  }, [tablePaginationBusy]);
   const [showFieldAgent, setShowFieldAgent] = useState(false);
   const [workingDocument, setWorkingDocument] = useState<RhwpWorkingDocument | null>(null);
   const [studioDocumentActions, setStudioDocumentActions] = useState<RhwpStudioDocumentActionState>({
@@ -628,6 +636,7 @@ export function WorkspaceView({
         <div className="flex flex-wrap items-center justify-end gap-3">
           {!readOnlyPreview && data.draftId ? <WritingContextPanel key={data.draftId} draftId={data.draftId} onDirtyChange={setWritingContextDirty} /> : null}
           {!readOnlyPreview && data.draftId ? <WritingSectionsPanel key={data.draftId} draftId={data.draftId} onDirtyChange={setWritingSectionsDirty} /> : null}
+          {!readOnlyPreview && integratedFieldEditor && data.draftId ? <TablePaginationPanel key={currentStudioSourceKey} getSurface={() => studioSurfaceRef.current} onBusyChange={setTablePaginationBusy} /> : null}
           {canUndoAutomaticProfileAutofill ? (
             <Button
               type="button"
@@ -643,7 +652,7 @@ export function WorkspaceView({
           {data.documents.length > 1 && data.activeDocumentKey ? (
             <Select
               value={data.activeDocumentKey}
-              disabled={suggestingLabels.size > 0 || automaticProfileBusy || writingContextDirty || writingSectionsDirty}
+              disabled={suggestingLabels.size > 0 || automaticProfileBusy || writingContextDirty || writingSectionsDirty || tablePaginationBusy}
               // Base UI Select 는 items 를 줘야 SelectValue 가 raw value(documentKey) 대신 label 을 렌더한다.
               items={data.documents.map((document) => ({ value: document.documentKey, label: document.label }))}
               onValueChange={(next) => {

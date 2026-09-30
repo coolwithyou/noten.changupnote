@@ -16,6 +16,7 @@ import { verifyWritingComposition } from "./sectionComposer";
 import { loadExactDraftRevisionFile, saveStudioSnapshot } from "./documentRevisions";
 import { assertTableLayoutDoesNotOverflow } from "@/lib/rhwp/tableLayoutGuard";
 import { transitionFieldAgentSuggestion } from "./fieldAgentRuns";
+import { applyTablePagination, inspectTablePagination } from "@/lib/rhwp/tablePagination";
 
 // 공개 기관 원본 + 합성 회사 자료다. 실제 기업의 적격성/모델 품질/브라우저 UAT 증거가 아니다.
 const FIXTURE = {
@@ -26,7 +27,7 @@ const FIXTURE = {
 
 /** 엄격한 기관 양식 gate에서 호출. 실제 WASM/격리 DB/메모리 객체 저장소만 사용한다. */
 export async function verifyWritingFormPostgres(input: {
-  admin: postgres.Sql; access: CompanyAccess; storage: R2ObjectStorage; rhwp: RhwpModule;
+  admin: postgres.Sql; access: CompanyAccess; storage: R2ObjectStorage; rhwp: RhwpModule; allowTablePagination?: boolean;
 }) {
   const original = readFileSync(FIXTURE.path);
   assert.equal(hash(original), FIXTURE.sha256);
@@ -48,7 +49,7 @@ export async function verifyWritingFormPostgres(input: {
   const sources = writingGroundingSources({ ...await loadWritingGrounding(context), companyId: input.access.companyId, draftId });
   const material = sources.find(entry => entry.kind === 'company_material')!;
   const plan = sources.find(entry => entry.kind === 'application_plan')!;
-  const document = new input.rhwp.HwpDocument(original);
+  let document = new input.rhwp.HwpDocument(original);
   let revisionId: string | null = null;
   let changeSeq = 0;
   const sessionId = crypto.randomUUID();
@@ -67,6 +68,24 @@ export async function verifyWritingFormPostgres(input: {
       return reopened;
     };
     await save(original);
+    if (input.allowTablePagination) {
+      const first = resolveStudioFieldBindings(document, [{ fieldId: 'first', label: 'KIST 연구팀 매칭', fieldType: 'long_text' }])[0]!;
+      assert.equal(first.status, 'unique');
+      if (first.status !== 'unique' || first.target.kind !== 'table_cell_region') throw new Error('첫 표 위치 미확정');
+      const position = first.target;
+      const target = (await inspectTablePagination(document, hash(original))).find((candidate) =>
+        candidate.section === position.section && candidate.parentPara === position.parentPara && candidate.controlIndex === position.controlIndex);
+      assert.ok(target, '사용자가 고를 수 있는 표로 탐색된다');
+      const request = { rhwp: input.rhwp, bytes: original, format: 'hwpx' as const, target };
+      await assert.rejects(() => applyTablePagination({ ...request, target: { ...target, documentSha256: '0'.repeat(64) } }), /문서가 변경/);
+      await assert.rejects(() => applyTablePagination({ ...request, target: { ...target, tableSha256: '0'.repeat(64) } }), /현재 속성/);
+      const applied = await applyTablePagination(request);
+      document.free(); document = new input.rhwp.HwpDocument(applied.bytes);
+      await save(applied.bytes);
+      await assert.rejects(() => applyTablePagination({ ...request, bytes: applied.bytes }), /문서가 변경/);
+      assert.equal((await inspectTablePagination(document, applied.afterDocumentSha256)).some((candidate) =>
+        candidate.section === position.section && candidate.parentPara === position.parentPara && candidate.controlIndex === position.controlIndex), false);
+    }
     // 실제 양식의 세 지원분야별 활용계획. 위치를 fixture 좌표로 강제하지 않고 제품 resolver를 사용한다.
     for (const label of ['KIST 연구팀 매칭', '기술고도화 / PoC', '사업화 / 투자유치']) {
       const field = { fieldId: crypto.randomUUID(), label, fieldType: 'long_text' };
@@ -91,6 +110,7 @@ export async function verifyWritingFormPostgres(input: {
         if (text) assert.equal(JSON.parse(document.insertTextInCell(...args, index, 0, text)).ok, true);
       }
       const exported = exportVerifiedRhwpDocument({ rhwp: input.rhwp, document, format: 'hwpx' });
+      if (input.allowTablePagination) assertTableLayoutDoesNotOverflow({ rhwp: input.rhwp, before: original, after: exported.bytes, target });
       assert.equal((await collectStudioFieldEvidence(input.rhwp, exported.bytes, target)).text, value);
       const saved = await save(exported.bytes);
       const reopened = new input.rhwp.HwpDocument(saved.body);
@@ -106,7 +126,7 @@ export async function verifyWritingFormPostgres(input: {
     }
     assert.equal(changed.size, 3);
     assert.equal(hash(readFileSync(FIXTURE.path)), FIXTURE.sha256, '원본 파일은 수정하지 않는다');
-    console.log('PASS: actual business-plan HWPX: company source + brief -> 3 uniquely bound narrative cells -> multi-paragraph native edit -> 4 DB revisions -> exact reopen; untouched cells preserved (synthetic composition, no browser/model/external-editor claim)');
+    console.log(`PASS: actual business-plan HWPX: company source + brief -> ${input.allowTablePagination ? 'explicit table pagination -> ' : ''}3 uniquely bound narrative cells -> multi-paragraph native edit -> ${changeSeq} DB revisions -> exact reopen; untouched cells preserved (synthetic composition, no browser/model/external-editor claim)`);
   } finally { document.free(); }
 }
 

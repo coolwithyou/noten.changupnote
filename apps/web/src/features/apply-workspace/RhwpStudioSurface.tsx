@@ -113,6 +113,7 @@ import {
   type ScheduleTableInspection,
   type ScheduleTableTarget,
 } from "@/lib/rhwp/scheduleTable";
+import { applyTablePagination, inspectTablePagination, type TablePaginationTarget } from "@/lib/rhwp/tablePagination";
 import type { ScheduleTablePlan } from "@/lib/rhwp/scheduleTableContract";
 import {
   commitStudioSnapshot,
@@ -253,6 +254,10 @@ export interface RhwpStudioSurfaceHandle {
   }>;
   undoScheduleTable(): Promise<void>;
   canUndoScheduleTable(): boolean;
+  inspectTablePagination(): Promise<TablePaginationTarget[]>;
+  applyTablePagination(target: TablePaginationTarget): Promise<{ afterDocumentSha256: string }>;
+  undoTablePagination(): Promise<void>;
+  canUndoTablePagination(): boolean;
 }
 
 export interface RhwpStudioDocumentActionState {
@@ -289,7 +294,8 @@ export function isStudioEditorInteractionBlocked(input: {
 
 type StudioSaveIntent = "auto" | "stay" | "return";
 
-interface ScheduleTableUndoState {
+interface TableEditUndoState {
+  kind: "schedule" | "pagination";
   beforeBytes: Uint8Array;
   beforeDocumentSha256: string;
   afterDocumentSha256: string;
@@ -366,7 +372,7 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
   const agentReservedAnchorsRef = useRef<DocumentAgentReservedAnchor[]>([]);
   const latestAppliedSuggestionIdRef = useRef<string | null>(null);
   const documentAgentInitializedRef = useRef(false);
-  const scheduleTableUndoRef = useRef<ScheduleTableUndoState | null>(null);
+  const tableEditUndoRef = useRef<TableEditUndoState | null>(null);
   const profileAutofillUndoRef = useRef<ProfileAutofillUndoState | null>(null);
   const preparedRef = useRef<RhwpWorkingDocument | null>(null);
   const onSavedRef = useRef(onSaved);
@@ -617,7 +623,7 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
         fieldAgentProtocol,
         onDocumentChanged: (change) => {
           if (disposed || requestSeq.current !== seq) return;
-          scheduleTableUndoRef.current = null;
+          tableEditUndoRef.current = null;
           profileAutofillUndoRef.current = null;
           documentEpochRef.current = change.documentEpoch;
           latestChangeSeqRef.current = change.changeSeq;
@@ -652,7 +658,7 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
       agentCandidatesRef.current = [];
       agentReservedAnchorsRef.current = [];
       latestAppliedSuggestionIdRef.current = null;
-      scheduleTableUndoRef.current = null;
+      tableEditUndoRef.current = null;
       profileAutofillUndoRef.current = null;
       setAgentCapabilityReady(false);
       preparedRef.current = null;
@@ -2293,10 +2299,14 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
     const editor = editorRef.current;
     const prepared = preparedRef.current;
     if (!editor || !prepared) throw new Error("현재 Studio 작업본을 찾지 못했습니다.");
+    const loadSeq = requestSeq.current;
+    const assertCurrent = () => { if (loadSeq !== requestSeq.current || editorRef.current !== editor) throw new Error("문서가 전환되어 표 변경을 중단했습니다."); };
     const result = await loadEditorFileWithoutDialogs(editor, bytes.slice(), prepared.filename);
+    assertCurrent();
     clearAutosaveTimers();
     const dirtyStateRequest = saveProtocolRef.current?.getDirtyState() ?? null;
     const dirtyState = dirtyStateRequest ? await dirtyStateRequest.catch(() => null) : null;
+    assertCurrent();
     const documentEpoch = dirtyState?.documentEpoch ?? documentEpochRef.current;
     const changeSeq = dirtyState?.changeSeq ?? legacySaveSeqRef.current + 1;
     documentEpochRef.current = documentEpoch;
@@ -2305,6 +2315,7 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
 
     try {
       const rhwp = await loadRhwp();
+      assertCurrent();
       const reopened = new rhwp.HwpDocument(bytes);
       try {
         const resolutions = resolveStudioFieldBindings(reopened, connectedFields);
@@ -2317,9 +2328,10 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
         reopened.free();
       }
     } catch (error) {
+      assertCurrent();
       fieldTargetsRef.current = new Map();
       onFieldBindingsResolvedRef.current?.([]);
-      console.warn("일정표 반영 뒤 필드 위치 재탐색 실패", error);
+      console.warn("표 변경 뒤 필드 위치 재탐색 실패", error);
     }
     return { pageCount: result.pageCount, documentEpoch, changeSeq };
   }, [clearAutosaveTimers, connectedFields]);
@@ -2339,50 +2351,85 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
     }
   }, [beginAgentMutation, finishAgentMutation, readCurrentScheduleDocument, transport]);
 
-  const applyScheduleTable = useCallback(async (
-    target: ScheduleTableTarget,
-    plan: ScheduleTablePlan,
+  const applyTableEdit = useCallback(async (
+    request: { kind: "schedule"; target: ScheduleTableTarget; plan: ScheduleTablePlan } | { kind: "pagination"; target: TablePaginationTarget },
   ): Promise<{ afterDocumentSha256: string }> => {
     if (transport.mode !== "persistent") throw new Error("서버에 저장되는 문서 초안이 아닙니다.");
     const prepared = preparedRef.current;
     const editor = editorRef.current;
-    if (!prepared || !editor) throw new Error("현재 문서에서 일정표 자동 입력을 실행할 수 없습니다.");
+    if (!prepared || !editor) throw new Error("현재 문서에서 표 변경을 실행할 수 없습니다.");
+
+    const mutationScope: StudioMutationScope = { sourceKey: prepared.sourceKey, sessionId: studioSessionIdRef.current, requestSeq: requestSeq.current };
+    const operationSeq = requestSeq.current;
+    const mutationIsCurrent = () => operationSeq === requestSeq.current && editorRef.current === editor;
+    const assertCurrent = () => { if (!mutationIsCurrent()) throw new Error("문서가 전환되어 표 변경을 중단했습니다."); };
+    const loadCurrentBytes = async (bytes: Uint8Array) => {
+      assertCurrent();
+      const loaded = await loadScheduleBytesIntoEditor(bytes);
+      assertCurrent();
+      return loaded;
+    };
 
     let locked = false;
     let keepLocked = false;
     let editorLoaded = false;
+    let baseRevisionId = prepared.revisionId;
     let current: Awaited<ReturnType<typeof readCurrentScheduleDocument>> | null = null;
     setFieldAgentBusy(true);
     try {
       beginAgentMutation();
       locked = true;
       current = await readCurrentScheduleDocument();
+      assertCurrent();
       const rhwp = await loadRhwp();
-      const applied = await applyScheduleTablePlan({
-        rhwp,
-        bytes: current.bytes,
-        format: prepared.format,
-        target,
-        plan,
-      });
+      const applied = request.kind === "schedule"
+        ? await applyScheduleTablePlan({ rhwp, bytes: current.bytes, format: prepared.format, target: request.target, plan: request.plan })
+        : await applyTablePagination({ rhwp, bytes: current.bytes, format: prepared.format, target: request.target });
 
+      assertCurrent();
+      // 변경 전 작업본이 아직 서버에 없으면 먼저 보관한다. 실패 시 복구할 편집 내용도 저장되어야 한다.
+      if (current.documentSha256 !== await sha256Hex(prepared.bytes)) {
+        assertCurrent();
+        const changeSeq = latestChangeSeqRef.current ?? legacySaveSeqRef.current + 1;
+        let checkpoint: Awaited<ReturnType<typeof persistStudioSnapshot>>;
+        try {
+          checkpoint = await persistStudioSnapshot({
+            draftId: transport.draftId, bytes: current.bytes, filename: prepared.filename,
+            format: prepared.format, pageCount: current.pageCount, sessionId: studioSessionIdRef.current!,
+            baseRevisionId, documentEpoch: documentEpochRef.current, changeSeq,
+            origin: "studio_agent_checkpoint", checkpointRequestId: crypto.randomUUID(),
+            materializedAnswers: prepared.materializedAnswers,
+            verification: { purpose: "table_edit_checkpoint", documentSha256: current.documentSha256 },
+          });
+        } catch (error) {
+          if (!isDefinitiveStudioSnapshotRejection(error)) keepLocked = mutationIsCurrent();
+          throw error;
+        }
+        baseRevisionId = checkpoint.revisionId;
+        assertCurrent();
+        await acceptPersistedAgentSnapshot({ bytes: current.bytes, revisionId: checkpoint.revisionId,
+          savedAt: checkpoint.savedAt, changeSeq, expectedMutationScope: mutationScope });
+      }
+      assertCurrent();
       editorLoaded = true;
       let loaded: Awaited<ReturnType<typeof loadScheduleBytesIntoEditor>>;
       try {
-        loaded = await loadScheduleBytesIntoEditor(applied.bytes);
+        loaded = await loadCurrentBytes(applied.bytes);
       } catch (error) {
+        if (!mutationIsCurrent()) { editorLoaded = false; throw error; }
         try {
-          await loadScheduleBytesIntoEditor(current.bytes);
+          await loadCurrentBytes(current.bytes);
           await notifyEditorSaved(editor);
           editorLoaded = false;
         } catch (rollbackError) {
           keepLocked = true;
-          throw new Error(`일정표 적용본을 편집기에 불러오지 못했고 원본 복구도 확정하지 못했습니다: ${errorMessage(rollbackError, "복구 실패")}`);
+          throw new Error(`표 변경본을 편집기에 불러오지 못했고 원본 복구도 확정하지 못했습니다: ${errorMessage(rollbackError, "복구 실패")}`);
         }
-        throw new Error(`${errorMessage(error, "일정표 적용본을 편집기에 불러오지 못했습니다.")} 문서는 원상 복구했습니다.`);
+        throw new Error(`${errorMessage(error, "표 변경본을 편집기에 불러오지 못했습니다.")} 문서는 원상 복구했습니다.`);
       }
       let persisted: Awaited<ReturnType<typeof persistStudioSnapshot>>;
       try {
+        assertCurrent();
         persisted = await persistStudioSnapshot({
           draftId: transport.draftId,
           bytes: applied.bytes,
@@ -2390,7 +2437,7 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
           format: prepared.format,
           pageCount: loaded.pageCount,
           sessionId: studioSessionIdRef.current!,
-          baseRevisionId: prepared.revisionId,
+          baseRevisionId,
           documentEpoch: loaded.documentEpoch,
           changeSeq: loaded.changeSeq,
           origin: "studio_manual",
@@ -2398,38 +2445,44 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
           verification: {
             client: "rhwp-core-reopen",
             verified: true,
-            purpose: "schedule_table_apply",
+            purpose: request.kind === "schedule" ? "schedule_table_apply" : "table_pagination_apply",
             beforeDocumentSha256: applied.beforeDocumentSha256,
             afterDocumentSha256: applied.afterDocumentSha256,
-            structureSha256: target.structureSha256,
-            preimageSha256: target.preimageSha256,
-            phases: plan.phases.map((phase) => ({
-              title: phase.title,
-              startMonth: phase.startMonth,
-              endMonth: phase.endMonth,
-              basisKind: phase.basisKind,
-            })),
+            ...(request.kind === "schedule" ? {
+              structureSha256: request.target.structureSha256,
+              preimageSha256: request.target.preimageSha256,
+              phases: request.plan.phases.map((phase) => ({ title: phase.title, startMonth: phase.startMonth, endMonth: phase.endMonth, basisKind: phase.basisKind })),
+            } : { tableSha256: request.target.tableSha256, target: request.target }),
           },
         });
       } catch (error) {
+        if (!mutationIsCurrent()) { editorLoaded = false; throw error; }
+        if (!isDefinitiveStudioSnapshotRejection(error)) {
+          keepLocked = true;
+          throw new Error("표 변경의 서버 저장 여부를 확인하지 못했습니다. 최신 서버 문서를 다시 불러와 주세요.");
+        }
         try {
-          await loadScheduleBytesIntoEditor(current.bytes);
+          await loadCurrentBytes(current.bytes);
           await notifyEditorSaved(editor);
         } catch (rollbackError) {
           keepLocked = true;
-          throw new Error(`일정표 저장과 원상 복구를 확정하지 못해 편집을 잠갔습니다: ${errorMessage(rollbackError, "복구 실패")}`);
+          throw new Error(`표 변경 저장과 원상 복구를 확정하지 못해 편집을 잠갔습니다: ${errorMessage(rollbackError, "복구 실패")}`);
         }
         editorLoaded = false;
-        throw new Error(`${errorMessage(error, "일정표를 반영한 문서를 저장하지 못했습니다.")} 문서 변경은 원상 복구했습니다.`);
+        throw new Error(`${errorMessage(error, "표를 변경한 문서를 저장하지 못했습니다.")} 문서 변경은 원상 복구했습니다.`);
       }
 
+      assertCurrent();
       await acceptPersistedAgentSnapshot({
         bytes: applied.bytes,
         revisionId: persisted.revisionId,
         savedAt: persisted.savedAt,
         changeSeq: loaded.changeSeq,
+        expectedMutationScope: mutationScope,
       });
-      scheduleTableUndoRef.current = {
+      assertCurrent();
+      tableEditUndoRef.current = {
+        kind: request.kind,
         beforeBytes: current.bytes,
         beforeDocumentSha256: current.documentSha256,
         afterDocumentSha256: applied.afterDocumentSha256,
@@ -2438,16 +2491,16 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
       };
       return { afterDocumentSha256: applied.afterDocumentSha256 };
     } catch (error) {
-      if (editorLoaded) {
+      if ((editorLoaded || keepLocked) && mutationIsCurrent()) {
         keepLocked = true;
-        const message = `일정표 자동 입력 뒤 현재 편집 상태를 확정하지 못해 편집을 잠갔습니다: ${errorMessage(error, "상태 반영 실패")}`;
+        const message = `표 변경 뒤 현재 편집 상태를 확정하지 못해 편집을 잠갔습니다: ${errorMessage(error, "상태 반영 실패")}`;
         setAgentHardLock(message);
         throw new Error(message);
       }
       throw error;
     } finally {
-      if (locked) finishAgentMutation(keepLocked);
-      setFieldAgentBusy(false);
+      if (locked && mutationIsCurrent()) finishAgentMutation(keepLocked);
+      if (mutationIsCurrent()) setFieldAgentBusy(false);
     }
   }, [
     acceptPersistedAgentSnapshot,
@@ -2458,12 +2511,23 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
     transport,
   ]);
 
-  const undoScheduleTable = useCallback(async (): Promise<void> => {
+  const undoTableEdit = useCallback(async (kind: "schedule" | "pagination"): Promise<void> => {
     if (transport.mode !== "persistent") throw new Error("서버에 저장되는 문서 초안이 아닙니다.");
-    const undo = scheduleTableUndoRef.current;
+    const undo = tableEditUndoRef.current;
     const prepared = preparedRef.current;
     const editor = editorRef.current;
-    if (!undo || !prepared || !editor) throw new Error("이 Studio 세션에서 되돌릴 최근 일정표 입력이 없습니다.");
+    if (!undo || undo.kind !== kind || !prepared || !editor) throw new Error("이 Studio 세션에서 되돌릴 최근 표 변경이 없습니다.");
+
+    const mutationScope: StudioMutationScope = { sourceKey: prepared.sourceKey, sessionId: studioSessionIdRef.current, requestSeq: requestSeq.current };
+    const operationSeq = requestSeq.current;
+    const mutationIsCurrent = () => operationSeq === requestSeq.current && editorRef.current === editor;
+    const assertCurrent = () => { if (!mutationIsCurrent()) throw new Error("문서가 전환되어 표 변경을 중단했습니다."); };
+    const loadCurrentBytes = async (bytes: Uint8Array) => {
+      assertCurrent();
+      const loaded = await loadScheduleBytesIntoEditor(bytes);
+      assertCurrent();
+      return loaded;
+    };
 
     let locked = false;
     let keepLocked = false;
@@ -2473,32 +2537,36 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
       beginAgentMutation();
       locked = true;
       const current = await readCurrentScheduleDocument();
-      if (current.documentSha256 !== undo.afterDocumentSha256) {
-        scheduleTableUndoRef.current = null;
-        throw new Error("일정표 입력 뒤 문서가 변경되어 전체 문서 Undo를 차단했습니다.");
+      assertCurrent();
+      if (current.documentSha256 !== undo.afterDocumentSha256 || prepared.revisionId !== undo.appliedRevisionId) {
+        tableEditUndoRef.current = null;
+        throw new Error("표 변경 뒤 문서가 변경되어 전체 문서 Undo를 차단했습니다.");
       }
       if (await sha256Hex(undo.beforeBytes) !== undo.beforeDocumentSha256) {
-        scheduleTableUndoRef.current = null;
-        throw new Error("저장해 둔 일정표 입력 전 문서가 손상되어 Undo를 차단했습니다.");
+        tableEditUndoRef.current = null;
+        throw new Error("저장해 둔 표 변경 전 문서가 손상되어 Undo를 차단했습니다.");
       }
 
+      assertCurrent();
       editorLoaded = true;
       let loaded: Awaited<ReturnType<typeof loadScheduleBytesIntoEditor>>;
       try {
-        loaded = await loadScheduleBytesIntoEditor(undo.beforeBytes);
+        loaded = await loadCurrentBytes(undo.beforeBytes);
       } catch (error) {
+        if (!mutationIsCurrent()) { editorLoaded = false; throw error; }
         try {
-          await loadScheduleBytesIntoEditor(current.bytes);
+          await loadCurrentBytes(current.bytes);
           await notifyEditorSaved(editor);
           editorLoaded = false;
         } catch (rollbackError) {
           keepLocked = true;
-          throw new Error(`일정표 Undo 문서를 편집기에 불러오지 못했고 적용본 복구도 확정하지 못했습니다: ${errorMessage(rollbackError, "복구 실패")}`);
+          throw new Error(`표 변경 Undo 문서를 편집기에 불러오지 못했고 적용본 복구도 확정하지 못했습니다: ${errorMessage(rollbackError, "복구 실패")}`);
         }
-        throw new Error(`${errorMessage(error, "일정표 Undo 문서를 편집기에 불러오지 못했습니다.")} 문서는 적용 상태로 복구했습니다.`);
+        throw new Error(`${errorMessage(error, "표 변경 Undo 문서를 편집기에 불러오지 못했습니다.")} 문서는 적용 상태로 복구했습니다.`);
       }
       let persisted: Awaited<ReturnType<typeof persistStudioSnapshot>>;
       try {
+        assertCurrent();
         persisted = await persistStudioSnapshot({
           draftId: transport.draftId,
           bytes: undo.beforeBytes,
@@ -2514,41 +2582,49 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
           verification: {
             client: "rhwp-core-reopen",
             verified: true,
-            purpose: "schedule_table_undo",
+            purpose: kind === "schedule" ? "schedule_table_undo" : "table_pagination_undo",
             beforeDocumentSha256: current.documentSha256,
             afterDocumentSha256: undo.beforeDocumentSha256,
           },
         });
       } catch (error) {
+        if (!mutationIsCurrent()) { editorLoaded = false; throw error; }
+        if (!isDefinitiveStudioSnapshotRejection(error)) {
+          keepLocked = true;
+          throw new Error("표 변경의 서버 저장 여부를 확인하지 못했습니다. 최신 서버 문서를 다시 불러와 주세요.");
+        }
         try {
-          await loadScheduleBytesIntoEditor(current.bytes);
+          await loadCurrentBytes(current.bytes);
           await notifyEditorSaved(editor);
         } catch (rollbackError) {
           keepLocked = true;
-          throw new Error(`일정표 Undo 저장과 적용본 복구를 확정하지 못해 편집을 잠갔습니다: ${errorMessage(rollbackError, "복구 실패")}`);
+          throw new Error(`표 변경 Undo 저장과 적용본 복구를 확정하지 못해 편집을 잠갔습니다: ${errorMessage(rollbackError, "복구 실패")}`);
         }
         editorLoaded = false;
-        throw new Error(`${errorMessage(error, "일정표 Undo 문서를 저장하지 못했습니다.")} 문서는 적용 상태로 복구했습니다.`);
+        throw new Error(`${errorMessage(error, "표 변경 Undo 문서를 저장하지 못했습니다.")} 문서는 적용 상태로 복구했습니다.`);
       }
 
+      assertCurrent();
       await acceptPersistedAgentSnapshot({
         bytes: undo.beforeBytes,
         revisionId: persisted.revisionId,
         savedAt: persisted.savedAt,
         changeSeq: loaded.changeSeq,
+        expectedMutationScope: mutationScope,
       });
-      scheduleTableUndoRef.current = null;
+      assertCurrent();
+      tableEditUndoRef.current = null;
     } catch (error) {
-      if (editorLoaded) {
+      if (editorLoaded && mutationIsCurrent()) {
         keepLocked = true;
-        const message = `일정표 Undo 뒤 현재 편집 상태를 확정하지 못해 편집을 잠갔습니다: ${errorMessage(error, "상태 반영 실패")}`;
+        const message = `표 변경 Undo 뒤 현재 편집 상태를 확정하지 못해 편집을 잠갔습니다: ${errorMessage(error, "상태 반영 실패")}`;
         setAgentHardLock(message);
         throw new Error(message);
       }
       throw error;
     } finally {
-      if (locked) finishAgentMutation(keepLocked);
-      setFieldAgentBusy(false);
+      if (locked && mutationIsCurrent()) finishAgentMutation(keepLocked);
+      if (mutationIsCurrent()) setFieldAgentBusy(false);
     }
   }, [
     acceptPersistedAgentSnapshot,
@@ -2559,7 +2635,24 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
     transport,
   ]);
 
-  const canUndoScheduleTable = useCallback(() => scheduleTableUndoRef.current !== null, []);
+  const applyScheduleTable = useCallback((target: ScheduleTableTarget, plan: ScheduleTablePlan) => applyTableEdit({ kind: "schedule", target, plan }), [applyTableEdit]);
+  const applyPagination = useCallback((target: TablePaginationTarget) => applyTableEdit({ kind: "pagination", target }), [applyTableEdit]);
+  const undoScheduleTable = useCallback(() => undoTableEdit("schedule"), [undoTableEdit]);
+  const undoPagination = useCallback(() => undoTableEdit("pagination"), [undoTableEdit]);
+  const canUndoScheduleTable = useCallback(() => tableEditUndoRef.current?.kind === "schedule", []);
+  const canUndoPagination = useCallback(() => tableEditUndoRef.current?.kind === "pagination", []);
+  const inspectPagination = useCallback(async () => {
+    if (transport.mode !== "persistent") throw new Error("서버에 저장되는 문서 초안이 아닙니다.");
+    let locked = false;
+    try {
+      beginAgentMutation(); locked = true;
+      const current = await readCurrentScheduleDocument();
+      const rhwp = await loadRhwp();
+      const document = new rhwp.HwpDocument(current.bytes);
+      try { return await inspectTablePagination(document, current.documentSha256); }
+      finally { document.free(); }
+    } finally { if (locked) finishAgentMutation(); }
+  }, [beginAgentMutation, finishAgentMutation, readCurrentScheduleDocument, transport]);
 
   useImperativeHandle(ref, () => ({
     saveAndReturn,
@@ -2579,6 +2672,10 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
     applyScheduleTable,
     undoScheduleTable,
     canUndoScheduleTable,
+    inspectTablePagination: inspectPagination,
+    applyTablePagination: applyPagination,
+    undoTablePagination: undoPagination,
+    canUndoTablePagination: canUndoPagination,
   }), [
     applyProfileAutofill,
     undoAutomaticProfileAutofill,
@@ -2596,7 +2693,7 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
     saveCurrent,
     undoFieldSuggestion,
     undoScheduleTable,
-    canUndoScheduleTable,
+    canUndoScheduleTable, inspectPagination, applyPagination, undoPagination, canUndoPagination,
   ]);
 
   const saving = isStudioSaveInFlight(saveState);

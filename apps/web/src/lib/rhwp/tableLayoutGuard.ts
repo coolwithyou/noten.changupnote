@@ -18,7 +18,7 @@ export function assertTableLayoutDoesNotOverflow(input: {
     for (const [cell, overflow] of changed) {
       const previous = baseline.get(cell);
       if (previous === undefined || overflow > previous + tolerance) {
-        throw new Error("긴 문안을 넣은 뒤 표가 용지 밖으로 밀려 자동 반영을 저장하지 않았어요. 문항별 문안에 보관하거나 복사해 직접 편집해 주세요.");
+        throw new Error("긴 문안을 넣은 뒤 표가 용지 밖으로 밀려 자동 반영을 저장하지 않았어요. ‘표 쪽 나눔’에서 배치를 확인하거나 문항별 문안에 보관해 주세요.");
       }
     }
   } finally { before.free(); after?.free(); }
