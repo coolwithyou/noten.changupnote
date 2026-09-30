@@ -399,7 +399,8 @@
     "execute:grant-supply": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/productReadiness/grantSupplyExecute-cli.ts",
     "report:legacy-question-migration-shadow": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/productReadiness/legacyQuestionMigrationShadow-cli.ts",
     "prepare:legacy-question-migration-review": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/productReadiness/legacyQuestionMigrationReviewPacket-cli.ts",
-    "prepare:legacy-question-migration-draft": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/productReadiness/legacyQuestionMigrationDraft-cli.ts"
+    "prepare:legacy-question-migration-draft": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/productReadiness/legacyQuestionMigrationDraft-cli.ts",
+    "test:writing-context": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/documents/writingContext.test.ts && tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/documents/writingRequest.test.ts && tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/documents/writingGroundingSources.test.ts && tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/documents/sectionComposer.test.ts"
   },
   "devDependencies": {
     "@types/node": "^24.0.4",

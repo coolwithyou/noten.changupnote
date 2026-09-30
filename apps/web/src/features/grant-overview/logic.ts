@@ -3,10 +3,10 @@ import type { VerdictStatus } from "@/components/app/verdict-badge";
 import type { GrantPreviewAvailability } from "@/lib/server/documents/documentPreview";
 
 export type GrantOverviewCtaMode =
-  | "template_fill"
+  | "manual_form"
   | "ai_draft"
   | "web_form_guide"
-  | "analyzing"
+  | "preparation_needed"
   | "unknown";
 
 export interface GrantOverviewCta {
@@ -106,33 +106,26 @@ export function grantOverviewCta(
   sheet: ApplySheet,
   availability: GrantPreviewAvailability | null,
 ): GrantOverviewCta {
-  if (sheet.matchingEvidence?.level === "discovery") {
-    return {
-      mode: "unknown",
-      label: "공고 원문에서 조건 확인",
-      caption: "아직 자격 조건 분석이 확정되지 않아 원문 정보를 먼저 안내해요",
-      variant: "outline",
-    };
-  }
   const documents = sheet.applicationPrep.draftableDocuments;
-  const templateCount = documents.filter((document) => document.hwpxTemplateAvailable).length;
-  const readySurfaceCount = Math.max(0, availability?.readySurfaceCount ?? 0);
+  const editableDocument = documents.some((document) => Boolean(document.sourceAttachment)
+    && (document.hwpxTemplateAvailable || /\.hwpx?$/i.test(document.sourceAttachment ?? "")));
   const pendingSurfaceCount = Math.max(0, availability?.pendingSurfaceCount ?? 0);
 
-  if (templateCount > 0 || readySurfaceCount > 0) {
+  // 자격 분석/미리보기의 준비도는 원본 편집이나 자동 입력의 증거가 아니다.
+  if (editableDocument) {
     return {
-      mode: "template_fill",
+      mode: "manual_form",
       label: "지원서 작성 시작",
-      caption: "HWP 양식의 80%를 미리 채워드려요",
+      caption: "원본 양식을 열고 작성해요. 자동 입력 가능한 항목은 작성 화면에서 확인해요",
       variant: "default",
     };
   }
 
   if (pendingSurfaceCount > 0) {
     return {
-      mode: "analyzing",
-      label: "서류 준비 중 — 채팅으로 먼저 물어보기",
-      caption: `${pendingSurfaceCount.toLocaleString("ko-KR")}개 양식을 분석 중이에요. 준비 내용을 먼저 확인할 수 있어요`,
+      mode: "preparation_needed",
+      label: "서류 준비 내용 확인",
+      caption: `${pendingSurfaceCount.toLocaleString("ko-KR")}개 양식의 준비가 필요해요. 작성 화면에서 현재 상태를 확인할 수 있어요`,
       variant: "outline",
     };
   }
@@ -154,6 +147,15 @@ export function grantOverviewCta(
         ? `접수 방법: ${sheet.applyMethod}`
         : "온라인 접수에 필요한 항목과 준비 값을 확인해요",
       variant: "default",
+    };
+  }
+
+  if (sheet.matchingEvidence?.level === "discovery") {
+    return {
+      mode: "unknown",
+      label: "공고 원문에서 조건 확인",
+      caption: "작성할 양식과 자격 조건을 공고 원문에서 확인해 주세요",
+      variant: "outline",
     };
   }
 

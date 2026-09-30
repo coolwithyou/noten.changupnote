@@ -66,7 +66,9 @@ export function GrantOverviewView({
   const verdict = grantOverviewVerdict(sheet);
   const cta = grantOverviewCta(sheet, previewAvailability);
   const discovery = sheet.matchingEvidence?.level === "discovery";
-  const showConversionPoll = (previewAvailability?.pendingSurfaceCount ?? 0) > 0;
+  const sourceOnly = discovery && cta.mode === "unknown";
+  const showConversionPoll = !adminPreview && !virtualCompanyBizNo && !virtualCompanyName
+    && (previewAvailability?.pendingSurfaceCount ?? 0) > 0;
   const hardConditions = [...sheet.satisfied, ...sheet.needsCheck]
     .filter((trace) => trace.kind === "required" || trace.kind === "exclusion");
   const satisfiedConditionCount = hardConditions.filter((trace) => trace.result === "pass").length;
@@ -74,7 +76,7 @@ export function GrantOverviewView({
   const unknownConditionCount = hardConditions.length - satisfiedConditionCount - failedConditionCount;
   // 과금 접점 ①: 도우미 사용(초안 생성)이 시작되는 모드에서만 시작 고지 칩을 노출한다.
   const usageChipRemaining =
-    typeof remainingUses === "number" && (cta.mode === "template_fill" || cta.mode === "ai_draft")
+    typeof remainingUses === "number" && (cta.mode === "manual_form" || cta.mode === "ai_draft")
       ? remainingUses
       : null;
 
@@ -112,7 +114,7 @@ export function GrantOverviewView({
       {discovery ? (
         <div className="mt-5 rounded-2xl border border-border-subtle bg-surface-soft px-4 py-3.5 text-sm leading-6 text-text-secondary">
           <strong className="block text-ink">지원 조건 확인이 필요한 공고예요</strong>
-          <span>현재는 제목·기관·일정 같은 기본 정보만 안내합니다. 자격과 제출 조건은 공고 원문에서 확인해 주세요.</span>
+          <span>자격과 제출 조건은 공고 원문에서 확인해 주세요. 작성 가능한 양식이 있으면 조건 확인과 별개로 문서를 준비할 수 있어요.</span>
         </div>
       ) : null}
 
@@ -136,7 +138,7 @@ export function GrantOverviewView({
 
       {/* ③ 작성 지원 모드별 주 CTA 1개 */}
       <section className="mt-6">
-        {discovery ? (
+        {sourceOnly ? (
           sheet.deepLink ? (
             <a
               href={sheet.deepLink}
@@ -172,7 +174,7 @@ export function GrantOverviewView({
         )}
         <div className="mt-2.5 flex flex-wrap items-center justify-center gap-x-2.5 gap-y-1.5">
           <p className="text-center text-[13px] leading-5 text-text-tertiary">
-            {discovery ? cta.caption : adminPreview
+            {adminPreview
               ? "모든 공고를 읽기 전용으로 열어 빠른 작성 연결 상태를 확인해요"
               : virtualCompanyName ? "실제 회사나 초안에 저장하지 않고 작성 화면을 확인해요" : cta.caption}
           </p>
@@ -184,7 +186,7 @@ export function GrantOverviewView({
                   : "rounded-full bg-brand-tint text-brand-hover tabular-nums"
               }
             >
-              도우미 1회 사용 · 남은 {usageChipRemaining.toLocaleString("ko-KR")}회
+              AI 도우미 남은 {usageChipRemaining.toLocaleString("ko-KR")}회
             </Badge>
           ) : null}
         </div>

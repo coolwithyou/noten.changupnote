@@ -1,3 +1,5 @@
+import { loadWritingGroundingInTransaction } from "./writingContext";
+import { writingContextBinding } from "./writingGroundingSources";
 import { createHash, randomUUID } from "node:crypto";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { detectHwpFormat } from "@cunote/core/documents/hwpx-fill";
@@ -1146,6 +1148,12 @@ async function authorizeFieldAgentSnapshotInTransaction(input: {
       ...joined,
     });
     return { kind: "field", ...joined, operation: input.input.agentOperation, commandId, existingRevision };
+  }
+  if (input.input.agentOperation === "apply" && joined.run.writingContextBindingSha256) {
+    const current = await loadWritingGroundingInTransaction(input.tx, { access: input.input.access, draftId: input.input.draftId });
+    if (writingContextBinding(current) !== joined.run.writingContextBindingSha256) {
+      throw new DocumentRevisionError("writing_context_changed", "자료나 사업 설명이 변경되어 이전 초안을 반영할 수 없습니다.", 409);
+    }
   }
   assertActiveFieldAgentSnapshotAuthorization({ request: input.input, currentHead: input.currentHead, ...joined });
   return { kind: "field", ...joined, operation: input.input.agentOperation, commandId, existingRevision: null };

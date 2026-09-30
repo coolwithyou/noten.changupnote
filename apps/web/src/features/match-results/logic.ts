@@ -20,6 +20,7 @@ import {
   hasUnanswerableHardUnknown,
   isPreparableMatchCard,
   explainMatch,
+  projectDiscoveryCard,
 } from "@cunote/core";
 import { URGENT_MAX_DDAY } from "@/components/app/notice-card";
 import type { VerdictStatus } from "@/components/app/verdict-badge";
@@ -707,14 +708,15 @@ export function isOneQuestionAwayMatch(match: MatchCard): boolean {
 
 /** 서버 판정·추천 tier를 화면의 고정 4상태 어휘로만 투영한다. */
 export function matchVerdictStatus(match: MatchCard): VerdictStatus {
+  const discovery = projectDiscoveryCard(match);
+  if (discovery.state === "excluded") return "closed";
   if (match.status === "unknown") return "check_source";
-  if (match.status === "closed") return "closed";
+  if (match.matchingEvidence?.level === "discovery") return "check_source";
   const tier = recommendationTierForMatch(match);
   if (match.status === "open" && match.eligibility === "eligible" && tier === "recommendable") return "open";
   if (isOneAnswerMatch(match)) return "one_answer";
-  // 하드 조건에서 이미 미해당으로 확정된 카드는 점수를 숨겨도 원문 검수 대상이 아니다.
-  // 전체 결과에서는 "이번엔 어려움"으로 정직하게 설명한다.
-  if (tier === "not_recommended" || match.eligibility === "ineligible") return "closed";
+  // flat 조건의 일부 fail만으로 OR/예외 분기까지 탈락했다고 가정하지 않는다.
+  if (tier === "not_recommended" || match.eligibility === "ineligible") return "check_source";
   if (
     tier === "needs_core_review" ||
     match.criteriaExtracted === false ||
@@ -724,7 +726,7 @@ export function matchVerdictStatus(match: MatchCard): VerdictStatus {
   ) {
     return "check_source";
   }
-  return "closed";
+  return "check_source";
 }
 
 /** 접수 예정·준비 필요는 판정 어휘를 늘리지 않고 별도 목록 문맥으로만 분리한다. */
@@ -740,6 +742,10 @@ export function groupMatchesForDisplay(matches: readonly MatchCard[]): MatchDisp
   };
 
   for (const match of matches) {
+    if (projectDiscoveryCard(match).state === "excluded") {
+      groups.closed.push(match);
+      continue;
+    }
     if (match.status === "upcoming") {
       groups.upcoming.push(match);
       continue;

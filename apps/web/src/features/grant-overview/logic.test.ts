@@ -49,10 +49,10 @@ const discoverySheet = sheetFixture({
     sourceRevisionSha256: "a".repeat(64),
     reason: "unreviewed",
   },
-  draftableDocuments: [{ hwpxTemplateAvailable: true }] as ApplySheet["applicationPrep"]["draftableDocuments"],
+  draftableDocuments: [{ sourceAttachment: "신청서.hwpx", hwpxTemplateAvailable: true }] as ApplySheet["applicationPrep"]["draftableDocuments"],
 });
 assert.equal(grantOverviewVerdict(discoverySheet), "check_source");
-assert.equal(grantOverviewCta(discoverySheet, previewFixture({ readySurfaceCount: 1 })).mode, "unknown");
+assert.equal(grantOverviewCta(discoverySheet, previewFixture({ readySurfaceCount: 1 })).mode, "manual_form");
 assert.equal(grantOverviewVerdict(sheetFixture({
   status: "closed",
   matchingEvidence: discoverySheet.matchingEvidence,
@@ -233,18 +233,18 @@ assert.equal(
 );
 
 const templateSheet = sheetFixture({
-  draftableDocuments: [{ hwpxTemplateAvailable: true }] as ApplySheet["applicationPrep"]["draftableDocuments"],
+  draftableDocuments: [{ sourceAttachment: "신청서.hwpx", hwpxTemplateAvailable: true }] as ApplySheet["applicationPrep"]["draftableDocuments"],
 });
 assert.deepEqual(grantOverviewCta(templateSheet, previewFixture()), {
-  mode: "template_fill",
+  mode: "manual_form",
   label: "지원서 작성 시작",
-  caption: "HWP 양식의 80%를 미리 채워드려요",
+  caption: "원본 양식을 열고 작성해요. 자동 입력 가능한 항목은 작성 화면에서 확인해요",
   variant: "default",
 });
 
 assert.equal(
   grantOverviewCta(sheetFixture(), previewFixture({ pendingSurfaceCount: 2 })).mode,
-  "analyzing",
+  "preparation_needed",
 );
 assert.equal(
   grantOverviewCta(
@@ -305,3 +305,16 @@ assert.equal(
 assert.equal(formatDday(21), "D-21");
 assert.equal(formatEligibilitySummary(3, 2), "충족 확인 3 · 미충족 0 · 미확인 2");
 assert.equal(formatEligibilitySummary(1, 2, 1), "충족 확인 1 · 미충족 1 · 미확인 2");
+
+// 자격 미확정/마감은 기존 원본 편집을 잠그지 않는다. 미리보기만으로 양식 채움을 약속하지 않는다.
+for (const status of ["open", "closed"] as const) {
+  const manual = sheetFixture({ status, matchingEvidence: discoverySheet.matchingEvidence,
+    draftableDocuments: [{ sourceAttachment: "신청서.HWP", hwpxTemplateAvailable: false }] as ApplySheet["applicationPrep"]["draftableDocuments"],
+  });
+  assert.equal(grantOverviewCta(manual, null).mode, "manual_form");
+  assert.equal(grantOverviewCta(manual, previewFixture({ pendingSurfaceCount: 1 })).mode, "manual_form");
+}
+assert.equal(grantOverviewCta(sheetFixture({ matchingEvidence: discoverySheet.matchingEvidence }), previewFixture({ readySurfaceCount: 1 })).mode, "unknown");
+assert.equal(grantOverviewCta(sheetFixture({
+  draftableDocuments: [{ sourceAttachment: "안내문.pdf", hwpxTemplateAvailable: false }] as ApplySheet["applicationPrep"]["draftableDocuments"],
+}), previewFixture({ readySurfaceCount: 1 })).mode, "ai_draft");

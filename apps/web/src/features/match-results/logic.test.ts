@@ -249,7 +249,7 @@ assert.equal(
   "one_answer",
   "우대정보 미확인은 필수 자격 질문 수에 포함하면 안 됨",
 );
-assert.equal(matchVerdictStatus(multiAnswerMatch), "closed");
+assert.equal(matchVerdictStatus(multiAnswerMatch), "check_source");
 assert.equal(matchVerdictStatus(reviewMatch), "check_source");
 assert.equal(matchVerdictStatus(unknownStatusMatch), "check_source");
 assert.equal(
@@ -270,8 +270,8 @@ assert.equal(
 assert.equal(matchVerdictStatus(mixedHardAdminMultiProfileMatch), "check_source");
 assert.equal(
   matchVerdictStatus(hiddenScoreHardFailMatch),
-  "closed",
-  "확정 미해당 공고를 점수 숨김만으로 원문 확인 필요로 표시하면 안 됨",
+  "check_source",
+  "현재 원문과 검수 근거가 없는 legacy fail은 점수와 관계없이 검토 후보로 유지한다",
 );
 const mixedActions = matchCardNextActions({
   ...answerMatch,
@@ -364,8 +364,8 @@ const grouped = groupMatchesForDisplay([
 ]);
 assert.equal(grouped.oneAnswer.length, 2);
 assert.equal(grouped.preparable.length, 2);
-assert.equal(grouped.checkSource.length, 3);
-assert.equal(grouped.closed.length, 1, "hard fail은 legacy preparable bucket이어도 준비 목록에서 제외");
+assert.equal(grouped.checkSource.length, 4);
+assert.equal(grouped.closed.length, 0, "미확인 trace를 가진 legacy ineligible만으로 후보를 제외하지 않는다");
 
 const exactQuestionTemplate = {
   ...answerMatch,

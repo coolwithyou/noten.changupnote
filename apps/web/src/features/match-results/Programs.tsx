@@ -134,7 +134,7 @@ export function ProgramsExperience({
     setConfirmOpen(true);
   }, [autoOpenConfirmationGrantId, autoOpenConfirmationQuestionId, teaser.matches]);
   const visibleOpen = showAllOpen ? groups.open : groups.open.slice(0, DEFAULT_VISIBLE_OPEN);
-  const unavailable = [...groups.preparable, ...groups.closed];
+  const unavailable = groups.closed;
 
   return (
     <ProfileQuestionContext.Provider value={profileQuestionContextValue}>
@@ -203,6 +203,21 @@ export function ProgramsExperience({
           companyId={companyId}
         />
         ) : null}
+        {groups.preparable.length > 0 ? (
+        <ResultBucket
+          label="회사 정보를 더 확인할 후보"
+          matches={groups.preparable}
+          status="check_source"
+          defaultOpen
+          onOpenProfile={onOpenProfile}
+          onPrepare={onPrepare}
+          preparing={preparing}
+          onOpenConfirmation={openConfirmation}
+          onConfirmationSaved={onConfirmationSaved}
+          virtualBizNo={virtualBizNo}
+          companyId={companyId}
+        />
+        ) : null}
         {groups.checkSource.length > 0 ? (
         <ResultBucket
           label="공고 조건 확인"
@@ -220,7 +235,7 @@ export function ProgramsExperience({
         ) : null}
         {unavailable.length > 0 ? (
         <ResultBucket
-          label="현재 신청 어려움"
+          label="제외된 공고 보기"
           matches={unavailable}
           status="closed"
           onOpenProfile={onOpenProfile}

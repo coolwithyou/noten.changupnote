@@ -1,6 +1,9 @@
 import { createHash } from "node:crypto";
 import type { DocumentEditCandidate } from "@/lib/rhwp/documentAgentContract";
 import { canonicalJson } from "@/lib/rhwp/documentAgentContract";
+import type { CompanyAccess } from "../auth/companyGuard";
+import { loadWritingGrounding } from "./writingContext";
+import { writingGroundingSources } from "./writingGroundingSources";
 import { buildGrantGrounding } from "../chat/grounding";
 
 import { loadVerifiedDeepSources, type DocumentAgentGroundingSource, type DocumentAgentGroundingBundle } from "../analysis-serving/verifiedDeepSources";
@@ -9,13 +12,14 @@ export type { DocumentAgentEvidenceKind, DocumentAgentGroundingSource, DocumentA
 
 export async function buildDocumentAgentGrounding(input: {
   grantId: string;
-  companyId: string;
+  access: CompanyAccess;
+  draftId: string;
   revisionId: string;
   candidate: DocumentEditCandidate;
 }): Promise<DocumentAgentGroundingBundle> {
   const grounding = await buildGrantGrounding({
     grantId: input.grantId,
-    companyId: input.companyId,
+    companyId: input.access.companyId,
     disableCitations: true,
   });
   const sources: DocumentAgentGroundingSource[] = [];
@@ -54,11 +58,15 @@ export async function buildDocumentAgentGrounding(input: {
       kind: "company_profile",
       title: "현재 회사 확인 정보와 승인된 작성 가이드",
       content,
-      provenance: { companyId: input.companyId },
+      provenance: { companyId: input.access.companyId },
     }));
   }
 
-  const deep = await loadVerifiedDeepSources(input.grantId);
+  const [deep, writing] = await Promise.all([
+    loadVerifiedDeepSources(input.grantId),
+    loadWritingGrounding({ access: input.access, draftId: input.draftId }),
+  ]);
+  sources.push(...writingGroundingSources({ ...writing, companyId: input.access.companyId, draftId: input.draftId }));
   sources.push(...deep.sources);
   assertUniqueSourceIds(sources);
   const bindingProjection = sources

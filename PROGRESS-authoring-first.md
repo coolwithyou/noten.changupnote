@@ -1,0 +1,70 @@
+# 작성 중심 구현 진행
+
+- 목표: `docs/plans/2026-09-30-authoring-first-implementation.md` 전체 범위를 따라 작성 중심 기능을 구현·검증한다.
+- 시작: 2026-09-30. 브랜치 `coolwithyou/authoring-first`, base `ab4e7254aa5bef09e8c3fb4d0de40394efa696a9`.
+- 격리 위치: `/Users/ffgg/orca/workspaces/cunote/authoring-first`. 메인의 미커밋 코드와 디자인 세션 보존.
+- 사용자 지시: 상세 구현 시작. 계획만으로 완료하지 않음. 운영 배포·DB 변경·신규 유료 실행은 별도 경계 유지.
+
+## 단계와 검증
+
+- [ ] P0 기존 양식/파일 경로: `pnpm test:apply-workspace`, `pnpm test:document-agent`, 실제 양식 왕복.
+- [ ] P1 매칭 독립 작성 진입/재개: 작성 CTA·capability·권한/문서선택 회귀.
+- [ ] P2 회사 자료·brief: contracts/schema/API/UI, 격리 DB 권한·충돌·재사용.
+- [ ] P3 문항 초안·질문·반영: 근거·버전·Undo·저장, 실제 양식 인수.
+- [ ] P4 유연한 후보 탐색·필요한 정보원: 조건 경계/unknown 보존 회귀.
+- [ ] P5 실제 사용자 5명·양식 3종 파일럿과 판단 보고.
+- [ ] P6 결과에 따른 후속 범위 결정(독립 양식·미등록 공고 등).
+
+## 현재 확인
+
+- Orca 실행 상태 확인. 메인에 디자인 검토 세션이 활동 중이며 제품 구현 파일을 이 세션에서 덮어쓰지 않는다.
+- Cunote 4010/4011 개발 서버 없음. 포트3001은 다른 프로젝트. 브라우저 실제 인수는 서버/환경 준비 후 진행.
+- 새 워크트리 의존성 설치 완료. 운영 `.env`는 복사하지 않는다.
+
+## 외부 의존성
+
+- 실사용자 자료·실계정 인증과 파일럿 참여는 아직 확보하지 않음. 합성 검증을 실사용 근거로 취급하지 않는다.
+- 운영 변경이나 사용자 대면 유료 모델 실측 없이 진행할 수 있는 코드·격리 검증부터 수행한다.
+
+## 2026-09-30 구현·검증 기록
+
+- 기준선: 의존성 설치, build:packages, test:apply-workspace, test:document-agent, test:profile-autofill PASS.
+- P0 부분 증거: `CUNOTE_REQUIRE_INSTITUTION_FORM_FIXTURES=1 pnpm test:product-postgres` PASS. 실제 기관 HWP/HWPX 원본으로 RHWP 편집→격리 PostgreSQL/메모리 저장소 저장→재열기. R2·브라우저·외부 한글 인수는 미실행.
+- W1: discovery라도 HWP/HWPX 양식이 있으면 workspace로 진입. PDF preview만으로 원본 편집/80% 자동 입력을 약속하지 않음. 기존 작성 CTA logic 회귀 PASS.
+- W2/W3: company_writing_sources, document_writing_briefs 및 draft별 API/자료 패널 추가. 회사 공통/신청 전용 scope, immutable 원문 SHA, 요청 멱등성, 자료 철회, brief revision 충돌과 입력 보존.
+- source 목록은 본문을 가져오지 않고 metadata만 조회. 생성 근거는 선택한 자료 10개/60,000자 상한, 원문은 30,000자 상한. 철회는 이후 생성 차단이며 기존 문서 텍스트를 지우지 않음.
+- `writingContextPostgres.integration.ts`를 기존 격리 runner에 연결. 새 migration 포함 95개 적용, cross-tenant/forged role/viewer/scope/retry/CAS/철회/불변성 검증 PASS (`/tmp/cunote-authoring-first-writing-pg.log`).
+- `pnpm typecheck`, `pnpm verify:route-policy`, `pnpm verify:openapi` PASS(새 grounding 연결 전). 이후 수정에 해당 gate 갱신 필요.
+- 기존 DB snapshot이 0080에 멈춰 있어 generate의 기존 0081~0093 객체 재생성을 제거하고 새 writing 2개 테이블 SQL만 유지. snapshot은 현재 schema로 정렬. bigint 기본값 `1n`은 drizzle-kit JSON 직렬화 오류를 일으켜 의미가 같은 SQL `1`로 변경.
+- 기존 DELETE confirmations route가 policy 목록에서 누락된 것을 확인하고 session-protected 목록에 보완.
+- 문단 AI 근거에 회사 자료/신청 계획을 별도 kind로 연결. 생성·수락 단계 모두 현재 근거를 재구성하여 brief/source drift와 철회를 반영. 문항 composer 전체 구현과 실제 모델 품질 확인은 아직 남음.
+
+## 이어서 할 일
+
+- P1 실제 렌더 동선과 문서 재개, 준비 큐의 현재 기능 재확인.
+- P2 PDF 자료 수집/추출, 자료 UI 상호작용 검증과 기존 권한 회귀.
+- P3 문항 계약·생성 원장·문항 UI·안전한 반영·질문·숫자 일관성 검증을 구현. 기존 문단 AI만으로 P3 완료 처리하지 않음.
+- P4 유연한 탐색 정책, P5 실사용 인수, P6 파일럿 기반 결정은 미완료.
+
+## 문항 생성 연결과 실제 양식 검증
+
+- W5 부분 구현: long_text 필드는 여러 문단의 section composer를 사용한다. 회사 내용/사용자 계획/검토 제안을 구분하고 질문은 최대 3개다. 자료의 인용·숫자·단위 대조, 문항별 사용량·생성 결과 저장, 기존 반영/Undo를 연결했다. 실제 모델 품질은 미검증.
+- brief/선택 자료의 SHA 결속을 생성 요청, start_apply, 최종 snapshot 저장까지 확인한다. 변경·철회 후 오래된 초안의 반영은 차단하며 Undo는 허용한다.
+- 이번 세션 확인: `/tmp/cunote-authoring-first-gate.log` 체인(typecheck, writing-context, document-agent, apply-workspace, route-policy, openapi) exit 0. 웹 build `/tmp/cunote-authoring-first-build.log` exit 0.
+- 96개 migration을 적용한 격리 PG PASS: `/tmp/cunote-authoring-first-section-pg.log`. 새 DB/API 권한, source/brief CAS·철회, start_apply 시 binding 변경 거절 포함.
+- 실제 사업계획서 추가 표본: `PBLN_000000000123505`, 로컬 `16_3852550670afd359-바이오스타_2.0_-_사업계획서.hwpx`. 합성 회사 자료+brief로 KIST 연구팀 매칭, 기술고도화/PoC, 사업화/투자유치의 서술형 활용계획을 연결하는 회귀를 추가.
+- **미통과:** 앞의 두 셀에 각각 여러 문단을 입력하면 표의 뒤쪽 셀이 페이지 높이 밖으로 이동하고 세 번째 위치가 missing이 된다. 설치된 RHWP core 0.8.4, Node의 결정적 폭 계산에서 재현. 원본 표는 `pageBreak=CELL`이다. 실제 브라우저/외부 한글에서 동일한지 미검증이며, resolver의 페이지 경계 보호를 해제해 통과시키지 않는다.
+- 재현 명령: `CUNOTE_REQUIRE_WRITING_FORM_FIXTURES=1 pnpm test:product-postgres`. 기존 기관 양식 marker 회귀와 다른 범위이므로 별도 opt-in이며, 이 작성 회귀의 실패를 기존 PASS로 대체하지 않는다. 실패 로그 `/tmp/cunote-authoring-first-narrative-pg.log`, 로컬 probe `spike-out/authoring-first/narrative-probe.hwpx`.
+- 남은 작업: RHWP 표 분량/페이지 처리와 실제 Studio 반영 확인, 자동 반영 위치가 없는 문항의 문안 보관/복사, PDF 자료, 문서 전체 일관성, 유연한 탐색, 파일럿. W4~W7 완료 아님.
+
+## 유연한 탐색과 명시적 양식 준비
+
+- P4 부분 구현: `projectDiscoveryCard`를 teaser 선택과 목록 표시에서 사용. matcher eligibility를 덮어쓰지 않고 source_changed/미검수/필수 unknown/우대 fail을 탐색 후보로 유지한다. flat 조건의 일부 fail과 pass/unknown을 AND로 추측하지 않는다. 현재 원문 SHA·검수 상태·조건 근거가 있고 필수 조건 전체가 fail인 경우만 제외한다.
+- source-bound 검수 복합식이 주어진 경우 기존 `evaluateCompoundProjection`을 사용한다. 현재 serving 저장소에는 이 복합식 공급 경로가 없으므로 새 자동 OR 해석/검수 발행을 완료한 것은 아니다. 연결 전에는 혼합 결과를 검토 후보로 유지한다.
+- KST 날짜만 있는 당일 마감은 유지하고, 마감 시각·지난 날짜는 후보에서 제외한다. 마감된 카드가 검토 슬롯을 채우지 않는다. 기존 작성본 접근/삭제 경로는 변경하지 않는다.
+- 회사 정보가 여러 개 부족한 `preparable`을 '현재 신청 어려움'에서 분리해 '회사 정보를 더 확인할 후보'로 노출. 제외 목록은 접힌 '제외된 공고 보기'로 구분한다. 전체 제외 목록의 별도 조회·사용자 복원 저장 기능은 아직 남음.
+- `/tmp/cunote-authoring-first-discovery-cases.log` PASS: core build, discovery 경계, match-results logic, first-mission-flow, match-explanation, match-card. Programs 정적 렌더와 build-initial-company-match도 PASS. 실제 후보 사람 대조는 미실행.
+- P1 보완: pending 수만으로 '분석 중'을 약속하지 않는다. 페이지 mount의 자동 변환 POST를 제거하고 명시적 준비 버튼으로 기존 45초/3양식 sweep을 실행. 완료/추가 확인/실패/실행 불가를 구분하며 회사 편집 권한과 선택 회사 헤더를 적용한다. 관리자·가상 기업 미리보기는 요청 UI 제외.
+- 최신 UI/서버 번들 build `/tmp/cunote-authoring-first-current-build.log` exit 0. grant-overview logic와 route policy(158 API methods) PASS. 그 뒤 제안 이력의 회사 scope 재검사를 추가해 별도 PG/typecheck 진행.
+- 기존 field-agent GET 이력이 created_by만으로 조회되던 간격을 보완: 현재 membership과 draft.companyId를 검사한 후 근거/문단을 반환. 다른 회사가 선택된 동일 사용자와 membership 철회 사례를 격리 DB 회귀에 추가.
+- 추가 권한 변경까지 `/tmp/cunote-authoring-first-access-pg.log` PASS(96 migrations, 기관 HWP/HWPX 포함), `/tmp/cunote-authoring-first-final-types.log` web typecheck PASS. 서술형 3문항 별도 회귀는 여전히 미통과이며 이 PASS에 포함하지 않는다.

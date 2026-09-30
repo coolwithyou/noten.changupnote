@@ -1,41 +1,41 @@
 "use client";
 
-// 공고 상세 진입 시 해당 공고의 pending 변환을 백그라운드로 폴링한다 (계획 2026-07-08 슬라이스 A3).
-// 렌더는 하지 않는다. 완료된 surface 가 생기면 router.refresh() 로 서버 컴포넌트를 다시 그려
-// "문서 미리보기" 진입 링크가 나타나게 한다.
-//
-// 마운트당 1회만 호출한다 — 폴링 라우트 자체가 예산(45초·surface 3개)으로 보호되고,
-// 미완이면 pending 으로 남아 다음 방문/일일 스윕이 회복한다.
-
-import { useEffect, useRef } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { Button } from "@/components/ui/button";
+import { companyScopedFetch } from "@/lib/navigation/companyContext";
 
+/** 상세를 열기만 해서는 변환을 시작하지 않는다. 명시적 요청은 기존 bounded sweep을 사용한다. */
 export function ConversionPollTrigger({ grantId }: { grantId: string }) {
   const router = useRouter();
-  const firedRef = useRef(false);
-
-  useEffect(() => {
-    // StrictMode 이중 실행 가드. 언마운트 시에도 요청은 끊지 않는다 —
-    // 서버 측 변환·상태 반영이 목적이라 응답을 버려도 무해하다.
-    if (firedRef.current) return;
-    firedRef.current = true;
-
-    void (async () => {
-      try {
-        const response = await fetch(
-          `/api/web/grants/${encodeURIComponent(grantId)}/conversions/poll`,
-          { method: "POST" },
-        );
-        if (!response.ok) return;
-        const payload = (await response.json()) as { previewReady?: number };
-        if ((payload.previewReady ?? 0) > 0) {
-          router.refresh();
-        }
-      } catch {
-        // 백그라운드 폴링 실패는 페이지 동작에 영향을 주지 않는다.
+  const inFlight = useRef(false);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  async function prepare() {
+    if (inFlight.current) return;
+    inFlight.current = true; setBusy(true); setMessage(null);
+    try {
+      const response = await companyScopedFetch(`/api/web/grants/${encodeURIComponent(grantId)}/conversions/poll`, { method: "POST" });
+      if (!response.ok) throw new Error(response.status === 403 ? "양식 준비를 요청하려면 회사의 편집 권한이 필요해요." : "양식 준비 상태를 확인하지 못했어요. 다시 요청할 수 있어요.");
+      const result = await response.json() as { ok?: boolean; skippedReason?: string | null; previewReady?: number; failed?: number; stillPending?: number; pendingCount?: number };
+      if (!result.ok || result.skippedReason) {
+        setMessage("지금은 양식 준비를 실행할 수 없어요. 원본 파일을 확인하거나 나중에 다시 요청해 주세요.");
+      } else {
+        const ready = result.previewReady ?? 0;
+        const failed = result.failed ?? 0;
+        const waiting = Math.max(result.stillPending ?? 0, (result.pendingCount ?? 0) - ready - failed);
+        setMessage(ready + waiting + failed > 0
+          ? `준비 완료 ${ready}개 · 추가 확인 ${waiting}개 · 실패 ${failed}개. 미완료 양식은 다시 요청할 수 있어요.`
+          : "현재 처리할 대기 양식이 없어요. 작성 화면에서 원본과 준비 상태를 확인해 주세요.");
+        router.refresh();
       }
-    })();
-  }, [grantId, router]);
-
-  return null;
+    } catch (error) { setMessage(error instanceof Error ? error.message : "양식을 준비하지 못했어요."); }
+    finally { inFlight.current = false; setBusy(false); }
+  }
+  return <div className="mt-3 flex flex-col items-center gap-2">
+    <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => void prepare()}>
+      {busy ? "양식 준비 상태 확인 중…" : "대기 양식 준비 요청"}
+    </Button>
+    {message ? <p role="status" className="text-center text-sm text-muted-foreground">{message}</p> : null}
+  </div>;
 }

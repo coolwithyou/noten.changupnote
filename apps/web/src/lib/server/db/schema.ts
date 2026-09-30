@@ -19,6 +19,8 @@ import {
   uuid,
   varchar,
 } from "drizzle-orm/pg-core";
+import type { WritingComposition } from "../../documents/writingComposition";
+import type { WritingBrief } from "../../documents/writingContext";
 import type { DraftFieldAnswer } from "../documents/fieldAnswers";
 import type { ChatMessageContent } from "../../chat/messageContent";
 import type { StudioFieldRestoreFormatV1 } from "../../rhwp/studioDocumentAgentProtocol";
@@ -2234,6 +2236,43 @@ export const grantDocumentDrafts = pgTable("grant_document_drafts", {
   surfaceIdx: index("grant_document_drafts_surface_idx").on(table.surfaceId),
 }));
 
+/** 회사 자료 본문은 생성 후 고정하며 철회 상태를 별도로 기록한다. */
+export const companyWritingSources = pgTable("company_writing_sources", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  companyId: uuid("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  draftId: uuid("draft_id").references(() => grantDocumentDrafts.id, { onDelete: "cascade" }),
+  requestId: uuid("request_id").notNull(),
+  title: text("title").notNull(),
+  content: text("content").notNull(),
+  contentSha256: text("content_sha256").notNull(),
+  kind: text("kind").$type<"user_statement" | "company_document">().notNull(),
+  observedDate: text("observed_date"),
+  createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  withdrawnAt: timestamp("withdrawn_at", { withTimezone: true }),
+}, (table) => ({
+  requestIdx: uniqueIndex("company_writing_sources_request_idx").on(table.companyId, table.requestId),
+  companyIdx: index("company_writing_sources_company_created_idx").on(table.companyId, table.createdAt),
+  draftIdx: index("company_writing_sources_draft_idx").on(table.draftId),
+  creatorIdx: index("company_writing_sources_creator_idx").on(table.createdBy),
+  kindCheck: check("company_writing_sources_kind_check", sql`${table.kind} in ('user_statement', 'company_document')`),
+  sizeCheck: check("company_writing_sources_size_check", sql`char_length(${table.title}) between 1 and 200 and char_length(${table.content}) between 1 and 30000`),
+}));
+
+export const documentWritingBriefs = pgTable("document_writing_briefs", {
+  draftId: uuid("draft_id").primaryKey().references(() => grantDocumentDrafts.id, { onDelete: "cascade" }),
+  companyId: uuid("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  revision: integer("revision").notNull(),
+  brief: jsonb("brief").$type<WritingBrief>().notNull(),
+  sourceIds: jsonb("source_ids").$type<string[]>().notNull(),
+  updatedBy: uuid("updated_by").references(() => users.id, { onDelete: "set null" }),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  companyIdx: index("document_writing_briefs_company_idx").on(table.companyId),
+  updaterIdx: index("document_writing_briefs_updater_idx").on(table.updatedBy),
+  revisionCheck: check("document_writing_briefs_revision_check", sql`${table.revision} > 0`),
+}));
+
 export const grantDocumentDraftEvents = pgTable("grant_document_draft_events", {
   id: uuid("id").defaultRandom().primaryKey(),
   draftId: uuid("draft_id").notNull().references(() => grantDocumentDrafts.id, { onDelete: "cascade" }),
@@ -2561,6 +2600,8 @@ export const grantDocumentFieldAgentRuns = pgTable("grant_document_field_agent_r
   modelVersion: text("model_version").notNull(),
   promptVersion: text("prompt_version").notNull(),
   groundingBindingSha256: text("grounding_binding_sha256").notNull(),
+  writingContextBindingSha256: text("writing_context_binding_sha256"),
+  composition: jsonb("composition").$type<WritingComposition>(),
   failureCode: text("failure_code"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   completedAt: timestamp("completed_at", { withTimezone: true }),
@@ -2739,14 +2780,14 @@ export const matchState = pgTable("match_state", {
 /** matcher가 실제 읽는 회사 입력의 단조 revision. 제품 snapshot/source revision과 별개다. */
 export const matchCompanyInputRevisions = pgTable("match_company_input_revisions", {
   companyId: uuid("company_id").primaryKey().references(() => companies.id, { onDelete: "cascade" }),
-  revision: bigint("revision", { mode: "bigint" }).default(1n).notNull(),
+  revision: bigint("revision", { mode: "bigint" }).default(sql`1`).notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });
 
 /** matcher가 실제 읽는 공고 occurrence 입력의 단조 revision. dedup binding은 여러 행을 묶는다. */
 export const matchGrantInputRevisions = pgTable("match_grant_input_revisions", {
   grantId: uuid("grant_id").primaryKey().references(() => grants.id, { onDelete: "cascade" }),
-  revision: bigint("revision", { mode: "bigint" }).default(1n).notNull(),
+  revision: bigint("revision", { mode: "bigint" }).default(sql`1`).notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });
 
