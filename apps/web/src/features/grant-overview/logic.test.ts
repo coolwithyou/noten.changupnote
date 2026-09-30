@@ -1,7 +1,14 @@
 import assert from "node:assert/strict";
 import type { ApplySheet } from "@cunote/contracts";
+import { explainCondition } from "@cunote/core";
 import type { GrantPreviewAvailability } from "@/lib/server/documents/documentPreview";
 import {
+  CONDITION_ROW_STATUS_LABEL,
+  CONDITION_TRUST_LABEL,
+  conditionRowEvidence,
+  conditionRowSource,
+  conditionRowStatus,
+  conditionTrust,
   countHardConditions,
   describeFailedCondition,
   failedHardConditions,
@@ -370,3 +377,97 @@ assert.equal(grantOverviewCta(sheetFixture({ matchingEvidence: discoverySheet.ma
 assert.equal(grantOverviewCta(sheetFixture({
   draftableDocuments: [{ sourceAttachment: "안내문.pdf", hwpxTemplateAvailable: false }] as ApplySheet["applicationPrep"]["draftableDocuments"],
 }), previewFixture({ readySurfaceCount: 1 })).mode, "ai_draft");
+
+// 조건 행 6상태(디자인 03): pass/fail 그대로, 미해소는 다음 행동 순, 나머지는 검토 준비 중.
+const rowBase = {
+  criterionId: "c",
+  dimension: "region",
+  kind: "required",
+  label: "부산 소재",
+  sourceSpan: "본점이 부산에 소재한 기업",
+  checklistSection: "needs_check",
+} as const satisfies Partial<ApplySheet["needsCheck"][number]>;
+const rowTrace = (input: Partial<ApplySheet["needsCheck"][number]>) =>
+  explainCondition({ ...rowBase, result: "unknown", ...input } as ApplySheet["needsCheck"][number]);
+
+assert.equal(conditionRowStatus(rowTrace({ result: "pass", companyValue: "부산 해운대구 · 국세청" })), "met");
+assert.equal(conditionRowStatus(rowTrace({ result: "fail", companyValue: "서울" })), "unmet");
+assert.equal(
+  conditionRowStatus(rowTrace({ unresolvedReason: "company_profile_missing", confirmationNextAction: "company_profile" })),
+  "ask",
+);
+assert.equal(
+  conditionRowStatus(rowTrace({ unresolvedReason: "criterion_text_only", confirmationNextAction: "user_confirmation" })),
+  "per",
+);
+assert.equal(
+  conditionRowStatus(rowTrace({ result: "text_only", unresolvedReason: "criterion_text_only", confirmationNextAction: "admin_source_review" })),
+  "src",
+);
+assert.equal(
+  conditionRowStatus(rowTrace({ unresolvedReason: "criterion_text_only", confirmationNextAction: "admin_source_review" })),
+  "src",
+);
+assert.equal(
+  conditionRowStatus(rowTrace({ unresolvedReason: "criterion_needs_review", confirmationNextAction: "admin_source_review" })),
+  "wait",
+);
+assert.equal(conditionRowStatus(rowTrace({})), "wait");
+// legacy trace(confirmationNextAction 없음)는 action 종류로 읽는다.
+assert.equal(
+  conditionRowStatus(rowTrace({ action: { type: "progressive", target: "region", label: "지금 확인" } })),
+  "ask",
+);
+assert.equal(
+  conditionRowStatus(rowTrace({ action: { type: "external_link", target: "source", label: "원문 확인" } })),
+  "src",
+);
+// 명시된 admin_source_review는 legacy action보다 우선한다.
+assert.equal(
+  conditionRowStatus(rowTrace({
+    unresolvedReason: "criterion_needs_review",
+    confirmationNextAction: "admin_source_review",
+    action: { type: "progressive", target: "region", label: "지금 확인" },
+  })),
+  "wait",
+);
+assert.deepEqual(Object.values(CONDITION_ROW_STATUS_LABEL), ["충족", "미충족", "내 답 필요", "공고별 확인", "원문 확인 필요", "검토 준비 중"]);
+
+// 검수 칩: 조건 자체가 검수 대기면 시트 수준과 무관하게 AI가 읽음, 그 외에는 시트 수준, 수준 없으면 생략.
+assert.equal(conditionTrust(rowTrace({ result: "pass" }), "verified"), "reviewed");
+assert.equal(conditionTrust(rowTrace({ result: "pass" }), "discovery"), "ai");
+assert.equal(conditionTrust(rowTrace({ result: "pass" }), null), null);
+assert.equal(conditionTrust(rowTrace({ result: "pass" }), undefined), null);
+assert.equal(conditionTrust(rowTrace({ unresolvedReason: "criterion_needs_review" }), "verified"), "ai");
+assert.deepEqual(CONDITION_TRUST_LABEL, { reviewed: "검수됨", ai: "AI가 읽음" });
+
+// 근거: 회사값 우선, 없으면 판정 이유. 공고별 확인은 금지 어휘 없는 행 어휘로.
+assert.equal(conditionRowEvidence(rowTrace({ result: "pass", companyValue: " 부산 해운대구 · 국세청 " })), "부산 해운대구 · 국세청");
+assert.equal(conditionRowEvidence(rowTrace({ result: "fail" })), "현재 회사 정보와 조건이 맞지 않아요.");
+assert.equal(
+  conditionRowEvidence(rowTrace({ unresolvedReason: "company_profile_missing", confirmationNextAction: "company_profile" })),
+  "이 조건과 비교할 회사 정보가 더 필요해요.",
+);
+const perEvidence = conditionRowEvidence(
+  rowTrace({ unresolvedReason: "criterion_text_only", confirmationNextAction: "user_confirmation" }),
+);
+assert.equal(perEvidence, "이 공고에서만 확인하는 질문이에요. 답하면 다시 판단해요.");
+// 금지 어휘(core 이유 문장의 "지원·가능" 표현)가 행 어휘에 새지 않는다.
+assert.ok(!/지원\s?가능/.test(perEvidence));
+assert.equal(
+  conditionRowEvidence(rowTrace({ unresolvedReason: "criterion_needs_review", confirmationNextAction: "admin_source_review" })),
+  "창업노트에서 추출한 조건의 검수가 필요해요.",
+);
+
+// 출처 줄: "공고 원문"에 기준명(조건 문장과 다를 때만)과 검수 전 표시.
+assert.equal(conditionRowSource(rowTrace({ result: "pass" }), "reviewed"), "공고 원문 · 부산 소재");
+assert.equal(conditionRowSource(rowTrace({ result: "pass" }), null), "공고 원문 · 부산 소재");
+assert.equal(conditionRowSource(rowTrace({ result: "pass" }), "ai"), "공고 원문 · 부산 소재 · 검수 전");
+const { sourceSpan: _omittedSpan, ...rowBaseWithoutSpan } = rowBase;
+void _omittedSpan;
+assert.equal(
+  conditionRowSource(explainCondition({ ...rowBaseWithoutSpan, result: "pass" } as ApplySheet["needsCheck"][number]), "reviewed"),
+  "공고 원문",
+);
+assert.equal(conditionRowSource(rowTrace({ result: "pass", label: "본점이 부산에 소재한 기업" }), "reviewed"), "공고 원문");
+console.log("grant overview condition rows: 6-state mapping, trust chip, evidence and source line passed");

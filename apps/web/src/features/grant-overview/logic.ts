@@ -1,4 +1,5 @@
-import type { ApplySheet, RuleTraceChip, SupportAmount } from "@cunote/contracts";
+import type { ApplySheet, MatchingEvidence, RuleTraceChip, SupportAmount } from "@cunote/contracts";
+import type { explainCondition } from "@cunote/core";
 import type { VerdictStatus } from "@/components/app/verdict-badge";
 import type { GrantPreviewAvailability } from "@/lib/server/documents/documentPreview";
 import { formatDraftResumeCaption, type DraftResumeSummary } from "@/lib/documents/draftResume";
@@ -301,4 +302,87 @@ function validHttpUrl(value: string | null | undefined): string | null {
 
 function normalizeAmountSpacing(value: string): string {
   return value.replace(/(억|만)\s*원/g, "$1 원");
+}
+
+// ── 자격 조건 행(디자인 03 `.ct`) ─────────────────────────────────────────
+
+export type ExplainedCondition = ReturnType<typeof explainCondition>;
+
+/** 조건 행 6상태(디자인 03 `.st-*`). 판정 4상태 뱃지(헌법 8조)와는 별개의 행 단위 어휘다. */
+export type ConditionRowStatus = "met" | "unmet" | "ask" | "per" | "src" | "wait";
+
+export const CONDITION_ROW_STATUS_LABEL: Record<ConditionRowStatus, string> = {
+  met: "충족",
+  unmet: "미충족",
+  ask: "내 답 필요",
+  per: "공고별 확인",
+  src: "원문 확인 필요",
+  wait: "검토 준비 중",
+};
+
+/**
+ * explainCondition 결과를 조건 행 6상태로 투영한다.
+ * pass/fail은 판정 그대로, 미해소 조건은 다음 행동(회사 정보 입력 → 공고별 확인 질문 → 원문 확인) 순으로 고른다.
+ * confirmationNextAction이 없는 legacy trace는 action을 같은 뜻으로 읽는다(progressive는 회사 정보 입력,
+ * 그 밖의 링크형 행동은 원문 확인). 어느 쪽도 아니면 검토 준비 중이다.
+ */
+export function conditionRowStatus(condition: ExplainedCondition): ConditionRowStatus {
+  const { trace } = condition;
+  if (trace.result === "pass") return "met";
+  if (trace.result === "fail") return "unmet";
+  if (condition.action === "company_profile") return "ask";
+  if (condition.action === "user_confirmation") return "per";
+  if (!trace.confirmationNextAction && trace.action) {
+    return trace.action.type === "progressive" ? "ask" : "src";
+  }
+  if (trace.result === "text_only" || trace.unresolvedReason === "criterion_text_only") return "src";
+  return "wait";
+}
+
+export type ConditionTrust = "reviewed" | "ai";
+
+export const CONDITION_TRUST_LABEL: Record<ConditionTrust, string> = {
+  reviewed: "검수됨",
+  ai: "AI가 읽음",
+};
+
+/**
+ * 조건 추출의 검수 여부 칩. 조건 자체가 검수 대기(criterion_needs_review)면 시트 수준과 무관하게 "AI가 읽음",
+ * 그 외에는 시트의 matchingEvidence 수준(verified → 검수됨, discovery → AI가 읽음)을 따른다.
+ * 수준이 없는 legacy 시트는 칩을 생략한다.
+ */
+export function conditionTrust(
+  condition: ExplainedCondition,
+  evidenceLevel: MatchingEvidence["level"] | null | undefined,
+): ConditionTrust | null {
+  if (condition.trace.unresolvedReason === "criterion_needs_review") return "ai";
+  if (evidenceLevel === "verified") return "reviewed";
+  if (evidenceLevel === "discovery") return "ai";
+  return null;
+}
+
+/**
+ * 상태 아래 근거 한 줄(디자인 `.ev`). 회사값이 있으면 그것(예: "부산 해운대구 · 국세청"), 없으면 판정 이유.
+ * 공고별 확인은 core의 이유 문장이 이 화면의 금지 어휘를 포함해 행 어휘로 바꿔 쓴다.
+ */
+export function conditionRowEvidence(
+  condition: ExplainedCondition,
+  status: ConditionRowStatus = conditionRowStatus(condition),
+): string {
+  if (condition.hasCompanyValue) return condition.companyValue;
+  if (status === "per") return "이 공고에서만 확인하는 질문이에요. 답하면 다시 판단해요.";
+  return condition.reason;
+}
+
+/**
+ * 조건 문장 아래 출처 줄(디자인 `.ev-src` "공고문 2쪽 「신청 자격」"). 쪽·절 위치가 없으므로 "공고 원문"에
+ * 기준명(label, 조건 문장과 다를 때만)과 검수 전 표시를 붙인다. 조건 문장이 이미 원문 구절(requirement)이라
+ * 같은 구절을 여기에 다시 적지 않는다.
+ */
+export function conditionRowSource(condition: ExplainedCondition, trust: ConditionTrust | null): string {
+  const label = condition.trace.label?.trim();
+  const parts = ["공고 원문"];
+  if (label && label !== condition.requirement) parts.push(label);
+  if (trust === "ai") parts.push("검수 전");
+  return parts.join(" · ");
 }

@@ -228,6 +228,7 @@ export function GrantOverviewView({
             satisfied={sheet.satisfied}
             needsCheck={sheet.needsCheck}
             sourceUrl={sheet.deepLink}
+            evidenceLevel={sheet.matchingEvidence?.level ?? null}
           />
           <RequiredDocumentsAccordion documents={sheet.documents} sourceAttachments={sheet.sourceAttachments} />
           <LessonGuideAccordion guide={lessonGuide} />
