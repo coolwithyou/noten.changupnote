@@ -4,13 +4,13 @@ import { useEffect, useRef, useState } from "react";
 import type { ActionResult } from "@cunote/contracts";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
 import { companyScopedFetch } from "@/lib/navigation/companyContext";
-import { writingCompositionText } from "@/lib/documents/writingComposition";
+import { writingCompositionEvidenceCount, writingCompositionText, writingParagraphKindLabels } from "@/lib/documents/writingComposition";
 import type { WritingSections } from "@/lib/documents/writingSections";
 
 type Editor = { text: string; revision: number; savedText: string };
@@ -78,6 +78,7 @@ export function WritingSectionsPanel({ draftId, onDirtyChange }: { draftId: stri
   }
   const suggestion = section?.proposal;
   const proposalIsCurrent = suggestion && !suggestion.stale && editor?.revision === suggestion.baseRevision && !changed;
+  const evidenceCount = suggestion?.composition ? writingCompositionEvidenceCount(suggestion.composition) : 0;
   return <>
     <Button variant="outline" size="sm" onClick={() => { setOpen(true); if (!data) void run(refresh); }}>문항별 문안{dirty ? " · 저장 필요" : ""}</Button>
     <Sheet open={open} onOpenChange={setOpen}>
@@ -131,6 +132,7 @@ export function WritingSectionsPanel({ draftId, onDirtyChange }: { draftId: stri
                   setNotice("현재 입력을 유지했어요. 비교·수정한 내용을 다시 저장해 주세요.");
                 }}>현재 입력 유지하고 저장 기준 갱신</Button>
               </Field> : null}
+              <Alert><AlertDescription>문안 저장은 양식 파일에 자동 반영되지 않아요. 저장한 문안은 복사해서 양식에 넣거나, 입력 위치가 확인된 문항이면 작성 도우미의 「이 값으로 채우기」로 반영해요.</AlertDescription></Alert>
               {data.canGenerate && section.available ? <Button disabled={busy || suggestion?.status === "running"} onClick={() => void run(async () => {
                 const revision = await save();
                 if (pending.current?.fieldId !== fieldId || pending.current.revision !== revision) pending.current = { fieldId: section.fieldId, revision, requestId: crypto.randomUUID() };
@@ -138,16 +140,28 @@ export function WritingSectionsPanel({ draftId, onDirtyChange }: { draftId: stri
                 receive(result);
                 if (result.sections.find(item => item.fieldId === fieldId)?.proposal?.status !== "running") pending.current = null;
               })}>{busy ? "처리 중…" : "저장한 자료와 문안으로 초안 요청"}</Button> : null}
-              {suggestion ? <Card variant="workspace"><CardHeader><CardTitle>검토용 초안</CardTitle></CardHeader><CardContent className="flex flex-col gap-3">
+              {suggestion ? <Card variant="workspace"><CardHeader><CardTitle>검토용 초안</CardTitle>
+                {suggestion.composition ? <CardDescription>선택한 회사 자료와 이번 사업 설명을 바탕으로 작성한 검토용 초안입니다. 문단마다 출처 종류를 표시해요.</CardDescription> : null}
+              </CardHeader><CardContent className="flex flex-col gap-3">
                 {suggestion.status === "running" ? <p role="status">초안을 작성 중이에요. 잠시 뒤 최신 결과를 확인해 주세요.</p> : null}
                 {suggestion.message ? <p role="status">{suggestion.message}</p> : null}
                 {suggestion.composition ? <>
                   {suggestion.composition.paragraphs.map((paragraph, index) => <div key={index}>
-                    <p className="text-sm text-muted-foreground">{paragraph.kind === "company_fact" ? "회사 자료 기반" : paragraph.kind === "plan" ? "이번 사업 계획" : "검토할 제안"}</p>
+                    <p className="text-sm text-muted-foreground">{writingParagraphKindLabels[paragraph.kind]}</p>
                     <p className="whitespace-pre-wrap">{paragraph.text}</p>
-                    {paragraph.evidence.length ? <details><summary>인용 근거 보기</summary>{paragraph.evidence.map((evidence, i) => <blockquote key={i} className="whitespace-pre-wrap border-l pl-3">{evidence.quote}</blockquote>)}</details> : null}
+                    {paragraph.kind === "proposal" ? <p className="text-xs text-muted-foreground">아직 확정하지 않은 아이디어입니다. 실행 가능성을 검토해 주세요.</p> : null}
                   </div>)}
-                  {suggestion.composition.questions.length ? <div><p>보완할 내용</p><ul className="list-disc pl-5">{suggestion.composition.questions.map(question => <li key={question}>{question}</li>)}</ul></div> : null}
+                  {evidenceCount ? <details><summary>인용 근거 보기 · {evidenceCount}건</summary>
+                    <ul className="mt-2 flex flex-col gap-2">{suggestion.composition.paragraphs.flatMap((paragraph, index) => paragraph.evidence.map((evidence, i) => <li key={`${index}-${i}`}>
+                      <p className="text-xs text-muted-foreground">{writingParagraphKindLabels[paragraph.kind]}</p>
+                      <blockquote className="whitespace-pre-wrap border-l pl-3">{evidence.quote}</blockquote>
+                    </li>))}</ul>
+                  </details> : null}
+                  {suggestion.composition.questions.length ? <div>
+                    <p>보완할 내용 · {suggestion.composition.questions.length}</p>
+                    <ol className="list-decimal pl-5">{suggestion.composition.questions.map(question => <li key={question}>{question}</li>)}</ol>
+                    <p className="text-xs text-muted-foreground">질문은 사업 설명에 답을 적어 저장하면 다음 초안에 반영돼요. 건너뛰어도 초안을 가져올 수 있어요.</p>
+                  </div> : null}
                   <Button variant="outline" disabled={busy || !data.canWrite || !proposalIsCurrent || !suggestion.composition.paragraphs.length} onClick={() => {
                     changeText(writingCompositionText(suggestion.composition!)); setNotice("초안을 편집 칸에 가져왔어요. 검토·수정한 뒤 문안을 저장해 주세요.");
                   }}>초안을 편집 칸으로 가져오기</Button>

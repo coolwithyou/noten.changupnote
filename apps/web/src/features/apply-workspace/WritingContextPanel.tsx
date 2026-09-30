@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import type { ActionResult } from "@cunote/contracts";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -80,7 +81,7 @@ export function WritingContextPanel({ draftId, onDirtyChange }: { draftId: strin
           {!context ? <Button variant="outline" disabled={busy} onClick={() => void run(load)}>{busy ? "불러오는 중…" : "다시 불러오기"}</Button> : <>
             {!context.canWrite ? <Alert><AlertDescription>읽기 권한으로 열었어요. 자료와 사업 설명을 수정할 수 없습니다.</AlertDescription></Alert> : null}
             <Card variant="workspace">
-              <CardHeader><CardTitle>이번 문서에서 사용할 자료</CardTitle><CardDescription>직접 입력하거나 과거 문서에서 가져온 내용은 확인 전 회사 사실로 확정하지 않아요. 최대 10개, 합계 60,000자까지 선택할 수 있어요.</CardDescription></CardHeader>
+              <CardHeader><CardTitle>이번 문서에서 사용할 자료</CardTitle><CardDescription>선택한 자료는 문안 초안의 인용 근거로만 써요. 확인 전 회사 사실로 확정하지 않아요. 최대 10개, 합계 60,000자까지 선택할 수 있어요.</CardDescription></CardHeader>
               <CardContent className="flex flex-col gap-4">
                 {context.sources.length === 0 ? <p>저장한 자료가 없어요. 아래에서 첫 자료를 추가해 주세요.</p> : <FieldGroup>
                   {context.sources.map((source) => <Field key={source.id}>
@@ -90,7 +91,7 @@ export function WritingContextPanel({ draftId, onDirtyChange }: { draftId: strin
                         onCheckedChange={(checked) => setSelected((ids) => checked ? [...ids, source.id] : ids.filter((id) => id !== source.id))} />
                       <FieldLabel htmlFor={`source-${source.id}`}>{source.title}{source.withdrawn ? " · 사용 중단됨" : ""}</FieldLabel>
                     </Field>
-                    <FieldDescription>{source.scope === "company" ? "회사 공통 자료" : "이번 신청 전용"} · {source.observedDate ? `${source.observedDate} 기준` : "기준일 미입력"}{source.originalPdf ? ` · PDF ${source.originalPdf.pages}쪽` : ""}</FieldDescription>
+                    <FieldDescription>{source.scope === "company" ? "회사 공통 자료" : "이번 신청 전용"} · {source.observedDate ? `${source.observedDate} 기준` : "기준일 미입력"}{source.originalPdf ? ` · PDF ${source.originalPdf.pages}쪽` : ""}{source.withdrawn ? " · 이후 초안 생성에 전달되지 않아요. 이미 저장한 문서 내용은 유지됩니다." : ""}</FieldDescription>
                     {!source.withdrawn ? <div className="flex gap-2">
                       <Button variant="outline" size="sm" disabled={busy} onClick={() => void run(async () => setPreview(await request(`${endpoint}/writing-sources/${source.id}`)))}>내용 보기</Button>
                       {source.originalPdf ? <Button variant="outline" size="sm" disabled={busy} onClick={() => void run(async () => {
@@ -109,7 +110,7 @@ export function WritingContextPanel({ draftId, onDirtyChange }: { draftId: strin
                     </div> : null}
                   </Field>)}
                 </FieldGroup>}
-                {context.sourcesTruncated ? <p>최근 자료 200개와 이 문서에서 선택한 자료를 표시합니다.</p> : null}
+                <p className="text-xs text-muted-foreground">{context.sourcesTruncated ? "최근 자료 200개와 이 문서에서 선택한 자료를 표시합니다. " : null}<Link href="/settings/writing-sources" className="font-medium underline underline-offset-4">회사 공통 자료 관리 →</Link></p>
                 {preview ? <Field><FieldLabel htmlFor="writing-source-preview">{preview.title}</FieldLabel><Textarea id="writing-source-preview" readOnly value={preview.content} rows={8} /><Button variant="ghost" size="sm" onClick={() => setPreview(null)}>내용 닫기</Button></Field> : null}
               </CardContent>
             </Card>
@@ -124,11 +125,11 @@ export function WritingContextPanel({ draftId, onDirtyChange }: { draftId: strin
                       if (file && (file.size > WRITING_PDF_MAX_BYTES || !/\.pdf$/i.test(file.name))) { setError("4MB 이내의 PDF 파일을 선택해 주세요."); event.target.value = ""; setPdfFile(null); return; }
                       setPdfFile(file); if (file && !title) setTitle(file.name.slice(0, 200));
                     }} />
-                    <FieldDescription>최대 4MB·30쪽·추출 텍스트 30,000자. 스캔·암호 PDF는 지원하지 않아요. 추출 후 표와 숫자의 읽기 순서를 확인하고 자료로 선택해 주세요.</FieldDescription>
+                    <FieldDescription>최대 4MB·30쪽·추출 텍스트 30,000자. 스캔·암호 PDF는 지원하지 않아요. PDF를 고르면 아래 자료 내용은 비활성화돼요.</FieldDescription>
                     {!context.canUploadPdf && context.canWrite ? <FieldDescription>PDF 업로드는 현재 사용할 수 없어요. 필요한 내용을 아래에 붙여 넣을 수 있어요.</FieldDescription> : null}
                     {pdfFile ? <Button variant="ghost" size="sm" disabled={busy} onClick={() => { setPdfFile(null); setFileInputKey(key => key + 1); }}>파일 선택 취소</Button> : null}
                   </Field>
-                  <Field><FieldLabel htmlFor="writing-source-content">자료 내용</FieldLabel><Textarea id="writing-source-content" value={content} maxLength={30000} rows={6} disabled={disabled || Boolean(pdfFile)} onChange={(event) => setContent(event.target.value)} /><FieldDescription>최대 30,000자. 사실과 목표를 구분하고 과거 실적에는 연도를 적어 주세요.</FieldDescription></Field>
+                  <Field><FieldLabel htmlFor="writing-source-content">자료 내용</FieldLabel><Textarea id="writing-source-content" value={content} maxLength={30000} rows={6} placeholder="PDF 대신 내용을 직접 붙여 넣을 수 있어요 · 최대 30,000자" disabled={disabled || Boolean(pdfFile)} onChange={(event) => setContent(event.target.value)} /><FieldDescription>사실과 목표를 구분하고 과거 실적에는 연도를 적어 주세요.</FieldDescription></Field>
                   <Field><FieldLabel htmlFor="writing-source-date">자료 기준일 · 선택</FieldLabel><Input id="writing-source-date" type="date" value={observedDate} disabled={disabled} onChange={(event) => setObservedDate(event.target.value)} /></Field>
                   <Field orientation="horizontal"><Checkbox id="writing-source-document" checked={documentSource || Boolean(pdfFile)} disabled={disabled || Boolean(pdfFile)} onCheckedChange={(checked) => setDocumentSource(Boolean(checked))} /><FieldLabel htmlFor="writing-source-document">기존 회사 문서에서 가져온 내용이에요</FieldLabel></Field>
                   <Field orientation="horizontal"><Checkbox id="writing-source-reusable" checked={reusable} disabled={disabled} onCheckedChange={(checked) => setReusable(Boolean(checked))} /><FieldLabel htmlFor="writing-source-reusable">다른 공고에서도 사용할 회사 공통 자료로 저장</FieldLabel></Field>
@@ -157,7 +158,7 @@ export function WritingContextPanel({ draftId, onDirtyChange }: { draftId: strin
               </CardContent>
             </Card>
             <Card variant="workspace">
-              <CardHeader><CardTitle>이번 사업 설명</CardTitle><CardDescription>앞으로 할 일과 목표를 적어요. 회사의 확정 실적과 구분해 사용합니다.</CardDescription></CardHeader>
+              <CardHeader><CardTitle>이번 사업 설명</CardTitle><CardDescription>회사의 과거 사실이 아니라 이번 공고에서 하려는 일이에요. 모르는 항목은 비워 두세요.</CardDescription></CardHeader>
               <CardContent>
                 <FieldGroup>
                   {(Object.keys(writingBriefFields) as (keyof WritingBrief)[]).map((key) => <Field key={key}>

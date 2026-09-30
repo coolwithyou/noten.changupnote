@@ -6,24 +6,25 @@ import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/ca
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
 
+/** 디자인 2라운드(05 랜딩 히어로) 특징 3열. 01·03 블루, 02 민트. */
 const STEPS = [
   {
     n: 1,
-    title: "사업자 정보 완성",
-    body: "사업자번호로 기본정보를 조회하고, 매칭에 필요한 정보를 직접 확인해요",
+    title: "관련 공고를 넓게 봅니다",
+    body: "확인한 필수조건이 맞지 않는 공고만 제외하고, 제외한 이유와 근거·기준일을 공개해요. 우대 조건이나 업종 키워드로는 제외하지 않아요.",
     tone: "blue",
   },
   {
     n: 2,
-    title: "맞춤 매칭",
-    body: "확인된 조건과 추가 확인이 필요한 조건을 나누고, 판단 근거를 보여줘요",
-    tone: "blue",
+    title: "회사 자료로 문항을 씁니다",
+    body: "회사소개서·결산 요약을 연결하고 이번 사업 설명을 적으면, 문단마다 회사 자료 기반·이번 사업 계획·검토할 제안을 구분한 초안과 인용 근거를 드려요.",
+    tone: "mint",
   },
   {
     n: 3,
-    title: "검토하며 지원서 작성",
-    body: "지원되는 양식에서 제안을 선택해 반영해요. 최종 검토와 제출은 직접 진행해요",
-    tone: "mint",
+    title: "원본 양식 그대로 저장합니다",
+    body: "HWP·HWPX 원본을 열어 편집하고 서버에 저장해요. 문안 저장과 파일 반영을 구분해 보여주고, 다운로드가 제출 완료가 아니라는 점도 숨기지 않아요.",
+    tone: "blue",
   },
 ] as const;
 
@@ -117,7 +118,7 @@ export function HowItWorks() {
                     : "bg-brand-tint text-brand",
                 )}
               >
-                {step.n}
+                {String(step.n).padStart(2, "0")}
               </Badge>
               <CardTitle className="mt-3.5 text-lg font-extrabold text-ink">{step.title}</CardTitle>
               <CardDescription className="mt-2 text-[14.5px] leading-[1.65] text-text-secondary">

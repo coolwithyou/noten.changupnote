@@ -1,12 +1,22 @@
-import { Badge } from "@/components/ui/badge";
 import { BizLookupForm } from "./biz-lookup-form";
 import { LandingDemo } from "./landing-demo";
 
+/** 디자인 2라운드(05 랜딩 히어로) 카피. 렌더 테스트가 같은 원천을 단언한다. */
+export const LANDING_HERO_COPY = {
+  eyebrow: "원본 HWP·HWPX 양식 그대로 · 회사 자료 기반 문항 작성",
+  headline: ["회사 자료로 지원서를 씁니다.", "조건 확인은 보여주되,", "작성은 막지 않습니다."],
+  sub: "관련 공고를 고르고 회사 자료와 이번 사업 설명을 연결하면, 문항마다 근거가 붙은 검토용 초안을 드려요. 확인된 사실과 계획, 아직 정하지 않은 것을 구분하고, 최종 문장은 대표님이 고릅니다.",
+  cta: "내 회사로 시작",
+  trust: "자격 조건은 확인된 것과 남은 것을 그대로 보여드려요. 판정도 문장도 대표님이 결정합니다.",
+} as const;
+
 /**
- * 랜딩 v3 히어로. 유일한 행동은 사업자번호 조회이며, 아래 데모가
+ * 랜딩 히어로(작성 중심 교체안). 유일한 행동은 사업자번호 조회이며, 아래 데모가
  * 조회 → 매칭 → 지원서 작성의 제품 흐름을 짧은 데모로 보여준다.
+ * openCount는 페이지 계약을 유지하려고 받지만, 디자인 2라운드 히어로에는 공고 수 필이 없어 표시하지 않는다.
  */
-export function LandingHero({ openCount, comparisonCount }: { openCount: number; comparisonCount: number }) {
+export function LandingHero({ comparisonCount }: { openCount: number; comparisonCount: number }) {
+  const [line1, line2, line3] = LANDING_HERO_COPY.headline;
   return (
     <section className="relative overflow-hidden bg-landing-hero">
       <span
@@ -18,30 +28,26 @@ export function LandingHero({ openCount, comparisonCount }: { openCount: number;
         className="pointer-events-none absolute -top-28 -right-28 size-[560px] rounded-full bg-landing-orb-mint"
       />
       <div className="relative mx-auto flex max-w-[1440px] flex-col items-center px-4 pt-16 text-center sm:px-10 sm:pt-[88px]">
-        {openCount > 0 ? (
-          <Badge
-            variant="outline"
-            className="gap-2 rounded-full border-brand-tint bg-card px-4 py-[7px] text-[13.5px] font-semibold text-text-nav shadow-[var(--shadow-landing-pill)]"
-          >
-            <span className="size-[7px] rounded-full bg-brand-mint" aria-hidden />
-            지금 신청 가능한 지원사업 {openCount.toLocaleString("ko-KR")}건
-          </Badge>
-        ) : null}
+        <p className="text-[13px] font-extrabold tracking-[0.02em] break-keep text-brand">{LANDING_HERO_COPY.eyebrow}</p>
 
-        <h1 className="mt-6 text-[38px] leading-[1.25] font-extrabold tracking-[-1px] break-keep text-balance text-ink-strong sm:mt-[26px] sm:text-[54px] sm:tracking-[-1.4px]">
-          내 사업자 정보를 완성하고,
-          <br />
-          <span className="bg-landing-text bg-clip-text text-transparent">지원사업 조건을 확인하세요</span>
+        <h1 className="mt-5 text-[38px] leading-[1.25] font-extrabold tracking-[-1px] break-keep text-balance text-ink-strong sm:mt-[18px] sm:text-[54px] sm:tracking-[-1.4px]">
+          <span className="bg-landing-text bg-clip-text text-transparent">{line1}</span>
+          <br className="hidden sm:inline" />
+          {" "}
+          {line2}
+          <br className="hidden sm:inline" />
+          {" "}
+          {line3}
         </h1>
 
-        <p className="mt-4 text-base break-keep text-text-secondary sm:text-[17px]">
-          사업자번호로 시작해요. 필요한 정보를 보완하고, 매칭 이유를 확인해보세요.
+        <p className="mx-auto mt-4 max-w-[680px] text-base break-keep text-text-secondary sm:text-[17px]">
+          {LANDING_HERO_COPY.sub}
         </p>
 
         <div className="mt-8 w-full sm:mt-9">
-          <BizLookupForm inputId="hero-biz" attachRef />
+          <BizLookupForm inputId="hero-biz" attachRef ctaLabel={LANDING_HERO_COPY.cta} />
         </div>
-        <p className="mt-3.5 text-[13px] text-text-tertiary">입력 정보는 암호화돼요 · 광고 전화 없어요</p>
+        <p className="mt-3.5 max-w-[680px] text-[13px] break-keep text-text-tertiary">{LANDING_HERO_COPY.trust}</p>
 
         <div className="mt-12 w-full sm:mt-14">
           <LandingDemo comparisonCount={comparisonCount} />
