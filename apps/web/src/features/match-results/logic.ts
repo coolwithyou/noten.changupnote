@@ -948,24 +948,6 @@ export function summarizeAnswerImpact(
   };
 }
 
-export function teaserComparisonLabel(teaser: TeaserResult): string | null {
-  const context = teaser.searchContext;
-  if (!context) return null;
-  const asOf = new Date(context.asOf);
-  const dateLabel = Number.isNaN(asOf.getTime())
-    ? null
-    : new Intl.DateTimeFormat("ko-KR", {
-        month: "long",
-        day: "numeric",
-        timeZone: KOREA_TIME_ZONE,
-      }).format(asOf);
-  const count = Math.max(0, context.evaluatedGrantCount);
-  if (!dateLabel) return count > 0 ? `공고 ${count.toLocaleString("ko-KR")}건과 대조했어요` : null;
-  return count > 0
-    ? `${dateLabel} 기준, 공고 ${count.toLocaleString("ko-KR")}건과 대조했어요`
-    : `${dateLabel} 기준 결과예요`;
-}
-
 function recommendationTierForMatch(match: MatchCard): NonNullable<MatchCard["recommendationTier"]> {
   return (
     match.recommendationTier ??
@@ -1227,4 +1209,35 @@ function formatKoreanDateTime(value: string | null | undefined): string | null {
   const hour = hourRaw === 24 ? 0 : hourRaw;
   const minuteLabel = minute > 0 ? ` ${minute}분` : "";
   return `${month}월 ${day}일 ${hour}시${minuteLabel}`;
+}
+
+/**
+ * 기회 맵 헤더 캡션(디자인 01) — "{회사명}의 저장된 정보 기준 · M월 D일 모집 중 N건 중 관련 후보를 골랐어요".
+ * 익명 결과는 "입력한 회사 정보 기준", 판정 공고 수를 모르면 "모집 중 N건 중" 구를 뺀다.
+ */
+export function matchHeaderCaption({
+  teaser,
+  companyName = null,
+  saved = false,
+}: {
+  teaser: TeaserResult;
+  companyName?: string | null;
+  saved?: boolean;
+}): string {
+  const name = companyName?.trim();
+  const subject = saved
+    ? `${name || "이름 미등록 회사"}의 저장된 정보 기준`
+    : name
+      ? `${name}의 입력 정보 기준`
+      : "입력한 회사 정보 기준";
+  const context = teaser.searchContext;
+  const asOf = context ? new Date(context.asOf) : null;
+  const dateLabel = asOf && !Number.isNaN(asOf.getTime())
+    ? new Intl.DateTimeFormat("ko-KR", { month: "long", day: "numeric", timeZone: KOREA_TIME_ZONE }).format(asOf)
+    : null;
+  const count = context ? Math.max(0, context.evaluatedGrantCount) : 0;
+  const scope = count > 0 ? `모집 중 ${count.toLocaleString("ko-KR")}건 중 ` : "";
+  return dateLabel
+    ? `${subject} · ${dateLabel} ${scope}관련 후보를 골랐어요`
+    : `${subject} · ${scope}관련 후보를 골랐어요`;
 }

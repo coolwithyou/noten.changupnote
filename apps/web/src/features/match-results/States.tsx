@@ -15,7 +15,7 @@ export function LoadingState() {
     <div className="flex flex-col gap-8">
       <div className="flex items-center gap-2 text-sm text-muted-foreground">
         <Spinner data-icon="inline-start" />
-        지원 가능한 사업을 찾고 있어요. 잠시만 기다려 주세요.
+        관련 공고를 고르고 있어요. 잠시만 기다려 주세요.
       </div>
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {Array.from({ length: 6 }).map((_, index) => (

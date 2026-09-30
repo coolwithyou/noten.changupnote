@@ -378,15 +378,24 @@ assert.ok(newCardHtml.includes(">NEW<"));
 assert.ok(newCardHtml.includes(">상시<"), "dDay가 없으면 상시");
 assert.ok(newCardHtml.includes('data-product-grant="grant-one-question"'), "노출 계측용 속성 유지");
 
-/* ───────── ResultsHero(변경 없음) ───────── */
+/* ───────── ResultsHero(디자인 01 헤더: h1 기회 맵 + 기준 캡션) ───────── */
 
-const conservativeHero = renderToStaticMarkup(
+const anonymousHero = renderToStaticMarkup(
   <ResultsHero teaser={teaserFor([mixedMatch])} onSave={noop} saving={false} />,
 );
-assert.ok(conservativeHero.includes("살펴볼 공고를 찾았어요"));
-const oneQuestionHero = renderToStaticMarkup(
-  <ResultsHero teaser={teaserFor([oneQuestionAwayMatch])} onSave={noop} saving={false} />,
+assert.ok(anonymousHero.includes(">기회 맵</h1>"), "익명 결과도 h1은 기회 맵");
+assert.ok(anonymousHero.includes("입력한 회사 정보 기준"), "익명은 저장된 정보라 하지 않는다");
+assert.ok(anonymousHero.includes("관련 후보를 골랐어요"));
+assert.equal(anonymousHero.includes("살펴볼 공고를 찾았어요"), false, "옛 제목 부재");
+assert.ok(anonymousHero.includes(">결과 저장하기</button>"));
+const savedHero = renderToStaticMarkup(
+  <ResultsHero teaser={teaserFor([oneQuestionAwayMatch])} onSave={noop} saving={false} savedCompany companyName="바다상회" />,
 );
-assert.ok(oneQuestionHero.includes("질문 하나로 지원 여부를 확인할 공고 1건이 있어요."));
+assert.ok(savedHero.includes("바다상회의 저장된 정보 기준"));
+assert.ok(savedHero.includes(">내 대시보드로 이동</button>"));
+const emptyHero = renderToStaticMarkup(
+  <ResultsHero teaser={teaserFor([])} onSave={noop} saving={false} />,
+);
+assert.ok(emptyHero.includes("조건에 맞는 공고를 찾지 못했어요"));
 
 console.log("match results UI: design-01 sections, summary cards, list rows, excluded list and forbidden vocabulary passed");

@@ -10,6 +10,7 @@ import {
   criterionSubjectLabel,
   confirmationResumePath,
   DISCOVERY_REASON_LABEL,
+  matchHeaderCaption,
   discoveryReasonLabel,
   formatConditionTally,
   formatMonthDay,
@@ -770,3 +771,29 @@ assert.ok(
 );
 
 console.log("match-results/logic: ok");
+
+/* ───────── matchHeaderCaption(디자인 01 헤더 캡션) ───────── */
+{
+  const base = { matches: [], counts: { eligible: 0, conditional: 0, ineligible: 0 } } as unknown as ProductTeaserResult;
+  const withContext = {
+    ...base,
+    searchContext: { asOf: "2026-10-01T00:00:00+09:00", evaluatedGrantCount: 1424 },
+  } as unknown as ProductTeaserResult;
+  assert.equal(
+    matchHeaderCaption({ teaser: withContext, companyName: "바다상회", saved: true }),
+    "바다상회의 저장된 정보 기준 · 10월 1일 모집 중 1,424건 중 관련 후보를 골랐어요",
+  );
+  assert.equal(
+    matchHeaderCaption({ teaser: withContext }),
+    "입력한 회사 정보 기준 · 10월 1일 모집 중 1,424건 중 관련 후보를 골랐어요",
+  );
+  assert.equal(
+    matchHeaderCaption({ teaser: withContext, companyName: "바다상회" }),
+    "바다상회의 입력 정보 기준 · 10월 1일 모집 중 1,424건 중 관련 후보를 골랐어요",
+  );
+  assert.equal(
+    matchHeaderCaption({ teaser: base, saved: true }),
+    "이름 미등록 회사의 저장된 정보 기준 · 관련 후보를 골랐어요",
+    "판정 공고 수와 날짜를 모르면 구를 뺀다",
+  );
+}
