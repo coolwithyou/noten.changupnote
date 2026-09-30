@@ -77,5 +77,12 @@
 - **시각 검수 미수행** — dev 서버는 사용자 소유. 확인 경로: `/dashboard`(안내·집계·사유 라벨), `/grants/<id>`(콜아웃·문서 열기·아코디언), `/applications`(3열), `/settings/writing-sources`, `/grants/<id>/workspace` 문안 시트, `/` 랜딩.
 - 메인 `.env` DB에 `document_writing_sections` 없음(브랜치 마이그레이션 0094~0098 미적용) → 그 환경에서 문안 집계는 0으로 강등.
 
+## 운영 반영 (2026-09-30 밤, 사용자 지시 "운영에도 반영해줘")
+- **운영 DB 마이그레이션**: `.env`의 DATABASE_URL(운영 Supabase, 풀러 6543)과 같은 경로의 **세션 모드(포트 5432)** 접속으로 `pnpm db:migrate` 실행 → 0094~0098 적용(적용 행 95→100). 사후 확인: 새 테이블 5개 존재, RLS 전부 on, 정책 15개, `protect_writing_source` 트리거 존재. 모두 추가 전용 SQL(DROP/TRUNCATE/DELETE 없음, `drizzle-kit generate`는 스키마 드리프트 0).
+- **주의(실측)**: `.env`의 `POSTGRES_URL_NON_POOLING`은 같은 프로젝트 ref지만 **공용 테이블 0개인 빈 DB**를 가리킨다(`drizzle.__drizzle_migrations` 없음). 마이그레이션에 쓰면 안 됨. journal의 `0005_familiar_thaddeus_ross`는 적용 이력과 시각이 어긋나 있으나 마이그레이터는 마지막 적용 시각 이후만 적용하므로 영향 없음(기존 상태).
+- **배포**: 워크트리 HEAD 675ac15를 `.git`·node_modules 제외 사본(`scratchpad/deploy/changupnote-675ac15`, 루트 `.vercel/project.json` 복사)에서 `vercel deploy --prod --yes --scope noten` → `dpl_J2eadgJZQTAY3DPhQ8iq8sZzWogK` READY(production). 직전 운영 배포는 09-28 23:36(origin/main ab4e725 상당).
+- **운영 env 미설정으로 비활성인 기능**: `CUNOTE_WRITING_SOURCE_KEY_BASE64` 없음 → 회사 자료 PDF 업로드 비활성(텍스트 자료는 동작), `CUNOTE_WRITING_SECTION_AGENT_ENABLED` 없음 → 문항별 문안 "초안 요청"·신청 관리 "문안 제안" 비표시. 켜려면 Vercel production env 추가 후 재배포(PDF 키는 분실 시 기존 원본 복호 불가 — 보관 정책 결정 필요).
+- **git**: origin/main(ab4e725)은 배포본보다 16커밋 뒤. main 머지·push는 배포 연동 가능성이 있어 사용자 판단으로 남김. 로컬 main의 d7958c6(랜딩 확인 모달 상호 재조회)과 74개 미커밋 변경은 이번 배포에 포함되지 않음.
+
 ## 막힘
 - (없음)
