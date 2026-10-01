@@ -122,3 +122,8 @@ gitignored private 파일/브라우저 stdin으로만 취급하며 코드·진�
 - sourcea61f540 `pnpm --filter @cunote/web build` exit0(session87565): compile/typecheck/static5 PASS. 기존 NFT trace warning1, build실패없음. 같은source의typecheck별도반복하지않음.
 - `0642ace` 유한 실제StudioSDK/selfhost/정상profiletransaction probe: 등록정보dialog에서회사명1개 적용→export/reopen 유지. 514표좌표대비해당값셀1개만변경. [receipt](docs/evidence/native-autofill-20261001/2026-10-01T04-58-44-395Z/report.json).
 - 진입자동seed는 실제0개. 기존번호2개 already_filled 보호, 대표자profilebinding0 유지. 임의입력/역할추정없음. held불변분석materializable=false 유지. 이 증거는 엔진부분검증이며 FULL자동입력/승격/운영UI인수가아니다. 모델/운영DB쓰기0; 유한서버/브라우저/임시bundle정리true.
+
+## 新 구독 신청서 분석 완료 — primary는 실행 중
+- 실제 새 roundtrip `roundtrip-2026-10-01T050056.268Z-98c796`, currentv22/claude-cli/duration292515ms. 신청서 application_form accepted66/anchorReady66/coveragecomplete, unresolved0/structuralwarning0. failureCode/error null.
+- 원문SHA `ceb2c53a1a4ff825e3661deecd5a7533d23a4d55f2e82126a240b6de3f06e150` 유지. announcement 문서의partial3은 신청서ready판정과구분. 모델실행영수증과저장본은새불변artifact이며옛heldartifact를수정하지않음.
+- launch26725/primary실행중이므로전체release준비·운영승격완료선언아님.

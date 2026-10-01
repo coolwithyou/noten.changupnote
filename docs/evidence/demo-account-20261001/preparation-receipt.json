@@ -132,7 +132,19 @@
     "status": "running",
     "terminalReceipt": null,
     "sameTargetInputAttachment": true,
-    "userAuthority": "all local subscription analysis approved; API token usage prohibited"
+    "userAuthority": "all local subscription analysis approved; API token usage prohibited",
+    "applicationCompleted": {
+      "runId": "roundtrip-2026-10-01T050056.268Z-98c796",
+      "version": "kordoc-application-roundtrip-v22",
+      "transport": "claude-cli",
+      "durationMs": 292515,
+      "acceptedInputCount": 66,
+      "coverage": "complete",
+      "anchorReadyInputCount": 66,
+      "unresolvedCandidateCount": 0,
+      "structuralWarningCount": 0,
+      "sourceSha256": "ceb2c53a1a4ff825e3661deecd5a7533d23a4d55f2e82126a240b6de3f06e150"
+    }
   },
   "latestBuild": {
     "sourceCommit": "a61f540293f80da608178f6f3e15859eeefa3bc0",
