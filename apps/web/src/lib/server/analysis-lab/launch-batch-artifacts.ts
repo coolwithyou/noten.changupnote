@@ -1023,6 +1023,24 @@ function isSupportedCompletedReceiptOfflineContract(input: {
     input.transport !== "claude-cli"
     || input.model !== APPLICATION_ROUNDTRIP_ADOPTED_MODEL
   ) return false;
+  // fd6526fb4c1bd5c0345007ab5f8a05066e13df7a produced this primary-only
+  // current-inventory contract. Consume completed receipts without restoring live admission.
+  if (
+    input.rawSourceKind === "current_inventory"
+    && input.sourceKind === "current_inventory"
+    && input.rawExistingRunPolicy === "skip_existing"
+    && input.existingRunPolicy === "skip_existing"
+    && input.rawAdoptionManifestSha256 === null
+    && input.adoptionManifestSha256 === null
+    && input.completedLaunch === undefined
+    && input.terminalRepair === undefined
+    && input.planSha256 === input.planArtifactSha256
+    && !input.withApplicationRoundtrip
+    && input.roundtripModel === null
+    && input.rawApplicationFieldAnalysisVersion === null
+    && input.promptVersion === "lab-deep-v28"
+    && input.validatorVersion === "deep-analysis-validator-v23"
+  ) return true;
   if (
     input.completedLaunch !== undefined
     && (

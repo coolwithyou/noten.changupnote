@@ -61,6 +61,7 @@ async function completedLaunchFixture(
   root: string,
   value = inventory(2),
   contract: "v14" | "v19" | "matching" = "v14",
+  runOverrides: Record<string, unknown> = {},
 ) {
   const storedInventory = await storeCurrentLaunchInventory(root, value);
   const sourceManifest = structuredClone(contract === "matching"
@@ -123,6 +124,7 @@ async function completedLaunchFixture(
       matchingReadiness: "conditional",
       primaryMatchingProjection: { verification: "verified" },
       error: null,
+      ...runOverrides,
     };
     const bytes = Buffer.from(`${JSON.stringify(run)}\n`);
     const path = `spike-out/runs/${target.sequence}.json`;
@@ -468,6 +470,8 @@ test("application-only 재봉인은 완료 receipt의 publishable primary bytes�
       },
     });
     assert.equal(result.manifest.execution.analysisMode, "application_only");
+    assert.notEqual(result.manifest.execution.promptVersion, fixture.sourceManifest.execution.promptVersion,
+      "the new application contract can change without rewriting the verified source primary");
     assert.equal(result.manifest.targets.length, 1);
     assert.deepEqual(result.manifest.targets[0]?.primaryReuse, {
       schema: "analysis-launch-primary-reuse-v1",
@@ -496,6 +500,28 @@ test("application-only 재봉인은 완료 receipt의 publishable primary bytes�
       /run 계약/,
     );
   } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("application-only 준비는 receipt SHA가 맞아도 원 source prompt/model/transport 불일치를 거부한다", async () => {
+  for (const runOverrides of [
+    { promptVersion: "unbound-primary-prompt" },
+    { model: "unbound-primary-model" },
+    { transport: "api" },
+  ]) {
+    const root = await mkdtemp(join(tmpdir(), "cunote-current-primary-drift-"));
+    try {
+      const fixture = await completedLaunchFixture(root, inventory(2), "v19", runOverrides);
+      await assert.rejects(prepareCompletedCurrentInventoryLaunchManifest({
+        ...fixture.binding, selectedOriginalSequences: [1], analysisMode: "application_only", concurrency: 1,
+      }, {
+        repositoryRoot: root,
+        readProvenance: async () => ({ gitSha: "2".repeat(40), packageRuntimeSha256: "f".repeat(64), validatorVersion: DEEP_ANALYSIS_VALIDATOR_VERSION }),
+        verifyTarget: async () => {},
+        prepareTarget: async (grantId) => ({ grantId, inputSha256: fixture.value.targets[1]!.inputSha256,
+          attachmentManifestSha256: fixture.value.targets[1]!.attachmentManifestSha256 }),
+      }), /source primary가 재사용 조건/);
+    } finally { await rm(root, { recursive: true, force: true }); }
+  }
 });
 
 test("application-only는 새 matching-only v2 부모의 primary를 재호출 없이 exact 재사용한다", async () => {
