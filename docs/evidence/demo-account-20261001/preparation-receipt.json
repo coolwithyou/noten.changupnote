@@ -201,13 +201,31 @@
     "defects": 2,
     "unresolved": 0,
     "applicationMode": "reuse_reviewed_v1",
-    "status": "completed_ready_independent_review_pending",
-    "terminalReceipt": null,
+    "status": "ready_review_pass_readonly_release_inspect_pass",
+    "terminalReceipt": "888a8cf54460911a8fe9eca6ef1384dfe67260d9ce727e36959161a8010974f7",
     "transport": "claude-cli",
     "receiptSha256": "888a8cf54460911a8fe9eca6ef1384dfe67260d9ce727e36959161a8010974f7",
     "timeoutReceiptSha256": "56cc29f039366ea896b4b2755893794a564af4bb2626885ee18246bca7432d71",
     "retrySession": 54676,
     "independentReviewManifestSha256": "ab8ef433c1013bc3ecac190bedd34ee6a1f455d1f42a3551d9e9693e5e1af972",
-    "independentReviewSession": 7646
+    "independentReviewSession": 7646,
+    "independentReviewAggregateSha256": "e82b4fbdd05fbc231929ff99af36bc2070df7099bc57b4a3f5eace7f7232bcb1",
+    "independentReview": {
+      "admission": "PASS",
+      "correctCriteria": 22,
+      "confirmedAbsentAxes": 12,
+      "defects": 0,
+      "unresolved": 0
+    },
+    "releaseInspect": {
+      "exitCode": 0,
+      "disposition": "conditional",
+      "reasons": [],
+      "unresolvedAxes": [],
+      "criteriaCount": 22,
+      "applicationStatus": "complete",
+      "recognizedFieldCount": 66,
+      "databaseWrites": false
+    }
   }
 }

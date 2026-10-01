@@ -153,3 +153,13 @@ gitignored private 파일/브라우저 stdin으로만 취급하며 코드·진�
 - retry session54676 exit0, receipt `888a8cf54460911a8fe9eca6ef1384dfe67260d9ce727e36959161a8010974f7`, started05:34:58Z/finished05:41:38Z. publishable1/held0/failed0/systemicFailure null. primary matching projection verified/conditional, applicationcomplete/authoringready/recognized66, source/input/첨부결속유지.
 - run `run-2026-10-01T053459.988Z-10abcc.json`, SHA `b44cb39b3f7f431e8b2522bb73e5e50efea8288e57e87a3ec16f40b168adc712`. gitChangedSincePreparation=true는진행문서커밋추가이며 material execution contract 변경없음.
 - 새독립검수prepare84498 exit0/manifest `ab8ef433c1013bc3ecac190bedd34ee6a1f455d1f42a3551d9e9693e5e1af972`, publishablepacket1/held0. Codex ChatGPT구독/APIcredential제거 runner session7646 실행중. 이전HOLD를대체하는새leaf검수이며결과확정전운영반영없음.
+
+## 최종 구독 검수 PASS와 read-only 릴리스 인수 — 14:44 KST
+- Codex ChatGPT구독 검수7646 exit0/completed1/failed0, aggregate98698 exit0. aggregate `e82b4fbdd05fbc231929ff99af36bc2070df7099bc57b4a3f5eace7f7232bcb1` admissionPASS: correct22/confirmed_absent12/defects0/unresolved0/held0. 원문 명부등재·신용정보등록은 text_only로보존되고 묶음제목은독립조건에서제거됐다.
+- `pnpm lab:release -- --inspect --launch-receipts=888a8cf54460911a8fe9eca6ef1384dfe67260d9ce727e36959161a8010974f7 --review-manifest=ab8ef433c1013bc3ecac190bedd34ee6a1f455d1f42a3551d9e9693e5e1af972 --grantIds=9837fd9b-0b15-4e70-b1b5-0fe3765e980c` session45260 exit0. exactgrant1/dispositionconditional/reasons0/unresolvedAxes0/22criteria, applicationv22complete/66fields/reusedFrom050056기존완료신청서확인. 모델·DB쓰기0.
+- source revision `af06d57888cd094f3fcbd8bd74cab312ddd8fb03cac92cef40fc5c85a4b3173d`, input `a4a70dbdaae820a9a179819fee58dec0711f5c265a11e664455d578c80aa2cb4`, attachment `8a0656b462de03e9c55a1352affb877a04b8a13653edececa97ccc37db8dd663` 유지. 불변검수영수증사본 저장. 분석완료와 FULL운영시연완료는구분한다.
+
+## 남은 운영 경계와 재개 조건
+- 구독 분석·보정·독립 검수·read-only검사 및 제품코드/build/계약테스트는완료. 실제운영승격과검증제품배포는 AGENTS.md의 별도 명시승인 대상이다. 현재 exact1grant/receipt888a/reviewab8e/aggregatee82b를대상으로 releaseprepare→aggregate→shadow(testcompanya0132dd3-9cb7-87a1-95ef-6cfc171a795f)→dry-run→서로다른actor releaseapprove→promotewrite→verifypromotion까지, 동일검증제품sourcec779614의 clean후속commit배포·라이브스모크 범위승인이필요하다. 신규공고·모델API분석·운영worker활성화는범위에없다.
+- 모든 분석은 사용자승인대로 Mac구독모델로수행했다. 운영AI상담/문안생성은현재API경로이므로, 전체시연의 해당부분을실행하려면 사용자가운영기능의 API호출을허용할지결정해야한다. 별도허용전에는새API모델호출을하지않는다. 운영상담을구독으로바꾸는시연예외는만들지않는다.
+- 승인후정상운영공고를새draft로선택하고Singapore8field합성brief를저장→일반등록정보dialog/자동입력→문안작성/AI상담(별도허용범위)→서버저장→다운로드ZIP/XML→재열기SHA·RHWP화면인수. 기존Hanammanualbaseline이나로컬부분probe로FULL인수를대체하지않는다.
