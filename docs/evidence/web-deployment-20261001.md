@@ -79,3 +79,26 @@ archive SHA는 최초 배포와 같은 `f308f2e4f43add3d23c36e27c766cf82e259423c
 - 새 로컬 태그: `deploy-web-20261001-d745bfc-section-ai` → exact 소스 SHA. main/태그 remote push 없음.
 
 여기까지는 플래그 설정·새 배포·도메인 결속 증거다. 로그인 후 실제 canGenerate/문항 AI 버튼과 모델 품질·원문 반영 인수는 루트가 동일 $20 원장을 순차 관리하며 수행한다. 배포 담당 모델 호출은 0회다.
+
+## 필드 결속·문항 생성 최종 안전 수정 배포
+
+루트의 검증 완료 GO 후 exact 소스 `139f5f1bb8dc31a01cc38c4979994b53d4ec04c6`를 배포했다. 시작 checkout은 clean이었다. 이 소스에는 `39d8319`의 원문 라벨 순번/숫자 단위 셀 결속 안전 수정과 `139f5f1`의 문항 생성 실패 진단/출처 작성 규칙 수정이 함께 포함된다. 루트가 document-agent suite·writing-context suite·TypeScript 및 최종 build(session61137 compile/typecheck/static PASS)를 검증했고, 배포는 고정 커밋 archive로 수행했다.
+
+### Studio 분리 확인
+
+`RhwpStudioSurface.tsx`는 `use client`이고 export한 원문을 호스트의 WASM HwpDocument로 다시 열어 `resolveRhwpFieldAnchorsExact` 또는 `resolveStudioFieldBindings`를 호출한다. 후자의 표 셀 결속도 같은 `fieldAnchors.ts`를 호출한다. 따라서 변경된 target resolver는 Cunote 웹 번들에 포함되며 iframe Studio의 native 명령에 exact target을 전달한다. 이번 수정에는 별도 Studio·SDK·WASM 변경이나 배포가 필요하지 않았다.
+
+참고로 read-only 조사한 실제 Studio 프로젝트는 NOTEN의 `changupnote-rhwp-studio` / `prj_FFlmBcmhSSMvsczZ2vPAv0oyPLj3`, Root Directory `.`이다. rhwp checkout의 로컬 `rhwp-studio/.vercel/project.json`은 과거 별도 project ID를 가리켜 현재 alias의 연결 정본으로 쓸 수 없었다. 실제 Studio alias는 `dpl_FKVLqzWxqpV9QjdieWMykh1yTkun` READY였고 이 배포에서 변경하지 않았다.
+
+### 배포 결과
+
+- archive SHA256: `034df0185b4f86fb097d39beb87632facea6f8db6f1c9e062045e6b9f86f97d7`. 최초와 동일한 제외 규칙으로 새 커밋 사본을 만들었다.
+- production 플래그는 공식 env run으로 `true`/enabled를 재확인했다. 이번 revision의 환경변수 쓰기는 0회다.
+- deployment: `dpl_PjjfQPfU95ohntK67EsGLRmbkw1j`, [production URL](https://changupnote-w6ya7s7cn-noten.vercel.app), [inspect](https://vercel.com/noten/changupnote/PjjfQPfU95ohntK67EsGLRmbkw1j).
+- READY/production, REST metadata exact sourceCommit `139f5f1bb8dc31a01cc38c4979994b53d4ec04c6`, deploymentRevision `native-binding-section-safety` 확인.
+- `inspect changupnote.com` 재조회에서 동일 ID/READY 확인. www 및 두 Vercel aliases도 같은 배포에 결속됐다.
+- remote build compile·TypeScript·static5 PASS. 기존 동적 추적 NFT warning4건.
+- live `/`, `/login`, `/api/auth/session`, `/rhwp_bg.wasm` GET 200. WASM 8,038,570 bytes와 최초 기록 SHA가 동일했다.
+- 로컬 태그 `deploy-web-20261001-139f5f1`은 exact 소스를 가리킨다. main/태그 remote push와 모델 호출은 0회다.
+
+새 배포 READY 즉시 루트에 전달했다. 로그인 후 실제 문항 생성 결과·52개 unique/14개 fail-closed 원문 결속·원문 반영의 최종 인수는 루트의 실제 계정 검증으로 별도 기록한다.
