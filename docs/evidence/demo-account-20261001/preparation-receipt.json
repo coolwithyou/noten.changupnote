@@ -152,13 +152,14 @@
     "recognizedFieldCount": 66,
     "finishedAt": "2026-10-01T05:11:45.657Z",
     "independentReviewManifest": "8972f411f59da6cc9b0c84607552fdae7537bca903816305420f496eee14ee7d",
-    "independentReviewStatus": "running"
+    "independentReviewStatus": "HOLD",
+    "independentReviewAggregate": "30398a1abcb63a752b744d337e7dba67f1b984df03f99c51169ddf0b24e0406e"
   },
   "latestBuild": {
-    "sourceCommit": "a61f540293f80da608178f6f3e15859eeefa3bc0",
+    "sourceCommit": "c779614",
     "command": "pnpm --filter @cunote/web build",
     "exitCode": 0,
-    "existingNftTraceWarnings": 1,
+    "existingNftTraceWarnings": 2,
     "compiled": true,
     "typecheck": true,
     "staticGeneration": true
@@ -190,5 +191,18 @@
     "startupSeedGuarded": true,
     "testsPassed": true,
     "typecheckPassed": true
+  },
+  "reviewGuidedRepair": {
+    "manifestSha256": "fa72ee62e6bbf59d4cd95fd6e863646e3d99eb58002334e8b0fa8a508f34d79e",
+    "grantSha256": "5565cdc7655959b94215b944133bf2a5074e03eeec442692c2dbc479dbaaf490",
+    "sourceCommit": "ec0e3ef2e7fb398b429b834553769d9ba7694008",
+    "parentReceipt": "6aa595478fd36e92203b692168d084180b2057e1cfba3f648a0e62a2e204d3e6",
+    "parentAggregate": "30398a1abcb63a752b744d337e7dba67f1b984df03f99c51169ddf0b24e0406e",
+    "defects": 2,
+    "unresolved": 0,
+    "applicationMode": "reuse_reviewed_v1",
+    "status": "running",
+    "terminalReceipt": null,
+    "transport": "claude-cli"
   }
 }
