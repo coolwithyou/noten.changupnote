@@ -97,3 +97,8 @@ gitignored private 파일/브라우저 stdin으로만 취급하며 코드·진�
 ## 구독 실행 경계 재확인
 - 현재 chat route는 createAnthropic/API key 경로, fieldSuggest·sectionComposer는 운영 API 모델 경로다. 운영 precompute는 API 고정/실험실 구독 import 금지 회귀가 있다. 사용자 최신 API 금지 요청 뒤 새 운영 상담·문안 생성 모델 호출은 하지 않는다.
 - 로컬 deep/Kordoc/독립 검수 및 후속 repair는 승인된 구독 경로를 사용한다. 운영 사용자 대면 경로를 시연용 CLI 예외로 바꾸지 않는다. 운영 결과 승격·배포는 별도 명시 승인 경계이며, 먼저 분석·검수·검증된 exact 결과를 준비한다.
+
+## 정상 재분석 결속 수정 검증
+- `3c94d82`: application-only가 기존 primary를 신규prompt와 비교하던 오류를 원source manifest의 model/transport/prompt exact대조로 수정. 실행 시에도 동일 검증 강화. 역사 matching-onlyv28 완료계약은 정밀한 오프라인 whitelist로만 소비하며 신규live admission을 열지 않는다.
+- agent 도구 증거: current-inventory-launch31/31 및 `pnpm lab:launch:test` 전체 PASS, web typecheck PASS. 실제 완료run SHA `362d1584d5ba36e207ab5da1d6b651aa550c7070f5fea67f808d39e195f3ed54`/22조건 bytes 보존 offline PASS.
+- 이번 공고에는 primary 보정도 필요하므로 공식 independent-review repair가 적합하다. 원source primary_and_application을 계승해 2레인을 실행하며, 기존review_required 신청서는 strict reuse되지 않고 new_analysis를 수행한다. 구조 수정 검증/커밋 후 exact prepare→grant→구독 launch를 진행한다.
