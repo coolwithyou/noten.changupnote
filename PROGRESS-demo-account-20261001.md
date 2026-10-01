@@ -252,3 +252,7 @@ gitignored private 파일/브라우저 stdin으로만 취급하며 코드·진�
 - 단건 진단 `0647ed1f-6d06-4638-961f-3dfe4dc2d02b` providerreported22559/1821/추정$0.094992. 원문 인용·단락 종류를 그대로 저장한 뒤 검증: 6문단 중 일정 문단만 quantity_mismatch. 원문 `18~20일`, `1~3월`과 응답 `18일~20일`, `1월~3월`은 동일한 양 끝/단위인데 기존 regex는 생략된 앞단위를 상속하지 않아 거부한다. 다른 문단 회사·예산 수치 대조는 PASS.
 - 정상 범위 표현의 양끝단위 상속을 canonical 수치에 적용하는 일반 수정과 오인용/다른단위/endpoint변조 거부 회귀를 진행한다. 단순 단위없는 숫자에는 관계없는 뒤 단위를 상속하지 않는다. 실제 private응답의 문안·종류·근거 변경0으로 offline fullverify 통과를 증명한다. 모델·원본·출처kind 정책 변경없음.
 - 진단 단일무재시도예약대조해제. 신규reported$0.7072931 + 미확인chat예약$2.9825089 + timeout예약$7 = $10.689802, 다음실행가능잔액$9.310198.
+
+## 범위 표기 수량 회귀 검증 — 16:48 KST
+- `f9a6ce9`은 같은 연결범위의 생략단위만 복원한다. 인용별로 별도 추출하여 서로 다른 quote의 숫자와 단위가 결합되지 않게 한다. 끝점변조/일↔월/금액배율/관계없는숫자/양수↔음수 거부 회귀 및 writing 전체 suite·웹typecheck PASS. root diff검수 PASS.
+- 실제 private0647 응답의 composition/source/출처kind/evidence 변경0으로 fullverify PASS. 공개 proof `docs/evidence/afternoon-demo-api-budget-20261001/section-range-quantity-offline-proof.json`에 hashes와 상태만 보존. 모델·API·DB·브라우저 쓰기0.
