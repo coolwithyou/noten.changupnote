@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import type { DocumentAgentGroundingSource } from "./documentAgentGrounding";
-import { verifyWritingComposition, generateSectionSuggestions, classifySectionFailure, sectionComposerSystemPrompt } from "./sectionComposer";
+import { verifyWritingComposition, generateSectionSuggestions, classifySectionFailure, sectionComposerSystemPrompt, writingQuantities } from "./sectionComposer";
 import { APICallError, NoObjectGeneratedError } from "ai";
 import { z } from "zod";
 import { WritingContextError } from "./writingContext";
@@ -124,6 +124,48 @@ assert.deepEqual(atomicUnits.map(unit=>unit.quote),[timelineLine,budgetLine]);
 assert.equal(buildSectionEvidenceUnits([{...atomicSource,content:" ".repeat(600)+timelineLine+" ".repeat(600)}])[0]!.quote,timelineLine);
 for(const unit of atomicUnits) assert.equal(unit.quote,atomicSource.content.slice(unit.start,unit.end));
 const atomicPlan=(text:string,id:string)=>({paragraphs:[{text,kind:"plan",primaryEvidenceId:id,supportingEvidenceIds:[]}],questions:[]});
+for (const separator of ["~", "～", "〜", "∼", "–", "—", "-"]) {
+  assert.deepEqual(writingQuantities(`18 ${separator} 20일`), ["18일", "20일"]);
+  assert.deepEqual(writingQuantities(`18일 ${separator} 20일`), ["18일", "20일"]);
+  assert.deepEqual(writingQuantities(`1 ${separator} 3월`), ["1월", "3월"]);
+}
+assert.deepEqual(writingQuantities("고객 18이며 기간은 20일"), ["18", "20일"]);
+assert.deepEqual(writingQuantities("18 / 20일"), ["18", "20일"]);
+assert.deepEqual(writingQuantities("1,200.5만원과 20.5% 및 -3개"), ["1200.5만원", "20.5%", "-3개"]);
+const rangeSource = { ...atomicSource, content: "2026년 11월 18~20일에 전시 시연하고 2027년 1~3월에 검토할 계획입니다. 예산은 1,200.5만원입니다." };
+const rangeComposition = (text: string) => ({ paragraphs: [{ kind: "plan", text, evidence: [{ sourceId: rangeSource.sourceId, quote: rangeSource.content }] }], questions: [] });
+for (const text of [
+  "2026년 11월 18일~20일에 시연하고 2027년 1월~3월에 검토할 계획입니다.",
+  "2026년 11월 18–20일과 2027년 1월—3월에 검토할 계획입니다.",
+  "예산 1200.5만원으로 검토할 계획입니다.",
+]) assert.doesNotThrow(() => verifyWritingComposition(rangeComposition(text), [rangeSource]));
+for (const text of [
+  "2026년 11월 18일~21일에 검토할 계획입니다.",
+  "2027년 1일~3월에 검토할 계획입니다.",
+  "2027년 1월~4월에 검토할 계획입니다.",
+  "예산 1200.5억원으로 검토할 계획입니다.",
+  "추가 2개를 검토할 계획입니다.",
+  "변화 -18일을 검토할 계획입니다.",
+]) assert.throws(() => verifyWritingComposition(rangeComposition(text), [rangeSource]),
+  (error: unknown) => error instanceof WritingContextError && error.code === "section_quantity_mismatch");
+const unitlessSource = { ...rangeSource, content: "번호는 18이며 검토 기간은 20일입니다." };
+assert.throws(() => verifyWritingComposition({ paragraphs: [{ kind: "plan", text: "18일 검토할 계획입니다.",
+  evidence: [{ sourceId: unitlessSource.sourceId, quote: unitlessSource.content }] }], questions: [] }, [unitlessSource]),
+  (error: unknown) => error instanceof WritingContextError && error.code === "section_quantity_mismatch");
+const splitRangeSources = [
+  { ...rangeSource, sourceId: "split-start", content: "시연 일정 번호는 18~" },
+  { ...rangeSource, sourceId: "split-end", content: "20일 동안 검토합니다." },
+];
+assert.throws(() => verifyWritingComposition({ paragraphs: [{ kind: "plan", text: "18일~20일 검토할 계획입니다.",
+  evidence: splitRangeSources.map(source => ({ sourceId: source.sourceId, quote: source.content })) }], questions: [] }, splitRangeSources),
+  (error: unknown) => error instanceof WritingContextError && error.code === "section_quantity_mismatch");
+const signedSource = { ...rangeSource, content: "변화 값은 -3개이며 예산은 3.5천만원입니다." };
+const signedComposition = (text: string) => ({ paragraphs: [{ kind: "plan", text,
+  evidence: [{ sourceId: signedSource.sourceId, quote: signedSource.content }] }], questions: [] });
+assert.doesNotThrow(() => verifyWritingComposition(signedComposition("변화 -3개와 예산 3.5천만원을 검토합니다."), [signedSource]));
+for (const text of ["변화 3개를 검토합니다.", "예산 3.5만원을 검토합니다.", "예산 3500만원을 검토합니다."])
+  assert.throws(() => verifyWritingComposition(signedComposition(text), [signedSource]),
+    (error: unknown) => error instanceof WritingContextError && error.code === "section_quantity_mismatch");
 assert.doesNotThrow(()=>verifyWritingComposition(resolveSectionEvidenceSelection(atomicPlan("2026년 11월 18~20일에 전시회에 참가합니다.",atomicUnits[0]!.evidenceId),atomicUnits),[atomicSource]));
 assert.throws(()=>verifyWritingComposition(resolveSectionEvidenceSelection(atomicPlan("2028년 11월 18~20일에 전시회에 참가합니다.",atomicUnits[0]!.evidenceId),atomicUnits),[atomicSource]),
   (error:unknown)=>error instanceof WritingContextError && error.code==="section_quantity_mismatch");

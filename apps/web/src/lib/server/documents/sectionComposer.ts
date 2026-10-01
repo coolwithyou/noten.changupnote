@@ -21,6 +21,27 @@ import { buildSectionEvidenceUnits, resolveSectionEvidenceSelection, sectionEvid
 export const SECTION_COMPOSER_VERSION = "writing-section-v1";
 export type SectionComposerResult = FieldSuggestResult & { composition: WritingComposition };
 export type WritingGrounding = Awaited<ReturnType<typeof loadWritingGrounding>>;
+/** 연결된 범위의 생략 단위만 복원한다. 다른 문장의 숫자에는 단위를 빌려주지 않는다. */
+export function writingQuantities(value: string): string[] {
+  const content = value.replaceAll(",", "");
+  const tokens = Array.from(content.matchAll(/\d+(?:\.\d+)?\s*(?:천만|백만|십만|만|천|백|십|억|조)?\s*(?:개월|원|명|개|곳|건|%|년|월|일|회)?/g), match => ({
+    start: match.index!, end: match.index! + match[0].length,
+    number: match[0].match(/^\d+(?:\.\d+)?/)![0],
+    unit: match[0].replace(/^\d+(?:\.\d+)?/, "").replace(/\s/g, ""),
+  }));
+  const range = /^\s*[~～〜∼–—-]\s*$/u;
+  const connected = (index: number) => index > 0 && index < tokens.length
+    && range.test(content.slice(tokens[index - 1]!.end, tokens[index]!.start));
+  return tokens.map((token, index) => {
+    let unit = token.unit;
+    if (!unit) {
+      if (connected(index)) unit = tokens[index - 1]!.unit;
+      if (!unit && connected(index + 1)) unit = tokens[index + 1]!.unit;
+    }
+    const negative = content[token.start - 1] === "-" && !connected(index);
+    return `${negative ? "-" : ""}${token.number}${unit}`;
+  });
+}
 function sectionFailure(code: SectionFailureCode): WritingContextError {
   return new WritingContextError(code, sectionFailureMessage(code), 502);
 }
@@ -81,10 +102,8 @@ export function verifyWritingComposition(raw: unknown, sources: readonly Documen
       throw sectionFailure("section_plan_source_invalid");
     }
     if (paragraph.kind !== "proposal") {
-      const quoted = paragraph.evidence.map((ref) => ref.quote).join(" ");
-      const quantities = (value: string): string[] => Array.from(value.replaceAll(",", "").matchAll(/\d+(?:\.\d+)?\s*(?:천만|백만|십만|만|천|백|십|억|조)?\s*(?:개월|원|명|개|곳|건|%|년|월|일|회)?/g), (match) => match[0].replace(/\s/g, ""));
-      const evidenceQuantities = new Set(quantities(quoted));
-      if (quantities(paragraph.text).some((quantity) => !evidenceQuantities.has(quantity))) {
+      const evidenceQuantities = new Set(paragraph.evidence.flatMap((ref) => writingQuantities(ref.quote)));
+      if (writingQuantities(paragraph.text).some((quantity) => !evidenceQuantities.has(quantity))) {
         throw sectionFailure("section_quantity_mismatch");
       }
     }
