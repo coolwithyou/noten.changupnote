@@ -5,28 +5,32 @@
 제안서/문항 작성, RHWP 회사정보 자동 입력·편집·저장·다운로드, 지원서 AI 상담을
 하나의 시나리오로 실제 검증한다. 판정/권한 예외나 성공 응답 fixture로 대체하지 않는다.
 
+## 현재 최종 상태
+전체 기능 시연 경로의 실제 운영 인수 PASS. 대상은 싱가포르 공고 `9837fd9b-0b15-4e70-b1b5-0fe3765e980c`, draft `efc28b23-5fe5-46ab-9a59-51c485ed318f`. 운영 source582/배포 READY, 매칭7/7→등록정보17+seed1→실제AI소개/계획 생성→검토저장revision2→normal source-bound RHWP반영→AI상담2턴→최종101211byte 저장·다운로드·8쪽재열기까지 증거 확보. 최종 문서 SHA `a0cd52ea335711614ba0074d9aeae5fa1c567481571965fa906a4dfe098ab17e`. 세부 증거는 아래 최종 기록과 시나리오/영수증을 따른다.
+
 ## 승인과 경계
+현재 지속 승인: 모든 로컬 구독 분석, exact 운영 승격과 웹 배포, 시연 목표의 API 합산 $20 상한. 로컬 대량 분석/독립검수는 Max/ChatGPT 구독, 실제 사용자대면 상담·문안만 승인 API를 사용했다. 아래 시간순 기록의 승인대기/보류는 당시 상태이며 현재 권한이나 완료 판정이 아니다.
 사용자가 시연용 계정 생성·사업자 정보 입력·테스트를 요청했다. 신규 시연 계정/회사/초안의
-범위에서 정상 서비스 쓰기와 한정된 실제 상담·문안 요청을 수행한다. 기존 고객 정보,
-공고 분석 결과·운영 worker·원천 데이터를 바꾸지 않는다. 배포/공유 운영 설정 변경은 별도다.
+범위에서 정상 서비스 쓰기와 한정된 실제 상담·문안 요청을 수행한다. 승인된 exact 분석의 정상 운영 승격과 웹 배포를 완료했다. 기존 고객 정보·원천 문서는 임의로 변경하지 않으며 운영 worker를 활성화하지 않았다.
 개발 서버는 새로 시작하지 않고 현재 4010/배포 소스와 연결을 먼저 확인한다. 비밀번호/토큰은
 gitignored private 파일/브라우저 stdin으로만 취급하며 코드·진행 파일·로그에 기록하지 않는다.
 
 ## 체크리스트/검증
 - [x] 현재 서버/배포 기능·계정 구성·기존 작업 owner 확인:4010 main, prod login ordinarypassword; Vercel noten-dev/project changupnote 확인.
-- [ ] 분석 완료+현재 신청 가능+RHWP 실제 source/필드 준비 후보 read-only 조사.
+- [x] 분석 완료+현재 신청 가능+RHWP source/필드 조사·분석·독립검수·정상승격: 운영 release/canary PASS, 추천66 중 native unique52/보호차단14.
 - [x] 시연 기업 초기 설정/사업 설명 저장: software supply SME2년/5인/연매출1.2억(합성). 한남 소프트웨어/SME/일반기업 조건에 맞춤, 공고검수 쟁점은 유지.
 - [x] 정상 password 계정·회사·자료/사업 설명 구성 및 상담 요청 성공. 사용량 수동 증액 없음.
-- [ ] 매칭→상세→workspace RHWP 자동입력/제안서·문안→AI상담→파일 저장/다운로드 브라우저 검증.
-- [ ] 재현 시나리오/접속 안내/증거/남은 경계 기록, 관련 코드·문서 scoped commits.
+- [x] 매칭→상세→workspace 등록정보/AI문안→source-bound RHWP반영→AI상담→저장/다운로드/재열기: final UI/native/server proofs 모두 PASS.
+- [x] 재현 시나리오/접속 안내/증거/경계 기록 및 검증단위별 한글 scoped commits. 최종 문서 diff/link/JSON검증 및 feature branch push로 마감.
 
 ## 결정 로그
 - 기존 dirty main 코드 보존. 구현/문서는 clean authoring-first에서 진행.
 - 우선 완전 분석된 기존 공고를 조사했다. 현행 v22 완료본이 없어 정상 단건 prepare까지 진행한다. 신규 live deep/Kordoc은 exact manifest 승인 전 실행하지 않는다.
 - 매칭·자동입력 가능성을 실제 artifact/브라우저로 확인한 뒤 대상 기업 내용을 작성한다.
 
-## 막힘
-현재 조사 중. 실제 막힘은 대체 가능한 공고/정상 경로를 먼저 시도하고 기록한다.
+## 막힘과 유지 경계
+현재 시연 경로를 막는 항목 없음. 추천66개 모두를 자동반영 가능으로 표시하지 않는다: 정확한 native 위치52개, 나머지14개는 잘못된 위치/단위값/안내문 보호로 차단. 실제 확인한 범위는 등록정보17+seed1 및 서술형2개이며 이들 외 모든 문항의 AI 생성/반영을 전수 실행하지 않았다. 테스트 번호 `0000000000`는 미검증 합성번호이며 실기업 자격을 증명하지 않는다. 상담 최초답변의 금액 확정 표현은 후속질문으로 정정한 이력을 보존했다.
+
 
 ## 실계정·운영 준비 증거
 - 시연 계정 `demo-20261001@noten.im`, userId `f212886d-bb64-4fcf-aab5-43114ebc9e63`.
@@ -278,3 +282,7 @@ gitignored private 파일/브라우저 stdin으로만 취급하며 코드·진�
 - 정상 신청현황의 싱가포르 '문서 열기'→동일workspace/draft. 실제8쪽열림·저장계획revision2/962char·비교의native현재문안까지exact일치. 재열기뒤checkbox INPUT.checked=false/applydisabled=true. 정상재다운로드101211bytes/동일SHA/최초다운로드bytes일치. proof `docs/evidence/demo-live-20261001/final-reopened-readback.json`.
 - 최종사용자파일 `/Users/ffgg/Downloads/창업노트-싱가포르-시연-20261001.hwpx`도동일SHA. 추가모델호출없이검증했다.
 - 최종신규reported추정$0.7996601 + 미확인예약$9.9825089 = $10.782169(상한$20이내/잔액$9.217831). timeout예약$7과chat재시도미확인잔액$2.9825089보존. 이전baseline$0.01427125는별도, invoice대조전추정임을명시. finalledger/usage/budgetproof 저장.
+
+## 최종 문서 검증과 마감
+- 독립 nativeproof·시나리오·준비영수증 scoped commit534e4b0. receipt v2 completedtrue/finalAcceptancePASS/remaining[]; 역사 Hanam·실패·이전 검수단계 이력은 분리 보존. JSONparse/문서링크/diffcheck PASS. 실제 소개·계획 두 문항과 자동입력17+seed1의 검증 범위를 명시했고 66전수작성/공식제출로 확대하지 않았다.
+- 정상 경로 모든 요청/서버파일/독립native/운영재열기 증거와 최종 API원장 검수를 마쳤다. 제품source582의 배포tag push완료. 최종문서와 진행상태까지 featurebranch commit/push로 보존하고 완료 판정한다. 기존dirty main은 건드리지 않았다.
