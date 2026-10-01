@@ -103,6 +103,10 @@ const SENSITIVE_OR_MANUAL = /(주민(?:등록)?번호|외국인등록번호|여�
 const THIRD_PARTY = /(홍보물제작기업|외주|협력|수행기관|용역사|공급업체|추천인|보증인)/u;
 const COMPANY_CONTEXT = /(회사|기업|사업장|법인|업체)/u;
 const APPLICANT_CONTEXT = /(신청인|신청자|대표자|개인|자택|거주)/u;
+const WEB_ADDRESS_LABEL = /(홈페이지|웹사이트|웹주소|웹페이지|website|webaddress|webpage|url|https?:)/iu;
+const CORPORATE_REGISTRATION_LABEL = /(법인등록번호|법인번호|corporateregistration|corporationregistration|corporatenumber)/iu;
+const FOREIGN_NAME_LABEL = /(영문|영어|english)/iu;
+const COMPANY_NAME_LABEL = /((?:기업|회사|법인|업체)명|상호|companyname|corporatename)/iu;
 
 /**
  * 필드 의미는 분석된 canonical key와 검수된 mappedCompanyField를 우선 사용한다.
@@ -113,7 +117,7 @@ export function resolveApplicationProfileKey(
   field: Pick<ConnectedDocumentField, "fieldKey" | "label" | "mappedCompanyField">,
 ): ApplicationProfileKey | null {
   const label = normalizeLabel(field.label);
-  if (!label || SENSITIVE_OR_MANUAL.test(label) || THIRD_PARTY.test(label)) return null;
+  if (hasUnsupportedProfileMeaning(field)) return null;
 
   const mapped = normalizeKey(field.mappedCompanyField ?? "");
   if (mapped === "name") return "company_name";
@@ -241,6 +245,7 @@ export function buildAutomaticProfileAutofillEntries(input: {
     const normalizedLabel = normalizeLabel(field.label);
     if (
       !field.mappedCompanyField
+      || hasUnsupportedProfileMeaning(field)
       || !normalizedLabel
       || labelCounts.get(normalizedLabel) !== 1
       || input.duplicateLabels?.has(field.label)
@@ -319,6 +324,21 @@ function planItem(
   reason: string | null,
 ): ApplicationAutofillPlanItem {
   return { fieldId: field.fieldId, fieldKey: field.fieldKey, label: field.label, profileKey, value, state, reason };
+}
+
+/** 현재 프로필에는 URL·영문 상호·법인등록번호 정본이 없다. canonical alias도 의미를 덮지 못한다. */
+function hasUnsupportedProfileMeaning(
+  field: Pick<ConnectedDocumentField, "fieldKey" | "label" | "mappedCompanyField">,
+): boolean {
+  const label = normalizeLabel(field.label);
+  if (!label || SENSITIVE_OR_MANUAL.test(label) || THIRD_PARTY.test(label)
+    || WEB_ADDRESS_LABEL.test(label) || CORPORATE_REGISTRATION_LABEL.test(label)) return true;
+  const key = stripOccurrenceSuffix(normalizeKey(field.fieldKey));
+  return FOREIGN_NAME_LABEL.test(label) && (
+    COMPANY_NAME_LABEL.test(label)
+    || normalizeKey(field.mappedCompanyField ?? "") === "name"
+    || matchesKey(key, ["company_name", "company.name", "company", "기업명", "회사명", "상호", "법인명"])
+  );
 }
 
 function normalizeLabel(value: string): string {
