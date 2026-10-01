@@ -4,6 +4,7 @@ import { z } from "zod";
 import { saveWritingSectionSchema, generateWritingSectionSchema, type WritingSection, type WritingSections } from "@/lib/documents/writingSections";
 import { isManualLabel } from "@/lib/documents/manualFieldPolicy";
 import { checkWritingConsistency } from "@/lib/documents/writingConsistency";
+import { sectionFailureMessage } from "@/lib/documents/sectionFailure";
 import { canonicalJson } from "@/lib/rhwp/documentAgentContract";
 import type { CompanyAccess } from "../auth/companyGuard";
 import { getCunoteDb, withCunoteDbUser, type CunoteDbSession } from "../db/client";
@@ -60,7 +61,7 @@ function proposal(run: Run | undefined, revision: number, currentBinding: string
   const stale = run.baseRevision !== revision || run.writingBinding !== currentBinding || !field || run.fieldBinding !== fieldBinding(field);
   return { id: run.id, baseRevision: run.baseRevision, status: expired ? "failed" : run.status, composition: run.composition, stale,
     message: expired ? "요청 시간이 지났어요. 현재 문안을 보존한 채 새로 요청할 수 있어요."
-      : run.status === "failed" ? "초안을 완성하지 못했어요. 자료와 문항을 확인한 뒤 새로 요청해 주세요."
+      : run.status === "failed" ? sectionFailureMessage(run.errorCode)
         : stale ? "생성 이후 문안·회사 자료·문항이 변경됐어요. 현재 내용으로 다시 작성해 주세요." : null };
 }
 
