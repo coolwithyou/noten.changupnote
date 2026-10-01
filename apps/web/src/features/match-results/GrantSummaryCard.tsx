@@ -5,6 +5,7 @@ import type { MatchCard } from "@cunote/contracts";
 import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { MatchEvidenceComparison } from "./MatchEvidenceComparison";
 import { cn } from "@/lib/utils";
 import {
   AiReadChip,
@@ -90,6 +91,7 @@ export function GrantSummaryCard({
             공고 보기
           </a>
         </div>
+        <MatchEvidenceComparison match={match} />
         {children}
       </div>
     </Card>

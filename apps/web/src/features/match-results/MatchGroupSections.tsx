@@ -233,7 +233,7 @@ export function MatchGroupSections({
                   ]}
                   status={SOURCE_STATUS}
                   statusNote={periodUnconfirmed ? matchDiscoveryCaption(match) : undefined}
-                  actionLabel="공고 원문 보기"
+                  actionLabel="공고 상세 보기"
                   onDetailOpen={detailHandler(match)}
                   menu={menuFor(match)}
                 />

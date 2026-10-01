@@ -164,10 +164,10 @@ export function DashboardMatchList({
 
       <div className="mt-8 flex justify-center">
         <a
-          href="/settings#company-settings"
+          href={withCompanyContext("/settings#company-settings", companyId)}
           className="inline-flex w-fit rounded-full border border-border-subtle bg-surface-soft px-5 py-2.5 text-center text-sm text-text-secondary no-underline hover:bg-surface-muted"
         >
-          자동으로 확인한 정보 {precision.known.toLocaleString("ko-KR")}개 · 직접 채울 정보 {precision.remaining.toLocaleString("ko-KR")}개 · 보기
+          확인된 정보 {precision.known.toLocaleString("ko-KR")}개 · 추가 확인할 정보 {precision.remaining.toLocaleString("ko-KR")}개 · 보기
         </a>
       </div>
 

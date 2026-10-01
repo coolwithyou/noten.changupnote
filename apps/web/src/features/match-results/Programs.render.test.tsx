@@ -325,7 +325,7 @@ assert.ok(fullHtml.includes("border-dashed"), "검토 준비 중 점은 점선 �
 assert.ok(fullHtml.includes("원문 확인 필요"), "공고 조건 확인 행의 상태 줄");
 assert.ok(fullHtml.includes("접수 여부 확인 필요"), "접수 기간 미확인 카드는 탐색 사유 캡션을 보여 준다");
 assert.ok(fullHtml.includes("접수 기간 원문 미확인"), "접수 기간 미확인 카드의 메타 줄");
-assert.ok(fullHtml.includes(">공고 원문 보기<"), "공고 조건 확인 행 버튼");
+assert.ok(fullHtml.includes(">공고 상세 보기<"), "공고 조건 확인 행 버튼");
 assert.ok(fullHtml.includes("AI가 읽음"), "discovery 카드에는 AI가 읽음 칩");
 
 /* ───────── 7 제외된 공고 보기(익명) / 8 접수 예정 ───────── */

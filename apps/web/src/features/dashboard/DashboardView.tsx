@@ -11,6 +11,9 @@ import {
 import { DashboardMatchList } from "@/features/dashboard/DashboardMatchList";
 import { dashboardActionHref } from "@/features/dashboard/dashboardPresentation";
 
+import { CompanyMatchingContext } from "@/features/match-results/CompanyMatchingContext";
+import { withCompanyContext } from "@/lib/navigation/companyContext";
+
 const KOREA_TIME_ZONE = "Asia/Seoul";
 
 /**
@@ -39,7 +42,11 @@ export function DashboardView({
         <span className="shrink-0 text-[13px] font-bold text-text-tertiary">관련성 높은 순</span>
       </header>
 
-      <PrimaryActionCard action={primaryAction} />
+      <CompanyMatchingContext profileView={dashboard.profileView} companyName={companyName} profileHref={withCompanyContext("/settings#company-settings", companyId)} />
+      <details className="mt-5 rounded-xl border border-border-subtle px-4 py-3">
+        <summary className="cursor-pointer text-sm font-semibold text-text-secondary">조건 대조를 보완할 정보와 다음 행동</summary>
+        <PrimaryActionCard action={primaryAction} />
+      </details>
 
       <DashboardMatchList
         key={`${companyId}:${dashboard.profileView.asOf}`}

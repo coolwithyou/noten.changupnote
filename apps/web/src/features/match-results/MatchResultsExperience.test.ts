@@ -65,7 +65,7 @@ let state = profileDrawerReducer(initialState(), {
   basicProfileMissing: true,
   confirmationEntry: false,
 });
-assert.equal(state.open, true, "처음 진입한 미완성 회사는 프로필을 자동으로 엽니다.");
+assert.equal(state.open, false, "미완성 회사도 사용자가 요청하기 전에는 목록을 가리지 않습니다.");
 
 state = profileDrawerReducer(state, { type: "set_open", open: false });
 state = profileDrawerReducer(state, {
@@ -86,7 +86,7 @@ state = profileDrawerReducer(state, {
   basicProfileMissing: true,
   confirmationEntry: false,
 });
-assert.equal(state.open, true, "새 회사의 첫 미완성 진입은 한 번 자동으로 엽니다.");
+assert.equal(state.open, false, "회사 전환도 프로필을 자동으로 열지 않습니다.");
 state = profileDrawerReducer(state, { type: "set_open", open: false });
 state = profileDrawerReducer(state, {
   type: "company_loaded",

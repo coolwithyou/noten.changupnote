@@ -4,6 +4,7 @@ import type { MouseEventHandler, ReactNode } from "react";
 import type { MatchCard } from "@cunote/contracts";
 import { buttonVariants } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { MatchEvidenceComparison } from "./MatchEvidenceComparison";
 import { cn } from "@/lib/utils";
 import {
   AiReadChip,
@@ -69,6 +70,7 @@ export function GrantListRow({
               {statusNote ? <span className="text-[13px] text-text-secondary">{statusNote}</span> : null}
             </div>
           ) : null}
+          <MatchEvidenceComparison match={match} />
           {caption ? (
             <span className={cn("text-[13px] leading-[1.5] text-text-secondary", captionClassName)}>{caption}</span>
           ) : null}

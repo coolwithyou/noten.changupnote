@@ -18,7 +18,7 @@ import { companyCreateIntent } from "@/lib/client/companyCreateIntent";
 import { companyResumeLoginPath, pendingCompanyStorage, savedCompanyDestination, savePendingCompanyRequest } from "@/lib/client/companySaveHandoff";
 import { isVirtualCompanyBizNo } from "@/lib/virtualCompanies";
 import { ProfileSection } from "./ProfileSection";
-import { buildProfileCompletion } from "./profileCompletion";
+import { CompanyMatchingContext } from "./CompanyMatchingContext";
 import { loadOwnedMatching, saveOwnedMatchingAnswer } from "./ownedMatchingClient";
 import { clearProfileDraft, profileDraftStorage, readProfileDraft, writeProfileDraft } from "./profileDraft";
 import { ProgramsExperience } from "./Programs";
@@ -72,7 +72,7 @@ export function profileDrawerReducer(
   const enteredCompanyIds = new Set(state.enteredCompanyIds);
   enteredCompanyIds.add(action.companyId);
   return {
-    open: state.open || (action.basicProfileMissing && !action.confirmationEntry),
+    open: state.open,
     enteredCompanyIds,
   };
 }
@@ -148,7 +148,7 @@ export function MatchResultsExperience() {
       dispatchProfileDrawer({
         type: "company_loaded",
         companyId: result.companyId,
-        basicProfileMissing: buildProfileCompletion(result.teaser.profileView).remaining.length > 0,
+        basicProfileMissing: false,
         confirmationEntry: params.has("confirm"),
       });
     } catch (caught) {
@@ -313,11 +313,7 @@ export function MatchResultsExperience() {
     if (restoredAnswers.length > 0) setDraftNotice("이 탭에 보관된 답변을 복원했어요. 회사 저장은 별도입니다.");
     setAnswerImpact(null);
     setAnsweredQuestionIdentities(new Set());
-    void loadTeaser({ bizNo: digits, ...(restoredAnswers.length ? { answers: restoredAnswers } : {}) }).then((result) => {
-      if (result && !params.has("confirm") && buildProfileCompletion(result.profileView).remaining.length > 0) {
-        dispatchProfileDrawer({ type: "set_open", open: true });
-      }
-    });
+    void loadTeaser({ bizNo: digits, ...(restoredAnswers.length ? { answers: restoredAnswers } : {}) });
     return () => { requestSeqRef.current += 1; };
   }, [loadTeaser, loadCompanyMatching]);
 
@@ -412,7 +408,7 @@ export function MatchResultsExperience() {
 
   return (
     <div className="min-h-screen w-full overflow-x-hidden bg-background text-foreground">
-      <main className="relative mx-auto w-full max-w-[760px] px-5 py-6 sm:px-6 sm:py-[52px]">
+      <main className="relative mx-auto w-full max-w-[1100px] px-5 py-6 sm:px-6 sm:py-[52px]">
         {status === "loading" ? <LoadingState /> : null}
         {status === "empty" ? <EmptyState /> : null}
         {status === "error" ? (
@@ -439,6 +435,12 @@ export function MatchResultsExperience() {
               questionsExhausted={teaser.nextQuestion === null}
               answeredCurrentQuestion={answeredCurrentQuestion}
             />
+            <CompanyMatchingContext
+              profileView={teaser.profileView}
+              companyName={companyName}
+              temporary={!companyId}
+              onOpenProfile={openProfile}
+            />
             {noMatchingGrants ? (
               <NoMatchingGrantsState
                 onSubscribe={() => void saveAndContinue()}
@@ -447,14 +449,15 @@ export function MatchResultsExperience() {
               />
             ) : (
               <>
-                <div className="mt-7">
+                <details className="mt-5 rounded-xl border border-border-subtle px-4 py-3">
+                  <summary className="cursor-pointer text-sm font-semibold text-text-secondary">추가 정보로 조건 대조 보완하기</summary>
                   <NextQuestionCard
                     question={visibleNextQuestion}
                     impact={answerImpact}
                     onAnswer={applyAnswer}
                     submitting={profileSubmitting}
                   />
-                </div>
+                </details>
                 <ProgramsExperience
                   teaser={teaser}
                   companyId={companyId}

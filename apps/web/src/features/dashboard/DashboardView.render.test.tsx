@@ -131,6 +131,9 @@ const html = renderToStaticMarkup(
 
 assert.ok(html.includes(">기회 맵</h1>"), "h1은 기회 맵");
 assert.ok(html.includes("주식회사 바다상회의 저장된 정보 기준 · 9월 30일 모집 중 528건 중 관련 후보를 골랐어요"), "헤더 캡션");
+assert.ok(html.includes("공고 대조에 사용하는 내 사업자 정보"), "사업자 문맥이 실제 화면에 표시된다");
+assert.ok(html.indexOf("공고 대조에 사용하는 내 사업자 정보") < html.indexOf("상시근로자 수를 알려 주세요"), "정보 요약이 보완 질문보다 먼저 표시된다");
+assert.ok(html.includes("/settings?companyId=company-1#company-settings"), "정보 보완에도 현재 회사 문맥을 보존한다");
 assert.ok(html.includes("관련성 높은 순"), "정렬 라벨(동작 없음)");
 assert.ok(html.includes("max-w-[1100px]"), "2열 그리드에 맞는 페이지 폭");
 assert.ok(html.includes("상시근로자 수를 알려 주세요") && html.includes(">지금 답하기<"), "오늘 확인할 것 카드는 유지");
@@ -144,7 +147,7 @@ assert.ok(html.includes(">공고 보기<"), "카드 버튼");
 assert.ok(html.includes('href="/grants/grant-open?companyId=company-1"'), "회사 문맥을 상세 링크에 보존");
 assert.ok(html.includes(">접수 예정</h2>") && html.includes("모집 예정"), "접수 예정 섹션");
 assert.ok(html.includes("다시 살펴볼 공고") || html.includes("제외된 공고 보기"), "회사 결과는 서버 저장 탐색 선택 패널을 그린다");
-assert.ok(html.includes("자동으로 확인한 정보 7개 · 직접 채울 정보 3개 · 보기"), "하단 프로필 링크 유지");
+assert.ok(html.includes("확인된 정보 7개 · 추가 확인할 정보 3개 · 보기"), "하단 프로필 링크 유지");
 
 for (const removed of ["지금 가능", "답하면 확정", "매칭 정밀도", "회사를 더 설명할수록", "카드 접기", 'data-slot="tabs', "hover:bg-card"]) {
   assert.equal(html.includes(removed), false, `옛 탭·게이지·펼침 구조(${removed})가 없어야 함`);
