@@ -114,6 +114,23 @@ assert.equal(sectionEvidenceSelectionSchema([companyUnit]).safeParse(selectedPla
 assert.equal(sectionEvidenceSelectionSchema([planUnit]).safeParse(selected(fact.text,"company_fact",[planUnit.evidenceId])).success,false);
 const currentUnits=buildSectionEvidenceUnits([{...sources[0]!,kind:"current_document"}]);
 assert.equal(sectionEvidenceSelectionSchema(currentUnits).safeParse(selectedPlan(currentUnits[0]!.evidenceId)).success,true);
+const timelineLine="추진 일정: 2026년 10월에는 전시 참가 신청과 부스 준비를 진행합니다. 11월 18~20일에는 해외 전시회에서 제품 시연과 바이어 상담을 진행합니다. 고객에게 자료를 전달하고 후속 미팅을 진행합니다. 상담 결과는 제품 개선 계획에 반영합니다. 행사 전에는 참가 조건과 제출 자료를 확인하고 행사 후에는 상담 기록을 정리합니다.";
+assert.equal(timelineLine.length,185);
+const budgetLine="예산: 총 500만원을 계획합니다. 지원금 300만원과 자부담 200만원이며 참가 승인 시 집행합니다.";
+const atomicSource={...sources[1]!,content:`  ${timelineLine}  \r\n${budgetLine}`};
+const atomicUnits=buildSectionEvidenceUnits([atomicSource]);
+assert.equal(atomicUnits.length,2);
+assert.deepEqual(atomicUnits.map(unit=>unit.quote),[timelineLine,budgetLine]);
+assert.equal(buildSectionEvidenceUnits([{...atomicSource,content:" ".repeat(600)+timelineLine+" ".repeat(600)}])[0]!.quote,timelineLine);
+for(const unit of atomicUnits) assert.equal(unit.quote,atomicSource.content.slice(unit.start,unit.end));
+const atomicPlan=(text:string,id:string)=>({paragraphs:[{text,kind:"plan",primaryEvidenceId:id,supportingEvidenceIds:[]}],questions:[]});
+assert.doesNotThrow(()=>verifyWritingComposition(resolveSectionEvidenceSelection(atomicPlan("2026년 11월 18~20일에 전시회에 참가합니다.",atomicUnits[0]!.evidenceId),atomicUnits),[atomicSource]));
+assert.throws(()=>verifyWritingComposition(resolveSectionEvidenceSelection(atomicPlan("2028년 11월 18~20일에 전시회에 참가합니다.",atomicUnits[0]!.evidenceId),atomicUnits),[atomicSource]),
+  (error:unknown)=>error instanceof WritingContextError && error.code==="section_quantity_mismatch");
+assert.doesNotThrow(()=>verifyWritingComposition(resolveSectionEvidenceSelection(atomicPlan("참가 승인 시 총 500만원 중 지원금 300만원과 자부담 200만원을 집행할 계획입니다.",atomicUnits[1]!.evidenceId),atomicUnits),[atomicSource]));
+const longPlan={...atomicSource,content:"가".repeat(498)+"😀"+"나".repeat(650)};
+const longPlanUnits=buildSectionEvidenceUnits([longPlan]);assert.ok(longPlanUnits.length>1);
+for(const unit of longPlanUnits){assert.ok(unit.quote.length<=500);assert.equal(unit.quote,longPlan.content.slice(unit.start,unit.end));assert.doesNotMatch(unit.quote,/^[\uDC00-\uDFFF]|[\uD800-\uDBFF]$/u);}
 const longSource={...sources[0]!,content:"가".repeat(498)+"😀"+"나".repeat(600)+"\r\n한국어 문장입니다. 다음 문장입니다."};
 for(const unit of buildSectionEvidenceUnits([longSource])) {
   assert.ok(unit.quote.length<=500); assert.equal(unit.quote,longSource.content.slice(unit.start,unit.end));

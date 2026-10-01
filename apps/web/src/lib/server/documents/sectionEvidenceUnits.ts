@@ -15,7 +15,12 @@ export function buildSectionEvidenceUnits(sources: readonly DocumentAgentGroundi
   const segmenter = new Intl.Segmenter("ko", { granularity: "sentence" });
   for (const source of sources) {
     for (const line of source.content.matchAll(/[^\r\n]+/gu)) {
-      for (const sentence of segmenter.segment(line[0])) {
+      // A brief line is one labelled record. Splitting it into sentences loses
+      // shared year/period/condition qualifiers needed by later sentences.
+      const trimmedLine = line[0].trim();
+      const sentences = source.kind === "application_plan" && trimmedLine.length <= 500
+        ? [{ index: line[0].indexOf(trimmedLine), segment: trimmedLine }] : segmenter.segment(line[0]);
+      for (const sentence of sentences) {
         let start = line.index! + sentence.index;
         const sentenceEnd = start + sentence.segment.length;
         while (start < sentenceEnd) {

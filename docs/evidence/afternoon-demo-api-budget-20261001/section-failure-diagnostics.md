@@ -46,3 +46,13 @@ sectionComposer도 동일한 corpus 정규화 계약을 사용하도록 수정�
 schema는 provider-supported anyOf를 사용하는 z.union이며 테스트에서 JSON Schema 변환을 확인했다. union parameter 1개, optional 0개로 공식 한도 안이다. prompt에도 후보의 allowedForCompanyFact/allowedForPlanPrimary와 문단별 필드 형식을 명시한다. 서버는 primary+supporting을 기존 public evidence 배열로 복원하고 원래 verifyWritingComposition의 모든 검증을 유지한다. 저장/API/UI public 계약과 모델·usage 버전·토큰·timeout은 그대로다.
 
 회귀 테스트는 잘못된 kind, 필수 primary 누락, 빈 회사 근거, 적격 후보 없는 kind, unknown unit, 기존 plan-as-fact 및 수치 조작 차단을 확인했다. 전체 writing suite/typecheck/동일 최종 소스 production build PASS (기존 NFT tracing warning 2개). 이 검증은 모델 호출·운영 쓰기·브라우저 변경 없이 수행했다.
+
+## 단건 응답으로 확인한 계획 항목 맥락 유실
+
+담당자가 실행한 단건 진단 `68df727d-9a16-41bd-91fd-a2928dacb553`의 비공개 응답으로 원인을 확인했다. 세 번째 plan 문단에서 2026년이 누락된 근거를 선택해 quantity 검증이 거부했다. 선택한 일정 문장은 같은 185자 추진 일정 항목에서 분할되면서 앞 문장의 연도가 분리된 후보였다. 전체 출처에 연도는 존재했다. B2B 숫자는 선택한 인용에도 있어 이 실패의 원인이 아니었다.
+
+application_plan 자료의 500자 이하 항목 줄은 원문 그대로 단일 근거 후보로 보존한다. 연도·기간·조건을 항목의 후속 문장과 함께 전달한다. 500자를 초과하면 기존 문장/청크 전략으로 돌아간다. 회사 자료·프로필·현재 문서의 문장 전략, source SHA/ID, 모든 검증기·스키마·모델·public 저장 계약은 유지한다.
+
+기존 응답의 텍스트·kind 4문단은 그대로 두고, 옛 인용 후보를 동일 출처 offset을 포함하는 새 항목 후보로 오프라인 재결속해 전체 기존 검증 PASS를 확인했다. 원래 구성은 quantity_mismatch를 재현했다. 모든 원문 SHA가 유지되고 후보 수는 85→71이다. [안전한 증거 요약](section-plan-context-offline-proof.json)은 해시·개수·결과만 보존하며 원문 응답은 private 0600 파일에만 있다. 이 증거는 새 모델 응답이나 운영 저장 완료를 의미하지 않는다.
+
+185자 일정 항목의 연도+후속 일정, 500/300/200 예산·조건, 없는 2028년 거부, 500자 초과 Unicode fallback, 회사 사실/미래 계획 혼합 차단을 회귀 검증했다. 전체 writing suite/typecheck 및 최종 production build PASS (기존 NFT tracing warning 3개). 이 수정·오프라인 검증에서 모델 호출·운영 쓰기·브라우저 변경은 0회다.
