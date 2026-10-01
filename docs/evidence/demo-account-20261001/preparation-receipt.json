@@ -33,7 +33,7 @@
     "targetCount": 1,
     "modelCalls": 0,
     "serviceWrites": 0,
-    "liveExecutionAuthorized": false,
+    "liveExecutionAuthorized": true,
     "sourceCommit": "ab28ce3d6b6037964f5952f3b9c6c367fd0d6fd8"
   },
   "uiFix": {
@@ -54,5 +54,43 @@
     "apiProvider": "firstParty",
     "subscriptionType": "max",
     "modelCalls": 0
+  },
+  "liveReadback": {
+    "authenticatedSessionStatus": 200,
+    "companiesStatus": 200,
+    "currentCompanyId": "a0132dd3-9cb7-87a1-95ef-6cfc171a795f",
+    "role": "owner",
+    "companyVerified": false,
+    "region": "경기",
+    "industry": [
+      "소프트웨어 개발 및 공급업"
+    ],
+    "businessAgeMonths": 24,
+    "employees": 5,
+    "revenueKrw": 120000000,
+    "briefStatus": 200,
+    "briefRevision": 1,
+    "selectedSourceIds": [
+      "42a4ea9d-e113-4ca9-b666-d3be37dce92b"
+    ],
+    "autofillProfileStatus": 200,
+    "businessNumber": "0000000000",
+    "businessNumberVerified": false,
+    "applicationListReopen": true,
+    "rhwpReopenedPages": 13,
+    "headSourceStatus": 200,
+    "headRevisionId": "4ff01305-0362-4918-ad0d-274c829c88d0",
+    "headSavedAt": "2026-10-01T03:48:19.445Z",
+    "headBytes": 100742,
+    "headSha256": "ab31ebbccb6e117b8c1dbfad1684c5e7616ec09f24c0f31154266f6f7973d9f9",
+    "matchesDownloadedBytes": true,
+    "scope": "existing Hanam baseline; autofill and AI section readiness remain unproven"
+  },
+  "analysisExecution": {
+    "grantSha256": "6790dfa8433d9b9b72729a5e811ba86d3e9df0a2b6b3fcf21d5f9c4d1c047847",
+    "status": "running",
+    "transport": "claude-cli",
+    "userAuthority": "all kinds of local subscription analysis approved; API token usage prohibited",
+    "terminalReceipt": null
   }
 }

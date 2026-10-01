@@ -73,3 +73,10 @@ gitignored private 파일/브라우저 stdin으로만 취급하며 코드·진�
 - `pnpm --filter @cunote/web build` exact source08e4e0b에서 exit0(컴파일/TypeScript/정적 생성 통과). 기존 NFT 추적 warning2건은 있으나 build실패 없음. 운영 배포 완료로 해석하지 않는다.
 - `claude auth status --json`에서 loggedIn=true/authMethod=claude.ai/apiProvider=firstParty/subscriptionType=max 확인. 실제 실행 시 transport 공통 preflight로 다시 검증한다. 모델착수0 유지.
 - 운영 브라우저 `/api/auth/session`200, demo-20261001@noten.im 인증 유지 재확인. 다운로드100742bytes/SHA·ZIP·sectionXML 무결성 재검증 PASS.
+
+## 사용자 구독 분석 승인·착수
+- 사용자 명시 승인: 모든 종류의 분석 실행을 승인하며 API token이 아닌 이 Mac 구독 모델만 사용(2026-10-01). 동일 목표 내 후속 분석도 이 승인 범위로 유지하고 target/material 식별을 기록한다.
+- exact manifest c321820c...a53bab5에 grant `6790dfa8433d9b9b72729a5e811ba86d3e9df0a2b6b3fcf21d5f9c4d1c047847` 생성 성공.
+- `ANALYSIS_LAB_TRANSPORT=claude-cli pnpm lab:launch -- --grant=6790dfa8433d9b9b72729a5e811ba86d3e9df0a2b6b3fcf21d5f9c4d1c047847` 착수. session19611, started1/1 로그 확인. 모델 완료와 구분한다.
+- transport 자식환경에서 ANTHROPIC_API_KEY/AUTH_TOKEN/BASE_URL, OAuth override, Bedrock/Vertex/Foundry override 제거 및 firstParty/max preflight 유지 확인.
+- 신청관리에서 실제 문서 열기→companyId 유지→RHWP13쪽/서버저장12:48 재개 확인. GET회사/brief/autofill 모두200, companyowner/self_declared/미검증번호, briefrevision1/selectedsource1 보존.
