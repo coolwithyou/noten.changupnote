@@ -88,9 +88,21 @@
   },
   "analysisExecution": {
     "grantSha256": "6790dfa8433d9b9b72729a5e811ba86d3e9df0a2b6b3fcf21d5f9c4d1c047847",
-    "status": "running",
+    "status": "completed_application_held",
     "transport": "claude-cli",
     "userAuthority": "all kinds of local subscription analysis approved; API token usage prohibited",
-    "terminalReceipt": null
+    "terminalReceipt": "c634172a8731ece151dc44544974ad4590bb0d8eab110749359d01fe4be40f19",
+    "primaryOutcome": "publishable",
+    "applicationOutcome": "held",
+    "finishedAt": "2026-10-01T04:28:47Z",
+    "sourceApplicationSha256": "ceb2c53a1a4ff825e3661deecd5a7533d23a4d55f2e82126a240b6de3f06e150",
+    "acceptedInputCount": 66,
+    "anchorReadyInputCount": 66,
+    "anchorUnreadyInputCount": 0,
+    "unresolvedCandidateCount": 0,
+    "structuralWarningCount": 1,
+    "warningLabel": "목표\n고객",
+    "independentReviewManifest": "5264f735ce5c339ed2174123859162adb032f3362e4fa05d403119ddf86dbf1c",
+    "independentReviewTransport": "codex-cli-chatgpt-subscription"
   }
 }

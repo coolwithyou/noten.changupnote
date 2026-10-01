@@ -80,3 +80,10 @@ gitignored private 파일/브라우저 stdin으로만 취급하며 코드·진�
 - `ANALYSIS_LAB_TRANSPORT=claude-cli pnpm lab:launch -- --grant=6790dfa8433d9b9b72729a5e811ba86d3e9df0a2b6b3fcf21d5f9c4d1c047847` 착수. session19611, started1/1 로그 확인. 모델 완료와 구분한다.
 - transport 자식환경에서 ANTHROPIC_API_KEY/AUTH_TOKEN/BASE_URL, OAuth override, Bedrock/Vertex/Foundry override 제거 및 firstParty/max preflight 유지 확인.
 - 신청관리에서 실제 문서 열기→companyId 유지→RHWP13쪽/서버저장12:48 재개 확인. GET회사/brief/autofill 모두200, companyowner/self_declared/미검증번호, briefrevision1/selectedsource1 보존.
+
+## 구독 단건 분석 종결 및 구조 문제 — 13:29 KST
+- launch session19611 exit0. 완료 receipt `c634172a8731ece151dc44544974ad4590bb0d8eab110749359d01fe4be40f19`, 종료 2026-10-01T04:28:47Z. primary=publishable, matching projection verified/conditional, application=held. 운영 결과 승격 없음.
+- application roundtrip `roundtrip-2026-10-01T041138.341Z-800a5b`, Kordoc4.2.3/current v22/claude-cli. 신청서 후보89개 중 accepted66개, anchorReady66/anchorUnready0, unresolved0. 상위 readiness recognized0은 실제 추출0이 아니라 문서 review_required에서 차단한 결과다.
+- 원인: 신청서 목표 고객(block3,row15,col3)의 인접 다열 빈값3개를 writer가 exact 결속하지 못한다는 structuralWarning1개. choice group이 있는 문서는 현행 isolation이 fail-closed한다. 일반 구조 결속 문제를 조사하며 데모 예외·게이트 완화·불변 영수증 수정은 하지 않는다.
+- writing_workspace: 일반 다열 parser/writer 구조 조사·수정·회귀 검증. company_exploration: 완료 receipt 기반 application_only 정상 준비 및 기존 baseline 실패 영향 조사. 새 모델 호출은 기존 구독 분석 승인 범위로 진행하되 exact 대상과 material binding을 다시 기록한다.
+- 독립 Codex 검수는 ChatGPT 구독 인증과 API credential 제거를 유지한다. 보류 신청서를 완전 준비 상태로 표시하지 않는다.
