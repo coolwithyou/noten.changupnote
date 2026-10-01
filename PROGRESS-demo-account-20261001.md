@@ -163,3 +163,9 @@ gitignored private 파일/브라우저 stdin으로만 취급하며 코드·진�
 - 구독 분석·보정·독립 검수·read-only검사 및 제품코드/build/계약테스트는완료. 실제운영승격과검증제품배포는 AGENTS.md의 별도 명시승인 대상이다. 현재 exact1grant/receipt888a/reviewab8e/aggregatee82b를대상으로 releaseprepare→aggregate→shadow(testcompanya0132dd3-9cb7-87a1-95ef-6cfc171a795f)→dry-run→서로다른actor releaseapprove→promotewrite→verifypromotion까지, 동일검증제품sourcec779614의 clean후속commit배포·라이브스모크 범위승인이필요하다. 신규공고·모델API분석·운영worker활성화는범위에없다.
 - 모든 분석은 사용자승인대로 Mac구독모델로수행했다. 운영AI상담/문안생성은현재API경로이므로, 전체시연의 해당부분을실행하려면 사용자가운영기능의 API호출을허용할지결정해야한다. 별도허용전에는새API모델호출을하지않는다. 운영상담을구독으로바꾸는시연예외는만들지않는다.
 - 승인후정상운영공고를새draft로선택하고Singapore8field합성brief를저장→일반등록정보dialog/자동입력→문안작성/AI상담(별도허용범위)→서버저장→다운로드ZIP/XML→재열기SHA·RHWP화면인수. 기존Hanammanualbaseline이나로컬부분probe로FULL인수를대체하지않는다.
+
+## 운영 반영 승인 대기 중 현재 상태 재확인 — 14:47 KST
+- 앞선 goal turn은 구독 retry 성공·독립검수PASS·read-onlyrelease인수로실제진행했다. 현재continuation은승인응답이아니므로운영승격·배포·새API모델호출권한을추가하지않는다.
+- 정상DB read-only transaction(2026-10-01T05:47:15.525Z): exactSingaporegrant open/visible/file_form, promotionItems0, HWPX표면2개 모두preview_ready. 로컬66field검수PASS는아직운영fields_ready에반영되지않았다. [읽기전용snapshot](docs/evidence/demo-account-20261001/production-readonly-before-approval.json). 모델/API호출0, DB쓰기0.
+- DB apply_end는2026-10-08T00:00:00Z(09:00KST)이며원공고의명시마감14:00KST와차이가있다. 시나리오의원문마감과DB관측을혼합하지않으며, 현재10/1지원가능상태에는영향없음. 원문/운영수정은승인대상으로유지한다.
+- 같은진짜막힘은운영반영별도승인과운영AI API호출범위미확정이다. 승인된로컬분석·제품수정·검증은완료했고추가모델분석으로권한경계를해결할수없다. 전체goal은미완료/active유지.
