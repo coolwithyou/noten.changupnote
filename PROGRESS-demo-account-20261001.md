@@ -110,3 +110,10 @@ gitignored private 파일/브라우저 stdin으로만 취급하며 코드·진�
 - independent review repair 실제prepare는 동일target의 unsure2 때문에 exit1. 설계상 결함target에서 unresolvedtarget을 제외하는 gate이므로 결과·gate를 바꾸지 않는다.
 - 표준 terminal-repair 준비는 exit0: manifest `5cb5740398850dbe3fd563ee34a0f3c728abc137a62113c36363aec5abaeee20`, inventory `06e5ffd8bcaf702117a91c9279bc1d3caf2db1b57e83db622d3240fc4f0b2771`. originalseq0/exactgrant1/원input·첨부SHA보존/sourcef4647c1. model0/servicewrite0/grant미발급.
 - terminalrepair는 검수feedback를 전달하지 않으므로 위manifest를 바로반복실행하지 않는다. company_exploration에 일반 extractor 의미보존규칙+회귀보완 위임. 새 source/provenance에서 같은terminalreceipt에 결속된 새manifest를준비하고 기존구독승인으로실행한다. 특정공고예외·검수HOLD해제는금지.
+
+## 일반 의미 보존 수정 및 구독 재분석 착수 — 14:00 KST
+- `a61f540`: lab-deep-v30/validator-v24. 원문 OR범위·기술보유·절차신청단계·재무기준연도가 현재 canonical에서 무손실 표현되지 않으면 text_only 보존/재보정. 명시 공통 업력과 canonical로 이미 지원되는 상태는 유지.
+- `verify:deep-analysis-contract`, launch전체suite, completedreader5case, normalizerprovenance, confirmation 및 web typecheck PASS. [검증 근거](docs/evidence/demo-primary-meaning-preservation-20261001.md). 옛 v29/v23/v22 완료 영수증은 exact 오프라인 ancestry 소비만 허용하며 livecurrent 계약은 v30/v24다.
+- 정상terminalprepare exit0: manifest `601ef168693799c9096d0fc92e9165556367ebe6c00265100b2054739cfb528e`, inventory `460520c4ce9d27b475da54a6e0bed46233994f290e625382f9d37809816f9a45`. 원grant1/inputSHA/attachmentSHA 전수 동일. 새 source a61f540. 과거 5cb574 manifest/grant 미실행.
+- 사용자 지속 구독분석 승인으로 grant `f638bb949abdfb95db933d0ac33458c32e6abe9bdff0e80f2ae894ea9b400694` 기록 후 `ANALYSIS_LAB_TRANSPORT=claude-cli pnpm lab:launch -- --grant=f638bb949abdfb95db933d0ac33458c32e6abe9bdff0e80f2ae894ea9b400694` 실행. session26725, target1/1 started 확인. 완료/승격과구분.
+- 같은 source의 production build session87565 실행중. 운영배포·새운영API모델호출 없음.

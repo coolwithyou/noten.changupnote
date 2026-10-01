@@ -118,5 +118,20 @@
     "unresolved": 2,
     "databaseWrites": false,
     "promotion": false
+  },
+  "analysisRepair": {
+    "manifestSha256": "601ef168693799c9096d0fc92e9165556367ebe6c00265100b2054739cfb528e",
+    "inventorySha256": "460520c4ce9d27b475da54a6e0bed46233994f290e625382f9d37809816f9a45",
+    "grantSha256": "f638bb949abdfb95db933d0ac33458c32e6abe9bdff0e80f2ae894ea9b400694",
+    "sourceCommit": "a61f540293f80da608178f6f3e15859eeefa3bc0",
+    "sourceTerminalReceipt": "c634172a8731ece151dc44544974ad4590bb0d8eab110749359d01fe4be40f19",
+    "analysisMode": "primary_and_application",
+    "transport": "claude-cli",
+    "promptVersion": "lab-deep-v30",
+    "validatorVersion": "deep-analysis-validator-v24",
+    "status": "running",
+    "terminalReceipt": null,
+    "sameTargetInputAttachment": true,
+    "userAuthority": "all local subscription analysis approved; API token usage prohibited"
   }
 }
