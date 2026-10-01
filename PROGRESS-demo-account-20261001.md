@@ -261,3 +261,7 @@ gitignored private 파일/브라우저 stdin으로만 취급하며 코드·진�
 - `a813173`은 unique text/region 서술형 입력위치를 지원한다. 기존값은 현재내용/저장문안 비교 후 기본해제된 명시 교체확인으로만 반영하며, long_text/동일한 단일field/noautomatic/≤4000 조건·최신문안revision/text/권한·exact native preimage를 다시 검증한다. 일반 등록정보 일괄입력의 기존값 보호는 그대로 유지한다. guide패턴 임의 확장 없음.
 - emptyregion 지원·미확인교체 거부·stale문안/원문/CAS 거부·text/region검토교체 성공·인접셀 보존·서식 undo 회귀, workspace render 및 웹typecheck PASS. 마지막 문안변경 시 비교폐기까지 render 재확인 PASS. root 전체diff검수·diffcheck PASS. [검증 범위](docs/evidence/afternoon-demo-api-budget-20261001/saved-writing-review.md).
 - 위 정상수정과 f9a6ce9 범위표기 수량수정의 최종 결합 소스를 clean commit으로 build한 뒤 승인된 운영웹에 재배포한다. 기존 AIready 기업소개 문안revision2는 그대로 보존하고 추가 모델콜 없이 반영 재인수한다.
+
+## 최종 결합 빌드와 운영 배포 착수 — 16:57 KST
+- exactsource `582792f70d7d72bc9549b9b9b0cf37eefdd6f1c8` clean 최종build session57286 exit0/compile6.3s/tsc14.2s/static5/기존NFTwarn3, 원격featurebranchpush33810 exit0. 저장문안/UI/transaction·수량회귀 각각PASS에 더해 shared RHWP 영향범위 `pnpm test:document-agent` 집계 session5198 exit0 전체PASS. 로그 `/tmp/cunote-demo-20261001/document-agent-582792f.log`.
+- 공식cleanarchive4251d338.../3758entries 재배포 `dpl_2rrpgF3iwdZqRGQMmpqikkDRfgeF`/changupnote-ah8o4e27c-noten.vercel.app 착수. flag·모델환경 보존, Studio/API모델변경0. READY/alias확인 전 최종인수 성공으로 표시하지 않는다.
