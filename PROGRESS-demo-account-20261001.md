@@ -68,3 +68,8 @@ gitignored private 파일/브라우저 stdin으로만 취급하며 코드·진�
 - 사용자에게 이 exact1건 Gate R 승인을 비동기 질문했다. 응답 없이는 grant/launch를 실행하지 않는다. promotion·배포는 별도 범위다.
 - 후보: 싱가포르 현지 진출 국내 블록체인 기업, 신청기간9/28~10/8 14:00. 기존 합성software회사에 블록체인 문서근거/이력증명 SaaS 사업계획을 맞출 수 있지만 제품사실/영어피칭/출장조건을 자동확정하지 않는다.
 - manifest/준비 영수증: docs/evidence/demo-account-20261001. 준비 성공은 완전분석·자동입력 성공이 아니다.
+
+## 배포 준비 추가 검증
+- `pnpm --filter @cunote/web build` exact source08e4e0b에서 exit0(컴파일/TypeScript/정적 생성 통과). 기존 NFT 추적 warning2건은 있으나 build실패 없음. 운영 배포 완료로 해석하지 않는다.
+- `claude auth status --json`에서 loggedIn=true/authMethod=claude.ai/apiProvider=firstParty/subscriptionType=max 확인. 실제 실행 시 transport 공통 preflight로 다시 검증한다. 모델착수0 유지.
+- 운영 브라우저 `/api/auth/session`200, demo-20261001@noten.im 인증 유지 재확인. 다운로드100742bytes/SHA·ZIP·sectionXML 무결성 재검증 PASS.

@@ -41,5 +41,18 @@
     "browserEvidence": "../demo-chat-20261001/2026-10-01T04-05-18-932Z/report.json",
     "checks": 6,
     "syntheticUiOnly": true
+  },
+  "build": {
+    "sourceCommit": "08e4e0b",
+    "command": "pnpm --filter @cunote/web build",
+    "exitCode": 0,
+    "existingNftTraceWarnings": 2
+  },
+  "subscriptionPreflight": {
+    "loggedIn": true,
+    "authMethod": "claude.ai",
+    "apiProvider": "firstParty",
+    "subscriptionType": "max",
+    "modelCalls": 0
   }
 }
