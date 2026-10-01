@@ -129,6 +129,7 @@ assert.equal(
   "RHWP 원본 연결이 끊긴 경우 폐기한 페이지 이미지 기반 작성 화면으로 돌아가면 안 됩니다.",
 );
 assert.ok(previewHtml.includes("RHWP 문서를 준비하지 못했습니다."));
+assert.equal(previewHtml.includes("data-general-grant-chat"), false, "A missing original form must not pretend to expose the integrated chat dialog.");
 assert.equal(previewHtml.includes("빠른 작성"), false);
 
 // 재정의(2026-07-15): 내부 사다리 어휘 뱃지(LADDER_BADGE)는 화면에 노출하지 않는다.
@@ -186,6 +187,7 @@ assert.ok(
 assert.equal(html.includes('aria-label="문서 작성 방식"'), false, "통합 편집 화면에 quick/studio 주 모드 토글이 있으면 안 됩니다.");
 assert.equal(html.includes("AI 작성 제안"), false, "일반 본문 문단 에이전트가 필드 에이전트 주 CTA로 노출되면 안 됩니다.");
 
+assert.ok(html.includes("data-general-grant-chat"), "Field-ready forms must also offer general advice without a field target.");
 assert.ok(html.includes("data-writing-panel"), "Persistent writing must remain beside the original form.");
 assert.ok(html.includes("data-workspace-file-actions"), "File save actions must remain independent from the assistant rail.");
 assert.ok(html.includes("양식 파일 저장"), "File saving must be distinguished from section text saving.");
@@ -316,6 +318,8 @@ assert.ok(directRhwpHtml.includes("data-document-guided-editor"));
 assert.ok(directRhwpHtml.includes("문서 직접 편집기"));
 assert.ok(directRhwpHtml.includes("AI 작성 가이드"));
 assert.ok(directRhwpHtml.includes("작성 항목 분석이 연결되지 않았어요"));
+assert.ok(directRhwpHtml.includes("data-general-grant-chat"), "Persistent original forms must offer general AI advice while field bindings are unavailable.");
+assert.ok(directRhwpHtml.includes("AI 상담"));
 assert.ok(directRhwpHtml.includes("회사 정보 자동 입력과 항목별 AI 작성을 사용하려면"));
 assert.equal(directRhwpHtml.includes("등록정보로 일괄 채우기"), false);
 assert.equal(directRhwpHtml.includes('aria-label="문서 작성 방식"'), false);
@@ -369,6 +373,7 @@ const virtualHtml = renderToStaticMarkup(
     />
   </AppRouterContext.Provider>,
 );
+assert.equal(virtualHtml.includes("data-general-grant-chat"), false, "Virtual preview must not offer persistent AI chat.");
 assert.ok(virtualHtml.includes("가상 기업 RHWP 작성 미리보기"), "가상 기업 workspace임을 명확히 안내해야 합니다.");
 assert.ok(virtualHtml.includes("실제 회사·초안에는 저장되지 않습니다"), "비영속 저장 경계를 안내해야 합니다.");
 assert.ok(virtualHtml.includes("biz=0000000001"), "페이지 이미지와 돌아가기 링크에 가상 기업 범위를 유지해야 합니다.");
@@ -437,6 +442,7 @@ assert.equal(
   false,
   "읽기 전용 관리 화면은 실행 중인 분석이 없는데 무한 분석 중으로 표시하면 안 됩니다.",
 );
+assert.equal(adminPendingHtml.includes("data-general-grant-chat"), false, "Read-only admin preview must not offer persistent AI chat.");
 assert.ok(adminPendingHtml.includes("data-document-guided-editor"));
 assert.ok(adminPendingHtml.includes("문서 직접 편집기"));
 assert.ok(adminPendingHtml.includes("AI 작성 가이드"));

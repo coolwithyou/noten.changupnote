@@ -8,7 +8,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ChevronLeft, RotateCcw } from "lucide-react";
+import { ChevronLeft, MessageSquare, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -123,6 +123,7 @@ export function WorkspaceView({
   const [selectedFieldId, setSelectedFieldId] = useState<string | null>(null);
   const [suggestingLabels, setSuggestingLabels] = useState<Set<string>>(() => new Set());
   const [showChat, setShowChat] = useState(false);
+  const [chatScope, setChatScope] = useState<"general" | "field">("general");
   const [writingContextDirty, setWritingContextDirty] = useState(false);
   const [writingSectionsDirty, setWritingSectionsDirty] = useState(false);
   const [mobileSurface, setMobileSurface] = useState("writing");
@@ -175,6 +176,9 @@ export function WorkspaceView({
   } | null>(null);
   const fieldIdByTargetRef = useRef<Map<string, string>>(new Map());
   const chat = useGrantChat({ grantId, draftId: data.draftId });
+  // General advice has no field target/revision. A separate session prevents a previous
+  // field conversation from silently constraining the next general question.
+  const generalChat = useGrantChat({ grantId });
   const answersRef = useRef(answers);
   useEffect(() => {
     answersRef.current = answers;
@@ -575,6 +579,7 @@ export function WorkspaceView({
       return;
     }
     setSelectedFieldId(field.fieldId);
+    setChatScope("field");
     setShowChat(true);
     try {
       const fieldAgent = integratedFieldEditor
@@ -656,6 +661,21 @@ export function WorkspaceView({
           <h1 className="truncate text-base font-semibold sm:text-lg">{data.grant.title}</h1>
         </div>
         <div className="flex flex-wrap items-center justify-end gap-3">
+          {integratedRhwpWorkspace && !readOnlyPreview ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              data-general-grant-chat
+              onClick={() => {
+                setChatScope("general");
+                setShowChat(true);
+              }}
+            >
+              <MessageSquare data-icon="inline-start" aria-hidden />
+              AI 상담
+            </Button>
+          ) : null}
           {integratedRhwpWorkspace ? <div className="flex flex-col items-end gap-2" data-workspace-file-actions>
             <div className="flex flex-wrap gap-2">
               <Button size="sm" disabled={!studioDocumentActions.canSave} onClick={saveCurrentDocument}>{studioDocumentActions.saving ? "파일 저장 중…" : readOnlyPreview ? "이 탭에 반영" : "양식 파일 저장"}</Button>
@@ -875,7 +895,7 @@ export function WorkspaceView({
       ) : null}
 
       {/* 1:1 채팅 Dialog 오버레이(§2-④) — 닫으면 확인 루프가 그 자리에 그대로 있다. */}
-      {integratedFieldEditor && !readOnlyPreview ? (
+      {integratedRhwpWorkspace && !readOnlyPreview ? (
         <Dialog open={showChat} onOpenChange={setShowChat}>
           <DialogContent className="flex h-[calc(100dvh-2rem)] w-[calc(100vw-2rem)] max-w-[calc(100vw-2rem)] flex-col gap-0 overflow-hidden p-4 sm:h-[calc(100dvh-3rem)] sm:w-[calc(100vw-3rem)] sm:max-w-7xl sm:p-5">
             <DialogTitle className="sr-only">이 공고에 대해 물어보기</DialogTitle>
@@ -884,12 +904,16 @@ export function WorkspaceView({
             </DialogDescription>
             <div className="flex min-h-0 flex-1 flex-col overflow-y-auto pt-7 sm:pt-3">
               <ChatPanelView
-                controller={chat}
+                controller={chatScope === "general" ? generalChat : chat}
                 greeting={greeting}
                 variant="front"
                 fillAvailableHeight
                 institutionContact={institutionContact}
                 onApplyFieldProposal={({ fieldId, value, runId, suggestionId }) => {
+                  if (chatScope !== "field" || !integratedFieldEditor) {
+                    toast.info("일반 상담의 문안은 검토 후 원본 양식에서 직접 작성해 주세요.");
+                    return;
+                  }
                   if (!data.draftId || !runId || !suggestionId) {
                     toast.error("현재 문서 revision에 결속된 제안이 아닙니다. 필드 대화를 다시 시작해 주세요.");
                     return;

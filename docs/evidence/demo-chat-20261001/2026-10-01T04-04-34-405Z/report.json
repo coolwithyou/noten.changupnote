@@ -1,0 +1,71 @@
+{
+  "sourceSha": "04c40f809bff8cfd59f34d7f9b9d1625ae6fb57d",
+  "sourceDiffSha256": "960e3ce7922eb0deaaf683c4df6bfdbe5da64aa5e304da8e31aae71f9cb26743",
+  "fixture": true,
+  "externalWrites": 0,
+  "actualSourceComponents": true,
+  "checks": [
+    "ordinary persistent RHWP ladder b without field bindings offers AI chat",
+    "actual ChatPanel submits grant-only context without field binding and renders synthetic SSE answer",
+    "close/reopen retains messages and unsent input",
+    "mobile 390 dialog fits viewport",
+    "read-only admin preview has no chat trigger/dialog and starts no chat request",
+    "no browser runtime errors"
+  ],
+  "screenshots": [
+    "ladder-b-1440.png",
+    "general-chat-1440.png",
+    "general-chat-390.png",
+    "preview-no-chat-390.png"
+  ],
+  "mobileLayout": {
+    "body": 390,
+    "dialog": {
+      "bottom": 828,
+      "height": 812,
+      "left": 16,
+      "right": 374,
+      "top": 16,
+      "width": 358,
+      "x": 16,
+      "y": 16
+    },
+    "width": 390
+  },
+  "audit": {
+    "requests": [
+      {
+        "body": null,
+        "method": "GET",
+        "path": "/api/web/document-drafts/00000000-0000-4000-8000-000000000002/source-file?revision=head"
+      },
+      {
+        "body": null,
+        "method": "GET",
+        "path": "/api/web/document-drafts/00000000-0000-4000-8000-000000000002/writing-sections"
+      },
+      {
+        "body": {
+          "context": {
+            "grantId": "00000000-0000-4000-8000-000000000001",
+            "type": "grant"
+          },
+          "message": {
+            "text": "지원서 제출 전에 무엇을 확인해야 하나요?"
+          },
+          "sessionId": null
+        },
+        "method": "POST",
+        "path": "/api/web/chat"
+      },
+      {
+        "body": null,
+        "method": "GET",
+        "path": "/api/web/grants/00000000-0000-4000-8000-000000000001/virtual-source-file?document=application_form%3A%3A%EC%8B%A0%EC%B2%AD%EC%84%9C%3A%3A%3A%3A0&adminPreview=1"
+      }
+    ],
+    "routes": []
+  },
+  "ok": true,
+  "boundary": "UI-only synthetic SSE, source-file API unavailable by design; no real LLM/API/auth/HWPX editing/persistence acceptance claimed."
+}
