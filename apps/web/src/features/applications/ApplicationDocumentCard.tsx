@@ -134,13 +134,7 @@ export function ApplicationDocumentCard({
             <StatusCell label="문서 저장" {...(writing ? completionCell(item, writing, now) : NO_INFO_CELL)} />
           </dl>
         </div>
-        <details className="col-span-full border-t border-border-subtle pt-3">
-          <summary className="cursor-pointer text-xs font-semibold text-text-secondary">자격 조건 · 작성 기능 자세히</summary>
-          <dl className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2" aria-label="문서 진행 상태">
-            <StatusCell label="자격 확인" {...(writing ? eligibilityCell(item, writing) : NO_INFO_CELL)} />
-            <StatusCell label="작성 기능" {...(writing ? capabilityCell(item, writing) : NO_INFO_CELL)} />
-          </dl>
-        </details>
+
 
         <div className="flex items-center justify-end gap-2 md:col-start-2 md:row-start-1 lg:col-start-2 lg:row-start-1">
           {primary.kind === "link" ? (
@@ -231,6 +225,14 @@ export function ApplicationDocumentCard({
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
+
+        <details className="col-span-full border-t border-border-subtle pt-3">
+          <summary className="cursor-pointer text-xs font-semibold text-text-secondary">자격 조건 · 작성 기능 자세히</summary>
+          <dl className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2" aria-label="문서 진행 상태">
+            <StatusCell label="자격 확인" {...(writing ? eligibilityCell(item, writing) : NO_INFO_CELL)} />
+            <StatusCell label="작성 기능" {...(writing ? capabilityCell(item, writing) : NO_INFO_CELL)} />
+          </dl>
+        </details>
 
         {showsPrepRequest ? (
           <div className="col-span-full border-t border-border-subtle pt-3 text-[13px] text-text-secondary [&_p]:text-left [&>div]:mt-0 [&>div]:items-start">
