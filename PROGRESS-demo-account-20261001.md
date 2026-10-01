@@ -144,3 +144,7 @@ gitignored private 파일/브라우저 stdin으로만 취급하며 코드·진�
 ## 최종 릴리스 소비 계약 검증
 - `pnpm lab:release:test` exit0(session42905): completedreader5/5, buildprovenance, deep/launchpromotion, aggregateevidence, release/replacement, applicationroundtrip admission/import, precomputebundle, servingprovenance 모두PASS.
 - 이는새검수지시repair의완료신청서재사용을정상릴리스소비경로에서처리하는계약회귀다. 실제최종leaf의독립검수PASS와read-onlyreleaseinspect는별도로확인해야한다. 운영releaseprepare/approve/promote/write/배포없음.
+
+## 구독 보정 타임아웃 및 동일 grant 재시도 — 14:35 KST
+- session91441 exit0이나 target failed: primary 모델 요청이 900000ms에서 timeout. receipt `56cc29f039366ea896b4b2755893794a564af4bb2626885ee18246bca7432d71`, systemicFailure null. 신청서 complete/66필드/authoringready 재사용은 유지되며 matching은 primary_failed로held다. CLI exit0을 분석성공으로 해석하지 않는다.
+- 동일 material binding과 지속 구독 승인에 따라 `ANALYSIS_LAB_TRANSPORT=claude-cli pnpm lab:launch -- --grant=5565cdc7655959b94215b944133bf2a5074e03eeec442692c2dbc479dbaaf490 --retry-errors` 실행(session54676). 모델/API 경로 변경·timeout gate 완화·운영쓰기 없음. 새 영수증 종결 후 새독립검수와 read-only inspect를 이어간다.
