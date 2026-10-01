@@ -169,3 +169,8 @@ gitignored private 파일/브라우저 stdin으로만 취급하며 코드·진�
 - 정상DB read-only transaction(2026-10-01T05:47:15.525Z): exactSingaporegrant open/visible/file_form, promotionItems0, HWPX표면2개 모두preview_ready. 로컬66field검수PASS는아직운영fields_ready에반영되지않았다. [읽기전용snapshot](docs/evidence/demo-account-20261001/production-readonly-before-approval.json). 모델/API호출0, DB쓰기0.
 - DB apply_end는2026-10-08T00:00:00Z(09:00KST)이며원공고의명시마감14:00KST와차이가있다. 시나리오의원문마감과DB관측을혼합하지않으며, 현재10/1지원가능상태에는영향없음. 원문/운영수정은승인대상으로유지한다.
 - 같은진짜막힘은운영반영별도승인과운영AI API호출범위미확정이다. 승인된로컬분석·제품수정·검증은완료했고추가모델분석으로권한경계를해결할수없다. 전체goal은미완료/active유지.
+
+## 반복 막힘 감사 및 목표 blocked 판정
+- 3개연속goal turn에서동일경계확인: 최초PASS완료보고의운영승격·배포/API호출범위확인요청 → 다음continuation의운영preview_ready/read-only재확인 → 이번continuation에도실제승인응답없음. 자동goalcontinuation은명시승인이아니다.
+- 현행AGENTS.md99–101의운영promotewrite/배포별도명시승인과사용자최신구독모델요청이계속적용된다. 로컬분석·검수·제품수정·빌드/릴리스suite는완료이고추가허용작업으로FULL운영인수를달성할수없음. 워크트리clean확인.
+- 목표는미완료이며blocked로기록한다. 해제에필요한입력: exactSingaporegrant1건(최종receipt888a/reviewab8e/aggregatee82b) 운영release처리·승격과검증웹배포승인, 운영AI상담/문안생성API호출범위결정. 범위승인후동일결속·정상경로로재개하며추가분석승인은묻지않는다.
