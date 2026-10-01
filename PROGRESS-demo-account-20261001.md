@@ -93,3 +93,7 @@ gitignored private 파일/브라우저 stdin으로만 취급하며 코드·진�
 - manifest `5264f735ce5c339ed2174123859162adb032f3362e4fa05d403119ddf86dbf1c`, aggregate `3d390827e1797f09a59ce1d321efff4a5a338b596328844d9985113d47b20b44`, aggregate exit0/admission HOLD. 조건 correct17/needs_edit3/unsure2, 빈 축11개 confirmed_absent.
 - 결함: 블록체인 기술 보유를 업종 tag로 대체, 회생 개시 신청·개인회생 범위, 직전년도 결산 자본전액 잠식 기준 보존. 미해결: 중소기업 OR 스타트업 경로와 업력10년 적용 범위. 재분석에서 불명확한 원문은 조건부/원문 확인으로 보존한다.
 - primary publishable은 독립 검수 PASS가 아니다. 정상 독립 검수 repair를 준비하며 matching-only 승격으로 FULL 시연을 대체하지 않는다.
+
+## 구독 실행 경계 재확인
+- 현재 chat route는 createAnthropic/API key 경로, fieldSuggest·sectionComposer는 운영 API 모델 경로다. 운영 precompute는 API 고정/실험실 구독 import 금지 회귀가 있다. 사용자 최신 API 금지 요청 뒤 새 운영 상담·문안 생성 모델 호출은 하지 않는다.
+- 로컬 deep/Kordoc/독립 검수 및 후속 repair는 승인된 구독 경로를 사용한다. 운영 사용자 대면 경로를 시연용 CLI 예외로 바꾸지 않는다. 운영 결과 승격·배포는 별도 명시 승인 경계이며, 먼저 분석·검수·검증된 exact 결과를 준비한다.
