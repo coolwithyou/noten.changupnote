@@ -256,3 +256,8 @@ gitignored private 파일/브라우저 stdin으로만 취급하며 코드·진�
 ## 범위 표기 수량 회귀 검증 — 16:48 KST
 - `f9a6ce9`은 같은 연결범위의 생략단위만 복원한다. 인용별로 별도 추출하여 서로 다른 quote의 숫자와 단위가 결합되지 않게 한다. 끝점변조/일↔월/금액배율/관계없는숫자/양수↔음수 거부 회귀 및 writing 전체 suite·웹typecheck PASS. root diff검수 PASS.
 - 실제 private0647 응답의 composition/source/출처kind/evidence 변경0으로 fullverify PASS. 공개 proof `docs/evidence/afternoon-demo-api-budget-20261001/section-range-quantity-offline-proof.json`에 hashes와 상태만 보존. 모델·API·DB·브라우저 쓰기0.
+
+## 저장 문안의 서술형 반영 검증 — 16:55 KST
+- `a813173`은 unique text/region 서술형 입력위치를 지원한다. 기존값은 현재내용/저장문안 비교 후 기본해제된 명시 교체확인으로만 반영하며, long_text/동일한 단일field/noautomatic/≤4000 조건·최신문안revision/text/권한·exact native preimage를 다시 검증한다. 일반 등록정보 일괄입력의 기존값 보호는 그대로 유지한다. guide패턴 임의 확장 없음.
+- emptyregion 지원·미확인교체 거부·stale문안/원문/CAS 거부·text/region검토교체 성공·인접셀 보존·서식 undo 회귀, workspace render 및 웹typecheck PASS. 마지막 문안변경 시 비교폐기까지 render 재확인 PASS. root 전체diff검수·diffcheck PASS. [검증 범위](docs/evidence/afternoon-demo-api-budget-20261001/saved-writing-review.md).
+- 위 정상수정과 f9a6ce9 범위표기 수량수정의 최종 결합 소스를 clean commit으로 build한 뒤 승인된 운영웹에 재배포한다. 기존 AIready 기업소개 문안revision2는 그대로 보존하고 추가 모델콜 없이 반영 재인수한다.
