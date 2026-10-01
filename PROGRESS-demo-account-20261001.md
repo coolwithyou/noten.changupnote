@@ -210,3 +210,8 @@ gitignored private 파일/브라우저 stdin으로만 취급하며 코드·진�
 ## 원문 후보 선택 방식으로 문항 생성 개선 — 15:34 KST
 - section-3 request `546224b2-d4a0-41a5-b574-7a1e84c67d52`도 `section_evidence_invalid`로 종결. providerreported input8947/output1474/비용추정$0.048951, maxRetries0 단일예약대조해제. 신규reported합계$0.1669061+미확인chat예약$2.9825089, $20한도이내. 기존문안0·원본파일보존.
 - 공백 caller 결함 수정은 회귀로 유효하나 이번 실제 응답의잘못된quote/ID는 raw미저장으로확정불가. 반복 요청만으로 해결하지 않고, 정상제품의 모델 출력 근거를 freequote/긴sourceId 작성에서 서버가 원문에서 만든 exact인용 후보ID enum선택으로 개선한다. 서버가원sourceId/quote를결속해기존 모든 validator로 검증하며public저장/UI계약은유지한다. 원문개작·수치검증완화·데모예외없음.
+
+## 서버 인용 후보 선택 구조 검증 — 15:45 KST
+- `0732c485f95a9e88862434f181a627fe0d0e37eb`: 원문줄·한국어문장별≤500char exactsubstring에서 sourceId/SHA/offset/quote 기반 deterministic 후보ID 생성. 모델은현재ID enum만선택, 서버가원sourceId+quote를복원한뒤기존출처·계획·수치·길이검증을전부적용. freequote/긴sourceId 재생성 제거. 저장/public UI WritingComposition 및 usage source_kind writing-section-v1 유지.
+- unknownID/없는인용·틀린출처·plan-as-fact·수치조작·Unicode500boundary·emptyproposal 회귀와 writing전체suite/typecheck PASS. 최종동일커밋 localbuild PASS(compile8.3s/tsc15.3s/기존NFTwarning1). root diff검수 PASS.
+- read-only 현행자료4개(company1/계획1/공고2)에서候補85개(company7/계획23/공고55), fullsource7375chars/units7308chars/enum2126bytes. 모델·DB쓰기·브라우저0. provider공식stringenum지원/optional·union상한에맞는구조확인; 실제provider생성인수는운영UI에서별도진행. 동일승인범위 clean0732c48 재배포착수.
