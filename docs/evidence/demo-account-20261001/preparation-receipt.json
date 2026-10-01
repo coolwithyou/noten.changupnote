@@ -104,5 +104,19 @@
     "warningLabel": "목표\n고객",
     "independentReviewManifest": "5264f735ce5c339ed2174123859162adb032f3362e4fa05d403119ddf86dbf1c",
     "independentReviewTransport": "codex-cli-chatgpt-subscription"
+  },
+  "independentReview": {
+    "transport": "codex-cli",
+    "authentication": "ChatGPT subscription",
+    "model": "gpt-6-sol",
+    "manifestSha256": "5264f735ce5c339ed2174123859162adb032f3362e4fa05d403119ddf86dbf1c",
+    "aggregateSha256": "3d390827e1797f09a59ce1d321efff4a5a338b596328844d9985113d47b20b44",
+    "exitCode": 0,
+    "admission": "HOLD",
+    "correctCriteria": 17,
+    "defects": 3,
+    "unresolved": 2,
+    "databaseWrites": false,
+    "promotion": false
   }
 }

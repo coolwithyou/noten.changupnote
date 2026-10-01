@@ -87,3 +87,9 @@ gitignored private 파일/브라우저 stdin으로만 취급하며 코드·진�
 - 원인: 신청서 목표 고객(block3,row15,col3)의 인접 다열 빈값3개를 writer가 exact 결속하지 못한다는 structuralWarning1개. choice group이 있는 문서는 현행 isolation이 fail-closed한다. 일반 구조 결속 문제를 조사하며 데모 예외·게이트 완화·불변 영수증 수정은 하지 않는다.
 - writing_workspace: 일반 다열 parser/writer 구조 조사·수정·회귀 검증. company_exploration: 완료 receipt 기반 application_only 정상 준비 및 기존 baseline 실패 영향 조사. 새 모델 호출은 기존 구독 분석 승인 범위로 진행하되 exact 대상과 material binding을 다시 기록한다.
 - 독립 Codex 검수는 ChatGPT 구독 인증과 API credential 제거를 유지한다. 보류 신청서를 완전 준비 상태로 표시하지 않는다.
+
+## 독립 구독 검수 종결 — 13:35 KST
+- `lab:independent-review:codex` exit0, ChatGPT 구독/gpt-6-sol, 한 packet 완료/실패0. API credential을 빈 환경값으로 덮고 runner의 child credential 제거 유지.
+- manifest `5264f735ce5c339ed2174123859162adb032f3362e4fa05d403119ddf86dbf1c`, aggregate `3d390827e1797f09a59ce1d321efff4a5a338b596328844d9985113d47b20b44`, aggregate exit0/admission HOLD. 조건 correct17/needs_edit3/unsure2, 빈 축11개 confirmed_absent.
+- 결함: 블록체인 기술 보유를 업종 tag로 대체, 회생 개시 신청·개인회생 범위, 직전년도 결산 자본전액 잠식 기준 보존. 미해결: 중소기업 OR 스타트업 경로와 업력10년 적용 범위. 재분석에서 불명확한 원문은 조건부/원문 확인으로 보존한다.
+- primary publishable은 독립 검수 PASS가 아니다. 정상 독립 검수 repair를 준비하며 matching-only 승격으로 FULL 시연을 대체하지 않는다.
