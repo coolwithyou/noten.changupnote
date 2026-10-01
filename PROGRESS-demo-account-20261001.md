@@ -102,3 +102,11 @@ gitignored private 파일/브라우저 stdin으로만 취급하며 코드·진�
 - `3c94d82`: application-only가 기존 primary를 신규prompt와 비교하던 오류를 원source manifest의 model/transport/prompt exact대조로 수정. 실행 시에도 동일 검증 강화. 역사 matching-onlyv28 완료계약은 정밀한 오프라인 whitelist로만 소비하며 신규live admission을 열지 않는다.
 - agent 도구 증거: current-inventory-launch31/31 및 `pnpm lab:launch:test` 전체 PASS, web typecheck PASS. 실제 완료run SHA `362d1584d5ba36e207ab5da1d6b651aa550c7070f5fea67f808d39e195f3ed54`/22조건 bytes 보존 offline PASS.
 - 이번 공고에는 primary 보정도 필요하므로 공식 independent-review repair가 적합하다. 원source primary_and_application을 계승해 2레인을 실행하며, 기존review_required 신청서는 strict reuse되지 않고 new_analysis를 수행한다. 구조 수정 검증/커밋 후 exact prepare→grant→구독 launch를 진행한다.
+
+## 구조 수정 완료와 재분석 준비 경로
+- `f4647c1`: covered dummy를 독립 셀로 세지 않고, 기존 accepted 하위 라벨의 exact span/value/occurrence 결속을 coverage에 반영. source 후보·스키마·writer 계약 변경 없음(v22유지).
+- `lab:roundtrip:test`13 suites 및 `lab:application-materialization:test`3 suites PASS. root 최종 web typecheck exit0(session88174). R2 원본SHA 검증→native unique binding→insert/export/reopen PASS. 전체8tables/514logicalcells에서 무편집export 대비 고객군 값셀1곳만변경. 원본→무편집export의 기존공백직렬화1곳은별도기록.
+- 불변applicationanalysis는 보존. 복제후보 계산은 accepted/anchorReady66/unresolved0 및 coveragecomplete를 확인했지만 신규모델/release인수로 대체하지 않는다. [상세 증거](docs/research/2026-10-01-병합-하위필드-결속-검증.md).
+- independent review repair 실제prepare는 동일target의 unsure2 때문에 exit1. 설계상 결함target에서 unresolvedtarget을 제외하는 gate이므로 결과·gate를 바꾸지 않는다.
+- 표준 terminal-repair 준비는 exit0: manifest `5cb5740398850dbe3fd563ee34a0f3c728abc137a62113c36363aec5abaeee20`, inventory `06e5ffd8bcaf702117a91c9279bc1d3caf2db1b57e83db622d3240fc4f0b2771`. originalseq0/exactgrant1/원input·첨부SHA보존/sourcef4647c1. model0/servicewrite0/grant미발급.
+- terminalrepair는 검수feedback를 전달하지 않으므로 위manifest를 바로반복실행하지 않는다. company_exploration에 일반 extractor 의미보존규칙+회귀보완 위임. 새 source/provenance에서 같은terminalreceipt에 결속된 새manifest를준비하고 기존구독승인으로실행한다. 특정공고예외·검수HOLD해제는금지.
