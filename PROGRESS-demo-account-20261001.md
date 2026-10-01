@@ -231,3 +231,13 @@ gitignored private 파일/브라우저 stdin으로만 취급하며 코드·진�
 - 정확원인: plan문단2의2026년이인용에서빠짐. 선택된추진일정 인용은11월행사문장66char로서같은185char사업설명항목의앞문장2026년이문장분할로제외됐다. 다른plan문단3이모든일정문장인용할때동일2026년검증PASS. B2B의2는실제인용에있어이번실패원인아님.
 - 정상structured application_plan은항목별label:value줄이원자적계획자료다. ≤500char항목은원문줄전체단일인용으로보존하고긴항목만기존문장/500chunk분할을사용하도록수정한다. 다른sourcekind/companyfact정책·수치검증불변. 실제비공개출력의참조를새wholeline로재결속하여offline전체validatorPASS를확인한뒤동일소스테스트/build/운영배포로이어간다.
 - 현재신규reported추정$0.4307231+미확인chat예약$2.9825089, 사용자합산$20상한준수. invoice금액이아닌토큰추정이다.
+
+## 계획 항목 맥락 보존 배포 및 실제 UI 재인수 — 16:34 KST
+- source `39184d298a6d5ca57146f7c026d51751c284ebcd`: application_plan의 ≤500char 항목 줄을 exact 원문 단위로 보존하여 연도·조건·예산 맥락이 문장 분할로 유실되지 않게 한다. 다른 자료 종류·출처·수치 validator는 그대로다. 실제 비공개 응답의 문안·종류를 바꾸지 않고 새 인용 단위에 결속한 offline 전체 검증 PASS, 회귀·writing suite·typecheck·final build PASS. 공개 proof는 `docs/evidence/afternoon-demo-api-budget-20261001/section-plan-context-offline-proof.json`.
+- feature branch source391 push와 태그 `deploy-web-20261001-39184d2` push 완료. clean archive 운영 배포 `dpl_62b8nM37d7WtR2TfKicbvmzKiERy` READY/source391/운영 alias 동일 확인, 원격 build·tsc·HTTPS 3경로 200/flagtrue 유지. 배포 증거 commit b294fd1.
+- 동일 정상 UI 세션 reload 후 기업 소개 section-6을 보수 예약 $7 안에서 요청. 응답 인수 진행 중이며 아직 초안 성공·양식 반영으로 표시하지 않는다.
+
+## 실제 초안 생성 성공과 양식 반영 검수 — 16:36 KST
+- 운영 section6 request `85ee30ca-f281-4e15-a8c0-a5382361a49b` 기업 소개 ready/4문단/11인용. 서버 출처·인용·수치 전체검증 PASS. 정상 UI에서 초안 가져오기·문안 저장 revision1, 문항 맥락에 맞게 회사 사실 2문단만 343char로 검토하고 revision2 저장. 합성기업/기능시연/현재실적없음 명시 유지. proof `docs/evidence/demo-live-20261001/section6-ready-readback.json`.
+- 정상 '저장 문안과 양식 비교'에서 안전한 빈칸·안내문을 확인하지 못해 반영 차단. native 읽기검증상 해당 셀은 비어 있으므로 현재 앵커/비교 안전계약을 조사한다. 직접 편집으로 우회하지 않고 일반 경로 수정을 검증한다. 기존 양식 bytes 변경0.
+- section6 provider reported22617/1209/추정$0.085986, 단일무재시도 예약대조해제. 신규reported합계$0.5167091 + 미확인chat예약$2.9825089. section7 사업계획은 별도 $7예약 후 정상 UI 생성 진행 중.
