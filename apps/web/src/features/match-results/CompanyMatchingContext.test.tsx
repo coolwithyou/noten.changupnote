@@ -13,6 +13,9 @@ const a = renderToStaticMarkup(<CompanyMatchingContext profileView={profile} com
 assert.ok(a.includes("회사 A") && a.includes("서울") && a.includes("사업자 원천"));
 assert.ok(a.includes("일부 확인") && a.includes("출처 충돌 · 확인 필요") && a.includes("미확인"));
 assert.equal(a.includes("외부 값"), false, "unknown 값은 확인된 사업자 정보처럼 노출하지 않는다");
+assert.ok(a.indexOf("서울") < a.indexOf("<details"), "지역은 바로 표시한다");
+assert.ok(a.indexOf("<details") < a.indexOf("3년"), "업력 등 보조 정보는 접힌 영역에 있다");
+assert.ok(a.includes("업력·규모 등 나머지 사업자 정보 4개"));
 const compact = renderToStaticMarkup(<CompanyMatchingContext profileView={profile} companyName="회사 A" compact />);
 assert.ok(compact.includes("대조에 사용한 사업자 정보·출처 보기"));
 assert.equal(/<details[^>]*\sopen(?:[=>\s])/.test(compact), false, "상세 문맥의 사실은 기본 접힘이다");

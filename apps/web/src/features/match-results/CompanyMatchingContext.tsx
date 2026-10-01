@@ -33,6 +33,12 @@ export function CompanyMatchingContext({ profileView, companyName, temporary = f
 }) {
   const core = CORE_DIMENSIONS.map((dimension) => profileView.rows.find((row) => row.dimension === dimension));
   const remaining = profileView.rows.filter((row) => !CORE_DIMENSIONS.includes(row.dimension));
+  const secondary = [
+    ...CORE_DIMENSIONS.slice(2).map((dimension, index) => ({ dimension, row: core[index + 2] })),
+    ...remaining.map((row) => ({ dimension: row.dimension, row })),
+  ];
+  const secondaryStates = secondary.map(({ row }) => row ? companyFactState(row) : "미확인");
+  const needsCheck = secondaryStates.filter((state) => state !== "확인된 값").length;
   const facts = <>
       <dl className={`grid grid-cols-2 gap-x-5 gap-y-4 px-5 py-5 ${compact ? "" : "sm:grid-cols-3"}`}>
         {core.map((row, index) => <CompanyFact key={CORE_DIMENSIONS[index]} row={row} dimension={CORE_DIMENSIONS[index]!} />)}
@@ -58,7 +64,17 @@ export function CompanyMatchingContext({ profileView, companyName, temporary = f
           <summary className="cursor-pointer px-5 py-3 text-xs font-semibold text-text-secondary">대조에 사용한 사업자 정보·출처 보기</summary>
           {facts}
         </details>
-      ) : facts}
+      ) : <>
+        <dl className="grid grid-cols-2 gap-x-5 gap-y-3 px-5 py-4">
+          {core.slice(0, 2).map((row, index) => <CompanyFact key={CORE_DIMENSIONS[index]} row={row} dimension={CORE_DIMENSIONS[index]!} />)}
+        </dl>
+        <details className="border-t border-border-subtle px-5 py-3">
+          <summary className="cursor-pointer text-xs font-semibold leading-5 text-text-secondary">업력·규모 등 나머지 사업자 정보 {secondary.length}개{needsCheck ? <span className="ml-2 font-normal text-text-tertiary">· 추가 확인 {needsCheck}개</span> : null}</summary>
+          <dl className="mt-4 grid grid-cols-2 gap-x-5 gap-y-4 sm:grid-cols-3">{secondary.map(({ row, dimension }) => <CompanyFact key={dimension} row={row} dimension={dimension} />)}</dl>
+          <p className="mt-4 text-xs leading-5 text-text-secondary">{temporary ? "아직 회사에 저장되지 않은 임시 정보예요. 로그인 후 이 정보를 이어서 저장할 수 있어요." : "직접 입력한 개인 매칭 답변과 원천 조회 정보를 함께 사용해요."} 미확인·일부 확인·출처 충돌은 조건 충족을 뜻하지 않아요.</p>
+        </details>
+        {temporary ? <p className="border-t border-border-subtle bg-surface-soft px-5 py-2 text-[11px] leading-5 text-text-tertiary">이 탭의 임시 정보 · 회사 저장 전까지 보관</p> : null}
+      </>}
     </Card>
   );
 }
