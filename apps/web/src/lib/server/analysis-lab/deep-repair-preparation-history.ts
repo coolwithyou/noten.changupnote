@@ -3,7 +3,7 @@ import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { isImmutableArtifactTempFileName } from "./immutable-artifact-fs";
 import { analysisLabDir } from "./run-store";
-import { CURRENT_INVENTORY_SCHEMA, validateCurrentLaunchInventory } from "./current-inventory-launch";
+import { CURRENT_INVENTORY_SCHEMA, MATCHING_MATERIAL_SOURCE_BINDING_SCHEMA, validateCurrentLaunchInventory } from "./current-inventory-launch";
 
 const LEGACY_COHORT_SNAPSHOT_FILE = /^cohort\..+\.json$/;
 const PRIMARY_RUN_FILE = /^run-[0-9TZ.\-]{10,40}(?:-[a-f0-9]{4,8})?\.json$/;
@@ -55,7 +55,7 @@ export async function readDeepRepairHistoricalGrantIds(options: {
     if (!entry.isFile() || !/^[a-f0-9]{64}\.json$/u.test(entry.name)) throw new Error("unexpected current inventory entry");
     const bytes = await readFile(join(root, "launch", "inventories", entry.name));
     if (`${createHash("sha256").update(bytes).digest("hex")}.json` !== entry.name) throw new Error("current inventory SHA mismatch");
-    const inventory = validateCurrentLaunchInventory(JSON.parse(bytes.toString("utf8")));
+    const inventory = validateHistoricalCurrentLaunchInventory(JSON.parse(bytes.toString("utf8")));
     if (inventory.schema !== CURRENT_INVENTORY_SCHEMA) throw new Error("current inventory schema mismatch");
     for (const target of inventory.targets) ids.add(target.grantId);
   }
@@ -125,6 +125,82 @@ export async function readDeepRepairHistoricalGrantIds(options: {
   }
 
   return [...ids].sort();
+}
+
+/**
+ * e74de4102ebb5626ab8d50f3fe6c70bf3cc934de가 발행한 artifact-loss 정책은
+ * 역사 exclusion 소비만 지원한다. 현재 launch admission을 열거나 역사 대상을 재사용하지 않는다.
+ * 정책 이름만 허용하지 않고 producer의 전체 target/attestation material 결속을 검증한다.
+ */
+export function validateHistoricalCurrentLaunchInventory(value: unknown): {
+  readonly schema: typeof CURRENT_INVENTORY_SCHEMA;
+  readonly targets: readonly { readonly grantId: string }[];
+} {
+  const inventory = asRecord(value, "historical current inventory");
+  if (inventory.policy !== "open-visible-current-period-artifact-loss-reanalysis-v1") {
+    return validateCurrentLaunchInventory(value);
+  }
+  if (inventory.schema !== CURRENT_INVENTORY_SCHEMA
+    || typeof inventory.seriesId !== "string"
+    || !/^current-[a-z0-9][a-z0-9-]{0,70}$/u.test(inventory.seriesId)
+    || !inventory.seriesId.startsWith("current-artifact-loss-")
+    || typeof inventory.model !== "string" || !inventory.model.trim()
+    || typeof inventory.observedAt !== "string" || !Number.isFinite(Date.parse(inventory.observedAt))
+    || !isHistorySha(inventory.historicalGrantIdsSha256)
+    || !Array.isArray(inventory.targets) || inventory.targets.length < 1 || inventory.targets.length > 100) {
+    throw new Error("historical artifact loss inventory 계약이 잘못됐습니다.");
+  }
+  const targets = inventory.targets.map((target, index) => {
+    const row = asRecord(target, "historical artifact loss target");
+    const binding = asRecord(row.matchingMaterialSourceBinding, "historical artifact loss matching material");
+    if (row.sequence !== index || typeof row.grantId !== "string" || !UUID.test(row.grantId)
+      || typeof row.stratum !== "string" || !/^(bizinfo|kstartup)\/(thin|medium|thick)$/u.test(row.stratum)
+      || !isHistorySha(row.inputSha256) || !isHistorySha(row.attachmentManifestSha256)
+      || !isHistorySha(row.sourceRevisionSha256)
+      || binding.schema !== MATCHING_MATERIAL_SOURCE_BINDING_SCHEMA
+      || !isHistorySha(binding.materialSourceRevisionSha256) || !isHistorySha(binding.sourceRawSha256)) {
+      throw new Error("historical artifact loss target material 결속이 잘못됐습니다.");
+    }
+    return {
+      grantId: row.grantId,
+      sourceRevisionSha256: row.sourceRevisionSha256,
+      inputSha256: row.inputSha256,
+      attachmentManifestSha256: row.attachmentManifestSha256,
+    };
+  });
+  if (new Set(targets.map(target => target.grantId)).size !== targets.length) {
+    throw new Error("historical artifact loss target 중복입니다.");
+  }
+  const recovery = asRecord(inventory.artifactLossRecovery, "historical artifact loss attestation");
+  if (recovery.schema !== "analysis-artifact-loss-reanalysis-attestation-v1"
+    || recovery.evidenceStatus !== "session-transcript-only"
+    || !isHistorySha(recovery.sessionTranscriptSha256) || !isHistorySha(recovery.priorManifestSha256)
+    || !isHistorySha(recovery.priorGrantSha256) || !isHistorySha(recovery.priorTerminalReceiptSha256)
+    || !Array.isArray(recovery.targets) || recovery.targets.length !== targets.length) {
+    throw new Error("historical artifact loss attestation 결속이 잘못됐습니다.");
+  }
+  const priorSequences = new Set<number>();
+  for (const [index, item] of recovery.targets.entries()) {
+    const prior = asRecord(item, "historical artifact loss prior target");
+    const current = targets[index]!;
+    if (prior.grantId !== current.grantId || typeof prior.priorSequence !== "number"
+      || !Number.isSafeInteger(prior.priorSequence) || prior.priorSequence < 0
+      || priorSequences.has(prior.priorSequence)
+      || typeof prior.priorRunId !== "string" || !/^run-[0-9TZ.\-]{10,40}-[a-f0-9]{6}$/u.test(prior.priorRunId)
+      || !isHistorySha(prior.priorSourceRevisionSha256) || !isHistorySha(prior.priorInputSha256)
+      || !isHistorySha(prior.priorAttachmentManifestSha256)
+      || prior.priorSourceRevisionSha256 !== current.sourceRevisionSha256
+      || prior.priorInputSha256 !== current.inputSha256
+      || prior.priorAttachmentManifestSha256 !== current.attachmentManifestSha256) {
+      throw new Error("historical artifact loss 과거 관측과 현재 material 결속이 다릅니다.");
+    }
+    priorSequences.add(prior.priorSequence);
+  }
+  return { schema: CURRENT_INVENTORY_SCHEMA, targets };
+}
+
+function isHistorySha(value: unknown): value is string {
+  return typeof value === "string" && /^[a-f0-9]{64}$/u.test(value);
 }
 
 async function wasExperimentTargetStarted(
