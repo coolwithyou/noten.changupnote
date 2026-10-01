@@ -257,11 +257,24 @@ gitignored private 파일/브라우저 stdin으로만 취급하며 코드·진�
 - `f9a6ce9`은 같은 연결범위의 생략단위만 복원한다. 인용별로 별도 추출하여 서로 다른 quote의 숫자와 단위가 결합되지 않게 한다. 끝점변조/일↔월/금액배율/관계없는숫자/양수↔음수 거부 회귀 및 writing 전체 suite·웹typecheck PASS. root diff검수 PASS.
 - 실제 private0647 응답의 composition/source/출처kind/evidence 변경0으로 fullverify PASS. 공개 proof `docs/evidence/afternoon-demo-api-budget-20261001/section-range-quantity-offline-proof.json`에 hashes와 상태만 보존. 모델·API·DB·브라우저 쓰기0.
 
-## 저장 문안의 서술형 반영 검증 — 16:55 KST
+## 저장 문안의 서술형 반영 검증
 - `a813173`은 unique text/region 서술형 입력위치를 지원한다. 기존값은 현재내용/저장문안 비교 후 기본해제된 명시 교체확인으로만 반영하며, long_text/동일한 단일field/noautomatic/≤4000 조건·최신문안revision/text/권한·exact native preimage를 다시 검증한다. 일반 등록정보 일괄입력의 기존값 보호는 그대로 유지한다. guide패턴 임의 확장 없음.
 - emptyregion 지원·미확인교체 거부·stale문안/원문/CAS 거부·text/region검토교체 성공·인접셀 보존·서식 undo 회귀, workspace render 및 웹typecheck PASS. 마지막 문안변경 시 비교폐기까지 render 재확인 PASS. root 전체diff검수·diffcheck PASS. [검증 범위](docs/evidence/afternoon-demo-api-budget-20261001/saved-writing-review.md).
 - 위 정상수정과 f9a6ce9 범위표기 수량수정의 최종 결합 소스를 clean commit으로 build한 뒤 승인된 운영웹에 재배포한다. 기존 AIready 기업소개 문안revision2는 그대로 보존하고 추가 모델콜 없이 반영 재인수한다.
 
-## 최종 결합 빌드와 운영 배포 착수 — 16:57 KST
+## 최종 결합 빌드와 운영 배포 착수
 - exactsource `582792f70d7d72bc9549b9b9b0cf37eefdd6f1c8` clean 최종build session57286 exit0/compile6.3s/tsc14.2s/static5/기존NFTwarn3, 원격featurebranchpush33810 exit0. 저장문안/UI/transaction·수량회귀 각각PASS에 더해 shared RHWP 영향범위 `pnpm test:document-agent` 집계 session5198 exit0 전체PASS. 로그 `/tmp/cunote-demo-20261001/document-agent-582792f.log`.
 - 공식cleanarchive4251d338.../3758entries 재배포 `dpl_2rrpgF3iwdZqRGQMmpqikkDRfgeF`/changupnote-ah8o4e27c-noten.vercel.app 착수. flag·모델환경 보존, Studio/API모델변경0. READY/alias확인 전 최종인수 성공으로 표시하지 않는다.
+
+## 운영 서술형 반영 실제 인수 — 16:54 KST
+- 최신source582 배포 `dpl_2rrpgF3iwdZqRGQMmpqikkDRfgeF` READY/exactalias 확인. reload 직후 준비 중 비교는 '현재 Studio 작업본을 찾지 못했습니다'로 차단, 초기화 후 정상 비교에서 소개 현재내용 빈칸·저장본revision2/343char를 확인했다. '이 칸에 반영' 정상 UI 성공·서버16:54저장 표시. 수동 직접편집/신규모델호출로 대체하지 않았다.
+- 사업계획 section9은 $7선예약 후 정상 UI 생성 착수. 현재reported$0.7072931 + chat미확인$2.9825089 + timeout$7 + section9진행$7 = $17.689802로 승인$20이내.
+- 위 두 검증 절 제목의 부정확한 추정시각을 제거했다. 실제 호출·배포·저장 시각은 각각 사용량 원장/배포 영수증/서버 저장증거로 확인한다.
+
+## 실제 사업계획 생성·최종 파일 저장·재열기 인수
+- section9 `d0ee2869-41b3-4e38-9563-56267780bd25` 운영 UI ready/4문단/12인용. reported22559/1646/추정$0.092367, 단일무재시도예약대조해제. 정상초안 가져오기/저장revision1 후 계획 문단만 검토하여 합성시연 표시·특허보유부재 단정 제거·출장자 요건 조건부 확인을 덧붙이고 revision2/962char 저장.
+- 실제 원문 '(향후 1년 이내) '와 비교·교체확인 전 반영버튼disabled 확인. 명시 checkbox 선택 후 normal '이 칸에 반영' 성공·서버16:56저장. 정상 상단파일저장 및 다운로드 `singapore-final.hwpx` 101211bytes/SHA `a0cd52ea335711614ba0074d9aeae5fa1c567481571965fa906a4dfe098ab17e`. 서버head GET200/revision `61cb04e7-9ef0-4d42-8f03-232e0a41e988`/saved `2026-10-01T07:56:35.415Z`와 exactbytes일치. ZIP무결성·XML6개파싱PASS.
+- 독립 native읽기검증: 소개343/계획962 실제paragraph join exact일치. 514셀 중 지정2셀만변경/나머지512셀·표행열span·비표본문·시장전략안내문보존PASS. 원문source좌표/라벨/native입력target 결속 동일.
+- 정상 신청현황의 싱가포르 '문서 열기'→동일workspace/draft. 실제8쪽열림·저장계획revision2/962char·비교의native현재문안까지exact일치. 재열기뒤checkbox INPUT.checked=false/applydisabled=true. 정상재다운로드101211bytes/동일SHA/최초다운로드bytes일치. proof `docs/evidence/demo-live-20261001/final-reopened-readback.json`.
+- 최종사용자파일 `/Users/ffgg/Downloads/창업노트-싱가포르-시연-20261001.hwpx`도동일SHA. 추가모델호출없이검증했다.
+- 최종신규reported추정$0.7996601 + 미확인예약$9.9825089 = $10.782169(상한$20이내/잔액$9.217831). timeout예약$7과chat재시도미확인잔액$2.9825089보존. 이전baseline$0.01427125는별도, invoice대조전추정임을명시. finalledger/usage/budgetproof 저장.
