@@ -148,3 +148,8 @@ gitignored private 파일/브라우저 stdin으로만 취급하며 코드·진�
 ## 구독 보정 타임아웃 및 동일 grant 재시도 — 14:35 KST
 - session91441 exit0이나 target failed: primary 모델 요청이 900000ms에서 timeout. receipt `56cc29f039366ea896b4b2755893794a564af4bb2626885ee18246bca7432d71`, systemicFailure null. 신청서 complete/66필드/authoringready 재사용은 유지되며 matching은 primary_failed로held다. CLI exit0을 분석성공으로 해석하지 않는다.
 - 동일 material binding과 지속 구독 승인에 따라 `ANALYSIS_LAB_TRANSPORT=claude-cli pnpm lab:launch -- --grant=5565cdc7655959b94215b944133bf2a5074e03eeec442692c2dbc479dbaaf490 --retry-errors` 실행(session54676). 모델/API 경로 변경·timeout gate 완화·운영쓰기 없음. 새 영수증 종결 후 새독립검수와 read-only inspect를 이어간다.
+
+## 동일 grant 구독 재시도 성공 및 독립 검수 착수 — 14:42 KST
+- retry session54676 exit0, receipt `888a8cf54460911a8fe9eca6ef1384dfe67260d9ce727e36959161a8010974f7`, started05:34:58Z/finished05:41:38Z. publishable1/held0/failed0/systemicFailure null. primary matching projection verified/conditional, applicationcomplete/authoringready/recognized66, source/input/첨부결속유지.
+- run `run-2026-10-01T053459.988Z-10abcc.json`, SHA `b44cb39b3f7f431e8b2522bb73e5e50efea8288e57e87a3ec16f40b168adc712`. gitChangedSincePreparation=true는진행문서커밋추가이며 material execution contract 변경없음.
+- 새독립검수prepare84498 exit0/manifest `ab8ef433c1013bc3ecac190bedd34ee6a1f455d1f42a3551d9e9693e5e1af972`, publishablepacket1/held0. Codex ChatGPT구독/APIcredential제거 runner session7646 실행중. 이전HOLD를대체하는새leaf검수이며결과확정전운영반영없음.

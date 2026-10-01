@@ -201,8 +201,13 @@
     "defects": 2,
     "unresolved": 0,
     "applicationMode": "reuse_reviewed_v1",
-    "status": "running",
+    "status": "completed_ready_independent_review_pending",
     "terminalReceipt": null,
-    "transport": "claude-cli"
+    "transport": "claude-cli",
+    "receiptSha256": "888a8cf54460911a8fe9eca6ef1384dfe67260d9ce727e36959161a8010974f7",
+    "timeoutReceiptSha256": "56cc29f039366ea896b4b2755893794a564af4bb2626885ee18246bca7432d71",
+    "retrySession": 54676,
+    "independentReviewManifestSha256": "ab8ef433c1013bc3ecac190bedd34ee6a1f455d1f42a3551d9e9693e5e1af972",
+    "independentReviewSession": 7646
   }
 }
