@@ -174,3 +174,10 @@ gitignored private 파일/브라우저 stdin으로만 취급하며 코드·진�
 - 3개연속goal turn에서동일경계확인: 최초PASS완료보고의운영승격·배포/API호출범위확인요청 → 다음continuation의운영preview_ready/read-only재확인 → 이번continuation에도실제승인응답없음. 자동goalcontinuation은명시승인이아니다.
 - 현행AGENTS.md99–101의운영promotewrite/배포별도명시승인과사용자최신구독모델요청이계속적용된다. 로컬분석·검수·제품수정·빌드/릴리스suite는완료이고추가허용작업으로FULL운영인수를달성할수없음. 워크트리clean확인.
 - 목표는미완료이며blocked로기록한다. 해제에필요한입력: exactSingaporegrant1건(최종receipt888a/reviewab8e/aggregatee82b) 운영release처리·승격과검증웹배포승인, 운영AI상담/문안생성API호출범위결정. 범위승인후동일결속·정상경로로재개하며추가분석승인은묻지않는다.
+
+## 사용자 운영·API 승인과 정상 승격 — 14:51–14:58 KST
+- 사용자명시승인: 운영승격+웹배포+이번시연API호출합산$20상한. 기존구독분석원칙유지, 운영AI기능호출만별도예산. blocked원인은해소되어실행재개.
+- exactrelease `deep-afternoon-demo-20261001-r1-20261001T055109Z-d745bfcd`, manifest `f2b25ec31e434f8b53b9945114d380907a98bc83c776434878c98f8586e93fff`, plan `e1c13f3fe4f7c11d00eaaac0037cbc16a793521f53286551a7082f3059ef329f`. prepare69389/aggregate61496/shadow16115/dry32208/approve38611/promote28176/verify95807모두exit0. aggregateGO/sourceDrift0, shadow회사1issues0/PASS, drybaseline1/1/PASS, 승격성공1실패0/canary_passed, verifycanaryPASS/issues0.
+- actor분리 codex-demo-preparer→codex-demo-reviewer→codex-demo-executor. currentsource/input/첨부·review결속유지. 신청서bundle정상materialization(surface2), 운영작성가이드1/1. [정상릴리스영수증](docs/evidence/demo-account-20261001/operational-release/manifest.json).
+- company_exploration 배포source d745bfc 고정 clean archive, 정식CLI/인증프로젝트검증후 deploymentREADY/aliaschangupnote.com보고, 별도live인수증거정리중. root는유한일반브라우저로그인/회사자가신고/작성흐름진행. 비밀번호출력없음.
+- 합성회사일반UI에서세금/보험체납·신용문제·제재없음자가신고를저장했고해당공고중복수혜조건에아니오를답했다. 공식검증이나공고자격전체자동확정으로표시하지않음. 최초운영화면4/7→6/7→현재재조회검증중. API모델호출아직0.

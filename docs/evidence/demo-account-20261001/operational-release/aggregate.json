@@ -1,0 +1,128 @@
+{
+  "schema": "analysis-lab-promotion-aggregate-v2",
+  "releaseId": "deep-afternoon-demo-20261001-r1-20261001T055109Z-d745bfcd",
+  "releasePlanSha256": "e1c13f3fe4f7c11d00eaaac0037cbc16a793521f53286551a7082f3059ef329f",
+  "manifestSha256": "f2b25ec31e434f8b53b9945114d380907a98bc83c776434878c98f8586e93fff",
+  "createdAt": "2026-10-01T05:51:31.008Z",
+  "noticeCount": 1,
+  "evidenceMode": "sealed",
+  "totals": {
+    "correct": 0,
+    "needsEdit": 0,
+    "wrong": 0,
+    "unsure": 0,
+    "missed": 0,
+    "currentTotal": 1,
+    "published": 22,
+    "structured": 7
+  },
+  "qualityEvidence": {
+    "reviewedNoticeCount": 0,
+    "sealedNoticeCount": 1,
+    "sealedAcceptedNoticeCount": 1,
+    "decidedReviewCount": 0
+  },
+  "effectiveReviewTotals": {
+    "correct": 0,
+    "needsEdit": 0,
+    "wrong": 0,
+    "unsure": 0,
+    "missed": 0
+  },
+  "costTelemetry": {
+    "api": {
+      "runCount": 0,
+      "costSampleCount": 0,
+      "totalUsd": 0,
+      "averageUsd": null
+    },
+    "subscription": {
+      "runCount": 1,
+      "costSampleCount": 1,
+      "totalUsd": 0.8292495,
+      "averageUsd": 0.8292495
+    },
+    "apiCostGate": null
+  },
+  "gates": [
+    {
+      "id": "sealed_evidence_acceptance",
+      "threshold": {
+        "operator": "eq",
+        "value": 1
+      },
+      "actual": 1,
+      "pass": true,
+      "blocking": true,
+      "applicability": "applicable"
+    },
+    {
+      "id": "strict_precision",
+      "threshold": {
+        "operator": "gte",
+        "value": 0.8
+      },
+      "actual": null,
+      "pass": true,
+      "blocking": false,
+      "applicability": "not_applicable"
+    },
+    {
+      "id": "wrong_rate",
+      "threshold": {
+        "operator": "lte",
+        "value": 0.1
+      },
+      "actual": null,
+      "pass": true,
+      "blocking": false,
+      "applicability": "not_applicable"
+    },
+    {
+      "id": "missed_per_notice",
+      "threshold": {
+        "operator": "lte",
+        "value": 1
+      },
+      "actual": null,
+      "pass": true,
+      "blocking": false,
+      "applicability": "not_applicable"
+    },
+    {
+      "id": "coverage_ratio",
+      "threshold": {
+        "operator": "gte",
+        "value": 1.5
+      },
+      "actual": 22,
+      "pass": true,
+      "blocking": false,
+      "applicability": "applicable"
+    },
+    {
+      "id": "cost_per_notice_usd",
+      "threshold": {
+        "operator": "lte",
+        "value": 1
+      },
+      "actual": null,
+      "pass": true,
+      "blocking": false,
+      "applicability": "not_applicable"
+    },
+    {
+      "id": "structured_ratio",
+      "threshold": {
+        "operator": "gte",
+        "value": 0.5
+      },
+      "actual": 0.3181818181818182,
+      "pass": false,
+      "blocking": false,
+      "applicability": "applicable"
+    }
+  ],
+  "sourceDrift": [],
+  "verdict": "GO"
+}

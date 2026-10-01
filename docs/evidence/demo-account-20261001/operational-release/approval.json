@@ -1,0 +1,11 @@
+{
+  "schema": "analysis-lab-promotion-approval-v1",
+  "releaseId": "deep-afternoon-demo-20261001-r1-20261001T055109Z-d745bfcd",
+  "releasePlanSha256": "e1c13f3fe4f7c11d00eaaac0037cbc16a793521f53286551a7082f3059ef329f",
+  "manifestSha256": "f2b25ec31e434f8b53b9945114d380907a98bc83c776434878c98f8586e93fff",
+  "aggregateSha256": "6397a6bd5bf88f585976dc766a30383aba60e25497bba013a1e8522116053271",
+  "shadowSha256": "1d25542209682fac83ee6d01d05b4e7e5c105e860f87973f4ebfeb39b26ce57f",
+  "dryRunSha256": "f49954c8221ff1d5c32084eccc445dc4ddf67282b8d91a8f223c15d8387fbd82",
+  "approvedBy": "codex-demo-reviewer",
+  "approvedAt": "2026-10-01T05:52:25.276Z"
+}
