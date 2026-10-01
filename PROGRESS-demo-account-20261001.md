@@ -241,3 +241,9 @@ gitignored private 파일/브라우저 stdin으로만 취급하며 코드·진�
 - 운영 section6 request `85ee30ca-f281-4e15-a8c0-a5382361a49b` 기업 소개 ready/4문단/11인용. 서버 출처·인용·수치 전체검증 PASS. 정상 UI에서 초안 가져오기·문안 저장 revision1, 문항 맥락에 맞게 회사 사실 2문단만 343char로 검토하고 revision2 저장. 합성기업/기능시연/현재실적없음 명시 유지. proof `docs/evidence/demo-live-20261001/section6-ready-readback.json`.
 - 정상 '저장 문안과 양식 비교'에서 안전한 빈칸·안내문을 확인하지 못해 반영 차단. native 읽기검증상 해당 셀은 비어 있으므로 현재 앵커/비교 안전계약을 조사한다. 직접 편집으로 우회하지 않고 일반 경로 수정을 검증한다. 기존 양식 bytes 변경0.
 - section6 provider reported22617/1209/추정$0.085986, 단일무재시도 예약대조해제. 신규reported합계$0.5167091 + 미확인chat예약$2.9825089. section7 사업계획은 별도 $7예약 후 정상 UI 생성 진행 중.
+
+## 계획 문항 실패 격리와 추가 진단 — 16:41 KST
+- section7 `39306da3-921f-4458-a79d-4611c5baedc1` 사업계획 요청 timeout/usage unavailable. 확인되지 않은 사용량을 0으로 취급하지 않고 $7예약을 유지한다. 문안 revision0/문서 보존.
+- 정상 UI 1회 재시도 section8 `dad4e474-d344-4324-bc20-45a96739b056`는 quantity_mismatch로 차단. reported22559/1861/추정$0.095592, 무재시도단일예약 대조 해제. 실패 proof를 각각 section7-timeout-readback.json/section8-quantity-failed-readback.json에 보존.
+- section-diagnostic-2 $7선예약 후 현재 동일 정상권한/자료/모델/생성구조의 단건 유한진단 `0647ed1f-6d06-4638-961f-3dfe4dc2d02b` 실행. 비공개 raw 보관·안전 수치요약 방식 동일. 현재 reported$0.6123011 + 미확인chat예약$2.9825089 + timeout예약$7 + 진단진행예약$7 = $17.59481, 승인$20이내.
+- 소개 반영 차단은 table_cell_region에 대한 UI admission 지원 누락으로 확정. 기존 엔진 exactpreimage/인접경계/서식 보호는 지원하며 이를 유지한다. 기존내용이 있는 서술형은 가이드 판정을 임의 확장하지 않고, 현재내용과 저장문안을 보여준 뒤 기본해제된 명시 교체확인과 최신문안/CAS/preimage 재검증을 갖춘 일반 편집경로를 준비한다.
