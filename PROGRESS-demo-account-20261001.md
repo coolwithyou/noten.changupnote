@@ -195,3 +195,8 @@ gitignored private 파일/브라우저 stdin으로만 취급하며 코드·진�
 - `139f5f1`은section검증/응답형식/provider실패를고정코드·안전한국어로분리하고 source.kind허용표와정확quote/숫자유지규칙을명시한다. 기존validator/model/maxRetries0/출력6000/45초한도유지. test:writing-context전체+웹tscPASS. providerusage존재하는형식오류는reported보존. 과거failed원인은원문미저장이라소급추정하지않는다.
 - root변경diff검수+`pnpm --filter @cunote/web build` session61137 exit0/compile12.4s/tsc17.3s/static5PASS, 기존NFTwarning3. 동일139f5f1 clean snapshot 정상웹재배포GO. flagtrue보존/Studio·원본엔진변경없음. 사용자지속운영웹승인범위이며신규승인불필요.
 - 일반자료dialog에서합성회사·제품소개를신청전용user_statement자료로추가하고선택·사업설명저장완료. 내용은실제기업증빙아님/기존실적없음/향후조건부계획을명시. 기존Hanambrief보존. 최종새배포후AI초안→검토저장→native위치비교/반영→다운로드/재열기를확인한다.
+
+## 현재 운영 재배포 및 두 번째 문항 검증 — 15:18 KST
+- source `139f5f1bb8dc31a01cc38c4979994b53d4ec04c6`, deployment `dpl_PjjfQPfU95ohntK67EsGLRmbkw1j` READY와 운영 alias 결속 확인. 일반 section 플래그 true 유지. 저장 자료 GET revision2/brief8/source1 및 서버 head GET 200/99411bytes/SHA `47ef0224f1c6acd2cf898076e8a779534f90ff33940edc9f81ac9d575d7b4904`로 실제 다운로드와 일치.
+- 두 번째 기업 소개 request `97c5fc64-6ee9-4beb-851b-8e20bdc64b31`는 provider reported input8947/output1456 후 `section_evidence_invalid` 실패. 초안·문안·원본 반영 없음. reported 토큰 비용 추정 $0.048681을 ledger에 반영하고 maxRetries0 단일 요청 예약을 대조 해제했다. 신규 합계 $0.1179551/미확인 chat 예약 $2.9825089, $20 cap 유지.
+- 재현 가능한 caller 결함: quoteExists의 두 번째 인수는 공백 정규화 원문인데 sectionComposer만 raw content를 전달하여 정확한 multiline quote도 거부한다. 다른 문서 경로와 같은 normalizeWs 계약 수정·정상/오인용 회귀 검증을 진행한다. 실패 raw 응답은 보관하지 않아 해당 실제 요청의 원인으로 소급 확정하지 않는다. validator 약화·원문 artifact 수정·demo 예외 없음.
