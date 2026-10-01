@@ -102,3 +102,18 @@ archive SHA는 최초 배포와 같은 `f308f2e4f43add3d23c36e27c766cf82e259423c
 - 로컬 태그 `deploy-web-20261001-139f5f1`은 exact 소스를 가리킨다. main/태그 remote push와 모델 호출은 0회다.
 
 새 배포 READY 즉시 루트에 전달했다. 로그인 후 실제 문항 생성 결과·52개 unique/14개 fail-closed 원문 결속·원문 반영의 최종 인수는 루트의 실제 계정 검증으로 별도 기록한다.
+
+## 원문 인용 공백 정규화 수정 배포
+
+exact source `e09df5d48bdbd3fc979baa2867e36b2f53472921`를 배포했다. 수정은 quoteExists 호출자의 원문 공백 정규화 계약 적용이다. 루트가 실제 exact quote 회귀와 잘못된 source ID/의역 거부 테스트 및 전체 writing-context suite·TypeScript PASS를 확인했다. 제품 소스의 미커밋 diff는 없었고, 별도 세션의 실패 화면 artifact는 사본에 섞지 않았다.
+
+- archive SHA256: `a7e5e6ed48e5d58a8c5d856bba07538c4cfd404c3296826532f7d286a9c48f46`, 동일 제외 규칙의 커밋 사본.
+- 최종 deployment: `dpl_Hz2ndpkiTRbp8xJHhAauXQY9xGHP`, [production URL](https://changupnote-poz51596w-noten.vercel.app), [inspect](https://vercel.com/noten/changupnote/Hz2ndpkiTRbp8xJHhAauXQY9xGHP).
+- READY/production, REST sourceCommit이 exact SHA와 일치, deploymentRevision `quote-whitespace-safety` 확인.
+- changupnote.com 재inspect는 같은 ID/READY. www와 두 Vercel aliases도 일치.
+- 원격 compile·TypeScript·static5/build PASS. 기존 NFT warning3건.
+- 공식 env run으로 운영 문항 AI 플래그 `true` 재확인. 환경변수·Studio·키 변경과 배포 담당 모델 호출은 0회다.
+- 기존 `CunoteDeploySmoke/1.0` User-Agent의 홈/login/auth session GET 200. 기본 Python User-Agent 요청은 403을 반환해 동일 smoke 조건으로 재확인했다.
+- 로컬 태그 `deploy-web-20261001-e09df5d` → exact SHA.
+
+최초 배포 시 sourceCommit 메타데이터 전체 SHA의 기입 오류를 발견했다. 업로드 소스 자체는 exact archive였지만 메타데이터 무결성을 위해 빌드 `dpl_41ac4EbdMfGYYKZ5mXmEkdGFNFPU`를 운영 alias 전환 전에 공식 cancel API로 취소하고 `CANCELED` 응답을 확인했다. 이 빌드를 인수 증거로 사용하지 않고 새 배포의 메타데이터를 다시 exact 대조했다. 최종 READY/alias 결과는 실제 문항 재인수 담당 루트에 즉시 전달했다.
