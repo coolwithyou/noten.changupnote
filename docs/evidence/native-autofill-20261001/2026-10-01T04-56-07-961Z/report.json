@@ -1,0 +1,5 @@
+{
+  "boundary": "Actual Studio SDK/protocol/transaction with local source and synthetic profile. No product UI, model, database or materialization success claimed.",
+  "ok": false,
+  "error": "Error: Build failed with 2 errors:\npackages/core/dist/documents/hwpx-fill.js:15:47: ERROR: Could not resolve \"node:zlib\"\npackages/core/dist/documents/hwpx-fill.js:16:23: ERROR: Could not resolve \"node:buffer\""
+}
