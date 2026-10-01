@@ -17,6 +17,7 @@ import {
   collectStudioFieldEvidence,
   createStudioFieldAgentTransaction,
 } from "./studioFieldAgentTransaction";
+import { createStudioProfileAutofillTransaction, StudioProfileAutofillTransactionError } from "./studioProfileAutofillTransaction";
 
 const target: StudioTableCellTextTargetV1 = {
   kind: "table_cell_text",
@@ -362,6 +363,20 @@ type RegionFixture = { cells: RegionParagraphFixture[][] };
 class FakeRegionDocument {
   private readonly fixture: RegionFixture;
   constructor(bytes: Uint8Array) { this.fixture = JSON.parse(decoder.decode(bytes)) as RegionFixture; }
+  getSectionCount() { return 1; }
+  pageCount() { return 1; }
+  getDocumentInfo() { return JSON.stringify({ sectionCount: 1 }); }
+  getParagraphCount() { return 1; }
+  getParagraphLength() { return 2; }
+  getTextRange() { return "본문"; }
+  getControlTextPositions() { return JSON.stringify([0]); }
+  getParaPropertiesAt() { return JSON.stringify({ paraShapeId: 9 }); }
+  getStyleAt() { return JSON.stringify({ id: 0 }); }
+  getCharPropertiesAt() { return JSON.stringify({ charShapeId: 7 }); }
+  getFieldList() { return "[]"; }
+  getPageControlLayout() { return JSON.stringify({ controls: [{ type: "table", secIdx: 0, paraIdx: 0, controlIdx: 0, stableIndex: [0, 0, 0] }] }); }
+  getPageTextLayout() { return JSON.stringify({ runs: [] }); }
+  exportControlHtml() { return JSON.stringify(this.fixture.cells); }
   getTableDimensions() { return JSON.stringify({ rowCount: 1, colCount: 2, cellCount: 2 }); }
   getCellParagraphCount(_s: number, _p: number, _c: number, cell: number) {
     return this.fixture.cells[cell]!.length;
@@ -580,5 +595,25 @@ const recoveredProtected = await reloadedProtectedTransaction.revert({
   },
 });
 assert.deepEqual(recoveredProtected.bytes, protectedOriginal);
+
+const reviewedRegionOriginal = encoder.encode(JSON.stringify({ cells: [
+  [{ text: "보존할 인접 셀", charShapeIds: Array(8).fill(7), paraShapeId: 9 }],
+  [{ text: "기존 회사 내용", charShapeIds: Array(8).fill(40), paraShapeId: 0 },
+    { text: "다음 문단", charShapeIds: Array(5).fill(40), paraShapeId: 0 }],
+] } satisfies RegionFixture));
+protectedCurrent = reviewedRegionOriginal; protectedChangeSeq = 0;
+const regionReviewTransaction = createStudioProfileAutofillTransaction({ rhwp: regionRhwp, protocol: protectedProtocol, exportCurrentBytes: async () => protectedCurrent });
+const regionReviewEntry = { fieldId: "intro", label: "기업 소개", sourceSpan: null, target: regionTarget, value: "검토한 새 문안\n추가 문단" };
+for (const options of [{}, { expectedBeforeText: "기존 회사 내용\n다음 문단" }, { expectedBeforeText: "과거 내용", reviewedNarrativeBeforeText: "과거 내용" }]) {
+  await assert.rejects(regionReviewTransaction.apply({ bytes: reviewedRegionOriginal, format: "hwp", entries: [{ ...regionReviewEntry, ...options }] }),
+    (error: unknown) => error instanceof StudioProfileAutofillTransactionError && !error.mutationUncertain && error.partial?.applied.length === 0);
+  assert.deepEqual(protectedCurrent, reviewedRegionOriginal);
+}
+const regionReviewed = await regionReviewTransaction.apply({ bytes: reviewedRegionOriginal, format: "hwp", entries: [{ ...regionReviewEntry,
+  expectedBeforeText: "기존 회사 내용\n다음 문단", reviewedNarrativeBeforeText: "기존 회사 내용\n다음 문단" }] });
+const regionReviewedFixture = JSON.parse(decoder.decode(regionReviewed.bytes)) as RegionFixture;
+assert.deepEqual(regionReviewedFixture.cells[0], (JSON.parse(decoder.decode(reviewedRegionOriginal)) as RegionFixture).cells[0]);
+assert.deepEqual(regionReviewedFixture.cells[1]!.map(p => p.text), ["검토한 새 문안", "추가 문단"]);
+assert.deepEqual(await regionReviewTransaction.revert(regionReviewed), reviewedRegionOriginal);
 
 console.log("rhwp Studio field command transaction tests passed");

@@ -244,6 +244,10 @@ export interface RhwpStudioSurfaceHandle {
     entries: readonly { fieldId: string; value: string }[],
     options: { automatic: true },
   ): Promise<{ appliedCount: number; fieldIds: string[]; revisionId: string | null }>;
+  applyProfileAutofill(
+    entries: readonly { fieldId: string; value: string }[],
+    options: { narrativeReview: { fieldId: string; beforeText: string; overwriteConfirmed: boolean } },
+  ): Promise<{ appliedCount: number; fieldIds: string[]; revisionId: string | null }>;
   undoAutomaticProfileAutofill(): Promise<{
     fieldIds: string[];
     appliedRevisionId: string;
@@ -1858,11 +1862,12 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
 
   const applyProfileAutofill = useCallback(async (
     entries: readonly { fieldId: string; value: string }[],
-    options?: { automatic?: boolean },
+    options?: { automatic?: boolean; narrativeReview?: { fieldId: string; beforeText: string; overwriteConfirmed: boolean } },
   ): Promise<{ appliedCount: number; fieldIds: string[]; revisionId: string | null }> => {
     if (transport.mode !== "persistent") throw new Error("서버에 저장되는 문서 초안이 아닙니다.");
     if (entries.length === 0) return { appliedCount: 0, fieldIds: [], revisionId: null };
     if (entries.length > 100) throw new Error("한 번에 입력할 수 있는 등록정보 필드 수를 초과했습니다.");
+    if (options?.narrativeReview && (options.automatic || entries.length !== 1 || entries[0]?.fieldId !== options.narrativeReview.fieldId)) throw new Error("검토한 서술형 문항 하나만 반영할 수 있습니다.");
     const prepared = preparedRef.current;
     const editor = editorRef.current;
     const protocol = fieldAgentProtocolRef.current;
@@ -1903,12 +1908,16 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
         if (resolution.target.kind === "body_paragraph_text") {
           throw new Error("표 밖 문단 필드는 AI 작성 가이드에서 개별 확인 후 반영해 주세요.");
         }
+        const review = options?.narrativeReview;
+        if (review && (field.fieldType !== "long_text" || !["table_cell_text", "table_cell_region"].includes(resolution.target.kind) || !entry.value.trim() || entry.value.length > 4_000)) throw new Error("검토한 문안의 입력 위치나 분량을 확인해 주세요.");
         return {
           fieldId: field.fieldId,
           label: field.label,
           sourceSpan: field.sourceSpan ?? null,
           target: resolution.target,
           value: entry.value,
+          ...(review ? { expectedBeforeText: review.beforeText,
+            ...(review.overwriteConfirmed ? { reviewedNarrativeBeforeText: review.beforeText } : {}) } : {}),
         };
       });
 

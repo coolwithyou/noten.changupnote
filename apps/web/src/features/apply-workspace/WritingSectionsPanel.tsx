@@ -9,6 +9,8 @@ import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
 import { Select, SelectContent, SelectItem, SelectGroup, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
+import { assertWritingApplicationCurrent, type WritingApplicationReview } from "./writingFieldApplication";
 import { companyScopedFetch } from "@/lib/navigation/companyContext";
 import { writingCompositionEvidenceCount, writingCompositionText, writingParagraphKindLabels } from "@/lib/documents/writingComposition";
 import type { WritingSections } from "@/lib/documents/writingSections";
@@ -29,8 +31,8 @@ export interface WritingSectionsPanelProps {
   selectedFieldId?: string | null;
   onSelectField?: (fieldId: string) => void;
   contextActions?: ReactNode;
-  inspectField?: (fieldId: string, savedText: string) => Promise<{ beforeText: string } | null>;
-  applySavedText?: (fieldId: string, text: string) => Promise<void>;
+  inspectField?: (fieldId: string, savedText: string) => Promise<{ beforeText: string; requiresConfirmation?: boolean } | null>;
+  applySavedText?: (fieldId: string, text: string, review: { beforeText: string; overwriteConfirmed: boolean }) => Promise<void>;
 }
 export function WritingSectionsPanel({ draftId, onDirtyChange, presentation = "sheet", selectedFieldId, onSelectField, contextActions, inspectField, applySavedText }: WritingSectionsPanelProps) {
   const [open, setOpen] = useState(false);
@@ -41,7 +43,7 @@ export function WritingSectionsPanel({ draftId, onDirtyChange, presentation = "s
   const lock = useRef(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [application, setApplication] = useState<{ fieldId: string; beforeText: string; text: string; revision: number } | null>(null);
+  const [application, setApplication] = useState<WritingApplicationReview | null>(null);
   const [compare, setCompare] = useState(false);
   const [showChecks, setShowChecks] = useState(false);
   const pending = useRef<{ fieldId: string; revision: number; requestId: string } | null>(null);
@@ -95,6 +97,7 @@ export function WritingSectionsPanel({ draftId, onDirtyChange, presentation = "s
     return saved.revision;
   }
   function changeText(text: string) {
+    setApplication(null);
     if (fieldId && editor) setEditors(current => ({ ...current, [fieldId]: { ...editor, text } }));
   }
   const suggestion = section?.proposal;
@@ -150,20 +153,20 @@ export function WritingSectionsPanel({ draftId, onDirtyChange, presentation = "s
               <Alert><AlertDescription>문안 저장 → 입력 위치 확인·양식 반영 → 파일 저장. 문안만 저장하면 원본 양식은 바뀌지 않아요.</AlertDescription></Alert>
               {inspectField && applySavedText && data.canWrite && section.available ? <Button variant="outline" disabled={busy || Boolean(changed) || !editor.savedText || editor.savedText.length > 4_000} onClick={() => void run(async () => {
                 const binding = await inspectField(section.fieldId, editor.savedText);
-                if (!binding) { setApplication(null); setNotice("안전하게 반영할 빈 입력 칸이나 양식 안내문을 확인하지 못했어요. 문안을 복사해 원본 양식에서 직접 작성해 주세요."); return; }
-                setApplication({ fieldId: section.fieldId, beforeText: binding.beforeText, text: editor.savedText, revision: editor.revision });
+                if (!binding) { setApplication(null); setNotice("안전하게 반영할 입력 위치를 확인하지 못했어요. 문안을 복사해 원본 양식에서 직접 작성해 주세요."); return; }
+                setApplication({ fieldId: section.fieldId, beforeText: binding.beforeText, text: editor.savedText, revision: editor.revision, requiresConfirmation: Boolean(binding.requiresConfirmation), confirmed: false });
               })}>저장 문안과 양식 비교</Button> : null}
               {inspectField && editor.savedText.length > 4_000 ? <p className="text-xs text-muted-foreground">4,000자를 넘는 문안은 복사해 원본 양식에서 직접 작성해 주세요.</p> : null}
-              {application && application.fieldId === fieldId ? <Card variant="workspace"><CardHeader><CardTitle>이 문항에 반영할 내용</CardTitle><CardDescription>확인된 입력 칸 하나에 저장 문안을 넣어요. 빈칸 또는 양식의 안내문을 저장 문안으로 채웁니다.</CardDescription></CardHeader><CardContent className="flex flex-col gap-3">
+              {application && application.fieldId === fieldId ? <Card variant="workspace"><CardHeader><CardTitle>이 문항에 반영할 내용</CardTitle><CardDescription>확인된 입력 칸 하나에 저장 문안을 넣어요. 현재 내용과 저장 문안을 비교해 주세요.</CardDescription></CardHeader><CardContent className="flex flex-col gap-3">
                 <div><p className="text-xs text-muted-foreground">양식의 현재 내용</p><p className="whitespace-pre-wrap break-words text-sm">{application.beforeText || "비어 있음"}</p></div>
                 <div><p className="text-xs text-muted-foreground">저장 문안 · 버전 {application.revision}</p><p className="whitespace-pre-wrap break-words text-sm">{application.text}</p></div>
-                <Button disabled={busy || Boolean(changed) || editor.revision !== application.revision} onClick={() => void run(async () => {
+                {application.requiresConfirmation ? <label htmlFor="writing-overwrite-confirmation" className="flex items-start gap-2 text-sm"><Checkbox id="writing-overwrite-confirmation" checked={application.confirmed} disabled={busy} onCheckedChange={value => setApplication(current => current ? { ...current, confirmed: value === true } : null)} />현재 내용을 검토했으며 저장 문안으로 바꾸겠습니다</label> : null}
+                <Button disabled={busy || Boolean(changed) || editor.revision !== application.revision || (application.requiresConfirmation && !application.confirmed)} onClick={() => void run(async () => {
                   const latest = await request<WritingSections>(endpoint);
                   const saved = latest.sections.find(item => item.fieldId === application.fieldId);
-                  if (!latest.canWrite || saved?.revision !== application.revision || saved.text !== application.text) throw new Error("저장 문안이 바뀌었어요. 최신 저장본을 확인한 뒤 다시 비교해 주세요.");
                   const binding = await inspectField!(application.fieldId, application.text);
-                  if (!binding || binding.beforeText !== application.beforeText) { setApplication(null); throw new Error("양식 내용이나 입력 위치가 바뀌었어요. 다시 비교한 뒤 반영해 주세요."); }
-                  await applySavedText!(application.fieldId, application.text); setApplication(null);
+                  try { assertWritingApplicationCurrent(application, saved, latest.canWrite, binding); } catch (error) { setApplication(null); throw error; }
+                  await applySavedText!(application.fieldId, application.text, { beforeText: application.beforeText, overwriteConfirmed: application.requiresConfirmation && application.confirmed }); setApplication(null);
                   setNotice("저장 문안을 확인된 양식 입력 칸에 반영했어요. 상단에서 파일 저장 상태를 확인해 주세요.");
                 })}>이 칸에 반영</Button>
                 <Button variant="ghost" disabled={busy} onClick={() => setApplication(null)}>비교 닫기</Button>

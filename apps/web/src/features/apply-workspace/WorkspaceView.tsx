@@ -268,15 +268,15 @@ export function WorkspaceView({
     const bindings = await surface.inspectProfileAutofill();
     const binding = bindings.find(item => item.fieldId === fieldId);
     const field = data.connectedFields.find(item => item.fieldId === fieldId);
-    return canApplySavedWritingToField(binding, field?.sourceSpan, savedText) && binding && typeof binding.beforeText === "string"
-      ? { beforeText: binding.beforeText } : null;
+    return field?.fieldType === "long_text" && canApplySavedWritingToField(binding, field.sourceSpan, savedText, { allowReviewedOverwrite: true }) && binding && typeof binding.beforeText === "string"
+      ? { beforeText: binding.beforeText, requiresConfirmation: !canApplySavedWritingToField(binding, field.sourceSpan, savedText) } : null;
   }, [data.connectedFields]);
 
-  const applyWritingText = useCallback(async (fieldId: string, text: string) => {
+  const applyWritingText = useCallback(async (fieldId: string, text: string, review: { beforeText: string; overwriteConfirmed: boolean }) => {
     const surface = studioSurfaceRef.current;
     if (!surface) throw new Error("문서 편집 화면이 준비되지 않았습니다.");
     if (!text.trim() || text.length > 4_000) throw new Error("이 문안은 자동 반영 범위를 넘어요. 복사해 양식에서 직접 작성해 주세요.");
-    await surface.applyProfileAutofill([{ fieldId, value: text }]);
+    await surface.applyProfileAutofill([{ fieldId, value: text }], { narrativeReview: { fieldId, ...review } });
     await surface.focusField(fieldId);
   }, []);
 
