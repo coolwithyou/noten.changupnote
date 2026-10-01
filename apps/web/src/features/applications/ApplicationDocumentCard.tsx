@@ -38,11 +38,7 @@ import { cn } from "@/lib/utils";
 
 export type EditorMode = "management" | "result";
 
-/**
- * 디자인 02 `.sl` 카드의 열 정의. 데스크톱(lg)은 제목 · 3열 · 버튼의 한 행, md는 제목+버튼 행 아래 3열
- * (디자인 ≤1100px 규칙), 그 아래는 세로 스택(02M). 콤마가 든 arbitrary 클래스는 dev(Turbopack)에서
- * 생성되지 않으므로 값은 CSS 변수로 두고 클래스는 `[var(--x)]`로만 참조한다. 목록 컨테이너의 style에 건다.
- */
+/** 제목과 복귀 행동을 첫 행에 두고, 다음 작업·저장 상태와 보조 상세를 세로로 이어간다. */
 export const DOCUMENT_CARD_COLUMNS = {
   "--sl-cols-md": "minmax(0,1fr) auto",
   "--sl-cols-lg": "minmax(0,1fr) auto",

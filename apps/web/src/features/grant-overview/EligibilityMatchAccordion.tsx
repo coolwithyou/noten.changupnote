@@ -68,9 +68,9 @@ export function EligibilityMatchAccordion({
   return (
     <AccordionItem value="eligibility" className="border-b border-border-subtle">
       <AccordionTrigger className="px-1 py-[18px] text-[15.5px] font-semibold hover:no-underline">
-        <span>내 사업자 정보와 공고 조건 대조</span>
-        <span className="ml-auto pr-2 text-right text-xs font-medium text-muted-foreground tabular-nums">
-          {summary}
+        <span className="flex min-w-0 flex-1 flex-col gap-1 text-left sm:flex-row sm:items-center sm:justify-between">
+          <span>내 사업자 정보와 공고 조건 대조</span>
+          <span className="text-xs font-medium text-muted-foreground tabular-nums">{summary}</span>
         </span>
       </AccordionTrigger>
       {/* 행동 링크는 디자인 `.lnk`처럼 밑줄 없이(hover 시만) 보이도록 패널 기본 링크 스타일을 끈다. */}
