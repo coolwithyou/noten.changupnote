@@ -1,12 +1,12 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { ActionResult } from "@cunote/contracts";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Select, SelectContent, SelectItem, SelectGroup, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
 import { companyScopedFetch } from "@/lib/navigation/companyContext";
@@ -22,7 +22,17 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 /** 문안은 draft/field별로 보관한다. 이 패널의 저장은 양식 파일 반영을 의미하지 않는다. */
-export function WritingSectionsPanel({ draftId, onDirtyChange }: { draftId: string; onDirtyChange: (dirty: boolean) => void }) {
+export interface WritingSectionsPanelProps {
+  draftId: string;
+  onDirtyChange: (dirty: boolean) => void;
+  presentation?: "sheet" | "inline";
+  selectedFieldId?: string | null;
+  onSelectField?: (fieldId: string) => void;
+  contextActions?: ReactNode;
+  inspectField?: (fieldId: string, savedText: string) => Promise<{ beforeText: string } | null>;
+  applySavedText?: (fieldId: string, text: string) => Promise<void>;
+}
+export function WritingSectionsPanel({ draftId, onDirtyChange, presentation = "sheet", selectedFieldId, onSelectField, contextActions, inspectField, applySavedText }: WritingSectionsPanelProps) {
   const [open, setOpen] = useState(false);
   const [data, setData] = useState<WritingSections | null>(null);
   const [fieldId, setFieldId] = useState<string | null>(null);
@@ -31,6 +41,7 @@ export function WritingSectionsPanel({ draftId, onDirtyChange }: { draftId: stri
   const lock = useRef(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [application, setApplication] = useState<{ fieldId: string; beforeText: string; text: string; revision: number } | null>(null);
   const [compare, setCompare] = useState(false);
   const [showChecks, setShowChecks] = useState(false);
   const pending = useRef<{ fieldId: string; revision: number; requestId: string } | null>(null);
@@ -47,6 +58,16 @@ export function WritingSectionsPanel({ draftId, onDirtyChange }: { draftId: stri
     window.addEventListener("beforeunload", warn);
     return () => window.removeEventListener("beforeunload", warn);
   }, [dirty]);
+  useEffect(() => {
+    if (presentation === "inline") void run(refresh);
+    // One load per draft; document changes remount the keyed panel.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draftId, presentation]);
+  useEffect(() => {
+    if (selectedFieldId && data?.sections.some(section => section.fieldId === selectedFieldId)) {
+      setFieldId(selectedFieldId); setCompare(false); setApplication(null);
+    }
+  }, [selectedFieldId, data?.sections.length]);
   function receive(value: WritingSections) {
     setData(value);
     setFieldId(current => current ?? value.sections[0]?.fieldId ?? null);
@@ -79,14 +100,8 @@ export function WritingSectionsPanel({ draftId, onDirtyChange }: { draftId: stri
   const suggestion = section?.proposal;
   const proposalIsCurrent = suggestion && !suggestion.stale && editor?.revision === suggestion.baseRevision && !changed;
   const evidenceCount = suggestion?.composition ? writingCompositionEvidenceCount(suggestion.composition) : 0;
-  return <>
-    <Button variant="outline" size="sm" onClick={() => { setOpen(true); if (!data) void run(refresh); }}>문항별 문안{dirty ? " · 저장 필요" : ""}</Button>
-    <Sheet open={open} onOpenChange={setOpen}>
-      <SheetContent className="overflow-y-auto sm:max-w-xl">
-        <SheetHeader><SheetTitle>문항별 문안 작성</SheetTitle>
-          <SheetDescription>입력 위치가 연결되지 않은 문항도 작성하고 보관할 수 있어요. 검토한 문안을 복사해 양식에 넣고, 양식 파일도 따로 저장해 주세요.</SheetDescription>
-        </SheetHeader>
-        <div className="flex flex-col gap-5 p-4">
+  const content = <div className="flex min-w-0 flex-col gap-4">
+          {contextActions ? <details><summary className="cursor-pointer text-sm font-medium">회사 자료·이번 사업 설명</summary><div className="mt-3">{contextActions}<p className="mt-2 text-xs text-muted-foreground">선택한 회사 자료와 이번 신청의 사업 설명을 확인해 주세요. 확인되지 않은 내용은 사실로 채우지 않아요.</p></div></details> : null}
           {error ? <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert> : null}
           {notice ? <p role="status">{notice}</p> : null}
           {!data ? <Button disabled={busy} onClick={() => void run(refresh)}>{busy ? "불러오는 중…" : "다시 불러오기"}</Button> : <>
@@ -106,16 +121,16 @@ export function WritingSectionsPanel({ draftId, onDirtyChange }: { draftId: stri
             {section && editor ? <>
               <Field><FieldLabel htmlFor="writing-section-choice">작성할 문항</FieldLabel>
                 <Select value={fieldId} disabled={busy} items={data.sections.map(section => ({ value: section.fieldId, label: section.label }))}
-                  onValueChange={id => { setFieldId(id); setCompare(false); setError(null); setNotice(null); }}>
+                  onValueChange={id => { setFieldId(id); if (id) onSelectField?.(id); setApplication(null); setCompare(false); setError(null); setNotice(null); }}>
                   <SelectTrigger id="writing-section-choice"><SelectValue /></SelectTrigger>
-                  <SelectContent>{data.sections.map(section => <SelectItem key={section.fieldId} value={section.fieldId}>{section.label}</SelectItem>)}</SelectContent>
+                  <SelectContent><SelectGroup>{data.sections.map(section => <SelectItem key={section.fieldId} value={section.fieldId}>{section.label}</SelectItem>)}</SelectGroup></SelectContent>
                 </Select>
                 {section.guidance ? <FieldDescription>{section.guidance}</FieldDescription> : null}
                 {!section.available ? <FieldDescription>현재 양식에서 이 문항을 확인하지 못했어요. 기존 문안은 보관되어 있으며 직접 수정·복사할 수 있어요.</FieldDescription> : null}
               </Field>
               <Field><FieldLabel htmlFor="writing-section-text">검토·수정할 문안</FieldLabel>
                 <Textarea id="writing-section-text" rows={12} maxLength={12000} value={editor.text} disabled={busy || !data.canWrite} onChange={event => changeText(event.target.value)} />
-                <FieldDescription>{editor.text.length.toLocaleString()} / 12,000자 · {changed ? "저장하지 않은 변경 있음" : `문안 저장본 ${editor.revision}`} · 양식 반영 여부는 별도로 확인해 주세요.</FieldDescription>
+                <FieldDescription>{editor.text.length.toLocaleString()} / 12,000자 · {changed ? "저장하지 않은 변경 있음" : `문안 저장본 ${editor.revision}`} · 문안 보관과 양식 파일 저장은 별개예요.</FieldDescription>
               </Field>
               <div className="flex flex-wrap gap-2">
                 <Button disabled={busy || !data.canWrite || !changed} onClick={() => void run(async () => { await save(); setNotice("문안을 저장했어요. 양식 파일에 자동 반영되지는 않습니다."); })}>문안 저장</Button>
@@ -132,7 +147,27 @@ export function WritingSectionsPanel({ draftId, onDirtyChange }: { draftId: stri
                   setNotice("현재 입력을 유지했어요. 비교·수정한 내용을 다시 저장해 주세요.");
                 }}>현재 입력 유지하고 저장 기준 갱신</Button>
               </Field> : null}
-              <Alert><AlertDescription>문안 저장은 양식 파일에 자동 반영되지 않아요. 저장한 문안은 복사해서 양식에 넣거나, 입력 위치가 확인된 문항이면 작성 도우미의 「이 값으로 채우기」로 반영해요.</AlertDescription></Alert>
+              <Alert><AlertDescription>문안 저장 → 입력 위치 확인·양식 반영 → 파일 저장. 문안만 저장하면 원본 양식은 바뀌지 않아요.</AlertDescription></Alert>
+              {inspectField && applySavedText && data.canWrite && section.available ? <Button variant="outline" disabled={busy || Boolean(changed) || !editor.savedText || editor.savedText.length > 4_000} onClick={() => void run(async () => {
+                const binding = await inspectField(section.fieldId, editor.savedText);
+                if (!binding) { setApplication(null); setNotice("안전하게 반영할 빈 입력 칸이나 양식 안내문을 확인하지 못했어요. 문안을 복사해 원본 양식에서 직접 작성해 주세요."); return; }
+                setApplication({ fieldId: section.fieldId, beforeText: binding.beforeText, text: editor.savedText, revision: editor.revision });
+              })}>저장 문안과 양식 비교</Button> : null}
+              {inspectField && editor.savedText.length > 4_000 ? <p className="text-xs text-muted-foreground">4,000자를 넘는 문안은 복사해 원본 양식에서 직접 작성해 주세요.</p> : null}
+              {application && application.fieldId === fieldId ? <Card variant="workspace"><CardHeader><CardTitle>이 문항에 반영할 내용</CardTitle><CardDescription>확인된 입력 칸 하나에 저장 문안을 넣어요. 빈칸 또는 양식의 안내문을 저장 문안으로 채웁니다.</CardDescription></CardHeader><CardContent className="flex flex-col gap-3">
+                <div><p className="text-xs text-muted-foreground">양식의 현재 내용</p><p className="whitespace-pre-wrap break-words text-sm">{application.beforeText || "비어 있음"}</p></div>
+                <div><p className="text-xs text-muted-foreground">저장 문안 · 버전 {application.revision}</p><p className="whitespace-pre-wrap break-words text-sm">{application.text}</p></div>
+                <Button disabled={busy || Boolean(changed) || editor.revision !== application.revision} onClick={() => void run(async () => {
+                  const latest = await request<WritingSections>(endpoint);
+                  const saved = latest.sections.find(item => item.fieldId === application.fieldId);
+                  if (!latest.canWrite || saved?.revision !== application.revision || saved.text !== application.text) throw new Error("저장 문안이 바뀌었어요. 최신 저장본을 확인한 뒤 다시 비교해 주세요.");
+                  const binding = await inspectField!(application.fieldId, application.text);
+                  if (!binding || binding.beforeText !== application.beforeText) { setApplication(null); throw new Error("양식 내용이나 입력 위치가 바뀌었어요. 다시 비교한 뒤 반영해 주세요."); }
+                  await applySavedText!(application.fieldId, application.text); setApplication(null);
+                  setNotice("저장 문안을 확인된 양식 입력 칸에 반영했어요. 상단에서 파일 저장 상태를 확인해 주세요.");
+                })}>이 칸에 반영</Button>
+                <Button variant="ghost" disabled={busy} onClick={() => setApplication(null)}>비교 닫기</Button>
+              </CardContent></Card> : null}
               {data.canGenerate && section.available ? <Button disabled={busy || suggestion?.status === "running"} onClick={() => void run(async () => {
                 const revision = await save();
                 if (pending.current?.fieldId !== fieldId || pending.current.revision !== revision) pending.current = { fieldId: section.fieldId, revision, requestId: crypto.randomUUID() };
@@ -170,7 +205,17 @@ export function WritingSectionsPanel({ draftId, onDirtyChange }: { draftId: stri
               </CardContent></Card> : null}
             </> : null}
           </>}
-        </div>
+        </div>;
+  if (presentation === "inline") return <Card variant="workspace" data-writing-panel className="min-w-0">
+    <CardHeader><CardTitle>문항 작성</CardTitle><CardDescription>양식을 보며 직접 문안을 쓰고, 저장한 문안을 검토해 반영해요.</CardDescription></CardHeader>
+    <CardContent>{content}</CardContent>
+  </Card>;
+  return <>
+    <Button variant="outline" size="sm" onClick={() => { setOpen(true); if (!data) void run(refresh); }}>문항별 문안{dirty ? " · 저장 필요" : ""}</Button>
+    <Sheet open={open} onOpenChange={setOpen}>
+      <SheetContent className="overflow-y-auto sm:max-w-xl">
+        <SheetHeader><SheetTitle>문항별 문안 작성</SheetTitle><SheetDescription>저장한 문안을 검토해 양식에 반영해 주세요.</SheetDescription></SheetHeader>
+        <div className="p-4">{content}</div>
       </SheetContent>
     </Sheet>
   </>;

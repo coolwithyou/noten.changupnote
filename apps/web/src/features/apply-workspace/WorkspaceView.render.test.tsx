@@ -144,14 +144,14 @@ assert.ok(
   "지원 가능한 persistent draft는 RHWP 편집기와 AI 작성 가이드를 동시에 보여야 합니다.",
 );
 assert.ok(html.includes("data-field-aware-editor"), "통합 편집 세션 식별자가 있어야 합니다.");
-assert.ok(html.includes("AI 작성 가이드"), "작은 화면에서 작성 가이드를 여는 고정 진입점이 있어야 합니다.");
+assert.ok(html.includes("AI 작성 가이드"), "보조 작성 가이드 진입점이 있어야 합니다.");
 assert.ok(
   html.includes("작성 도우미") && html.includes("필드 목록"),
   "필드 인덱스는 작성 도우미와 분리된 메뉴로 제공해야 합니다.",
 );
 assert.ok(
   html.includes("지금 저장") && html.includes("편집본 다운로드"),
-  "통합 편집 화면의 문서 저장 동작은 AI 사이드바에서 제공해야 합니다.",
+  "통합 편집 화면의 문서 저장 동작을 제공해야 합니다.",
 );
 assert.ok(
   html.includes("등록정보로 일괄 채우기"),
@@ -185,6 +185,12 @@ assert.ok(
 );
 assert.equal(html.includes('aria-label="문서 작성 방식"'), false, "통합 편집 화면에 quick/studio 주 모드 토글이 있으면 안 됩니다.");
 assert.equal(html.includes("AI 작성 제안"), false, "일반 본문 문단 에이전트가 필드 에이전트 주 CTA로 노출되면 안 됩니다.");
+
+assert.ok(html.includes("data-writing-panel"), "Persistent writing must remain beside the original form.");
+assert.ok(html.includes("data-workspace-file-actions"), "File save actions must remain independent from the assistant rail.");
+assert.ok(html.includes("양식 파일 저장"), "File saving must be distinguished from section text saving.");
+assert.ok(html.includes('aria-label="작성 화면 전환"'), "Mobile document and writing switches must be discoverable.");
+assert.ok(html.includes("문항 작성") && html.includes("원본 양식"));
 
 const missingInformationHtml = renderToStaticMarkup(
   <FieldAgentRail

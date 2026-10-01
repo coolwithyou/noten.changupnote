@@ -8,13 +8,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ChevronLeft, RotateCcw, WandSparkles } from "lucide-react";
+import { ChevronLeft, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
 import { extractFieldOptions } from "@/lib/documents/fieldOptions";
 import {
   acceptAutomaticProfileAutofillAnswers,
@@ -62,6 +61,10 @@ import { WritingContextPanel } from "./WritingContextPanel";
 import { WritingSectionsPanel } from "./WritingSectionsPanel";
 import { TablePaginationPanel } from "./TablePaginationPanel";
 import { DocumentConsistencyPanel } from "./DocumentConsistencyPanel";
+import { canApplySavedWritingToField } from "./writingFieldApplication";
+import { StudioSaveIndicator } from "./StudioSaveIndicator";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { cn } from "@/lib/utils";
 import { workspaceReadiness } from "./workspaceReadiness";
 import { withCompanyContext } from "@/lib/navigation/companyContext";
 
@@ -122,6 +125,7 @@ export function WorkspaceView({
   const [showChat, setShowChat] = useState(false);
   const [writingContextDirty, setWritingContextDirty] = useState(false);
   const [writingSectionsDirty, setWritingSectionsDirty] = useState(false);
+  const [mobileSurface, setMobileSurface] = useState("writing");
   const [tablePaginationBusy, setTablePaginationBusy] = useState(false);
   useEffect(() => {
     if (!writingContextDirty && !writingSectionsDirty && !tablePaginationBusy) return;
@@ -145,7 +149,6 @@ export function WorkspaceView({
     window.addEventListener("beforeunload", preserveTableChange);
     return () => window.removeEventListener("beforeunload", preserveTableChange);
   }, [tablePaginationBusy]);
-  const [showFieldAgent, setShowFieldAgent] = useState(false);
   const [workingDocument, setWorkingDocument] = useState<RhwpWorkingDocument | null>(null);
   const [studioDocumentActions, setStudioDocumentActions] = useState<RhwpStudioDocumentActionState>({
     saveState: initialStudioSaveState,
@@ -253,6 +256,24 @@ export function WorkspaceView({
     const surface = studioSurfaceRef.current;
     if (!surface) return Promise.reject(new Error("문서 편집 화면이 준비되지 않았습니다."));
     return surface.applyProfileAutofill(entries);
+  }, []);
+
+  const inspectWritingField = useCallback(async (fieldId: string, savedText: string) => {
+    const surface = studioSurfaceRef.current;
+    if (!surface) throw new Error("문서 편집 화면이 준비되지 않았습니다.");
+    const bindings = await surface.inspectProfileAutofill();
+    const binding = bindings.find(item => item.fieldId === fieldId);
+    const field = data.connectedFields.find(item => item.fieldId === fieldId);
+    return canApplySavedWritingToField(binding, field?.sourceSpan, savedText) && binding && typeof binding.beforeText === "string"
+      ? { beforeText: binding.beforeText } : null;
+  }, [data.connectedFields]);
+
+  const applyWritingText = useCallback(async (fieldId: string, text: string) => {
+    const surface = studioSurfaceRef.current;
+    if (!surface) throw new Error("문서 편집 화면이 준비되지 않았습니다.");
+    if (!text.trim() || text.length > 4_000) throw new Error("이 문안은 자동 반영 범위를 넘어요. 복사해 양식에서 직접 작성해 주세요.");
+    await surface.applyProfileAutofill([{ fieldId, value: text }]);
+    await surface.focusField(fieldId);
   }, []);
 
   const undoAutomaticProfileAutofill = useCallback(async () => {
@@ -635,8 +656,15 @@ export function WorkspaceView({
           <h1 className="truncate text-base font-semibold sm:text-lg">{data.grant.title}</h1>
         </div>
         <div className="flex flex-wrap items-center justify-end gap-3">
-          {!readOnlyPreview && data.draftId ? <WritingContextPanel key={data.draftId} draftId={data.draftId} onDirtyChange={setWritingContextDirty} /> : null}
-          {!readOnlyPreview && data.draftId ? <WritingSectionsPanel key={data.draftId} draftId={data.draftId} onDirtyChange={setWritingSectionsDirty} /> : null}
+          {integratedRhwpWorkspace ? <div className="flex flex-col items-end gap-2" data-workspace-file-actions>
+            <div className="flex flex-wrap gap-2">
+              <Button size="sm" disabled={!studioDocumentActions.canSave} onClick={saveCurrentDocument}>{studioDocumentActions.saving ? "파일 저장 중…" : readOnlyPreview ? "이 탭에 반영" : "양식 파일 저장"}</Button>
+              <Button size="sm" variant="outline" disabled={!studioDocumentActions.canDownload} onClick={downloadCurrentDocument}>{studioDocumentActions.downloading ? "내보내는 중…" : "편집본 다운로드"}</Button>
+            </div>
+            <StudioSaveIndicator state={studioDocumentActions.saveState} />
+          </div> : null}
+          {!integratedRhwpWorkspace && !readOnlyPreview && data.draftId ? <WritingContextPanel key={data.draftId} draftId={data.draftId} onDirtyChange={setWritingContextDirty} /> : null}
+          {!integratedRhwpWorkspace && !readOnlyPreview && data.draftId ? <WritingSectionsPanel key={data.draftId} draftId={data.draftId} onDirtyChange={setWritingSectionsDirty} /> : null}
           {!readOnlyPreview && integratedFieldEditor && data.draftId ? <TablePaginationPanel key={currentStudioSourceKey} getSurface={() => studioSurfaceRef.current} onBusyChange={setTablePaginationBusy} /> : null}
           {!readOnlyPreview && integratedFieldEditor && data.draftId ? <DocumentConsistencyPanel key={`check:${currentStudioSourceKey}`} draftId={data.draftId} getSurface={() => studioSurfaceRef.current} disabled={writingContextDirty || tablePaginationBusy} /> : null}
           {canUndoAutomaticProfileAutofill ? (
@@ -709,13 +737,17 @@ export function WorkspaceView({
         </div>
       ) : null}
 
+      {integratedRhwpWorkspace ? <Tabs value={mobileSurface} onValueChange={setMobileSurface} className="shrink-0 px-3 pt-3 xl:hidden">
+        <TabsList className="grid w-full grid-cols-2" aria-label="작성 화면 전환"><TabsTrigger value="writing">문항 작성</TabsTrigger><TabsTrigger value="document">원본 양식</TabsTrigger></TabsList>
+      </Tabs> : null}
+
       {integratedFieldEditor && studioTransport ? (
         <>
           <div
             data-field-aware-editor
-            className="grid min-h-0 flex-1 gap-4 overflow-auto p-3 xl:grid-cols-[minmax(0,1fr)_360px] xl:overflow-hidden xl:p-4"
+            className="grid min-h-0 flex-1 gap-4 overflow-auto p-3 xl:grid-cols-[minmax(0,1fr)_400px] xl:overflow-hidden xl:p-4"
           >
-            <div className="flex min-h-[72dvh] min-w-0 xl:min-h-0">
+            <div className={cn("min-h-[72dvh] min-w-0 xl:flex xl:min-h-0", mobileSurface === "document" ? "flex" : "hidden")}>
               <RhwpStudioSurface
                 key={currentStudioSourceKey}
                 ref={studioSurfaceRef}
@@ -737,7 +769,9 @@ export function WorkspaceView({
                 onSaved={handleStudioSaved}
               />
             </div>
-            <div className="hidden h-full min-h-0 overflow-hidden xl:block">
+            <div className={cn("min-h-0 min-w-0 xl:block xl:overflow-y-auto", mobileSurface === "writing" ? "block" : "hidden")}>
+              {!readOnlyPreview && data.draftId ? <WritingSectionsPanel key={data.draftId} draftId={data.draftId} presentation="inline" onDirtyChange={setWritingSectionsDirty} selectedFieldId={selectedFieldId} onSelectField={handleSelectField} inspectField={inspectWritingField} applySavedText={applyWritingText} contextActions={<WritingContextPanel key={data.draftId} draftId={data.draftId} onDirtyChange={setWritingContextDirty} />} /> : null}
+              <details className="mt-4"><summary className="cursor-pointer py-2 text-sm font-medium">입력 위치·작성 도우미</summary><div className="h-[650px] min-h-0">
               <FieldAgentRail
                 session={fieldAgentSession}
                 connectedFields={data.connectedFields}
@@ -772,67 +806,15 @@ export function WorkspaceView({
                   canUndoLatest: canUndoScheduleTable,
                 } : undefined}
               />
+              </div></details>
             </div>
           </div>
-          <div className="fixed inset-x-3 bottom-3 z-30 flex items-center gap-3 rounded-xl border bg-background/95 p-2.5 shadow-lg backdrop-blur xl:hidden">
-            <div className="min-w-0 flex-1 px-1">
-              <p className="text-[11px] font-medium text-muted-foreground">현재 필드</p>
-              <p className="truncate text-sm font-semibold">{fieldAgentSession.selected?.label ?? "작성 항목 선택"}</p>
-            </div>
-            <Button type="button" size="sm" onClick={() => setShowFieldAgent(true)}>
-              <WandSparkles data-icon="inline-start" aria-hidden />
-              AI 작성 가이드
-            </Button>
-          </div>
-          <Sheet open={showFieldAgent} onOpenChange={setShowFieldAgent}>
-            <SheetContent className="flex w-full flex-col gap-0 p-3 sm:max-w-md xl:hidden">
-              <SheetTitle className="sr-only">AI 작성 가이드</SheetTitle>
-              <SheetDescription className="sr-only">
-                현재 문서의 필드를 선택하고 근거 있는 값을 제안받아 정확한 입력 칸에 반영합니다.
-              </SheetDescription>
-              <div className="h-full min-h-0 flex-1 overflow-hidden pt-8">
-                <FieldAgentRail
-                  session={fieldAgentSession}
-                  connectedFields={data.connectedFields}
-                  {...(readOnlyPreview ? {
-                    assistDisabledMessage: "읽기 전용 시뮬레이션에서는 LLM 제안을 실행하지 않습니다. 필드 위치 확인과 직접 편집은 가능합니다.",
-                  } : {})}
-                  run={selectedFieldId ? fieldAgentRuns.get(selectedFieldId) ?? null : null}
-                  onSelectField={handleSelectField}
-                  onRequestSuggestion={requestSuggestion}
-                  onStartConversation={(field) => void handleAskField(field)}
-                  onApplySuggestion={(run, suggestion) => void runFieldAgentAction("apply", run, suggestion)}
-                  onUndoSuggestion={(run, suggestion) => void runFieldAgentAction("undo", run, suggestion)}
-                  onDismissSuggestion={(run, suggestion) => void runFieldAgentAction("dismiss", run, suggestion)}
-                  documentActions={{
-                    ...studioDocumentActions,
-                    saveLabel: readOnlyPreview ? "이 탭에 반영" : "지금 저장",
-                    onSave: saveCurrentDocument,
-                    onDownload: downloadCurrentDocument,
-                  }}
-                  profileAutofill={data.draftId ? {
-                    draftId: data.draftId,
-                    disabled: !studioDocumentActions.canSave,
-                    inspectBindings: inspectProfileAutofillBindings,
-                    applyEntries: applyProfileAutofillEntries,
-                  } : undefined}
-                  scheduleTable={data.draftId && data.fieldEditorAgentAvailable ? {
-                    draftId: data.draftId,
-                    disabled: !studioDocumentActions.canSave,
-                    inspectTable: inspectScheduleTable,
-                    applyPlan: applyScheduleTable,
-                    undoLatest: undoScheduleTable,
-                    canUndoLatest: canUndoScheduleTable,
-                  } : undefined}
-                />
-              </div>
-            </SheetContent>
-          </Sheet>
         </>
       ) : null}
 
       {integratedRhwpWorkspace && !integratedFieldEditor && studioTransport ? (
-        <div data-document-guided-editor className="flex min-h-0 flex-1 p-3 xl:p-4">
+        <div data-document-guided-editor className="grid min-h-0 flex-1 gap-4 overflow-auto p-3 xl:grid-cols-[minmax(0,1fr)_400px] xl:p-4">
+          <div className={cn("min-h-[72dvh] min-w-0 xl:flex xl:min-h-0", mobileSurface === "document" ? "flex" : "hidden")}>
           <RhwpStudioSurface
             key={currentStudioSourceKey}
             ref={studioSurfaceRef}
@@ -847,8 +829,13 @@ export function WorkspaceView({
             activeTask={null}
             documentAgentAvailable={data.documentAgentAvailable}
             presentation="document_guided"
+            onDocumentActionStateChanged={handleStudioDocumentActionsChanged}
             onSaved={handleStudioSaved}
           />
+          </div>
+          <div className={cn("min-w-0 xl:block", mobileSurface === "writing" ? "block" : "hidden")}>
+            {!readOnlyPreview && data.draftId ? <WritingSectionsPanel key={data.draftId} draftId={data.draftId} presentation="inline" onDirtyChange={setWritingSectionsDirty} contextActions={<WritingContextPanel key={data.draftId} draftId={data.draftId} onDirtyChange={setWritingContextDirty} />} /> : <Alert><AlertDescription>원본 양식에서 직접 작성할 수 있어요. 저장과 내보내기는 상단에서 확인해 주세요.</AlertDescription></Alert>}
+          </div>
         </div>
       ) : null}
 

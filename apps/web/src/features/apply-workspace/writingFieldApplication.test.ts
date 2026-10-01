@@ -1,0 +1,10 @@
+import assert from "node:assert/strict";
+import { canApplySavedWritingToField } from "./writingFieldApplication";
+const bound = { status: "unique", targetKind: "table_cell_text", beforeText: "" };
+assert.equal(canApplySavedWritingToField(bound, null, "실제 회사 자료를 확인한 문안"), true);
+assert.equal(canApplySavedWritingToField({ ...bound, beforeText: "※ 작성 예시" }, "※ 작성 예시", "작성한 문안"), true);
+for (const binding of [undefined, { ...bound, status: "ambiguous" }, { ...bound, status: "missing" }, { ...bound, targetKind: "body_paragraph_text" }, { ...bound, beforeText: "이미 작성한 실제 사업 내용" }, { ...bound, beforeText: "우리는 작성 서비스를 운영합니다." }]) assert.equal(canApplySavedWritingToField(binding, null, "검토한 문안"), false);
+assert.equal(canApplySavedWritingToField(bound, null, "문".repeat(4001)), false);
+assert.equal(canApplySavedWritingToField(bound, null, "문".repeat(4000)), true);
+assert.equal(canApplySavedWritingToField(bound, null, "  "), false);
+console.log("saved writing field application admission passed");
