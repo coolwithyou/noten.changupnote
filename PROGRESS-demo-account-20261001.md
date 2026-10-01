@@ -220,3 +220,7 @@ gitignored private 파일/브라우저 stdin으로만 취급하며 코드·진�
 - source0732c48 배포 `dpl_HX6aFnEZ11naUdYDd6QKDSUPmbc6` READY/exactmetadata/alias동일, build·tsc·HTTPS스모크PASS/flagtrue유지(증거17815fe). 실제UI section-4 request `e8702e2c-9f24-4bc2-b740-8b7b08f59c00`는 인용존재검증을통과했으나 `section_company_source_invalid`로failed. company_fact에공고/계획출처를선택한유형오류차단이며검증문안·원본반영없음.
 - providerreported input19419/output1348/추정$0.078477, 단일maxRetries0예약대조해제. 신규합계$0.2453831+미확인chat예약$2.9825089, 승인$20이내. 실제failed상태이력보존.
 - 정상제품의paragraph schema를종류별출처enum으로강화한다: 회사fact는허용company/currentdoc이며plan표현없는unit, plan은application_plan/currentdoc기본출처필수, ancillary자료별도, proposal은제안표시유지. 기존verify모든정책불변/public저장형식불변. 후보ID선택과sourcekind관계를생성스키마에서도강제하여자동반영이나demo예외없이재검증한다.
+
+## 문단 종류별 생성 출처 스키마 검증 — 16:03 KST
+- `2f44317fe164b7e77bdf7886048d9098a3fc1959`: company_fact는회사kind및미래표현없는인용unit min1/max5, plan은application_plan/current_document primary 필수+supporting max4, proposal은최대5개/빈근거가능. 적격근거가없는kind분기는제외하고provider-supported anyOf 구조로생성스키마제약. 후보별allowedForCompanyFact/allowedForPlanPrimary를prompt에도표시.
+- 공개WritingComposition/기존서버검증/model/45초/retry0/출력6000/usage kind 유지. unknownunit·잘못된종류·planprimary누락·계획의사실화·수치조작·없는근거·emptyproposal·anyOf(JSONoneOf없음) 회귀와 writing전체suite/typecheck/finalbuild PASS. compile54s/tsc80s/static5/기존NFTwarning2, Mac전역부하반영. rootdiff검수PASS. 운영쓰기·모델·브라우저변경0. 승인된동일웹scope clean2f44317 재배포중.
