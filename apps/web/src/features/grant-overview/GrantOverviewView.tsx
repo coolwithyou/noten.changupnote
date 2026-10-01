@@ -1,5 +1,7 @@
-import type { ApplySheet } from "@cunote/contracts";
+import type { ApplySheet, MatchingProfileView } from "@cunote/contracts";
 import Link from "next/link";
+import { CompanyMatchingContext } from "@/features/match-results/CompanyMatchingContext";
+import { withCompanyContext } from "@/lib/navigation/companyContext";
 import { VerdictBadge } from "@/components/app/verdict-badge";
 import { Accordion } from "@/components/ui/accordion";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -44,6 +46,8 @@ export function GrantOverviewView({
   adminPreview = false,
   handoffKey = null,
   companyId = null,
+  companyName = null,
+  profileView = null,
   draftResume = null,
 }: {
   sheet: ApplySheet;
@@ -62,6 +66,8 @@ export function GrantOverviewView({
   /** 이 상세 렌더가 만든 ApplySheet를 workspace에서 재사용하기 위한 비민감 일회성 키. */
   handoffKey?: string | null;
   companyId?: string | null;
+  companyName?: string | null;
+  profileView?: MatchingProfileView | null;
 }) {
   const grantId = sheet.grant.id;
   const workspaceQuery = [
@@ -101,6 +107,8 @@ export function GrantOverviewView({
         </p>
       </header>
 
+      {profileView ? <CompanyMatchingContext compact profileView={profileView} companyName={companyName} profileHref={companyId ? withCompanyContext("/settings?section=company", companyId) : "/settings?section=company"} /> : null}
+
       {adminPreview ? (
         <div className="mt-5 rounded-2xl border border-brand/25 bg-surface-brand px-4 py-3.5 text-sm leading-6 text-text-nav">
           <strong className="block text-brand">관리자 지원서 시뮬레이션</strong>
@@ -137,7 +145,7 @@ export function GrantOverviewView({
               {failedConditions.map((trace) => describeFailedCondition(trace)).join(" ")}
               {" "}
               작성은 계속할 수 있고 기존 작성본은 잠기거나 삭제되지 않아요. 회사 정보가 다르면{" "}
-              <Link href="/settings?section=company">회사 프로필에서 정정</Link>하세요.
+              <Link href={companyId ? withCompanyContext("/settings?section=company", companyId) : "/settings?section=company"}>회사 프로필에서 정정</Link>하세요.
             </span>
           </AlertDescription>
         </Alert>
@@ -220,7 +228,7 @@ export function GrantOverviewView({
 
       {/* ④ 접힌 아코디언 3개(기본 닫힘) */}
       <section className="mt-9 border-t border-border-subtle">
-        <Accordion multiple>
+        <Accordion multiple defaultValue={["eligibility"]}>
           <EligibilityMatchAccordion
             grantId={grantId}
             companyId={companyId}

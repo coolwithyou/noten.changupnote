@@ -18,7 +18,7 @@ import { loadGrantPreparation } from "@/lib/server/documents/grantPreparation";
 import { loadGrantApplySheetForHandoff } from "@/lib/server/grantApplySheetHandoff";
 import { recordLessonExposures, type LessonExposureInput } from "@/lib/server/knowledge/knowledgeRepo";
 import { matchApprovedLessonsForGrant, matchFieldLessonTips } from "@/lib/server/knowledge/lessonContext";
-import { loadServiceApplySheet } from "@/lib/server/serviceData";
+import { resolveProductCompanyProfile, loadServiceApplySheet } from "@/lib/server/serviceData";
 import {
   isVirtualCompanyServerEnabled,
   resolveVirtualCompanyScenario,
@@ -53,13 +53,14 @@ export default async function GrantDetailPage({ params, searchParams }: GrantDet
       ? { virtualBizNo: virtualScenario.bizNo }
       : { companyId: access!.companyId, userId: access!.userId });
   if (!sheet) notFound();
-  const [preparation, previewAvailability, lessonGuide, remainingUses, draftResume] = await Promise.all([
+  const [preparation, previewAvailability, lessonGuide, remainingUses, draftResume, companyContext] = await Promise.all([
     access ? loadInitialPreparation(sheet.grant.id, access, sheet) : Promise.resolve(null),
     virtualScenario ? Promise.resolve(null) : loadPreviewAvailability(sheet.grant.id),
     loadLessonGuide(sheet.grant.title, sheet.grant.agency),
     virtualScenario || adminIdentity ? Promise.resolve(null) : getRemainingAssistantUses(),
     // 저장본 재개(장면 F)는 실제 회사 접근에서만. 가상 기업·관리자 미리보기는 저장본이 없다.
     access ? loadDraftResumeSafe(sheet.grant.id, access) : Promise.resolve(null),
+    access ? resolveProductCompanyProfile({ context: "owned_read", companyId: access.companyId, userId: access.userId, asOf: new Date().toISOString() }) : Promise.resolve(null),
   ]);
   const fieldLessonTips = await loadFieldLessonTips(sheet, preparation);
   // 노출 텔레메트리(지식 루프 K1): 매칭 결과를 렌더 시점에 raw 기록한다.
@@ -77,6 +78,8 @@ export default async function GrantDetailPage({ params, searchParams }: GrantDet
     <AppShell user={user}>
       <GrantOverviewView
         companyId={access?.companyId ?? null}
+        companyName={companyContext?.profile.name ?? null}
+        profileView={companyContext?.view ?? null}
         sheet={sheet}
         lessonGuide={lessonGuide}
         previewAvailability={previewAvailability}

@@ -180,7 +180,7 @@ assert.ok(!html.includes("인 신청이 없습니다"));
 // 카드마다 3열 라벨
 assert.equal(countOf(html, ">자격 확인</dt>"), 7);
 assert.equal(countOf(html, ">작성 기능</dt>"), 7);
-assert.equal(countOf(html, ">문서 완성</dt>"), 7);
+assert.equal(countOf(html, ">문서 저장</dt>"), 7);
 
 // 저장본 있음 → 문서 열기
 assert.ok(html.includes("확인된 조건 4/7 · 남은 쟁점 3"));
@@ -210,7 +210,9 @@ assert.ok(html.includes("내보내기"));
 assert.ok(html.includes("작성한 문항 4 · 저장 9월 10일"));
 assert.ok(html.includes(">저장본 열기</a>"));
 assert.equal(countOf(html, "마감된 공고의 저장본은 열고 내보낼 수 있어요"), 1);
-assert.ok(html.includes("opacity-60"), "마감 카드는 card-dim 처리");
+assert.ok(!html.includes("opacity-60"), "마감 저장본은 계속 접근 가능한 명도로 유지한다");
+assert.ok(html.includes("저장한 문안을 원본에 반영하고 파일을 저장하세요"));
+assert.ok(html.indexOf("다음 작업") < html.indexOf("자격 조건 · 작성 기능 자세히"));
 
 // 결과 대기 항목: 메타 줄에 상태 문구, 주 버튼은 결과 입력(대화상자)
 assert.ok(html.includes("제출 완료 · 결과 대기"));

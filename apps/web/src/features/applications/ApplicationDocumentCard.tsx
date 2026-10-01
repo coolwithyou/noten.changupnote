@@ -45,7 +45,7 @@ export type EditorMode = "management" | "result";
  */
 export const DOCUMENT_CARD_COLUMNS = {
   "--sl-cols-md": "minmax(0,1fr) auto",
-  "--sl-cols-lg": "minmax(0,1.15fr) repeat(3,minmax(0,1fr)) auto",
+  "--sl-cols-lg": "minmax(0,1fr) auto",
 } as CSSProperties;
 
 /** 디자인 `.btn-mint` — 기본 변형의 그라디언트·그림자를 걷어내고 민트 잉크 토큰만 남긴다(hex 없음). */
@@ -81,7 +81,7 @@ export function ApplicationDocumentCard({
     <Card
       className={cn(
         "gap-0 rounded-2xl border border-border-card bg-card py-0 shadow-[var(--shadow-notice)] ring-0 transition-colors hover:border-border-card-hover",
-        closed && "opacity-60 hover:opacity-85",
+
       )}
       data-closed={closed ? "true" : undefined}
     >
@@ -127,17 +127,22 @@ export function ApplicationDocumentCard({
           </p>
         </div>
 
-        {/* md에서는 제목+버튼 행 아래 3열, lg에서는 contents로 풀려 부모 그리드의 열 2~4가 된다. */}
-        <dl
-          className="grid grid-cols-1 gap-2.5 md:col-span-full md:grid-cols-3 md:gap-4 lg:contents"
-          aria-label="문서 진행 상태"
-        >
-          <StatusCell label="자격 확인" {...(writing ? eligibilityCell(item, writing) : NO_INFO_CELL)} />
-          <StatusCell label="작성 기능" {...(writing ? capabilityCell(item, writing) : NO_INFO_CELL)} />
-          <StatusCell label="문서 완성" {...(writing ? completionCell(item, writing, now) : NO_INFO_CELL)} />
-        </dl>
+        <div className="col-span-full rounded-xl bg-surface-soft px-3 py-3 md:col-span-1 md:row-start-2">
+          <p className="text-xs font-semibold text-text-tertiary">다음 작업</p>
+          <p className="mt-1 text-sm font-semibold text-ink">{applicationNextStep(item)}</p>
+          <dl className="mt-2" aria-label="최근 저장 상태">
+            <StatusCell label="문서 저장" {...(writing ? completionCell(item, writing, now) : NO_INFO_CELL)} />
+          </dl>
+        </div>
+        <details className="col-span-full border-t border-border-subtle pt-3">
+          <summary className="cursor-pointer text-xs font-semibold text-text-secondary">자격 조건 · 작성 기능 자세히</summary>
+          <dl className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2" aria-label="문서 진행 상태">
+            <StatusCell label="자격 확인" {...(writing ? eligibilityCell(item, writing) : NO_INFO_CELL)} />
+            <StatusCell label="작성 기능" {...(writing ? capabilityCell(item, writing) : NO_INFO_CELL)} />
+          </dl>
+        </details>
 
-        <div className="flex items-center justify-end gap-2 md:col-start-2 md:row-start-1 lg:col-start-auto lg:row-start-auto">
+        <div className="flex items-center justify-end gap-2 md:col-start-2 md:row-start-1 lg:col-start-2 lg:row-start-1">
           {primary.kind === "link" ? (
             <a
               className={cn(
@@ -376,6 +381,16 @@ export function needsFileSave(writing: ApplicationWritingStatus): boolean {
   return writing.capability.originalEdit
     && writing.completion.sectionsWritten > 0
     && writing.completion.savedCount === 0;
+}
+
+export function applicationNextStep(item: ApplicationPipelineItem): string {
+  const writing = item.writing;
+  if (!isActiveStage(item.stage)) return applicationStatusLine(item);
+  if (writing?.completion.closed) return hasSavedWork(item, writing) ? "마감 후에도 저장본을 열고 내보낼 수 있어요" : "마감된 공고예요. 공고 내용과 진행 기록을 확인하세요";
+  if (writing && needsFileSave(writing)) return "저장한 문안을 원본에 반영하고 파일을 저장하세요";
+  if (writing?.completion.factsToReview) return `작성본에서 사실 ${writing.completion.factsToReview}건을 검토하세요`;
+  if (writing && hasSavedWork(item, writing)) return "최근 저장한 작성본을 이어서 준비하세요";
+  return "공고 조건을 확인하면서 지원서 작성을 시작하세요";
 }
 
 export type PrimaryAction =

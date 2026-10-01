@@ -112,7 +112,7 @@ const html = render({ satisfied, needsCheck, evidenceLevel: "verified" });
 
 // 헤더 집계·캡션·그룹 라벨(우대는 집계 밖).
 assert.ok(html.includes("확인된 조건 1/6 · 남은 쟁점 4 · 불일치 1"));
-assert.ok(html.includes("자격 조건"));
+assert.ok(html.includes("내 사업자 정보와 공고 조건 대조"));
 assert.ok(html.includes("작성 시작 여부와는 별개예요"));
 assert.ok(html.includes("필수 · 제외"));
 assert.ok(html.includes("우대 · 집계에 넣지 않아요"));
@@ -159,7 +159,7 @@ assert.ok(html.includes("[&amp;_a]:no-underline"));
 assert.ok(!/\[&amp;_a\]:underline[\s"]/.test(html));
 
 // 옛 구조(조건별 카드 + 2×2 사실 표 + StatusBadge 어휘)와 금지 어휘가 없다.
-for (const stale of ["공고 조건", "현재 판단", "다음 행동", "<dl", "<dt", "충족 확인", "공고 원문 근거 보기", "필수 조건<", "우대·평가"]) {
+for (const stale of ["현재 판단", "다음 행동", "<dl", "<dt", "충족 확인", "공고 원문 근거 보기", "필수 조건<", "우대·평가"]) {
   assert.ok(!html.includes(stale), `stale text ${stale}`);
 }
 // 금지 어휘(core 이유 문장의 "지원·가능" 표현)가 화면에 새지 않는다.
@@ -180,3 +180,6 @@ assert.ok(emptyHtml.includes("비교할 필수·제외 조건이 아직 정리�
 assert.ok(!emptyHtml.includes("data-condition-status"));
 
 console.log("grant overview UI: 3-column condition rows with 6 states, trust chips, evidence and action links passed");
+
+assert.ok(html.includes("내 사업자 정보"));
+assert.ok(html.includes("비교할 회사 정보 미확인"));

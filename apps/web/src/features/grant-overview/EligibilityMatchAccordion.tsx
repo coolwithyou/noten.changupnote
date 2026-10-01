@@ -68,7 +68,7 @@ export function EligibilityMatchAccordion({
   return (
     <AccordionItem value="eligibility" className="border-b border-border-subtle">
       <AccordionTrigger className="px-1 py-[18px] text-[15.5px] font-semibold hover:no-underline">
-        <span>자격 조건</span>
+        <span>내 사업자 정보와 공고 조건 대조</span>
         <span className="ml-auto pr-2 text-right text-xs font-medium text-muted-foreground tabular-nums">
           {summary}
         </span>
@@ -154,10 +154,13 @@ function ConditionRow({
         {trust ? <ConditionTrustBadge trust={trust} /> : null}
       </div>
       <div className="min-w-0">
+        <p className="mb-1 text-[11px] text-text-tertiary">공고 조건</p>
         <div className="text-sm leading-[1.45] font-semibold text-ink">{condition.requirement}</div>
         <div className="mt-0.5 text-[11.5px] text-text-source">{conditionRowSource(condition, trust)}</div>
       </div>
       <div className="flex min-w-0 flex-col items-start gap-1.5">
+        <p className="text-[11px] text-text-tertiary">내 사업자 정보</p>
+        <p className="text-sm font-semibold text-ink">{condition.trace.companyValue?.trim() || "비교할 회사 정보 미확인"}</p>
         <ConditionStatus status={status} />
         <span className="text-[13px] leading-[1.45] text-text-secondary">{conditionRowEvidence(condition, status)}</span>
         {action ? (
