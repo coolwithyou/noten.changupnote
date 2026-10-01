@@ -215,3 +215,8 @@ gitignored private 파일/브라우저 stdin으로만 취급하며 코드·진�
 - `0732c485f95a9e88862434f181a627fe0d0e37eb`: 원문줄·한국어문장별≤500char exactsubstring에서 sourceId/SHA/offset/quote 기반 deterministic 후보ID 생성. 모델은현재ID enum만선택, 서버가원sourceId+quote를복원한뒤기존출처·계획·수치·길이검증을전부적용. freequote/긴sourceId 재생성 제거. 저장/public UI WritingComposition 및 usage source_kind writing-section-v1 유지.
 - unknownID/없는인용·틀린출처·plan-as-fact·수치조작·Unicode500boundary·emptyproposal 회귀와 writing전체suite/typecheck PASS. 최종동일커밋 localbuild PASS(compile8.3s/tsc15.3s/기존NFTwarning1). root diff검수 PASS.
 - read-only 현행자료4개(company1/계획1/공고2)에서候補85개(company7/계획23/공고55), fullsource7375chars/units7308chars/enum2126bytes. 모델·DB쓰기·브라우저0. provider공식stringenum지원/optional·union상한에맞는구조확인; 실제provider생성인수는운영UI에서별도진행. 동일승인범위 clean0732c48 재배포착수.
+
+## 인용 존재 통과 후 출처 종류 제한 개선 — 15:53 KST
+- source0732c48 배포 `dpl_HX6aFnEZ11naUdYDd6QKDSUPmbc6` READY/exactmetadata/alias동일, build·tsc·HTTPS스모크PASS/flagtrue유지(증거17815fe). 실제UI section-4 request `e8702e2c-9f24-4bc2-b740-8b7b08f59c00`는 인용존재검증을통과했으나 `section_company_source_invalid`로failed. company_fact에공고/계획출처를선택한유형오류차단이며검증문안·원본반영없음.
+- providerreported input19419/output1348/추정$0.078477, 단일maxRetries0예약대조해제. 신규합계$0.2453831+미확인chat예약$2.9825089, 승인$20이내. 실제failed상태이력보존.
+- 정상제품의paragraph schema를종류별출처enum으로강화한다: 회사fact는허용company/currentdoc이며plan표현없는unit, plan은application_plan/currentdoc기본출처필수, ancillary자료별도, proposal은제안표시유지. 기존verify모든정책불변/public저장형식불변. 후보ID선택과sourcekind관계를생성스키마에서도강제하여자동반영이나demo예외없이재검증한다.
