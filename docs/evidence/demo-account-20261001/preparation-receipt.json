@@ -1,0 +1,45 @@
+{
+  "schema": "cunote-demo-preparation-receipt-v1",
+  "completed": false,
+  "accountEmail": "demo-20261001@noten.im",
+  "companyId": "a0132dd3-9cb7-87a1-95ef-6cfc171a795f",
+  "legacyGrantId": "b1d964ae-fe8b-4212-9fa7-31d65a4ded12",
+  "draftId": "8199e7d4-2c93-4dd1-b68e-42838ec0917b",
+  "existingProof": {
+    "passwordLogin": true,
+    "companyProfileSaved": true,
+    "writingSourceSaved": true,
+    "briefSaved": true,
+    "rhwpPages": 13,
+    "serverSave": true,
+    "downloadBytes": 100742,
+    "downloadSha256": "ab31ebbccb6e117b8c1dbfad1684c5e7616ec09f24c0f31154266f6f7973d9f9",
+    "zipIntegrity": true,
+    "consultationApiStatus": 200,
+    "consultationSession": "897f5632-c6eb-4935-b7fa-12c66a4437ba"
+  },
+  "remaining": [
+    "current-version fully analysed application",
+    "actual field autofill and section generation/application",
+    "deploy normal chat UI with approval",
+    "actual whole browser journey and reopened output content"
+  ],
+  "analysisPreparation": {
+    "manifestSha256": "c321820cea65b5df909921498e8e3a199681b03198072127aa7d06098a53bab5",
+    "inventorySha256": "c7d1dc5e1d8ff00f8df34ce83a5743439d7641fe1c55e63ec749c94876bf1ba6",
+    "historicalExcluded": 1008,
+    "historyCopiedFiles": 12552,
+    "historyByteDifferences": 0,
+    "targetCount": 1,
+    "modelCalls": 0,
+    "serviceWrites": 0,
+    "liveExecutionAuthorized": false,
+    "sourceCommit": "ab28ce3d6b6037964f5952f3b9c6c367fd0d6fd8"
+  },
+  "uiFix": {
+    "commit": "99c861f",
+    "browserEvidence": "../demo-chat-20261001/2026-10-01T04-05-18-932Z/report.json",
+    "checks": 6,
+    "syntheticUiOnly": true
+  }
+}

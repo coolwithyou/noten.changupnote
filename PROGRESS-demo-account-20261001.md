@@ -13,17 +13,58 @@
 gitignored private 파일/브라우저 stdin으로만 취급하며 코드·진행 파일·로그에 기록하지 않는다.
 
 ## 체크리스트/검증
-- [ ] 현재 서버/배포 기능·계정 구성·기존 작업 owner 확인 (lsof/git/환경 key 존재 여부).
+- [x] 현재 서버/배포 기능·계정 구성·기존 작업 owner 확인:4010 main, prod login ordinarypassword; Vercel noten-dev/project changupnote 확인.
 - [ ] 분석 완료+현재 신청 가능+RHWP 실제 source/필드 준비 후보 read-only 조사.
-- [ ] 공고 조건에 맞는 허구 사업자 설정과 시연 스토리 확정 (matcher 실제 결과).
-- [ ] 정상 password 계정·회사·자료/사업 설명·필요 credit 구성 (session/profile readback).
+- [x] 시연 기업 초기 설정/사업 설명 저장: software supply SME2년/5인/연매출1.2억(합성). 한남 소프트웨어/SME/일반기업 조건에 맞춤, 공고검수 쟁점은 유지.
+- [x] 정상 password 계정·회사·자료/사업 설명 구성 및 상담 요청 성공. 사용량 수동 증액 없음.
 - [ ] 매칭→상세→workspace RHWP 자동입력/제안서·문안→AI상담→파일 저장/다운로드 브라우저 검증.
 - [ ] 재현 시나리오/접속 안내/증거/남은 경계 기록, 관련 코드·문서 scoped commits.
 
 ## 결정 로그
 - 기존 dirty main 코드 보존. 구현/문서는 clean authoring-first에서 진행.
-- 완전 분석된 기존 공고를 선택하며 추가 live deep-analysis/cohort/release를 실행하지 않는다.
+- 우선 완전 분석된 기존 공고를 조사했다. 현행 v22 완료본이 없어 정상 단건 prepare까지 진행한다. 신규 live deep/Kordoc은 exact manifest 승인 전 실행하지 않는다.
 - 매칭·자동입력 가능성을 실제 artifact/브라우저로 확인한 뒤 대상 기업 내용을 작성한다.
 
 ## 막힘
 현재 조사 중. 실제 막힘은 대체 가능한 공고/정상 경로를 먼저 시도하고 기록한다.
+
+## 실계정·운영 준비 증거
+- 시연 계정 `demo-20261001@noten.im`, userId `f212886d-bb64-4fcf-aab5-43114ebc9e63`.
+  일반 register 201 및 실제 password login 뒤 dashboard 확인. 비밀번호는 비공개 파일만 유지.
+- 일반 회사 생성201, companyId `a0132dd3-9cb7-87a1-95ef-6cfc171a795f`.
+  industry/target_type/region 정상 profile field API3회200. 경기 소프트웨어 개발 및 공급업 중소법인.
+- 한남 공고 `b1d964ae-fe8b-4212-9fa7-31d65a4ded12`, 신청서 draft
+  `8199e7d4-2c93-4dd1-b68e-42838ec0917b`: 실제 RHWP HWPX13쪽 열림, 서버 저장 성공12:48.
+- 작성 등록정보 PUT200: 합성번호 `0000000000`, verified=false, 대표/담당자/주소/이메일.
+  외부 verify/enrich 호출 없음. 합성 회사 소개 텍스트 source1개와 사업 설명8개 저장 안내 확인.
+- prod 매칭 API: returned first20 중 verified11/discovery9, recommendable0.
+  main 현재 admission 소스로 읽으면 verified0이지만 deployed/authoring은 historical serving으로
+  verified를 보존한다. 이것을 회사 부적격이나 전체 분석 부재로 혼동하지 않는다.
+
+## 확인된 기능 막힘과 정상 보완
+- 한남 기존95필드(v8/역사roundtrip)와 현행v22 연결 계약이 달라 자동입력/항목AI 비활성.
+- 실제 '작성 위치 찾기'에서도 필드 `9e0640d7-229a-47cb-9211-9a6897fdac58` 구조 missing으로
+  차단됨. 예외로 건너뛰거나 성공 처리하지 않는다.
+- 로컬 완료 roundtrip813/run1813/manifest140 조사에서 currentv22완료0.
+  한남 역사 formal seq10 재prepare는 current prompt 계약 불일치로 exit1. live 모델은 미착수.
+- 일반 RHWP(b)에서 기존 공고상담이 필드ready(a) 대화창 gate에 묶여 UI 진입 불가한 문제 발견.
+  일반 상담 진입을 별도 허용하는 정상 제품 UI 수정·회귀검증 진행, preview write금지 보존.
+- 신규 미분석 HWPX단건을 표준 current-inventory로 prepare하고 exact범위를 사용자에게 제시하는
+  경로 조사 중. GateR 신규 모델실행/서비스promotion은 준비와 구분해 승인 전에 시작하지 않는다.
+
+## 재개 검증 — 정상 준비 경로
+- 현재 운영 세션에서 같은 회사/한남 draft 접근을 재확인했다. RHWP13쪽 열림과 missing 필드 오류는 동일하다.
+- clean 실행 소스의 authoring-first에 main 전체 analysis-lab history12,552개를 복사하고 파일 SHA 전수 동일(차이0)을 확인했다. 얕은 worktree의 빈 이력을 unseen 판정에 사용하지 않는다.
+- main 환경 파일은 gitignored symlink로만 연결했고 secret 값은 출력하지 않았다. package runtime freshness PASS.
+- private 계정 접속 정보는 `/Users/ffgg/.codex/private/cunote-demo-20261001/access.json`(디렉터리700/파일600)에 보관한다.
+- UI WorkspaceView render, ChatPanel render, chatRequestState 회귀 PASS. history 작업 중 typecheck 오류는 소유 agent에게 전달하고 최종 재검증한다.
+
+## 정상 단건 manifest 준비 통과·승인 대기
+- history consumer 수정 `ab28ce3`, 일반 RHWP 상담 UI `99c861f` 커밋. 전용/기존 preparation 테스트·web typecheck PASS. current-inventory 확장 28/30 중 2실패는 HEAD baseline에서도 동일(증거 문서 참조).
+- 상담 UI finite browser 6 checks PASS: 일반 RHWP b 진입/합성 SSE/독립 context/재열기/390px/preview 차단. 실제 상담 API200과 UI합성증거는 분리한다. 운영 배포 전이다.
+- 표준 `pnpm lab:launch:prepare-current -- --grant-ids=9837fd9b-0b15-4e70-b1b5-0fe3765e980c --concurrency=1 --analysis-mode=primary_and_application` exit0.
+- exact manifest `c321820cea65b5df909921498e8e3a199681b03198072127aa7d06098a53bab5`, inventory `c7d1dc5e1d8ff00f8df34ce83a5743439d7641fe1c55e63ec749c94876bf1ba6`.
+- 실행 계약: primary_and_application, claude-cli/claude-opus-5, Kordoc v22, concurrency1, source ab28ce3. history1008 제외. modelCalls0/serviceWrites0/liveExecutionAuthorized=false.
+- 사용자에게 이 exact1건 Gate R 승인을 비동기 질문했다. 응답 없이는 grant/launch를 실행하지 않는다. promotion·배포는 별도 범위다.
+- 후보: 싱가포르 현지 진출 국내 블록체인 기업, 신청기간9/28~10/8 14:00. 기존 합성software회사에 블록체인 문서근거/이력증명 SaaS 사업계획을 맞출 수 있지만 제품사실/영어피칭/출장조건을 자동확정하지 않는다.
+- manifest/준비 영수증: docs/evidence/demo-account-20261001. 준비 성공은 완전분석·자동입력 성공이 아니다.
