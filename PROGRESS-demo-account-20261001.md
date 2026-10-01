@@ -247,3 +247,8 @@ gitignored private 파일/브라우저 stdin으로만 취급하며 코드·진�
 - 정상 UI 1회 재시도 section8 `dad4e474-d344-4324-bc20-45a96739b056`는 quantity_mismatch로 차단. reported22559/1861/추정$0.095592, 무재시도단일예약 대조 해제. 실패 proof를 각각 section7-timeout-readback.json/section8-quantity-failed-readback.json에 보존.
 - section-diagnostic-2 $7선예약 후 현재 동일 정상권한/자료/모델/생성구조의 단건 유한진단 `0647ed1f-6d06-4638-961f-3dfe4dc2d02b` 실행. 비공개 raw 보관·안전 수치요약 방식 동일. 현재 reported$0.6123011 + 미확인chat예약$2.9825089 + timeout예약$7 + 진단진행예약$7 = $17.59481, 승인$20이내.
 - 소개 반영 차단은 table_cell_region에 대한 UI admission 지원 누락으로 확정. 기존 엔진 exactpreimage/인접경계/서식 보호는 지원하며 이를 유지한다. 기존내용이 있는 서술형은 가이드 판정을 임의 확장하지 않고, 현재내용과 저장문안을 보여준 뒤 기본해제된 명시 교체확인과 최신문안/CAS/preimage 재검증을 갖춘 일반 편집경로를 준비한다.
+
+## 사업계획 범위 표기 동치 진단 — 16:43 KST
+- 단건 진단 `0647ed1f-6d06-4638-961f-3dfe4dc2d02b` providerreported22559/1821/추정$0.094992. 원문 인용·단락 종류를 그대로 저장한 뒤 검증: 6문단 중 일정 문단만 quantity_mismatch. 원문 `18~20일`, `1~3월`과 응답 `18일~20일`, `1월~3월`은 동일한 양 끝/단위인데 기존 regex는 생략된 앞단위를 상속하지 않아 거부한다. 다른 문단 회사·예산 수치 대조는 PASS.
+- 정상 범위 표현의 양끝단위 상속을 canonical 수치에 적용하는 일반 수정과 오인용/다른단위/endpoint변조 거부 회귀를 진행한다. 단순 단위없는 숫자에는 관계없는 뒤 단위를 상속하지 않는다. 실제 private응답의 문안·종류·근거 변경0으로 offline fullverify 통과를 증명한다. 모델·원본·출처kind 정책 변경없음.
+- 진단 단일무재시도예약대조해제. 신규reported$0.7072931 + 미확인chat예약$2.9825089 + timeout예약$7 = $10.689802, 다음실행가능잔액$9.310198.
