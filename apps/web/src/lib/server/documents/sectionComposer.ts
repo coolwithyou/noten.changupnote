@@ -10,7 +10,7 @@ import type { CompanyAccess } from "../auth/companyGuard";
 import { assertChatBudget, normalizeChatUsage } from "../chat/budget";
 import { buildGrantGrounding } from "../chat/grounding";
 import { getCunoteDb } from "../db/client";
-import { quoteExists } from "../knowledge/extraction";
+import { normalizeWs, quoteExists } from "../knowledge/extraction";
 import { beginGenerativeUsage, finalizeGenerativeUsage } from "./generativeUsage";
 import { fieldSuggestModel, type FieldSuggestResult } from "./fieldSuggest";
 import { WritingContextError, type loadWritingGrounding } from "./writingContext";
@@ -58,7 +58,9 @@ export function verifyWritingComposition(raw: unknown, sources: readonly Documen
     if (/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/u.test(paragraph.text)) throw sectionFailure("section_control_characters");
     for (const ref of paragraph.evidence) {
       const source = byId.get(ref.sourceId);
-      if (!source || !quoteExists(ref.quote, source.content)) throw sectionFailure("section_evidence_invalid");
+      // quoteExists normalizes the quote, and requires an already-normalized corpus.
+      // Keep the original content/hash binding; normalize whitespace only for membership.
+      if (!source || !quoteExists(ref.quote, normalizeWs(source.content))) throw sectionFailure("section_evidence_invalid");
     }
     if (paragraph.kind !== "proposal" && paragraph.evidence.length === 0) throw sectionFailure("section_evidence_missing");
     if (paragraph.kind === "company_fact") {

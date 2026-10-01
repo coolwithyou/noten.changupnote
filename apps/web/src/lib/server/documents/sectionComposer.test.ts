@@ -14,6 +14,23 @@ const sources: DocumentAgentGroundingSource[] = [
 const fact = { text: "2025년 고객 3곳에 서비스를 제공했습니다.", kind: "company_fact", evidence: [{ sourceId: "company", quote: sources[0]!.content }] };
 const plan = { text: "2027년 고객 10곳 확보를 목표로 합니다.", kind: "plan", evidence: [{ sourceId: "plan", quote: sources[1]!.content }] };
 const verified = verifyWritingComposition({ paragraphs: [fact, plan, { text: "고객 인터뷰를 검토합니다.", kind: "proposal", evidence: [] }], questions: ["실제 추진 기간은 언제인가요?"] }, sources);
+// Real source formats contain CRLF, line breaks and repeated spaces. An exact copied
+// quote must pass the same canonical whitespace membership contract as other agents.
+for (const kind of ["company_material", "application_plan", "current_document"] as const) {
+  const content = "제품 소개:\r\n문서  처리\t서비스를 제공합니다.\n\n사용자 검토를 지원합니다.";
+  const source = { ...sources[0]!, kind, sourceId: `multiline-${kind}`, content };
+  const paragraph = { kind: kind === "application_plan" ? "plan" : "company_fact", text: "문서 처리 서비스를 제공합니다.",
+    evidence: [{ sourceId: source.sourceId, quote: "문서  처리\t서비스를 제공합니다.\n\n사용자 검토를 지원합니다." }] };
+  const composition = { paragraphs: [paragraph], questions: [] };
+  assert.deepEqual(verifyWritingComposition(composition, [source]), composition);
+  assert.equal(source.content, content); // Original source and SHA binding remain untouched.
+  for (const ref of [
+    {sourceId: source.sourceId, quote: "문서 처리 서비스를 제공하고 인증받았습니다."},
+    {sourceId: "different-source", quote: paragraph.evidence[0]!.quote},
+    {sourceId: source.sourceId, quote: "문서 처리 서비스를 제공합니다. 사용자 검토와 인증을 지원합니다."},
+  ]) assert.throws(() => verifyWritingComposition({paragraphs:[{...paragraph,evidence:[ref]}],questions:[]},[source]),
+    (error:unknown)=>error instanceof WritingContextError && error.code==="section_evidence_invalid");
+}
 assert.match(writingCompositionText(verified), /\n\n/);
 assert.match(writingCompositionText(verified), /검토 제안:/);
 for (const paragraph of [
