@@ -55,3 +55,27 @@ WASM SHA256: `e09e8463291f3aded87bb8febdd21610e80b5159329666f114329e10195ea229`.
 - [로그인 모바일](web-deployment-20261001/login-390.png)
 
 이 증거는 웹 배포와 익명 진입 검증이다. 로그인 후 exact 공고의 승격 결과·자동입력·문안 생성·저장·다운로드 시연 인수는 별도 담당의 실제 계정 검증 범위다.
+
+## 문항 AI 작성 활성화 revision
+
+전체 기능 시연·운영 웹 배포·이번 API 합산 $20 상한의 사용자 승인 범위와 루트의 GO를 받아, 정상 기능 플래그 `CUNOTE_WRITING_SECTION_AGENT_ENABLED`만 production에 활성화했다. 특정 사업자·공고 예외나 제품 소스 변경은 없다. 다른 환경변수·키는 변경하지 않았다.
+
+사전 read-only 조사에서 이 플래그는 production에 없었다. 서버 기본값은 false이고 `1` 또는 `true`만 활성 값이다. 문항 GET의 canGenerate는 쓰기 권한과 플래그로 결정되며 UI는 현재 양식에서 연결된 문항에만 버튼을 보여준다. 생성 POST는 기존 회사 쓰기 권한·문서 소유 회사·RLS·revision·원문/필드 binding을 적용한다. composer는 기존 회사별 예산 확인과 사용량 원장을 쓰며 현재 문안을 직접 덮어쓰지 않는다. 루트가 별도로 `sectionComposer.test.ts` PASS(session62610)와 기존 migration97 권한/RLS/CAS/독립 플래그 증거를 확인한 후 실행했다.
+
+공식 [환경변수 CLI 문서](https://vercel.com/docs/cli/env) 및 설치 CLI help를 확인하고 다음 일반 경로를 실행했다.
+
+1. `vercel env add CUNOTE_WRITING_SECTION_AGENT_ENABLED production --value true --no-sensitive --yes --scope noten`: 추가 성공.
+2. `vercel env run -e production --scope noten -- python3 ...`: 자식 환경의 해당 플래그 하나만 조회해 `value=true`, `enabled=true` 확인. 비밀값은 출력하거나 파일에 보관하지 않았다.
+3. 동일 exact git archive를 새 사본에 추출하고 `vercel deploy --prod --yes --scope noten --meta sourceCommit=d745bfcde9483185147e54b505dba64487288dd5 --meta deploymentRevision=section-ai-enabled` 실행.
+
+archive SHA는 최초 배포와 같은 `f308f2e4f43add3d23c36e27c766cf82e259423c3b805e3e8bd132f1fd64f122`이고 당시 HEAD와 제품 소스 diff도 0이었다. 임시 사본의 제외 규칙·프로젝트 연결·환경 인증 전달은 최초 배포와 동일하다.
+
+- 새 deployment: `dpl_8oT3DKnTg67YrJvR9un9UJrqAHpc`, [production URL](https://changupnote-7csgqvp24-noten.vercel.app).
+- [Vercel inspect](https://vercel.com/noten/changupnote/8oT3DKnTg67YrJvR9un9UJrqAHpc), target production, READY.
+- REST metadata sourceCommit은 exact `d745bfcde9483185147e54b505dba64487288dd5`, deploymentRevision은 `section-ai-enabled`였다.
+- 도메인 재inspect 결과 changupnote.com은 새 ID/READY와 일치했다. www 및 두 Vercel aliases도 동일 배포에 결속됐다.
+- 원격 build의 compile·TypeScript·static5 PASS. 기존 동적 추적 NFT warning3건.
+- 새 alias의 `/`, `/login`, `/api/auth/session` GET 200 확인.
+- 새 로컬 태그: `deploy-web-20261001-d745bfc-section-ai` → exact 소스 SHA. main/태그 remote push 없음.
+
+여기까지는 플래그 설정·새 배포·도메인 결속 증거다. 로그인 후 실제 canGenerate/문항 AI 버튼과 모델 품질·원문 반영 인수는 루트가 동일 $20 원장을 순차 관리하며 수행한다. 배포 담당 모델 호출은 0회다.
