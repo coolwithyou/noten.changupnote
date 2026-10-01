@@ -140,3 +140,7 @@ gitignored private 파일/브라우저 stdin으로만 취급하며 코드·진�
 - unresolved0이라 정상 independent-review repair prepare exit0. exactmanifest `fa72ee62e6bbf59d4cd95fd6e863646e3d99eb58002334e8b0fa8a508f34d79e`, sourceec0e3ef/seq0/grant1/noinputdrift. 신청서는strict `reuse_reviewed_v1`로완료본보존하고 primary에봉인된2finding을전달한다.
 - 기존사용자구독분석승인으로 grant `5565cdc7655959b94215b944133bf2a5074e03eeec442692c2dbc479dbaaf490` 생성, `ANALYSIS_LAB_TRANSPORT=claude-cli pnpm lab:launch -- --grant=5565cdc7655959b94215b944133bf2a5074e03eeec442692c2dbc479dbaaf490` session91441 실행. gate/검수result/원artifact수정없음.
 - 최종제품sourcec779614 build28406 exit0(compile/typecheck/staticPASS), 기존NFTwarning2. 실행코드수정후검증이며배포완료로해석하지않음.
+
+## 최종 릴리스 소비 계약 검증
+- `pnpm lab:release:test` exit0(session42905): completedreader5/5, buildprovenance, deep/launchpromotion, aggregateevidence, release/replacement, applicationroundtrip admission/import, precomputebundle, servingprovenance 모두PASS.
+- 이는새검수지시repair의완료신청서재사용을정상릴리스소비경로에서처리하는계약회귀다. 실제최종leaf의독립검수PASS와read-onlyreleaseinspect는별도로확인해야한다. 운영releaseprepare/approve/promote/write/배포없음.
