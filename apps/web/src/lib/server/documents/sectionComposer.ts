@@ -16,6 +16,7 @@ import { fieldSuggestModel, type FieldSuggestResult } from "./fieldSuggest";
 import { WritingContextError, type loadWritingGrounding } from "./writingContext";
 import { writingGroundingSources } from "./writingGroundingSources";
 import type { DocumentAgentGroundingSource } from "./documentAgentGrounding";
+import { buildSectionEvidenceUnits, resolveSectionEvidenceSelection, sectionEvidenceSelectionSchema } from "./sectionEvidenceUnits";
 
 export const SECTION_COMPOSER_VERSION = "writing-section-v1";
 export type SectionComposerResult = FieldSuggestResult & { composition: WritingComposition };
@@ -40,7 +41,9 @@ export function sectionComposerSystemPrompt(): string {
     "company_fact의 인용문에 목표·계획·예정·추진할·확보할 표현이 있으면 실적으로 표현하지 말고 적절한 plan 또는 proposal로 구분합니다.",
     "plan은 반드시 application_plan 또는 current_document 자료의 evidence를 하나 이상 포함해야 합니다. 사용자 입력에 없는 계획은 proposal입니다.",
     "회사명·실적·매출·고객·인증을 만들지 않습니다. 회사 자료의 기준연도와 프로젝트 범위를 유지합니다.",
-    "각 company_fact/plan 문단은 실제 sourceId와 원문에서 그대로 복사한 인용문 quote가 필요합니다. quote는 500자 이내입니다.",
+    "각 문단은 evidenceIds 배열로 서버가 제공한 evidenceUnits의 evidenceId만 선택합니다. sourceId나 quote를 직접 생성하지 않습니다.",
+    "company_fact/plan은 해당 문단의 모든 주장을 뒷받침하는 인용 후보를 선택합니다. 후보 kind도 위 출처 규칙을 지켜야 합니다.",
+    "인용 후보가 부족하면 주장을 만들지 말고 질문으로 남깁니다. proposal은 evidenceIds를 비워 둘 수 있습니다.",
     "문단에 쓰는 모든 숫자와 단위는 그 문단의 실제 quote에 동일하게 있어야 합니다. 연도·수량·금액·기간·비율을 바꾸거나 단위 환산하지 않습니다.",
     "없는 수치를 계산·합산·추정하거나 항목 수를 세어 만들지 않습니다. 수치가 없으면 질문으로 남깁니다.",
     "계획·목표는 미래형으로 쓰고 이미 달성했다고 표현하지 않습니다. announcement는 작성 요구사항입니다.",
@@ -118,15 +121,17 @@ export async function generateSectionSuggestions(input: {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 45_000);
   try {
-    const result = await generateText({ model: createAnthropic({ apiKey })(model), output: Output.object({ schema: writingCompositionSchema }),
+    const evidenceUnits = buildSectionEvidenceUnits(sources);
+    const result = await generateText({ model: createAnthropic({ apiKey })(model), output: Output.object({ schema: sectionEvidenceSelectionSchema(evidenceUnits) }),
       system: sectionComposerSystemPrompt(),
       prompt: JSON.stringify({ section: { title: input.fieldLabel, requirements: input.guidance, originalInstructions: input.sourceSpan },
-        sources: sources.map(({ sourceId, kind, title, content }) => ({ sourceId, kind, title, content })) }),
+        sources: sources.map(({ sourceId, kind, title, content }) => ({ kind, title, content,
+          evidenceUnits: evidenceUnits.filter(unit => unit.sourceId === sourceId).map(({ evidenceId, quote }) => ({ evidenceId, quote })) })) }),
       maxOutputTokens: 6000, maxRetries: 0, temperature: 0.2, abortSignal: controller.signal,
     });
     await finalizeGenerativeUsage({ eventId: usage.id, companyId: input.access.companyId, userId: input.access.userId,
       grantId: input.grantId, model, status: "reported", usage: normalizeChatUsage(result.usage, result.providerMetadata) });
-    return asFieldResult(input.fieldLabel, verifyWritingComposition(result.output, sources), sources, model);
+    return asFieldResult(input.fieldLabel, verifyWritingComposition(resolveSectionEvidenceSelection(result.output, evidenceUnits), sources), sources, model);
   } catch (error) {
     await finalizeGenerativeUsage({ eventId: usage.id, companyId: input.access.companyId, userId: input.access.userId,
       grantId: input.grantId, model, ...(NoObjectGeneratedError.isInstance(error) && error.usage

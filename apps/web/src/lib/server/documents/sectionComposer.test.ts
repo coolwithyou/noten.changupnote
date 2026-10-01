@@ -4,6 +4,7 @@ import { verifyWritingComposition, generateSectionSuggestions, classifySectionFa
 import { APICallError, NoObjectGeneratedError } from "ai";
 import { WritingContextError } from "./writingContext";
 import { sectionFailureMessage } from "@/lib/documents/sectionFailure";
+import { buildSectionEvidenceUnits, resolveSectionEvidenceSelection, sectionEvidenceSelectionSchema } from "./sectionEvidenceUnits";
 import { writingCompositionText } from "@/lib/documents/writingComposition";
 import { emptyWritingBrief } from "@/lib/documents/writingContext";
 const sources: DocumentAgentGroundingSource[] = [
@@ -67,7 +68,41 @@ for(const error of [provider,malformed,new Error("private-company-text API_KEY")
 }
 assert.equal(sectionFailureMessage("unknown-provider-detail"),sectionFailureMessage("section_generation_failed"));
 const prompt = sectionComposerSystemPrompt();
-for(const rule of [/company_profile, company_material, current_document/,/application_plan 또는 current_document/,/원문에서 그대로 복사/,/숫자와 단위/,/계산·합산·추정/]) assert.match(prompt,rule);
+for(const rule of [/company_profile, company_material, current_document/,/application_plan 또는 current_document/,/sourceId나 quote를 직접 생성하지 않습니다/,/숫자와 단위/,/계산·합산·추정/]) assert.match(prompt,rule);
+const units = buildSectionEvidenceUnits(sources);
+assert.deepEqual(buildSectionEvidenceUnits(sources), units);
+for(const unit of units) {
+  assert.equal(unit.quote, sources.find(source=>source.sourceId===unit.sourceId)!.content.slice(unit.start,unit.end));
+  assert.ok(unit.quote.length<=500);
+}
+const companyUnit = units.find(unit=>unit.sourceId==="company")!;
+const planUnit = units.find(unit=>unit.sourceId==="plan")!;
+const announcementUnit = units.find(unit=>unit.sourceId==="notice")!;
+const selected = (text:string, kind:string, evidenceIds:string[])=>({paragraphs:[{text,kind,evidenceIds}],questions:[]});
+const resolveAndVerify = (value:unknown)=>verifyWritingComposition(resolveSectionEvidenceSelection(value,units),sources);
+assert.deepEqual(resolveAndVerify(selected(fact.text,"company_fact",[companyUnit.evidenceId])).paragraphs[0]!.evidence,
+  [{sourceId:"company",quote:companyUnit.quote}]);
+assert.ok(sectionEvidenceSelectionSchema(units).safeParse(selected(fact.text,"company_fact",["unknown-unit"])).success===false);
+assert.throws(()=>resolveAndVerify(selected(fact.text,"company_fact",["unknown-unit"])));
+for(const [text,kind,id,code] of [
+  [fact.text,"company_fact",announcementUnit.evidenceId,"section_company_source_invalid"],
+  [fact.text,"company_fact",planUnit.evidenceId,"section_company_source_invalid"],
+  [plan.text,"plan",companyUnit.evidenceId,"section_plan_source_invalid"],
+  ["2025년 고객 30곳에 서비스를 제공했습니다.","company_fact",companyUnit.evidenceId,"section_quantity_mismatch"],
+] as const) assert.throws(()=>resolveAndVerify(selected(text,kind,[id])),(error:unknown)=>error instanceof WritingContextError && error.code===code);
+const futureSource={...sources[0]!,sourceId:"future-company",content:"2025년 고객 3곳에 제공합니다.\n앞으로 고객 10곳 확보를 계획합니다."};
+const futureUnits=buildSectionEvidenceUnits([futureSource]);
+assert.equal(futureUnits.length,2);
+assert.throws(()=>verifyWritingComposition(resolveSectionEvidenceSelection(selected("고객을 확보했습니다.","company_fact",[futureUnits[1]!.evidenceId]),futureUnits),[futureSource]),
+  (error:unknown)=>error instanceof WritingContextError && error.code==="section_plan_as_fact");
+const longSource={...sources[0]!,content:"가".repeat(498)+"😀"+"나".repeat(600)+"\r\n한국어 문장입니다. 다음 문장입니다."};
+for(const unit of buildSectionEvidenceUnits([longSource])) {
+  assert.ok(unit.quote.length<=500); assert.equal(unit.quote,longSource.content.slice(unit.start,unit.end));
+  assert.doesNotMatch(unit.quote,/^[\uDC00-\uDFFF]|[\uD800-\uDBFF]$/u);
+}
+assert.notEqual(buildSectionEvidenceUnits([{...sources[0]!,content:"바뀐 회사 내용"}])[0]!.evidenceId,companyUnit.evidenceId);
+assert.deepEqual(resolveSectionEvidenceSelection(selected("검토합니다.","proposal",[]),[]).paragraphs[0]!.evidence,[]);
+assert.equal(sectionEvidenceSelectionSchema([]).safeParse(selected("검토합니다.","proposal",["invented"])).success,false);
 const noData = await generateSectionSuggestions({ draftId: crypto.randomUUID(), grantId: crypto.randomUUID(),
   access: { userId: crypto.randomUUID(), companyId: crypto.randomUUID(), role: "owner", mode: "session" },
   fieldLabel: "사업 목표", guidance: null, sourceSpan: null, writing: { revision: 0, brief: emptyWritingBrief(), sources: [] }, requestId: crypto.randomUUID(),
