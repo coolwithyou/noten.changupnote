@@ -189,3 +189,9 @@ gitignored private 파일/브라우저 stdin으로만 취급하며 코드·진�
 - sectionflag정상활성화재배포dpl_8oT3DKnTg67YrJvR9un9UJrqAHpcREADY/source동일d745bfc/운영canGeneratetrue버튼확인. unitsectionComposer62610PASS. 첫기업소개sectionAPI는providerusage reported/비용추정$0.051783이나후단검증failed(초안유실없이문서보존). maxRetries0+reported단일요청이므로cost대조후section예약해제. 총reported신규$0.0692741+미확인chat예약$2.9825089, cap$20유지.
 - 실제nativefield결속62/66이라도일부달러unique가잘못된행으로밀리는것을writingagent읽기증거로확인했다. 숫자필드에입력하지않고일반resolver의wholecell라벨occurrence/원문좌표/명시samecell계약검증을강화중. 원modelartifact·gate예외없음. 정상separatelabel서술형은유지할예정.
 - section검증실패원인이generic오류로숨겨지는문제는일반안전failurecode/명시sourcekindprompt보완을browseragent에위임(원문/키로그출력금지,validator완화금지). 초안근거용합성회사·제품소개자료를일반dialog에추가/선택저장중.
+
+## 일반 안전 수정 검증 및 재배포 착수 — 15:15 KST
+- `39d8319`은라벨source occurrence를wholecell순서에서먼저선택하고source row/col을검증한다. 단위만있는값셀은명시samecell쓰기계약없으면차단. 실제잘못결속된숫자5개를차단했고52/66위치확인/14자동반영제외. 문서에이전트전체suite/웹tscPASS. [native실증](docs/research/2026-10-01-native-라벨-순번-입력결속-안전검증.md). 웹client가exportbytes를hostWASM으로해석하는resolver이므로Studio재배포는필요없다.
+- `139f5f1`은section검증/응답형식/provider실패를고정코드·안전한국어로분리하고 source.kind허용표와정확quote/숫자유지규칙을명시한다. 기존validator/model/maxRetries0/출력6000/45초한도유지. test:writing-context전체+웹tscPASS. providerusage존재하는형식오류는reported보존. 과거failed원인은원문미저장이라소급추정하지않는다.
+- root변경diff검수+`pnpm --filter @cunote/web build` session61137 exit0/compile12.4s/tsc17.3s/static5PASS, 기존NFTwarning3. 동일139f5f1 clean snapshot 정상웹재배포GO. flagtrue보존/Studio·원본엔진변경없음. 사용자지속운영웹승인범위이며신규승인불필요.
+- 일반자료dialog에서합성회사·제품소개를신청전용user_statement자료로추가하고선택·사업설명저장완료. 내용은실제기업증빙아님/기존실적없음/향후조건부계획을명시. 기존Hanambrief보존. 최종새배포후AI초안→검토저장→native위치비교/반영→다운로드/재열기를확인한다.
