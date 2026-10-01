@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import type { DocumentAgentGroundingSource } from "./documentAgentGrounding";
 import { verifyWritingComposition, generateSectionSuggestions, classifySectionFailure, sectionComposerSystemPrompt } from "./sectionComposer";
 import { APICallError, NoObjectGeneratedError } from "ai";
+import { z } from "zod";
 import { WritingContextError } from "./writingContext";
 import { sectionFailureMessage } from "@/lib/documents/sectionFailure";
 import { buildSectionEvidenceUnits, resolveSectionEvidenceSelection, sectionEvidenceSelectionSchema } from "./sectionEvidenceUnits";
@@ -79,22 +80,40 @@ const companyUnit = units.find(unit=>unit.sourceId==="company")!;
 const planUnit = units.find(unit=>unit.sourceId==="plan")!;
 const announcementUnit = units.find(unit=>unit.sourceId==="notice")!;
 const selected = (text:string, kind:string, evidenceIds:string[])=>({paragraphs:[{text,kind,evidenceIds}],questions:[]});
+const selectedPlan = (primaryEvidenceId:string, supportingEvidenceIds:string[]=[])=>({paragraphs:[{text:plan.text,kind:"plan",primaryEvidenceId,supportingEvidenceIds}],questions:[]});
 const resolveAndVerify = (value:unknown)=>verifyWritingComposition(resolveSectionEvidenceSelection(value,units),sources);
 assert.deepEqual(resolveAndVerify(selected(fact.text,"company_fact",[companyUnit.evidenceId])).paragraphs[0]!.evidence,
   [{sourceId:"company",quote:companyUnit.quote}]);
 assert.ok(sectionEvidenceSelectionSchema(units).safeParse(selected(fact.text,"company_fact",["unknown-unit"])).success===false);
 assert.throws(()=>resolveAndVerify(selected(fact.text,"company_fact",["unknown-unit"])));
-for(const [text,kind,id,code] of [
-  [fact.text,"company_fact",announcementUnit.evidenceId,"section_company_source_invalid"],
-  [fact.text,"company_fact",planUnit.evidenceId,"section_company_source_invalid"],
-  [plan.text,"plan",companyUnit.evidenceId,"section_plan_source_invalid"],
-  ["2025년 고객 30곳에 서비스를 제공했습니다.","company_fact",companyUnit.evidenceId,"section_quantity_mismatch"],
-] as const) assert.throws(()=>resolveAndVerify(selected(text,kind,[id])),(error:unknown)=>error instanceof WritingContextError && error.code===code);
+for(const invalid of [
+  selected(fact.text,"company_fact",[announcementUnit.evidenceId]),
+  selected(fact.text,"company_fact",[planUnit.evidenceId]),
+  selected(fact.text,"company_fact",[]),
+  selectedPlan(companyUnit.evidenceId),
+  selected(plan.text,"plan",[planUnit.evidenceId]), // Old shape cannot bypass required primary.
+  {paragraphs:[{text:plan.text,kind:"plan",supportingEvidenceIds:[planUnit.evidenceId]}],questions:[]},
+]) assert.equal(sectionEvidenceSelectionSchema(units).safeParse(invalid).success,false);
+assert.deepEqual(resolveAndVerify(selectedPlan(planUnit.evidenceId,[announcementUnit.evidenceId])).paragraphs[0]!.evidence,
+  [{sourceId:"plan",quote:planUnit.quote},{sourceId:"notice",quote:announcementUnit.quote}]);
+assert.throws(()=>resolveAndVerify(selected("2025년 고객 30곳에 서비스를 제공했습니다.","company_fact",[companyUnit.evidenceId])),
+  (error:unknown)=>error instanceof WritingContextError && error.code==="section_quantity_mismatch");
+const jsonSchema=z.toJSONSchema(sectionEvidenceSelectionSchema(units));
+assert.match(JSON.stringify(jsonSchema),/"anyOf"/);
+assert.doesNotMatch(JSON.stringify(jsonSchema),/"oneOf"/);
 const futureSource={...sources[0]!,sourceId:"future-company",content:"2025년 고객 3곳에 제공합니다.\n앞으로 고객 10곳 확보를 계획합니다."};
 const futureUnits=buildSectionEvidenceUnits([futureSource]);
 assert.equal(futureUnits.length,2);
 assert.throws(()=>verifyWritingComposition(resolveSectionEvidenceSelection(selected("고객을 확보했습니다.","company_fact",[futureUnits[1]!.evidenceId]),futureUnits),[futureSource]),
-  (error:unknown)=>error instanceof WritingContextError && error.code==="section_plan_as_fact");
+  (error:unknown)=>error instanceof WritingContextError && error.code==="section_output_invalid");
+const announcementOnly=sectionEvidenceSelectionSchema([announcementUnit]);
+assert.equal(announcementOnly.safeParse(selected(fact.text,"company_fact",[announcementUnit.evidenceId])).success,false);
+assert.equal(announcementOnly.safeParse(selectedPlan(announcementUnit.evidenceId)).success,false);
+assert.equal(announcementOnly.safeParse(selected("검토합니다.","proposal",[])).success,true);
+assert.equal(sectionEvidenceSelectionSchema([companyUnit]).safeParse(selectedPlan(companyUnit.evidenceId)).success,false);
+assert.equal(sectionEvidenceSelectionSchema([planUnit]).safeParse(selected(fact.text,"company_fact",[planUnit.evidenceId])).success,false);
+const currentUnits=buildSectionEvidenceUnits([{...sources[0]!,kind:"current_document"}]);
+assert.equal(sectionEvidenceSelectionSchema(currentUnits).safeParse(selectedPlan(currentUnits[0]!.evidenceId)).success,true);
 const longSource={...sources[0]!,content:"가".repeat(498)+"😀"+"나".repeat(600)+"\r\n한국어 문장입니다. 다음 문장입니다."};
 for(const unit of buildSectionEvidenceUnits([longSource])) {
   assert.ok(unit.quote.length<=500); assert.equal(unit.quote,longSource.content.slice(unit.start,unit.end));

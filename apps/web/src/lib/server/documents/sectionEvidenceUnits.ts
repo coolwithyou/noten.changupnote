@@ -43,19 +43,35 @@ export function buildSectionEvidenceUnits(sources: readonly DocumentAgentGroundi
   if (new Set(units.map(unit => unit.evidenceId)).size !== units.length) throw new Error("Duplicate section evidence IDs");
   return units;
 }
+export function sectionEvidencePolicy(units: readonly SectionEvidenceUnit[]) {
+  return {
+    companyFacts: units.filter(unit => ["company_profile", "company_material", "current_document"].includes(unit.kind)
+      && !/목표|계획|예정|추진할|확보할/u.test(unit.quote)),
+    plans: units.filter(unit => ["application_plan", "current_document"].includes(unit.kind)),
+  };
+}
+const unitEnum = (units: readonly SectionEvidenceUnit[]) => z.enum(units.map(unit => unit.evidenceId) as [string, ...string[]]);
 export function sectionEvidenceSelectionSchema(units: readonly SectionEvidenceUnit[]) {
-  // With no evidence, only an empty evidenceIds array is valid (proposal/questions).
-  const evidenceIds = units.length ? z.array(z.enum(units.map(unit => unit.evidenceId) as [string, ...string[]])).max(5)
-    : z.array(z.string()).max(0);
-  return z.object({ paragraphs: z.array(z.object({ text: z.string().min(1).max(1500),
-    kind: z.enum(["company_fact", "plan", "proposal"]), evidenceIds }).strict()).max(6),
+  const policy = sectionEvidencePolicy(units);
+  const text = z.string().min(1).max(1500);
+  const allIds = (max: number) => units.length ? z.array(unitEnum(units)).max(max) : z.array(z.string()).max(0);
+  const proposal = z.object({ text, kind: z.literal("proposal"), evidenceIds: allIds(5) }).strict();
+  const company = policy.companyFacts.length ? z.object({ text, kind: z.literal("company_fact"),
+    evidenceIds: z.array(unitEnum(policy.companyFacts)).min(1).max(5) }).strict() : null;
+  const plan = policy.plans.length ? z.object({ text, kind: z.literal("plan"),
+    primaryEvidenceId: unitEnum(policy.plans), supportingEvidenceIds: allIds(4) }).strict() : null;
+  // z.union emits provider-supported anyOf. No impossible/empty enum branches.
+  const paragraph = company && plan ? z.union([company, plan, proposal])
+    : company ? z.union([company, proposal]) : plan ? z.union([plan, proposal]) : proposal;
+  return z.object({ paragraphs: z.array(paragraph).max(6),
     questions: z.array(z.string().min(1).max(250)).max(3) }).strict();
 }
 export function resolveSectionEvidenceSelection(raw: unknown, units: readonly SectionEvidenceUnit[]): WritingComposition {
   const parsed = sectionEvidenceSelectionSchema(units).safeParse(raw);
   if (!parsed.success) throw new WritingContextError("section_output_invalid", sectionFailureMessage("section_output_invalid"), 502);
   const byId = new Map(units.map(unit => [unit.evidenceId, unit]));
-  return { paragraphs: parsed.data.paragraphs.map(({ evidenceIds, ...paragraph }) => ({ ...paragraph,
-    evidence: evidenceIds.map(id => { const unit = byId.get(id)!; return { sourceId: unit.sourceId, quote: unit.quote }; }) })),
+  return { paragraphs: parsed.data.paragraphs.map(paragraph => ({ text: paragraph.text, kind: paragraph.kind,
+    evidence: (paragraph.kind === "plan" ? [paragraph.primaryEvidenceId, ...paragraph.supportingEvidenceIds] : paragraph.evidenceIds)
+      .map(id => { const unit = byId.get(id)!; return { sourceId: unit.sourceId, quote: unit.quote }; }) })),
     questions: parsed.data.questions };
 }

@@ -33,3 +33,16 @@ sectionComposer도 동일한 corpus 정규화 계약을 사용하도록 수정�
 공식 [AI SDK structured data](https://ai-sdk.dev/docs/ai-sdk-core/generating-structured-data)와 [Anthropic structured outputs](https://platform.claude.com/docs/en/build-with-claude/structured-outputs)를 확인했다. string enum은 지원되지만 enum 개수의 수치 상한은 공개되지 않았다. provider internal grammar complexity 제한은 존재한다. 이번 schema는 optional/union/strict tools 0개이며 서버 검증은 항상 수행한다. 실제 provider schema admission은 재요청으로 별도 확인한다.
 
 테스트: deterministic exact offset/quote, 한국어·Unicode 긴 원문, unknown unit, 잘못된 kind, 계획 실적화, 조작 수치, 빈 후보를 검증했다. 전체 writing suite/typecheck/production build PASS (기존 NFT tracing warning 2개). 검증 중 모델 호출/운영 쓰기/배포/브라우저 변경 0회.
+
+## 문단 종류별 생성 출처 제약
+
+담당자가 후보 ID 선택 적용 후 실제 초안에서 `section_company_source_invalid`를 관측했다. 서버 복원 인용은 검증되었지만 회사 사실에 공고나 계획 후보를 선택한 경우가 여전히 거부될 수 있다. 이 정책을 생성 schema에도 반영했다.
+
+- company_fact: company_profile/company_material/current_document 중 기존 미래 계획 표현 정규식에 걸리지 않는 후보만 enum에 넣고 1~5개 선택을 요구한다.
+- plan: application_plan/current_document 후보 중 primaryEvidenceId 하나를 필수로 선택한다. 모든 후보 중 supportingEvidenceIds 0~4개를 추가할 수 있다.
+- proposal: 모든 후보 중 evidenceIds 0~5개를 선택한다.
+- 적격 근거가 없는 회사 사실·계획은 생성 schema에서 해당 kind 분기를 제외한다. 빈 후보도 proposal/질문 형식은 허용한다.
+
+schema는 provider-supported anyOf를 사용하는 z.union이며 테스트에서 JSON Schema 변환을 확인했다. union parameter 1개, optional 0개로 공식 한도 안이다. prompt에도 후보의 allowedForCompanyFact/allowedForPlanPrimary와 문단별 필드 형식을 명시한다. 서버는 primary+supporting을 기존 public evidence 배열로 복원하고 원래 verifyWritingComposition의 모든 검증을 유지한다. 저장/API/UI public 계약과 모델·usage 버전·토큰·timeout은 그대로다.
+
+회귀 테스트는 잘못된 kind, 필수 primary 누락, 빈 회사 근거, 적격 후보 없는 kind, unknown unit, 기존 plan-as-fact 및 수치 조작 차단을 확인했다. 전체 writing suite/typecheck/동일 최종 소스 production build PASS (기존 NFT tracing warning 2개). 이 검증은 모델 호출·운영 쓰기·브라우저 변경 없이 수행했다.
