@@ -224,3 +224,10 @@ gitignored private 파일/브라우저 stdin으로만 취급하며 코드·진�
 ## 문단 종류별 생성 출처 스키마 검증 — 16:03 KST
 - `2f44317fe164b7e77bdf7886048d9098a3fc1959`: company_fact는회사kind및미래표현없는인용unit min1/max5, plan은application_plan/current_document primary 필수+supporting max4, proposal은최대5개/빈근거가능. 적격근거가없는kind분기는제외하고provider-supported anyOf 구조로생성스키마제약. 후보별allowedForCompanyFact/allowedForPlanPrimary를prompt에도표시.
 - 공개WritingComposition/기존서버검증/model/45초/retry0/출력6000/usage kind 유지. unknownunit·잘못된종류·planprimary누락·계획의사실화·수치조작·없는근거·emptyproposal·anyOf(JSONoneOf없음) 회귀와 writing전체suite/typecheck/finalbuild PASS. compile54s/tsc80s/static5/기존NFTwarning2, Mac전역부하반영. rootdiff검수PASS. 운영쓰기·모델·브라우저변경0. 승인된동일웹scope clean2f44317 재배포중.
+
+## 수치 실패의 정확한 단건 진단 — 16:18 KST
+- 실제web section5 `9f95ee0b-1703-4b0c-9176-982584243301`는 sourcekind/인용존재 gate 통과 후quantity_mismatch. provider23965/1406/추정$0.092985 reported, 무재시도단건예약대조해제. 기존문안·양식보존.
+- 승인API한도내 $7선예약후 exact production2f44317의동일normal권한/자료/prompt/schema/model/retry0/45초를 로컬유한진단1회실행: request `68df727d-9a16-41bd-91fd-a2928dacb553`, provider23965/1364/추정$0.092355 reported. begin/finalizeGenerativeUsage도정상writing-section-v1원장에포함. rawoutput는소유자private0700폴더/0600파일에만저장, 콘솔은수치·인용길이·출처kind요약만출력. 진단은운영UI성공증거로대체하지않는다.
+- 정확원인: plan문단2의2026년이인용에서빠짐. 선택된추진일정 인용은11월행사문장66char로서같은185char사업설명항목의앞문장2026년이문장분할로제외됐다. 다른plan문단3이모든일정문장인용할때동일2026년검증PASS. B2B의2는실제인용에있어이번실패원인아님.
+- 정상structured application_plan은항목별label:value줄이원자적계획자료다. ≤500char항목은원문줄전체단일인용으로보존하고긴항목만기존문장/500chunk분할을사용하도록수정한다. 다른sourcekind/companyfact정책·수치검증불변. 실제비공개출력의참조를새wholeline로재결속하여offline전체validatorPASS를확인한뒤동일소스테스트/build/운영배포로이어간다.
+- 현재신규reported추정$0.4307231+미확인chat예약$2.9825089, 사용자합산$20상한준수. invoice금액이아닌토큰추정이다.
