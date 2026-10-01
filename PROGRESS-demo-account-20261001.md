@@ -206,3 +206,7 @@ gitignored private 파일/브라우저 stdin으로만 취급하며 코드·진�
 - exact source 운영 배포 `dpl_Hz2ndpkiTRbp8xJHhAauXQY9xGHP` READY, alias changupnote.com 동일ID/source metadata fullSHA 확인. 원격 build/tsc/static5·기존smokeUA HTTP200 PASS, sectionflagtrue 유지. 최초 metadata오기입 build는 alias 전환 전 CANCELED로 종결했고 source정본으로 재배포했다. 증거 `34455ca`와 deploy-web-20261001-e09df5d 태그.
 - 검증 브라우저 reload 무응답 후 해당 검증 daemon만 종료하여 복구하고 새 named session `cunote-afternoon-demo-reopen`에서 정상 로그인·동일 workspace/draft를 열었다. 7쪽·15:01 서버 저장 상태·기존 문안0 확인, 등록정보/자료 재생성이나 추가model호출 없이 보존.
 - section-3 보수예약$7을 선기록했고 새배포의 실제 UI에서 기업 소개 초안 요청을 실행했다. 응답 인수 진행중; 성공으로 아직 표시하지 않는다.
+
+## 원문 후보 선택 방식으로 문항 생성 개선 — 15:34 KST
+- section-3 request `546224b2-d4a0-41a5-b574-7a1e84c67d52`도 `section_evidence_invalid`로 종결. providerreported input8947/output1474/비용추정$0.048951, maxRetries0 단일예약대조해제. 신규reported합계$0.1669061+미확인chat예약$2.9825089, $20한도이내. 기존문안0·원본파일보존.
+- 공백 caller 결함 수정은 회귀로 유효하나 이번 실제 응답의잘못된quote/ID는 raw미저장으로확정불가. 반복 요청만으로 해결하지 않고, 정상제품의 모델 출력 근거를 freequote/긴sourceId 작성에서 서버가 원문에서 만든 exact인용 후보ID enum선택으로 개선한다. 서버가원sourceId/quote를결속해기존 모든 validator로 검증하며public저장/UI계약은유지한다. 원문개작·수치검증완화·데모예외없음.
