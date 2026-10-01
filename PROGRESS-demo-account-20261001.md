@@ -117,3 +117,8 @@ gitignored private 파일/브라우저 stdin으로만 취급하며 코드·진�
 - 정상terminalprepare exit0: manifest `601ef168693799c9096d0fc92e9165556367ebe6c00265100b2054739cfb528e`, inventory `460520c4ce9d27b475da54a6e0bed46233994f290e625382f9d37809816f9a45`. 원grant1/inputSHA/attachmentSHA 전수 동일. 새 source a61f540. 과거 5cb574 manifest/grant 미실행.
 - 사용자 지속 구독분석 승인으로 grant `f638bb949abdfb95db933d0ac33458c32e6abe9bdff0e80f2ae894ea9b400694` 기록 후 `ANALYSIS_LAB_TRANSPORT=claude-cli pnpm lab:launch -- --grant=f638bb949abdfb95db933d0ac33458c32e6abe9bdff0e80f2ae894ea9b400694` 실행. session26725, target1/1 started 확인. 완료/승격과구분.
 - 같은 source의 production build session87565 실행중. 운영배포·새운영API모델호출 없음.
+
+## 최종 build와 정상 등록정보 엔진 부분 검증
+- sourcea61f540 `pnpm --filter @cunote/web build` exit0(session87565): compile/typecheck/static5 PASS. 기존 NFT trace warning1, build실패없음. 같은source의typecheck별도반복하지않음.
+- `0642ace` 유한 실제StudioSDK/selfhost/정상profiletransaction probe: 등록정보dialog에서회사명1개 적용→export/reopen 유지. 514표좌표대비해당값셀1개만변경. [receipt](docs/evidence/native-autofill-20261001/2026-10-01T04-58-44-395Z/report.json).
+- 진입자동seed는 실제0개. 기존번호2개 already_filled 보호, 대표자profilebinding0 유지. 임의입력/역할추정없음. held불변분석materializable=false 유지. 이 증거는 엔진부분검증이며 FULL자동입력/승격/운영UI인수가아니다. 모델/운영DB쓰기0; 유한서버/브라우저/임시bundle정리true.

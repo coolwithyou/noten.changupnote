@@ -133,5 +133,31 @@
     "terminalReceipt": null,
     "sameTargetInputAttachment": true,
     "userAuthority": "all local subscription analysis approved; API token usage prohibited"
+  },
+  "latestBuild": {
+    "sourceCommit": "a61f540293f80da608178f6f3e15859eeefa3bc0",
+    "command": "pnpm --filter @cunote/web build",
+    "exitCode": 0,
+    "existingNftTraceWarnings": 1,
+    "compiled": true,
+    "typecheck": true,
+    "staticGeneration": true
+  },
+  "nativeProfileAutofillProbe": {
+    "commit": "0642ace",
+    "evidence": "../native-autofill-20261001/2026-10-01T04-58-44-395Z/report.json",
+    "realStudioProtocol": true,
+    "dialogReadyCompanyNameInputs": 1,
+    "appliedInputs": 1,
+    "reopened": true,
+    "changedLogicalCells": 1,
+    "logicalCellCount": 514,
+    "startupAutoSeedInputs": 0,
+    "immutableAnalysisMaterializable": false,
+    "operationalUiAccepted": false,
+    "representativeBindingCount": 0,
+    "businessNumberInputsProtectedAsAlreadyFilled": 2,
+    "modelCalls": 0,
+    "databaseWrites": 0
   }
 }
