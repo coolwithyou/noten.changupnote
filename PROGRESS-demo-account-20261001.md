@@ -200,3 +200,9 @@ gitignored private 파일/브라우저 stdin으로만 취급하며 코드·진�
 - source `139f5f1bb8dc31a01cc38c4979994b53d4ec04c6`, deployment `dpl_PjjfQPfU95ohntK67EsGLRmbkw1j` READY와 운영 alias 결속 확인. 일반 section 플래그 true 유지. 저장 자료 GET revision2/brief8/source1 및 서버 head GET 200/99411bytes/SHA `47ef0224f1c6acd2cf898076e8a779534f90ff33940edc9f81ac9d575d7b4904`로 실제 다운로드와 일치.
 - 두 번째 기업 소개 request `97c5fc64-6ee9-4beb-851b-8e20bdc64b31`는 provider reported input8947/output1456 후 `section_evidence_invalid` 실패. 초안·문안·원본 반영 없음. reported 토큰 비용 추정 $0.048681을 ledger에 반영하고 maxRetries0 단일 요청 예약을 대조 해제했다. 신규 합계 $0.1179551/미확인 chat 예약 $2.9825089, $20 cap 유지.
 - 재현 가능한 caller 결함: quoteExists의 두 번째 인수는 공백 정규화 원문인데 sectionComposer만 raw content를 전달하여 정확한 multiline quote도 거부한다. 다른 문서 경로와 같은 normalizeWs 계약 수정·정상/오인용 회귀 검증을 진행한다. 실패 raw 응답은 보관하지 않아 해당 실제 요청의 원인으로 소급 확정하지 않는다. validator 약화·원문 artifact 수정·demo 예외 없음.
+
+## 인용 공백 계약 수정과 운영 재인수 — 15:25–15:35 KST
+- `e09df5d48bdbd3fc979baa2867e36b2f53472921`은 quoteExists에 normalizeWs(source.content)를 전달하여 기존 caller 계약을 준수한다. CRLF·탭·다중공백 exactquote 승인과 paraphrase·없는quote·틀린ID 거부 회귀, test:writing-context 전체·웹typecheck PASS. 원문/SHA/validator/model/maxRetries0 보존. root diff 검수 PASS.
+- exact source 운영 배포 `dpl_Hz2ndpkiTRbp8xJHhAauXQY9xGHP` READY, alias changupnote.com 동일ID/source metadata fullSHA 확인. 원격 build/tsc/static5·기존smokeUA HTTP200 PASS, sectionflagtrue 유지. 최초 metadata오기입 build는 alias 전환 전 CANCELED로 종결했고 source정본으로 재배포했다. 증거 `34455ca`와 deploy-web-20261001-e09df5d 태그.
+- 검증 브라우저 reload 무응답 후 해당 검증 daemon만 종료하여 복구하고 새 named session `cunote-afternoon-demo-reopen`에서 정상 로그인·동일 workspace/draft를 열었다. 7쪽·15:01 서버 저장 상태·기존 문안0 확인, 등록정보/자료 재생성이나 추가model호출 없이 보존.
+- section-3 보수예약$7을 선기록했고 새배포의 실제 UI에서 기업 소개 초안 요청을 실행했다. 응답 인수 진행중; 성공으로 아직 표시하지 않는다.
