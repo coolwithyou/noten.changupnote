@@ -1,0 +1,181 @@
+{
+  "mode": "read-only original/profile/final comparison; no insertion/export/model/browser/API/DB write",
+  "sourceSha256": "ceb2c53a1a4ff825e3661deecd5a7533d23a4d55f2e82126a240b6de3f06e150",
+  "profileSha256": "47ef0224f1c6acd2cf898076e8a779534f90ff33940edc9f81ac9d575d7b4904",
+  "analysisSha256": "9ae3dc20d3e6c7cd6c5c86cff2234ac859d7e23c25a73fb82f73deb9b792660a",
+  "anchors": [
+    {
+      "label": "기업 개요 - 소개",
+      "source": {
+        "blockIndex": 3,
+        "row": 3,
+        "col": 1,
+        "occurrence": 0
+      },
+      "binding": {
+        "kind": "table_cell_region",
+        "section": 0,
+        "parentPara": 4,
+        "controlIndex": 0,
+        "cellIndex": 8
+      },
+      "nativeLabel": {
+        "row": 3,
+        "col": 1
+      },
+      "nativeTarget": {
+        "row": 3,
+        "col": 4
+      },
+      "textLength": 0,
+      "textSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "label": "사업계획",
+      "source": {
+        "blockIndex": 3,
+        "row": 6,
+        "col": 1,
+        "occurrence": 0
+      },
+      "binding": {
+        "kind": "table_cell_region",
+        "section": 0,
+        "parentPara": 4,
+        "controlIndex": 0,
+        "cellIndex": 14
+      },
+      "nativeLabel": {
+        "row": 6,
+        "col": 1
+      },
+      "nativeTarget": {
+        "row": 6,
+        "col": 4
+      },
+      "textLength": 11,
+      "textSha256": "af818b15451a41ff3ade2647f6eb3ad28d0ff53dbe8b1beb90759ec45a7a6dae"
+    },
+    {
+      "label": "해외 시장\n진출 전략",
+      "source": {
+        "blockIndex": 3,
+        "row": 14,
+        "col": 1,
+        "occurrence": 0
+      },
+      "binding": {
+        "kind": "table_cell_region",
+        "section": 0,
+        "parentPara": 4,
+        "controlIndex": 0,
+        "cellIndex": 31
+      },
+      "nativeLabel": {
+        "row": 14,
+        "col": 1
+      },
+      "nativeTarget": {
+        "row": 14,
+        "col": 4
+      },
+      "textLength": 30,
+      "textSha256": "8186ad339c413d6893b1cb2f776c507dca8ec7bafe8d2246da5fa5574aba6728"
+    }
+  ],
+  "profileAnchorsUnchanged": true,
+  "finalVerification": "PASS",
+  "finalSha256": "a0cd52ea335711614ba0074d9aeae5fa1c567481571965fa906a4dfe098ab17e",
+  "expectedMatches": [
+    {
+      "label": "기업 개요 - 소개",
+      "exactTextMatch": true,
+      "source": {
+        "blockIndex": 3,
+        "row": 3,
+        "col": 1,
+        "occurrence": 0
+      },
+      "binding": {
+        "kind": "table_cell_region",
+        "section": 0,
+        "parentPara": 4,
+        "controlIndex": 0,
+        "cellIndex": 8
+      },
+      "nativeLabel": {
+        "row": 3,
+        "col": 1
+      },
+      "nativeTarget": {
+        "row": 3,
+        "col": 4
+      },
+      "textLength": 343,
+      "textSha256": "d0bb3d53a21271725ce3563a407ad3ee491a5a7f925e77c53c71fd85643235aa"
+    },
+    {
+      "label": "사업계획",
+      "exactTextMatch": true,
+      "source": {
+        "blockIndex": 3,
+        "row": 6,
+        "col": 1,
+        "occurrence": 0
+      },
+      "binding": {
+        "kind": "table_cell_region",
+        "section": 0,
+        "parentPara": 4,
+        "controlIndex": 0,
+        "cellIndex": 14
+      },
+      "nativeLabel": {
+        "row": 6,
+        "col": 1
+      },
+      "nativeTarget": {
+        "row": 6,
+        "col": 4
+      },
+      "textLength": 962,
+      "textSha256": "9f568f5bc14aebe0a28075f45aa2a044b0c34f17a3c1a7501c93b296dd311e4c"
+    }
+  ],
+  "changedCells": [
+    {
+      "blockIndex": 3,
+      "row": 3,
+      "col": 4,
+      "textLength": 342,
+      "textSha256": "735e74d9664d09e94b81b1f269542dcb39bd84a87f2610a050afb0b71aa3916e"
+    },
+    {
+      "blockIndex": 3,
+      "row": 6,
+      "col": 4,
+      "textLength": 959,
+      "textSha256": "d705b502f749b83c2bfda2061c487f4a5d8400dc2a76beaf660be95992de50d8"
+    }
+  ],
+  "otherCellsPreserved": true,
+  "finalBytes": 101211,
+  "logicalCellCount": 514,
+  "changedLogicalCellCount": 2,
+  "preservedLogicalCellCount": 512,
+  "scope": "Independent native file reopen and exact server-saved manuscripts; normal application-list browser reopen proved separately by linked root evidence.",
+  "expectedManuscriptsEvidence": "final-expected-texts.json",
+  "serverHeadEvidence": "final-server-head-readback.json",
+  "normalBrowserReopenEvidence": "final-reopened-readback.json",
+  "normalBrowserReopenedPages": 8,
+  "sameDraftNormalBrowserReopened": true,
+  "reopenedDownloadExactBytes": true,
+  "userDownloadArtifact": {
+    "filename": "창업노트-싱가포르-시연-20261001.hwpx",
+    "bytes": 101211,
+    "sha256": "a0cd52ea335711614ba0074d9aeae5fa1c567481571965fa906a4dfe098ab17e",
+    "exactBytesMatch": true
+  },
+  "zipIntegrity": true,
+  "xmlFilesParsed": 6
+}

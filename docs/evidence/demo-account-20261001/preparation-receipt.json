@@ -1,186 +1,9 @@
 {
-  "schema": "cunote-demo-preparation-receipt-v1",
-  "completed": false,
+  "schema": "cunote-demo-preparation-receipt-v2",
+  "completed": true,
   "accountEmail": "demo-20261001@noten.im",
   "companyId": "a0132dd3-9cb7-87a1-95ef-6cfc171a795f",
-  "legacyGrantId": "b1d964ae-fe8b-4212-9fa7-31d65a4ded12",
-  "draftId": "8199e7d4-2c93-4dd1-b68e-42838ec0917b",
-  "existingProof": {
-    "passwordLogin": true,
-    "companyProfileSaved": true,
-    "writingSourceSaved": true,
-    "briefSaved": true,
-    "rhwpPages": 13,
-    "serverSave": true,
-    "downloadBytes": 100742,
-    "downloadSha256": "ab31ebbccb6e117b8c1dbfad1684c5e7616ec09f24c0f31154266f6f7973d9f9",
-    "zipIntegrity": true,
-    "consultationApiStatus": 200,
-    "consultationSession": "897f5632-c6eb-4935-b7fa-12c66a4437ba"
-  },
-  "remaining": [
-    "current-version fully analysed application",
-    "actual field autofill and section generation/application",
-    "deploy normal chat UI with approval",
-    "actual whole browser journey and reopened output content"
-  ],
-  "analysisPreparation": {
-    "manifestSha256": "c321820cea65b5df909921498e8e3a199681b03198072127aa7d06098a53bab5",
-    "inventorySha256": "c7d1dc5e1d8ff00f8df34ce83a5743439d7641fe1c55e63ec749c94876bf1ba6",
-    "historicalExcluded": 1008,
-    "historyCopiedFiles": 12552,
-    "historyByteDifferences": 0,
-    "targetCount": 1,
-    "modelCalls": 0,
-    "serviceWrites": 0,
-    "liveExecutionAuthorized": true,
-    "sourceCommit": "ab28ce3d6b6037964f5952f3b9c6c367fd0d6fd8"
-  },
-  "uiFix": {
-    "commit": "99c861f",
-    "browserEvidence": "../demo-chat-20261001/2026-10-01T04-05-18-932Z/report.json",
-    "checks": 6,
-    "syntheticUiOnly": true
-  },
-  "build": {
-    "sourceCommit": "08e4e0b",
-    "command": "pnpm --filter @cunote/web build",
-    "exitCode": 0,
-    "existingNftTraceWarnings": 2
-  },
-  "subscriptionPreflight": {
-    "loggedIn": true,
-    "authMethod": "claude.ai",
-    "apiProvider": "firstParty",
-    "subscriptionType": "max",
-    "modelCalls": 0
-  },
-  "liveReadback": {
-    "authenticatedSessionStatus": 200,
-    "companiesStatus": 200,
-    "currentCompanyId": "a0132dd3-9cb7-87a1-95ef-6cfc171a795f",
-    "role": "owner",
-    "companyVerified": false,
-    "region": "경기",
-    "industry": [
-      "소프트웨어 개발 및 공급업"
-    ],
-    "businessAgeMonths": 24,
-    "employees": 5,
-    "revenueKrw": 120000000,
-    "briefStatus": 200,
-    "briefRevision": 1,
-    "selectedSourceIds": [
-      "42a4ea9d-e113-4ca9-b666-d3be37dce92b"
-    ],
-    "autofillProfileStatus": 200,
-    "businessNumber": "0000000000",
-    "businessNumberVerified": false,
-    "applicationListReopen": true,
-    "rhwpReopenedPages": 13,
-    "headSourceStatus": 200,
-    "headRevisionId": "4ff01305-0362-4918-ad0d-274c829c88d0",
-    "headSavedAt": "2026-10-01T03:48:19.445Z",
-    "headBytes": 100742,
-    "headSha256": "ab31ebbccb6e117b8c1dbfad1684c5e7616ec09f24c0f31154266f6f7973d9f9",
-    "matchesDownloadedBytes": true,
-    "scope": "existing Hanam baseline; autofill and AI section readiness remain unproven"
-  },
-  "analysisExecution": {
-    "grantSha256": "6790dfa8433d9b9b72729a5e811ba86d3e9df0a2b6b3fcf21d5f9c4d1c047847",
-    "status": "completed_application_held",
-    "transport": "claude-cli",
-    "userAuthority": "all kinds of local subscription analysis approved; API token usage prohibited",
-    "terminalReceipt": "c634172a8731ece151dc44544974ad4590bb0d8eab110749359d01fe4be40f19",
-    "primaryOutcome": "publishable",
-    "applicationOutcome": "held",
-    "finishedAt": "2026-10-01T04:28:47Z",
-    "sourceApplicationSha256": "ceb2c53a1a4ff825e3661deecd5a7533d23a4d55f2e82126a240b6de3f06e150",
-    "acceptedInputCount": 66,
-    "anchorReadyInputCount": 66,
-    "anchorUnreadyInputCount": 0,
-    "unresolvedCandidateCount": 0,
-    "structuralWarningCount": 1,
-    "warningLabel": "목표\n고객",
-    "independentReviewManifest": "5264f735ce5c339ed2174123859162adb032f3362e4fa05d403119ddf86dbf1c",
-    "independentReviewTransport": "codex-cli-chatgpt-subscription"
-  },
-  "independentReview": {
-    "transport": "codex-cli",
-    "authentication": "ChatGPT subscription",
-    "model": "gpt-6-sol",
-    "manifestSha256": "5264f735ce5c339ed2174123859162adb032f3362e4fa05d403119ddf86dbf1c",
-    "aggregateSha256": "3d390827e1797f09a59ce1d321efff4a5a338b596328844d9985113d47b20b44",
-    "exitCode": 0,
-    "admission": "HOLD",
-    "correctCriteria": 17,
-    "defects": 3,
-    "unresolved": 2,
-    "databaseWrites": false,
-    "promotion": false
-  },
-  "analysisRepair": {
-    "manifestSha256": "601ef168693799c9096d0fc92e9165556367ebe6c00265100b2054739cfb528e",
-    "inventorySha256": "460520c4ce9d27b475da54a6e0bed46233994f290e625382f9d37809816f9a45",
-    "grantSha256": "f638bb949abdfb95db933d0ac33458c32e6abe9bdff0e80f2ae894ea9b400694",
-    "sourceCommit": "a61f540293f80da608178f6f3e15859eeefa3bc0",
-    "sourceTerminalReceipt": "c634172a8731ece151dc44544974ad4590bb0d8eab110749359d01fe4be40f19",
-    "analysisMode": "primary_and_application",
-    "transport": "claude-cli",
-    "promptVersion": "lab-deep-v30",
-    "validatorVersion": "deep-analysis-validator-v24",
-    "status": "completed_ready",
-    "terminalReceipt": "6aa595478fd36e92203b692168d084180b2057e1cfba3f648a0e62a2e204d3e6",
-    "sameTargetInputAttachment": true,
-    "userAuthority": "all local subscription analysis approved; API token usage prohibited",
-    "applicationCompleted": {
-      "runId": "roundtrip-2026-10-01T050056.268Z-98c796",
-      "version": "kordoc-application-roundtrip-v22",
-      "transport": "claude-cli",
-      "durationMs": 292515,
-      "acceptedInputCount": 66,
-      "coverage": "complete",
-      "anchorReadyInputCount": 66,
-      "unresolvedCandidateCount": 0,
-      "structuralWarningCount": 0,
-      "sourceSha256": "ceb2c53a1a4ff825e3661deecd5a7533d23a4d55f2e82126a240b6de3f06e150"
-    },
-    "primaryOutcome": "publishable",
-    "authoringReadiness": "ready",
-    "matchingReadiness": "ready",
-    "matchingDisposition": "conditional",
-    "recognizedFieldCount": 66,
-    "finishedAt": "2026-10-01T05:11:45.657Z",
-    "independentReviewManifest": "8972f411f59da6cc9b0c84607552fdae7537bca903816305420f496eee14ee7d",
-    "independentReviewStatus": "HOLD",
-    "independentReviewAggregate": "30398a1abcb63a752b744d337e7dba67f1b984df03f99c51169ddf0b24e0406e"
-  },
-  "latestBuild": {
-    "sourceCommit": "c779614",
-    "command": "pnpm --filter @cunote/web build",
-    "exitCode": 0,
-    "existingNftTraceWarnings": 2,
-    "compiled": true,
-    "typecheck": true,
-    "staticGeneration": true
-  },
-  "nativeProfileAutofillProbe": {
-    "commit": "0642ace",
-    "evidence": "../native-autofill-20261001/2026-10-01T04-58-44-395Z/report.json",
-    "realStudioProtocol": true,
-    "dialogReadyCompanyNameInputs": 1,
-    "appliedInputs": 1,
-    "reopened": true,
-    "changedLogicalCells": 1,
-    "logicalCellCount": 514,
-    "startupAutoSeedInputs": 0,
-    "immutableAnalysisMaterializable": false,
-    "operationalUiAccepted": false,
-    "representativeBindingCount": 0,
-    "businessNumberInputsProtectedAsAlreadyFilled": 2,
-    "modelCalls": 0,
-    "databaseWrites": 0
-  },
+  "remaining": [],
   "profileAutofillSafety": {
     "commit": "c779614",
     "guards": [
@@ -227,5 +50,351 @@
       "recognizedFieldCount": 66,
       "databaseWrites": false
     }
+  },
+  "grantId": "9837fd9b-0b15-4e70-b1b5-0fe3765e980c",
+  "draftId": "efc28b23-5fe5-46ab-9a59-51c485ed318f",
+  "primaryScenario": "Singapore normal persistent application",
+  "legacyBaseline": {
+    "legacyGrantId": "b1d964ae-fe8b-4212-9fa7-31d65a4ded12",
+    "draftId": "8199e7d4-2c93-4dd1-b68e-42838ec0917b",
+    "existingProof": {
+      "passwordLogin": true,
+      "companyProfileSaved": true,
+      "writingSourceSaved": true,
+      "briefSaved": true,
+      "rhwpPages": 13,
+      "serverSave": true,
+      "downloadBytes": 100742,
+      "downloadSha256": "ab31ebbccb6e117b8c1dbfad1684c5e7616ec09f24c0f31154266f6f7973d9f9",
+      "zipIntegrity": true,
+      "consultationApiStatus": 200,
+      "consultationSession": "897f5632-c6eb-4935-b7fa-12c66a4437ba"
+    },
+    "liveReadback": {
+      "authenticatedSessionStatus": 200,
+      "companiesStatus": 200,
+      "currentCompanyId": "a0132dd3-9cb7-87a1-95ef-6cfc171a795f",
+      "role": "owner",
+      "companyVerified": false,
+      "region": "경기",
+      "industry": [
+        "소프트웨어 개발 및 공급업"
+      ],
+      "businessAgeMonths": 24,
+      "employees": 5,
+      "revenueKrw": 120000000,
+      "briefStatus": 200,
+      "briefRevision": 1,
+      "selectedSourceIds": [
+        "42a4ea9d-e113-4ca9-b666-d3be37dce92b"
+      ],
+      "autofillProfileStatus": 200,
+      "businessNumber": "0000000000",
+      "businessNumberVerified": false,
+      "applicationListReopen": true,
+      "rhwpReopenedPages": 13,
+      "headSourceStatus": 200,
+      "headRevisionId": "4ff01305-0362-4918-ad0d-274c829c88d0",
+      "headSavedAt": "2026-10-01T03:48:19.445Z",
+      "headBytes": 100742,
+      "headSha256": "ab31ebbccb6e117b8c1dbfad1684c5e7616ec09f24c0f31154266f6f7973d9f9",
+      "matchesDownloadedBytes": true,
+      "scope": "existing Hanam baseline; autofill and AI section readiness remain unproven"
+    },
+    "scope": "Historical Hanam baseline only; does not prove current Singapore final native proposal."
+  },
+  "historicalStages": {
+    "analysisPreparation": {
+      "manifestSha256": "c321820cea65b5df909921498e8e3a199681b03198072127aa7d06098a53bab5",
+      "inventorySha256": "c7d1dc5e1d8ff00f8df34ce83a5743439d7641fe1c55e63ec749c94876bf1ba6",
+      "historicalExcluded": 1008,
+      "historyCopiedFiles": 12552,
+      "historyByteDifferences": 0,
+      "targetCount": 1,
+      "modelCalls": 0,
+      "serviceWrites": 0,
+      "liveExecutionAuthorized": true,
+      "sourceCommit": "ab28ce3d6b6037964f5952f3b9c6c367fd0d6fd8"
+    },
+    "uiFix": {
+      "commit": "99c861f",
+      "browserEvidence": "../demo-chat-20261001/2026-10-01T04-05-18-932Z/report.json",
+      "checks": 6,
+      "syntheticUiOnly": true
+    },
+    "build": {
+      "sourceCommit": "08e4e0b",
+      "command": "pnpm --filter @cunote/web build",
+      "exitCode": 0,
+      "existingNftTraceWarnings": 2
+    },
+    "subscriptionPreflight": {
+      "loggedIn": true,
+      "authMethod": "claude.ai",
+      "apiProvider": "firstParty",
+      "subscriptionType": "max",
+      "modelCalls": 0
+    },
+    "analysisExecution": {
+      "grantSha256": "6790dfa8433d9b9b72729a5e811ba86d3e9df0a2b6b3fcf21d5f9c4d1c047847",
+      "status": "completed_application_held",
+      "transport": "claude-cli",
+      "userAuthority": "all kinds of local subscription analysis approved; API token usage prohibited",
+      "terminalReceipt": "c634172a8731ece151dc44544974ad4590bb0d8eab110749359d01fe4be40f19",
+      "primaryOutcome": "publishable",
+      "applicationOutcome": "held",
+      "finishedAt": "2026-10-01T04:28:47Z",
+      "sourceApplicationSha256": "ceb2c53a1a4ff825e3661deecd5a7533d23a4d55f2e82126a240b6de3f06e150",
+      "acceptedInputCount": 66,
+      "anchorReadyInputCount": 66,
+      "anchorUnreadyInputCount": 0,
+      "unresolvedCandidateCount": 0,
+      "structuralWarningCount": 1,
+      "warningLabel": "목표\n고객",
+      "independentReviewManifest": "5264f735ce5c339ed2174123859162adb032f3362e4fa05d403119ddf86dbf1c",
+      "independentReviewTransport": "codex-cli-chatgpt-subscription"
+    },
+    "independentReview": {
+      "transport": "codex-cli",
+      "authentication": "ChatGPT subscription",
+      "model": "gpt-6-sol",
+      "manifestSha256": "5264f735ce5c339ed2174123859162adb032f3362e4fa05d403119ddf86dbf1c",
+      "aggregateSha256": "3d390827e1797f09a59ce1d321efff4a5a338b596328844d9985113d47b20b44",
+      "exitCode": 0,
+      "admission": "HOLD",
+      "correctCriteria": 17,
+      "defects": 3,
+      "unresolved": 2,
+      "databaseWrites": false,
+      "promotion": false
+    },
+    "analysisRepair": {
+      "manifestSha256": "601ef168693799c9096d0fc92e9165556367ebe6c00265100b2054739cfb528e",
+      "inventorySha256": "460520c4ce9d27b475da54a6e0bed46233994f290e625382f9d37809816f9a45",
+      "grantSha256": "f638bb949abdfb95db933d0ac33458c32e6abe9bdff0e80f2ae894ea9b400694",
+      "sourceCommit": "a61f540293f80da608178f6f3e15859eeefa3bc0",
+      "sourceTerminalReceipt": "c634172a8731ece151dc44544974ad4590bb0d8eab110749359d01fe4be40f19",
+      "analysisMode": "primary_and_application",
+      "transport": "claude-cli",
+      "promptVersion": "lab-deep-v30",
+      "validatorVersion": "deep-analysis-validator-v24",
+      "status": "completed_ready",
+      "terminalReceipt": "6aa595478fd36e92203b692168d084180b2057e1cfba3f648a0e62a2e204d3e6",
+      "sameTargetInputAttachment": true,
+      "userAuthority": "all local subscription analysis approved; API token usage prohibited",
+      "applicationCompleted": {
+        "runId": "roundtrip-2026-10-01T050056.268Z-98c796",
+        "version": "kordoc-application-roundtrip-v22",
+        "transport": "claude-cli",
+        "durationMs": 292515,
+        "acceptedInputCount": 66,
+        "coverage": "complete",
+        "anchorReadyInputCount": 66,
+        "unresolvedCandidateCount": 0,
+        "structuralWarningCount": 0,
+        "sourceSha256": "ceb2c53a1a4ff825e3661deecd5a7533d23a4d55f2e82126a240b6de3f06e150"
+      },
+      "primaryOutcome": "publishable",
+      "authoringReadiness": "ready",
+      "matchingReadiness": "ready",
+      "matchingDisposition": "conditional",
+      "recognizedFieldCount": 66,
+      "finishedAt": "2026-10-01T05:11:45.657Z",
+      "independentReviewManifest": "8972f411f59da6cc9b0c84607552fdae7537bca903816305420f496eee14ee7d",
+      "independentReviewStatus": "HOLD",
+      "independentReviewAggregate": "30398a1abcb63a752b744d337e7dba67f1b984df03f99c51169ddf0b24e0406e"
+    },
+    "latestBuild": {
+      "sourceCommit": "c779614",
+      "command": "pnpm --filter @cunote/web build",
+      "exitCode": 0,
+      "existingNftTraceWarnings": 2,
+      "compiled": true,
+      "typecheck": true,
+      "staticGeneration": true
+    },
+    "nativeProfileAutofillProbe": {
+      "commit": "0642ace",
+      "evidence": "../native-autofill-20261001/2026-10-01T04-58-44-395Z/report.json",
+      "realStudioProtocol": true,
+      "dialogReadyCompanyNameInputs": 1,
+      "appliedInputs": 1,
+      "reopened": true,
+      "changedLogicalCells": 1,
+      "logicalCellCount": 514,
+      "startupAutoSeedInputs": 0,
+      "immutableAnalysisMaterializable": false,
+      "operationalUiAccepted": false,
+      "representativeBindingCount": 0,
+      "businessNumberInputsProtectedAsAlreadyFilled": 2,
+      "modelCalls": 0,
+      "databaseWrites": 0
+    }
+  },
+  "currentAnalysis": {
+    "runId": "roundtrip-2026-10-01T050056.268Z-98c796",
+    "sourceSha256": "ceb2c53a1a4ff825e3661deecd5a7533d23a4d55f2e82126a240b6de3f06e150",
+    "acceptedInputs": 66,
+    "nativeUnique": 52,
+    "nativeBlocked": 14,
+    "coverageCompleteIsNotNativeFullWriteAdmission": true
+  },
+  "finalAcceptance": {
+    "status": "PASS",
+    "generation": {
+      "intro": {
+        "id": "85ee30ca-f281-4e15-a8c0-a5382361a49b",
+        "status": "ready"
+      },
+      "businessPlan": {
+        "id": "d0ee2869-41b3-4e38-9563-56267780bd25",
+        "status": "ready"
+      }
+    },
+    "manuscriptSaved": {
+      "introRevision": 2,
+      "introLength": 343,
+      "businessPlanRevision": 2,
+      "businessPlanLength": 962,
+      "evidence": "../demo-live-20261001/final-saved-sections.json"
+    },
+    "nativeApplied": {
+      "introCell": 8,
+      "businessPlanCell": 14,
+      "explicitExistingTextReplacementReviewed": true
+    },
+    "serverHead": {
+      "revisionId": "61cb04e7-9ef0-4d42-8f03-232e0a41e988",
+      "sha256": "a0cd52ea335711614ba0074d9aeae5fa1c567481571965fa906a4dfe098ab17e",
+      "bytes": 101211
+    },
+    "download": {
+      "sha256": "a0cd52ea335711614ba0074d9aeae5fa1c567481571965fa906a4dfe098ab17e",
+      "bytes": 101211,
+      "matchesServerHead": true,
+      "zipIntegrity": true,
+      "xmlFilesParsed": 6
+    },
+    "independentNativeReopen": {
+      "status": "PASS",
+      "exactManuscripts": 2,
+      "changedLogicalCells": 2,
+      "preservedLogicalCells": 512,
+      "tableSpansPreserved": true,
+      "nonTableContentPreserved": true,
+      "evidence": "../demo-live-20261001/final-native-readonly-proof.json"
+    },
+    "sameDraftBrowserReopen": {
+      "status": "PASS",
+      "draftId": "efc28b23-5fe5-46ab-9a59-51c485ed318f",
+      "normalApplicationListLink": true,
+      "pages": 8,
+      "savedPlanTextMatches": true,
+      "nativePlanComparisonExact": true,
+      "defaultReplacementConfirmationChecked": false,
+      "applyDisabledUntilExplicitConfirmation": true,
+      "reopenedDownloadSha256": "a0cd52ea335711614ba0074d9aeae5fa1c567481571965fa906a4dfe098ab17e",
+      "reopenedDownloadExactBytes": true,
+      "evidence": "../demo-live-20261001/final-reopened-readback.json"
+    },
+    "userArtifact": {
+      "filename": "창업노트-싱가포르-시연-20261001.hwpx",
+      "sha256": "a0cd52ea335711614ba0074d9aeae5fa1c567481571965fa906a4dfe098ab17e",
+      "bytes": 101211,
+      "exactBytesMatch": true
+    }
+  },
+  "deployment": {
+    "sourceCommit": "582792f70d7d72bc9549b9b9b0cf37eefdd6f1c8",
+    "status": "READY",
+    "deploymentId": "dpl_2rrpgF3iwdZqRGQMmpqikkDRfgeF",
+    "evidence": "../web-deployment-20261001.md"
+  },
+  "latestBuild": {
+    "sourceCommit": "582792f70d7d72bc9549b9b9b0cf37eefdd6f1c8",
+    "command": "pnpm --filter @cunote/web build",
+    "exitCode": 0,
+    "sharedDocumentAgentGate": "PASS",
+    "evidence": "../../../PROGRESS-demo-account-20261001.md"
+  },
+  "existingProof": {
+    "matchingConfirmed": 7,
+    "matchingTotal": 7,
+    "rhwpPages": 7,
+    "startupCompanyNameSeed": 1,
+    "profileDialogAppliedInputs": 17,
+    "briefRevision": 2,
+    "briefItems": 8,
+    "selectedSourceCount": 1,
+    "consultationTurns": 2,
+    "profileOnlyDownloadedSha256": "47ef0224f1c6acd2cf898076e8a779534f90ff33940edc9f81ac9d575d7b4904",
+    "profileOnlyDownloadIsFinalProposal": false,
+    "sectionFieldIds": {
+      "intro": "2d68a75b-f9cf-4aba-9fca-4945a62d2c6e",
+      "businessPlan": "fc9c0437-1dfb-4ecb-bb0f-25352337aea4"
+    },
+    "reviewedSections": [
+      {
+        "label": "기업 개요 - 소개",
+        "revision": 2,
+        "nativeTextLength": 343,
+        "nativeTextSha256": "d0bb3d53a21271725ce3563a407ad3ee491a5a7f925e77c53c71fd85643235aa",
+        "exactNativeTextMatch": true
+      },
+      {
+        "label": "사업계획",
+        "revision": 2,
+        "nativeTextLength": 962,
+        "nativeTextSha256": "9f568f5bc14aebe0a28075f45aa2a044b0c34f17a3c1a7501c93b296dd311e4c",
+        "exactNativeTextMatch": true
+      }
+    ],
+    "nativeApplyReviewedBeforeReplacement": true,
+    "finalFileEvidence": "../demo-live-20261001/final-native-readonly-proof.json"
+  },
+  "liveReadback": {
+    "scope": "Current Singapore final server readback and normal same-draft browser reopen",
+    "draftId": "efc28b23-5fe5-46ab-9a59-51c485ed318f",
+    "briefStatus": 200,
+    "briefRevision": 2,
+    "selectedSourceIds": [
+      "6ece936f-98bd-4595-a541-3b4ebbe9b293"
+    ],
+    "headSourceStatus": 200,
+    "headRevisionId": "61cb04e7-9ef0-4d42-8f03-232e0a41e988",
+    "headSavedAt": "2026-10-01T07:56:35.415Z",
+    "headBytes": 101211,
+    "headSha256": "a0cd52ea335711614ba0074d9aeae5fa1c567481571965fa906a4dfe098ab17e",
+    "matchesDownloadedBytes": true,
+    "zipIntegrity": true,
+    "xmlFilesParsed": 6,
+    "applicationListReopen": true,
+    "rhwpReopenedPages": 8,
+    "evidence": "../demo-live-20261001/final-server-head-readback.json"
+  },
+  "operationalApiBudget": {
+    "approvedCapUsd": 20,
+    "reportedEstimatedUsd": 0.7996601,
+    "unknownReservedUsd": 9.9825089,
+    "remainingAvailableUsd": 9.217831,
+    "scope": "Reported provider usage estimate and conservative unresolved reservations; not a provider invoice.",
+    "combinedReportedAndReservedUsd": 10.782169,
+    "providerInvoiceReconciled": false,
+    "evidence": "../afternoon-demo-api-budget-20261001/final-budget-status.json"
+  },
+  "completionScope": "Normal Singapore demo: matching, registered profile, grounded intro/business-plan generation/review/save/native apply, server save/download and normal same-draft reopen. Not full completion of every source form field or an official submission.",
+  "knownLimitations": [
+    "14 of 66 source candidates are fail-closed for automatic native binding; numeric/unit-cell target contracts remain separately limited",
+    "No official application submission, qualification certification or synthetic business performance claim",
+    "Provider invoice is unreconciled; timeout and unresolved chat reservations remain counted within cap"
+  ],
+  "operationalRelease": {
+    "releaseId": "deep-afternoon-demo-20261001-r1-20261001T055109Z-d745bfcd",
+    "manifestSha256": "f2b25ec31e434f8b53b9945114d380907a98bc83c776434878c98f8586e93fff",
+    "exactTargetCount": 1,
+    "promotedCount": 1,
+    "failedCount": 0,
+    "promotionVerification": "PASS",
+    "evidence": "operational-release/manifest.json"
   }
 }
