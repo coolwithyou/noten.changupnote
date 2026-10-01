@@ -147,3 +147,18 @@ exact source `2f44317fe164b7e77bdf7886048d9098a3fc1959`를 시작 clean 상태�
 - 로컬 태그 `deploy-web-20261001-2f44317`은 exact 소스를 가리킨다. remote push 없음.
 
 READY/alias/exact source 검증 즉시 루트에 전달했다. 실제 두 문항 생성 인수와 $20 API 사용량 원장은 루트 담당 범위다.
+
+## 사업 계획 항목 전체 인용 보존 배포
+
+exact source `39184d298a6d5ca57146f7c026d51751c284ebcd`를 clean 상태에서 archive로 고정했다. 루트의 검수와 전체 writing·TypeScript·final build PASS 후 승인 범위 안에서 배포했다. application_plan의 500자 이하 label:value 항목 전체를 원문 그대로 보존하는 변경이다. 루트가 실제 응답의 모델 텍스트·문단 kind·원문 SHA를 바꾸지 않고 whole-line 인용 복원 후 기존 validator 전체 PASS를 오프라인으로 확인했다. 배포 담당도 origin/coolwithyou/authoring-first가 exact 소스에 결속됐음을 확인했다.
+
+- archive SHA256 `d086014f763c042c96646cc9078c5f3fec128236aece6383100790e1daa3c8e0`, 3752 entries, 동일 사본 제외 규칙.
+- deployment `dpl_62b8nM37d7WtR2TfKicbvmzKiERy`, [production URL](https://changupnote-424ce0bvf-noten.vercel.app), [inspect](https://vercel.com/noten/changupnote/62b8nM37d7WtR2TfKicbvmzKiERy).
+- READY/production, REST sourceCommit exact SHA 및 revision `whole-line-plan-evidence` 확인.
+- changupnote.com 재inspect는 동일 ID/READY, www와 두 Vercel aliases도 일치.
+- remote compile 32.7s·TypeScript 49s·static5/build PASS, 기존 NFT warning4건.
+- 기존 smoke User-Agent의 `/`, `/login`, `/api/auth/session` HTTPS GET 200.
+- 운영 문항 AI 플래그 `true`/enabled 확인. 환경·키·Studio 변경과 배포 담당 모델 호출 0회.
+- 로컬 annotated tag `deploy-web-20261001-39184d2`, object SHA `3487eae3d68154983218845162c668d12e2d43db`, peeled source는 exact SHA다. 태그는 루트에게 전달했고 배포 담당 remote push는 0회다.
+
+READY/exact metadata/alias 검증 즉시 실제 intro·사업계획 생성 담당 루트에 전달했다. 실제 서비스 문항 인수와 $20 원장은 루트의 별도 증거로 기록한다.
