@@ -117,3 +117,18 @@ exact source `e09df5d48bdbd3fc979baa2867e36b2f53472921`를 배포했다. 수정�
 - 로컬 태그 `deploy-web-20261001-e09df5d` → exact SHA.
 
 최초 배포 시 sourceCommit 메타데이터 전체 SHA의 기입 오류를 발견했다. 업로드 소스 자체는 exact archive였지만 메타데이터 무결성을 위해 빌드 `dpl_41ac4EbdMfGYYKZ5mXmEkdGFNFPU`를 운영 alias 전환 전에 공식 cancel API로 취소하고 `CANCELED` 응답을 확인했다. 이 빌드를 인수 증거로 사용하지 않고 새 배포의 메타데이터를 다시 exact 대조했다. 최종 READY/alias 결과는 실제 문항 재인수 담당 루트에 즉시 전달했다.
+
+## 서버 근거 선택과 원문 복원 수정 배포
+
+exact source `0732c485f95a9e88862434f181a627fe0d0e37eb`를 clean 상태에서 archive로 고정해 배포했다. 서버가 제공한 정확한 근거 후보 ID를 선택한 뒤 원문 quote/source를 결정적으로 복원하고 기존 validator를 적용하는 일반 수정이다. 저장/public/UI/version 계약 변경은 없다. 루트가 full writing suite·TypeScript·local build 및 diff 구조 검수 PASS를 확인한 뒤 GO를 전달했다.
+
+- archive SHA256 `510a3d0ec9ad1f3bce4f3ec9ecc31483b2051857d8e6ee579c8a813a52659e8d`, 3749 entries, 기존 제외 규칙 유지.
+- deployment `dpl_HX6aFnEZ11naUdYDd6QKDSUPmbc6`, [production URL](https://changupnote-5j3exrcdj-noten.vercel.app), [inspect](https://vercel.com/noten/changupnote/HX6aFnEZ11naUdYDd6QKDSUPmbc6).
+- READY/production 및 REST sourceCommit exact SHA, revision `deterministic-evidence-quote` 확인. 메타데이터 SHA는 준비 영수증 파일에서 CLI로 전달했다.
+- changupnote.com 재inspect에서 동일 ID/READY, www와 두 Vercel aliases 일치.
+- remote compile·TypeScript·static5/build PASS. 기존 NFT 추적 경고는 남았으나 build 실패 없음.
+- 동일 smoke User-Agent의 `/`, `/login`, `/api/auth/session` HTTPS GET 200.
+- 운영 문항 AI 플래그는 공식 env run에서 `true`/enabled 확인. 환경변수·키·Studio 변경과 배포 담당 모델 호출 0회.
+- 로컬 태그 `deploy-web-20261001-0732c48` → exact 소스. remote push 없음.
+
+READY·alias·exact metadata 확인 직후 실제 문항 인수 담당 루트에 전달했다. 모델 호출과 $20 원장 관리는 루트만 수행한다.
