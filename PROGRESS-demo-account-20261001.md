@@ -181,3 +181,11 @@ gitignored private 파일/브라우저 stdin으로만 취급하며 코드·진�
 - actor분리 codex-demo-preparer→codex-demo-reviewer→codex-demo-executor. currentsource/input/첨부·review결속유지. 신청서bundle정상materialization(surface2), 운영작성가이드1/1. [정상릴리스영수증](docs/evidence/demo-account-20261001/operational-release/manifest.json).
 - company_exploration 배포source d745bfc 고정 clean archive, 정식CLI/인증프로젝트검증후 deploymentREADY/aliaschangupnote.com보고, 별도live인수증거정리중. root는유한일반브라우저로그인/회사자가신고/작성흐름진행. 비밀번호출력없음.
 - 합성회사일반UI에서세금/보험체납·신용문제·제재없음자가신고를저장했고해당공고중복수혜조건에아니오를답했다. 공식검증이나공고자격전체자동확정으로표시하지않음. 최초운영화면4/7→6/7→현재재조회검증중. API모델호출아직0.
+
+## 실제 운영 자동 입력·상담과 후속 일반 안전 수정 — 15:01–15:10 KST
+- 새draft `efc28b23-5fe5-46ab-9a59-51c485ed318f`, SingaporeHWPX/RHWP7쪽. 합성brief8항목을일반회사자료dialog에서저장했다. 최초회사명자동seed1개+등록정보dialog17개채우기성공toast/15:01서버저장. UIdownload `/tmp/cunote-demo-20261001/singapore-autofill.hwpx` 성공.
+- writingagent 실제파일514셀읽기대조: 입력변경18셀(회사명startup1+주소1+성명4+이메일4+전화8), 기존serializer공백변경1셀, 나머지495셀/span보존. 홈페이지/영문회사명/법인번호/기존template사업자번호변경0. 저장SHA `47ef0224` prefix/99411bytes. 자동입력화면숫자17과startup1을구분.
+- 정상일반AI상담2turn 완료/DB이력보존. 최초변동지원액을확정금액으로표현한부분을후속질문으로정정, 마지막답변에서확정지원액없음/약250만원한도변동/자체예산확보명시. [이력](docs/evidence/demo-live-20261001/consultation-messages.json). 신규reported토큰비용추정 $0.0174911, SDKretry확인불가라chat2회총$3예약잔여보수유지.
+- sectionflag정상활성화재배포dpl_8oT3DKnTg67YrJvR9un9UJrqAHpcREADY/source동일d745bfc/운영canGeneratetrue버튼확인. unitsectionComposer62610PASS. 첫기업소개sectionAPI는providerusage reported/비용추정$0.051783이나후단검증failed(초안유실없이문서보존). maxRetries0+reported단일요청이므로cost대조후section예약해제. 총reported신규$0.0692741+미확인chat예약$2.9825089, cap$20유지.
+- 실제nativefield결속62/66이라도일부달러unique가잘못된행으로밀리는것을writingagent읽기증거로확인했다. 숫자필드에입력하지않고일반resolver의wholecell라벨occurrence/원문좌표/명시samecell계약검증을강화중. 원modelartifact·gate예외없음. 정상separatelabel서술형은유지할예정.
+- section검증실패원인이generic오류로숨겨지는문제는일반안전failurecode/명시sourcekindprompt보완을browseragent에위임(원문/키로그출력금지,validator완화금지). 초안근거용합성회사·제품소개자료를일반dialog에추가/선택저장중.
