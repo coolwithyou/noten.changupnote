@@ -123,7 +123,14 @@ gitignored private 파일/브라우저 stdin으로만 취급하며 코드·진�
 - `0642ace` 유한 실제StudioSDK/selfhost/정상profiletransaction probe: 등록정보dialog에서회사명1개 적용→export/reopen 유지. 514표좌표대비해당값셀1개만변경. [receipt](docs/evidence/native-autofill-20261001/2026-10-01T04-58-44-395Z/report.json).
 - 진입자동seed는 실제0개. 기존번호2개 already_filled 보호, 대표자profilebinding0 유지. 임의입력/역할추정없음. held불변분석materializable=false 유지. 이 증거는 엔진부분검증이며 FULL자동입력/승격/운영UI인수가아니다. 모델/운영DB쓰기0; 유한서버/브라우저/임시bundle정리true.
 
-## 新 구독 신청서 분석 완료 — primary는 실행 중
+## 새 구독 신청서 분석 완료 — primary는 실행 중
 - 실제 새 roundtrip `roundtrip-2026-10-01T050056.268Z-98c796`, currentv22/claude-cli/duration292515ms. 신청서 application_form accepted66/anchorReady66/coveragecomplete, unresolved0/structuralwarning0. failureCode/error null.
 - 원문SHA `ceb2c53a1a4ff825e3661deecd5a7533d23a4d55f2e82126a240b6de3f06e150` 유지. announcement 문서의partial3은 신청서ready판정과구분. 모델실행영수증과저장본은새불변artifact이며옛heldartifact를수정하지않음.
 - launch26725/primary실행중이므로전체release준비·운영승격완료선언아님.
+
+## 두 레인 완전 분석 종결 및 독립 검수 착수 — 14:11 KST
+- launch26725 exit0, receipt `6aa595478fd36e92203b692168d084180b2057e1cfba3f648a0e62a2e204d3e6`, started05:00:47Z/finished05:11:45Z. primarypublishable, applicationcomplete/authoringready, matchingready/conditional, recognized66, publishable1/held0/failed0/systemicFailure null.
+- run `run-2026-10-01T050054.083Z-40f6e4`, SHA `c4bf4db3245e96957746671d0d53d918d2866faf0fc4e8ccaad398afefb92a2b`. 완전분석과 회사의 모든자격확정은구분. [불변 영수증 사본](docs/evidence/demo-account-20261001/terminal-repair-receipt-v30.json).
+- 새독립검수 manifest `8972f411f59da6cc9b0c84607552fdae7537bca903816305420f496eee14ee7d`, CodexChatGPT구독+APIcredential제거, session4441 실행중. 이전HOLD를수정하지않고 새leaf로판단한다.
+- `c779614` 제품자동입력 의미guard: URL주소/영문회사명/법인번호를우편주소·기본상호·사업자번호에매핑차단. startupseed도동일guard. 관련4suites/tsc/diffPASS. 분석실행코드·후보·스키마수정없음.
+- 최종제품sourcec779614 build28406 실행중. 운영승격/배포/새API모델호출없음.

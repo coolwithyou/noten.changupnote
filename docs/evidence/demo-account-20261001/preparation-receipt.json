@@ -129,8 +129,8 @@
     "transport": "claude-cli",
     "promptVersion": "lab-deep-v30",
     "validatorVersion": "deep-analysis-validator-v24",
-    "status": "running",
-    "terminalReceipt": null,
+    "status": "completed_ready",
+    "terminalReceipt": "6aa595478fd36e92203b692168d084180b2057e1cfba3f648a0e62a2e204d3e6",
     "sameTargetInputAttachment": true,
     "userAuthority": "all local subscription analysis approved; API token usage prohibited",
     "applicationCompleted": {
@@ -144,7 +144,15 @@
       "unresolvedCandidateCount": 0,
       "structuralWarningCount": 0,
       "sourceSha256": "ceb2c53a1a4ff825e3661deecd5a7533d23a4d55f2e82126a240b6de3f06e150"
-    }
+    },
+    "primaryOutcome": "publishable",
+    "authoringReadiness": "ready",
+    "matchingReadiness": "ready",
+    "matchingDisposition": "conditional",
+    "recognizedFieldCount": 66,
+    "finishedAt": "2026-10-01T05:11:45.657Z",
+    "independentReviewManifest": "8972f411f59da6cc9b0c84607552fdae7537bca903816305420f496eee14ee7d",
+    "independentReviewStatus": "running"
   },
   "latestBuild": {
     "sourceCommit": "a61f540293f80da608178f6f3e15859eeefa3bc0",
@@ -171,5 +179,16 @@
     "businessNumberInputsProtectedAsAlreadyFilled": 2,
     "modelCalls": 0,
     "databaseWrites": 0
+  },
+  "profileAutofillSafety": {
+    "commit": "c779614",
+    "guards": [
+      "web address is not postal address",
+      "English company name is not default company name",
+      "corporate registration is not business number"
+    ],
+    "startupSeedGuarded": true,
+    "testsPassed": true,
+    "typecheckPassed": true
   }
 }
