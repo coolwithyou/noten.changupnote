@@ -1,0 +1,666 @@
+<!DOCTYPE html>
+<html>
+<head>
+
+
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="" />
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<style>
+:root{
+  --ink:#191f28;--sub:#4e5968;--muted:#6b7684;--faint:#8b95a1;--line:#e5e8eb;
+  --grey-bg:#f2f4f6;--white:#ffffff;--grey-dot:#b0b8c1;
+  --blue:#3182f6;--blue-ink:#1b64da;--blue-weak:#e8f3ff;--blue-soft:#c9e2ff;--green:#03b26c;
+  --badge-blue:rgba(49,130,246,0.16);--badge-grey:rgba(78,89,104,0.16);
+  --font:'Toss Product Sans',-apple-system,BlinkMacSystemFont,'Apple SD Gothic Neo','Noto Sans KR','Segoe UI',sans-serif;
+  --type-display:104px;--type-metric-xl:200px;--type-metric:104px;--type-statement:76px;--type-title:64px;
+  --type-metric-sub:56px;--type-tag:40px;--type-h3:42px;--type-h4:36px;--type-lede:34px;--type-body:30px;--type-small:26px;--type-meta:24px;
+  --pad-top:88px;--pad-bottom:64px;--pad-x:112px;--gap-title:56px;--gap-item:28px;--radius:28px;
+}
+html,body{margin:0;padding:0;background:#191f28}
+a{color:var(--blue-ink);text-decoration:none}
+a:hover{color:var(--blue);text-decoration:underline}
+.slide{background:var(--white);color:var(--ink);font-family:var(--font);display:flex;flex-direction:column;padding:var(--pad-top) var(--pad-x) var(--pad-bottom);box-sizing:border-box;word-break:keep-all;overflow-wrap:break-word}
+.grey{background:var(--grey-bg)}
+.eyebrow{margin:0 0 40px;font-size:var(--type-meta);font-weight:700;line-height:1.4;color:var(--blue-ink)}
+.meta{margin:0;font-size:var(--type-small);font-weight:600;line-height:1.4;color:var(--muted)}
+.title{margin:0;font-size:var(--type-title);font-weight:700;line-height:1.3;letter-spacing:-0.02em}
+.lede{margin:20px 0 0;font-size:var(--type-lede);line-height:1.5;color:var(--muted)}
+.main{flex:1;min-height:0;display:flex;flex-direction:column;justify-content:center;gap:var(--gap-title);margin-top:var(--gap-title)}
+.foot{display:flex;justify-content:space-between;align-items:flex-end;gap:48px;margin-top:40px;font-size:var(--type-meta);line-height:1.5;color:var(--muted)}
+.pn{flex:none;font-weight:600;color:var(--faint);font-variant-numeric:tabular-nums}
+.g2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--gap-item)}
+.g3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--gap-item)}
+.card{background:var(--grey-bg);border-radius:var(--radius);padding:44px;display:flex;flex-direction:column;gap:20px;min-width:0}
+.cw{background:var(--white)}
+.cb{background:var(--blue-weak)}
+.tight{padding:40px}
+.num{font-size:var(--type-small);font-weight:700;line-height:1.4;color:var(--blue);font-variant-numeric:tabular-nums}
+.k{margin:0;font-size:var(--type-h3);font-weight:700;line-height:1.3;letter-spacing:-0.02em}
+.k4{margin:0;font-size:var(--type-h4);font-weight:700;line-height:1.35;letter-spacing:-0.02em}
+.kb{color:var(--blue-ink)}
+.d{margin:0;font-size:var(--type-body);line-height:1.55;color:var(--sub)}
+.metric{font-size:var(--type-metric);font-weight:700;line-height:1;letter-spacing:-0.03em;color:var(--blue);font-variant-numeric:tabular-nums;white-space:nowrap}
+.metric-sub{font-size:var(--type-metric-sub);letter-spacing:-0.02em}
+.metric-xl{font-size:var(--type-metric-xl)}
+.chip{align-self:flex-start;display:inline-flex;align-items:center;padding:8px 18px;border-radius:12px;background:var(--badge-blue);color:var(--blue-ink);font-size:var(--type-small);font-weight:600;line-height:1.4;white-space:nowrap}
+.chip-grey{background:var(--badge-grey);color:var(--sub)}
+.chips{display:flex;flex-wrap:wrap;gap:14px}
+.label{margin:0;font-size:var(--type-small);font-weight:700;line-height:1.4;color:var(--muted)}
+.display{margin:0;font-size:var(--type-display);font-weight:700;line-height:1.22;letter-spacing:-0.03em}
+.tag{margin:44px 0 0;font-size:var(--type-tag);font-weight:600;line-height:1.45;color:var(--blue-ink)}
+.statement{margin:0;font-size:var(--type-statement);font-weight:700;line-height:1.3;letter-spacing:-0.025em}
+.take{margin:0;font-size:var(--type-lede);font-weight:700;line-height:1.5}
+.take-row{display:flex;align-items:center;gap:20px}
+.rows{display:flex;flex-direction:column;border-bottom:2px solid var(--line)}
+.row{display:grid;grid-template-columns:72px minmax(0,560px) minmax(0,1fr);gap:48px;align-items:center;padding:34px 0;border-top:2px solid var(--line)}
+.row-wide{grid-template-columns:72px minmax(0,660px) minmax(0,1fr);padding:24px 0}
+.dot{width:72px;height:72px;border-radius:50%;background:var(--blue-weak);color:var(--blue-ink);display:flex;align-items:center;justify-content:center;font-size:var(--type-small);font-weight:700;font-variant-numeric:tabular-nums}
+.dot-grey{background:var(--grey-bg);color:var(--sub)}
+.tl{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:32px}
+.step{display:flex;flex-direction:column;gap:18px;padding-top:36px;border-top:8px solid var(--blue-soft);min-width:0}
+.step-now{border-top-color:var(--blue)}
+.when{font-size:var(--type-small);font-weight:600;line-height:1.4;color:var(--muted)}
+.when-now{color:var(--blue-ink)}
+.flow{display:grid;grid-template-columns:minmax(0,1fr) 48px minmax(0,1fr) 48px minmax(0,1fr) 48px minmax(0,1fr);gap:12px;align-items:stretch}
+.pair{display:grid;grid-template-columns:minmax(0,1fr) 72px minmax(0,1fr);gap:16px;align-items:stretch}
+.arrow{display:flex;align-items:center;justify-content:center;color:var(--grey-dot)}
+.span{display:flex;flex-direction:column;gap:20px}
+.bar{display:flex;gap:8px;height:20px}
+.seg{border-radius:10px;background:var(--line)}
+.seg-on{background:var(--blue)}
+.span-labels{display:flex;gap:8px}
+.lab{display:flex;flex-direction:column;gap:4px;min-width:0}
+.lab-k{font-size:var(--type-body);font-weight:700;line-height:1.45;color:var(--ink)}
+.lab-on{color:var(--blue-ink)}
+.lab-d{font-size:var(--type-small);line-height:1.45;color:var(--muted)}
+.mark-row{display:flex;align-items:center;gap:16px}
+.mark{flex:none;width:20px;height:20px;border-radius:50%;background:var(--green)}
+.mark-blue{background:var(--blue)}
+.mark-grey{background:var(--grey-dot)}
+.shot{margin:0;background:var(--white);border:2px solid var(--line);border-radius:20px;overflow:hidden;box-shadow:0 16px 40px rgba(25,31,40,0.08)}
+.shot img{display:block;width:100%;height:auto}
+.shot-row{display:grid;grid-template-columns:1284px minmax(0,1fr);gap:44px;align-items:center}
+.side{display:flex;flex-direction:column;gap:20px;min-width:0}
+.cap{margin:0;font-size:var(--type-meta);line-height:1.5;color:var(--muted)}
+.crop{width:366px;height:114px;overflow:hidden;border:2px solid var(--line);border-radius:16px;background:var(--white)}
+.crop img{display:block;width:1280px;max-width:none;height:auto;margin:-389px 0 0 -881px}
+.split{display:grid;grid-template-columns:minmax(0,1fr) 1048px;gap:48px;align-items:center}
+.split-l{display:grid;grid-template-columns:minmax(0,1fr) 720px;gap:48px;align-items:center}
+.items{display:flex;flex-direction:column;border-bottom:2px solid var(--line)}
+.item{display:flex;flex-direction:column;gap:10px;padding:24px 0;border-top:2px solid var(--line)}
+.items-tight .item{padding:16px 0;gap:8px}
+.fig{margin:0;display:flex;flex-direction:column;gap:16px;min-width:0}
+.thumbs{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:24px}
+.thumb{display:flex;flex-direction:column;gap:14px;min-width:0}
+.thumb .shot{border-radius:14px;box-shadow:none}
+.thumb-k{font-size:var(--type-small);font-weight:700;line-height:1.4;color:var(--ink)}
+.thumb-row{display:flex;align-items:baseline;gap:12px}
+</style>
+</helmet>
+<x-import component-from-global-scope="deck-stage" from="./deck-stage.js" width="1920" height="1080" hint-size="100%,100%">
+
+<section class="slide grey" data-label="표지" data-screen-label="01 표지" data-speaker-notes="기능 목록을 자랑하는 자리가 아니라, 처음 세운 가정이 현실을 만나 어떻게 바뀌었는지 함께 이해하는 자리입니다. 개발 기록이 시작되기 전 기간은 확인할 자료가 없습니다. 이 회고는 창업노트의 개발 기록과 기획 문서만을 바탕으로 합니다.
+
+근거 자료: source/git-history.json, docs/product/창업노트_사용자플로우_로드맵_설계.md">
+  <p class="meta">2026.04.01 – 10.01 · 본사 팀 공유</p>
+  <div style="flex:1;display:flex;flex-direction:column;justify-content:center">
+    <h1 class="display">창업노트,<br>그동안의 고민과 다음 방향</h1>
+    <p class="tag">사업자번호로 지원사업을 찾던 서비스가, 신청서를 함께 쓰는 도구가 되기까지</p>
+  </div>
+  <div class="foot"><span>창업노트 6개월 회고 · 2026년 10월 1일 기준</span><span class="pn">01 / 28</span></div>
+</section>
+
+<section class="slide" data-label="회고 범위" data-screen-label="02 회고 범위" data-speaker-notes="기록은 10월 1일 오전 9시 26분 시점으로 고정해서 셌습니다. 같은 기록이 여러 곳에 있으면 한 번만 셌고, 날짜는 한국 시간 기준입니다. 코드를 저장한 날은 모두 90일입니다. 6월 19일과 24일은 코드 없이 기획 문서만 있는 날입니다. 문서 수정이나 작업 합치기도 한 건으로 세기 때문에, 이 숫자를 기능 개수나 성과로 읽으면 안 됩니다. 4월 1일~6월 18일에 다른 일을 하지 않았다는 뜻도 아닙니다.
+
+근거 자료: source/git-history.json">
+  <p class="eyebrow">회고 범위</p>
+  <h2 class="title">이번 회고가 다루는 기록</h2>
+  <p class="lede">지난 6개월 가운데 개발 기록으로 확인할 수 있는 부분을 정리했습니다.</p>
+  <div class="main">
+    <div class="g3">
+      <div class="card"><span class="metric">184일</span><p class="d">4월 1일부터 10월 1일까지</p></div>
+      <div class="card"><span class="metric">1,445건</span><p class="d">개발 중 코드를 저장한 횟수</p></div>
+      <div class="card"><span class="metric">1,206<span class="metric-sub"> + 239</span></span><p class="d">본 서비스에 합쳐진 것<br>+ 따로 작업 중인 것</p></div>
+    </div>
+    <div class="span">
+      <div class="bar"><div class="seg" style="flex:79"></div><div class="seg seg-on" style="flex:105"></div></div>
+      <div class="span-labels">
+        <div class="lab" style="flex:79"><span class="lab-k">4/1 – 6/18 · 79일</span><span class="lab-d">개발 기록이 남지 않은 기간</span></div>
+        <div class="lab" style="flex:105"><span class="lab-k lab-on">6/19 – 10/1 · 105일</span><span class="lab-d">6/19 첫 기획 문서 · 6/25 첫 코드 저장</span></div>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>4월 1일–6월 18일은 기록이 없는 기간일 뿐, 일을 하지 않았다는 뜻은 아닙니다.</span><span class="pn">02 / 28</span></div>
+</section>
+
+<section class="slide grey" data-label="처음의 아이디어" data-screen-label="03 처음의 아이디어" data-speaker-notes="6월 19일 기획 문서에 담긴 처음 의도를 요약했습니다. 처음부터 실제 접수는 각 기관 사이트에서 사용자가 직접 하는 것으로 정했고, 자동 제출은 약속하지 않았습니다. 과거에 지원금을 받은 이력은 자동으로 확인하기 어려워, 사용자가 직접 입력하는 방식을 먼저 택했습니다. 문서에 적힌 날짜(6/19)와 첫 코드 저장일(6/25)은 다릅니다.
+
+근거 자료: docs/product/창업노트_사용자플로우_로드맵_설계.md, 9909c84">
+  <p class="eyebrow">출발점</p>
+  <h2 class="title">처음의 아이디어</h2>
+  <p class="lede">6월 19일 사용자 흐름 기획 문서에서</p>
+  <div class="main" style="gap:48px">
+    <p class="statement">복잡한 지원사업 찾기를<br><span class="kb">한 번에 한 단계씩, 쉽게</span></p>
+    <div class="g3">
+      <div class="card cw"><h3 class="k">사업자번호로 시작</h3><p class="d">기본 정보는 자동으로 불러오고, 빈 조건만 하나씩 묻는다.</p></div>
+      <div class="card cw"><h3 class="k">지금과 앞으로를 함께</h3><p class="d">지금 가능한 사업과 준비하면 열릴 사업을 함께 보여준다.</p></div>
+      <div class="card cw"><h3 class="k">이유까지 솔직하게</h3><p class="d">확인 못 한 조건과 지원할 수 없는 이유를 숨기지 않는다.</p></div>
+    </div>
+  </div>
+  <div class="foot"><span>창업노트 6개월 회고 · 2026년 10월 1일 기준</span><span class="pn">03 / 28</span></div>
+</section>
+
+<section class="slide" data-label="고민의 이동" data-screen-label="04 고민의 이동" data-speaker-notes="시기마다 여러 작업이 겹쳐 있습니다. 앞 단계가 끝난 뒤에 다음 단계가 시작된 것은 아닙니다. 주간 평가는 회고하면서 덧붙인 해석입니다.
+
+근거 자료: source/editorial.json, docs/STATUS.md, ce67775:docs/STATUS.md">
+  <p class="eyebrow">고민의 변화</p>
+  <h2 class="title">고민의 중심이 옮겨 갔습니다</h2>
+  <p class="lede">처음 목표를 버린 것이 아니라, 사용자가 실제로 끝낼 수 있는 일에 가까워졌습니다.</p>
+  <div class="main">
+    <div class="tl">
+      <div class="step"><span class="when">6월 말</span><h3 class="k">지원사업 찾기</h3><p class="d">회사 정보와 공고를 연결</p></div>
+      <div class="step"><span class="when">7월 초</span><h3 class="k">양식 이해하기</h3><p class="d">양식을 화면에 띄우고 검토</p></div>
+      <div class="step"><span class="when">7월 말–8월</span><h3 class="k">분석 신뢰도</h3><p class="d">근거를 남기고 따로 검토</p></div>
+      <div class="step"><span class="when">8월 말–9월</span><h3 class="k">서비스 연결</h3><p class="d">답하면 결과가 바로 바뀌게</p></div>
+      <div class="step step-now"><span class="when when-now">9월 말</span><h3 class="k kb">신청서 작성</h3><p class="d">회사 자료로 문항별 초안</p></div>
+    </div>
+  </div>
+  <div class="foot"><span>창업노트 6개월 회고 · 2026년 10월 1일 기준</span><span class="pn">04 / 28</span></div>
+</section>
+
+<section class="slide grey" data-label="서류 작업" data-screen-label="05 서류 작업" data-speaker-notes="7월 2일 전체 설계 문서에서 서비스 범위를 '공고 찾기'에서 '신청서 작성 안내'까지 넓혔습니다. 당시 표본 양식 60개를 모두 화면에 띄운 시험은 그 표본에 대한 결과일 뿐, 모든 기관 양식을 채우고 출력할 수 있다는 뜻은 아닙니다. 오른쪽 화면은 같은 기능이 자란 10월 1일 시연 때의 모습입니다.
+
+근거 자료: docs/public-support-application-guide-master-architecture.md, 692683e, 2bf43ec, 2e69725, docs/demos/2026-10-01-afternoon-demo/source/scenario.md">
+  <p class="eyebrow">고민의 변화</p>
+  <h2 class="title">공고를 찾아도 서류 작업이 남았습니다</h2>
+  <p class="lede">7월에는 검색에서 한 걸음 더 나아가 신청 준비와 양식 작성까지 범위를 넓혔습니다.</p>
+  <div class="main">
+    <div class="split">
+      <div class="items">
+        <div class="item"><h3 class="k">양식 읽기</h3><p class="d">한글·PDF 양식을 화면에 띄우고, 입력할 칸의 위치를 찾아 검토하는 화면을 만들었다.</p></div>
+        <div class="item"><h3 class="k">양식 채우기</h3><p class="d">한글 파일에 바로 입력해 내려받고, 화면에서 직접 고친 뒤 수정본을 저장할 수 있게 했다.</p></div>
+      </div>
+      <figure class="fig"><div class="shot"><img src="uploads/demo-02-form-open.png" alt="7쪽짜리 한글 신청서를 화면에서 열고 오른쪽에 문항 작성 도우미를 띄운 작성 화면" width="1280" height="577"></div><figcaption class="cap">지금의 양식 작성 화면 · 10월 1일 시연</figcaption></figure>
+    </div>
+  </div>
+  <div class="foot"><span>7월 2일 시험에서 표본 양식 60개를 모두 화면에 띄웠지만, 모든 양식을 자동으로 채울 수 있다는 뜻은 아닙니다.</span><span class="pn">05 / 28</span></div>
+</section>
+
+<section class="slide" data-label="분석의 과정" data-screen-label="06 분석의 과정" data-speaker-notes="분석 시험 환경, 검토 과정, 나중에 고칠 수 없는 실행 기록, 검토를 통과한 결과만 그대로 서비스에 반영하는 경로를 만든 기록입니다. AI의 답이 서비스의 판정으로 쓰일 때 어떤 자료와 판단을 거쳤는지 되짚어 볼 수 있습니다. 다만 이 구조가 분석 전체의 정확도를 보장하지는 않습니다.
+
+근거 자료: 7b26092, 55a22cd, d073a54, 4124101">
+  <p class="eyebrow">고민의 변화</p>
+  <h2 class="title">AI 분석이 서비스에 쓰이기까지</h2>
+  <p class="lede">AI가 읽은 내용마다 출처를 달고, 검토를 통과한 것만 쓰도록 했습니다.</p>
+  <div class="main">
+    <div class="flow">
+      <div class="card"><span class="num">01</span><h3 class="k">원문 모으기</h3><p class="d">공고 본문과 첨부파일을 그대로 보관</p></div>
+      <div class="arrow"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"></path></svg></div>
+      <div class="card"><span class="num">02</span><h3 class="k">조건 정리</h3><p class="d">회사 정보와 하나씩 비교하도록 정리</p></div>
+      <div class="arrow"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"></path></svg></div>
+      <div class="card"><span class="num">03</span><h3 class="k">따로 검토</h3><p class="d">잘못 읽은 곳과 확인이 필요한 곳을 표시</p></div>
+      <div class="arrow"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"></path></svg></div>
+      <div class="card cb"><span class="num">04</span><h3 class="k kb">서비스 반영</h3><p class="d">통과한 결과만 추천과 작성에 사용</p></div>
+    </div>
+  </div>
+  <div class="foot"><span>창업노트 6개월 회고 · 2026년 10월 1일 기준</span><span class="pn">06 / 28</span></div>
+</section>
+
+<section class="slide grey" data-label="반복 분석의 한계" data-screen-label="07 반복 분석의 한계" data-speaker-notes="8월 10~16일에 실패 원인을 분석한 내용을 바탕으로 했습니다. 비싼 종량제 요금으로 의도치 않게 실행되던 문제를 고쳤고, 실행 기록의 표시만 보고 구독 요금제로 돌았다고 단정하지 않습니다. 시험은 구독 요금제로, 실제 서비스는 기존 방식으로 나눈 원칙은 그대로 유지합니다. 소규모 시범 결과를 전체 품질로 넓혀 말하지 않았습니다.
+
+근거 자료: docs/research/2026-08-14-구독-딥분석-반복실패-구조진단-및-개선-설계.md, df81748, 199795f, 37b7afc">
+  <p class="eyebrow">고민의 변화</p>
+  <h2 class="title">분석을 반복하며 드러난 한계</h2>
+  <p class="lede">빠르고 싸게 돌리는 문제와 정확하게 읽는 문제는 별개였습니다.</p>
+  <div class="main">
+    <div class="g2">
+      <div class="card cw"><span class="num">01</span><h3 class="k">비용과 중단</h3><p class="d">AI 분석은 정액 구독 요금제로 돌려 비용을 줄이고, 중간에 멈춰도 이어서, 실패한 건만 다시 돌리게 했다.</p></div>
+      <div class="card cw"><span class="num">02</span><h3 class="k">정확하게 읽기</h3><p class="d">빠진 첨부, 얽힌 조건, 서약 항목 오해, 양식 칸 위치는 계속 손봐야 했다.</p></div>
+    </div>
+    <div class="take-row"><span class="chip">돌아보면</span><p class="take">‘끝까지 돌았다’와 ‘쓸 만한 결과가 나왔다’는 다른 이야기였습니다.</p></div>
+  </div>
+  <div class="foot"><span>창업노트 6개월 회고 · 2026년 10월 1일 기준</span><span class="pn">07 / 28</span></div>
+</section>
+
+<section class="slide" data-label="서비스 반영" data-screen-label="08 서비스 반영" data-speaker-notes="8월 17일 비공개 베타 반영 계획 문서에 '9건 반영 완료, 반영 후 점검 9건 통과'가 기록되어 있습니다. 9월 초 종합 점검에서 '실제 서비스 반영이 한 번도 없었다'고 쓴 부분은 이 기록에 따라 바로잡았습니다. 이 숫자는 그날 반영한 9건의 결과일 뿐, 지금 서비스 전체의 수치나 고객 성과가 아닙니다.
+
+근거 자료: 62176fd, docs/plans/2026-08-17-closed-beta-exact-release-cohort.md, docs/STATUS.md">
+  <p class="eyebrow">서비스로 연결</p>
+  <h2 class="title">검토를 마친 공고 9건을 서비스에 반영했습니다</h2>
+  <p class="lede">8월 17일, 비공개 베타 대상 소규모 반영 결과</p>
+  <div class="main">
+    <div class="g2">
+      <div class="card"><span class="metric metric-xl">9 / 9</span><p class="d">서비스 반영 완료</p></div>
+      <div class="card"><span class="metric metric-xl">9 / 9</span><p class="d">반영 후 추천 결과 점검 통과</p></div>
+    </div>
+  </div>
+  <div class="foot"><span>9건 규모의 시범 결과입니다. 실제 사용자의 시간 절약이나 선정 성과는 따로 확인해야 합니다.</span><span class="pn">08 / 28</span></div>
+</section>
+
+<section class="slide" data-label="사용자 답변" data-screen-label="09 사용자 답변" data-speaker-notes="9월 7~9일의 개발과, 실제 서비스와 분리된 시험 환경에서 확인한 기록을 요약했습니다. 시험용 계정과 시험용 데이터로 확인한 결과를 실제 사용자 전체가 확인한 것처럼 말하지 않습니다. 오른쪽은 10월 1일 시연 때의 신청 관리 화면으로, 작성 중인 문서와 다음 할 일, 마지막 저장 시각을 보여 줍니다.
+
+근거 자료: 64481b1, 4475188, b6e1c5f, docs/STATUS.md, 3d58a8c:docs/evidence/demo-live-20261001/applications-before-reopen.png">
+  <p class="eyebrow">서비스로 연결</p>
+  <h2 class="title">사용자의 답변이 쌓이는 서비스로</h2>
+  <p class="lede">9월 초에는 입력한 내용이 사라지거나 엇갈리지 않도록 다듬었습니다.</p>
+  <div class="main">
+    <div class="split">
+      <div class="items items-tight">
+        <div class="item"><h3 class="k4">다시 들어와도</h3><p class="d">회사 정보와 공고별 답변을 저장해 두고 그대로 불러온다.</p></div>
+        <div class="item"><h3 class="k4">조건이 바뀌면</h3><p class="d">공고·질문·답변이 바뀌면 예전 판정을 그대로 쓰지 않는다.</p></div>
+        <div class="item"><h3 class="k4">누가 고칠 수 있나</h3><p class="d">소유자·편집자·보기 전용 권한을 나누고, 회사끼리 섞이지 않게 한다.</p></div>
+      </div>
+      <figure class="fig"><div class="shot"><img src="uploads/demo-08-applications.png" alt="작성 중인 신청서와 다음 할 일, 마지막 저장 시각을 보여 주는 신청 관리 화면" width="1280" height="577"></div><figcaption class="cap">작성하던 문서로 돌아가는 신청 관리 화면 · 10월 1일 시연</figcaption></figure>
+    </div>
+  </div>
+  <div class="foot"><span>창업노트 6개월 회고 · 2026년 10월 1일 기준</span><span class="pn">09 / 28</span></div>
+</section>
+
+<section class="slide grey" data-label="자격과 작성 분리" data-screen-label="10 자격과 작성 분리" data-speaker-notes="9월 17일 추천과 신청서 작업을 나눈 기록, 9월 19일 원문 확인이 필요한 후보를 보여 주기 시작한 기록, 9월 30일 신청서 작성 중심으로 개발한 기록입니다. 확인되지 않은 후보를 '지원 가능'으로 확정하지 않습니다. 양식 분석이 부족하다는 이유로 직접 편집이나 문장 보관까지 막지는 않습니다.
+
+근거 자료: fd6526f, f8ef4ca, b042135, ce67775:docs/STATUS.md">
+  <p class="eyebrow">서비스로 연결</p>
+  <h2 class="title">지원 자격 확인과 서류 작성을 따로 떼었습니다</h2>
+  <p class="lede">공고 분석이 덜 끝났다고 사용자가 아무것도 못 하는 일이 없도록 했습니다.</p>
+  <div class="main">
+    <div class="g2">
+      <div class="card cw"><span class="num">01</span><h3 class="k">자격 확인</h3><p class="d">확인된 것과 아직 확인할 것을 보여주고, 필요한 답만 묻는다.</p></div>
+      <div class="card cw"><span class="num">02</span><h3 class="k">서류 작성</h3><p class="d">양식을 바로 열어 고칠 수 있게 하고, 확실한 칸의 입력과 문장 작성을 돕는다.</p></div>
+    </div>
+    <p class="take">‘추천 후보’, ‘지원 가능 확정’, ‘서류 완성’은 서로 다른 단계입니다.</p>
+  </div>
+  <div class="foot"><span>창업노트 6개월 회고 · 2026년 10월 1일 기준</span><span class="pn">10 / 28</span></div>
+</section>
+
+<section class="slide" data-label="문항 작성" data-screen-label="11 문항 작성" data-speaker-notes="이 기간의 실제 코드 변경과 개발 문서로 확인했습니다. 배포 기록에는 공개 화면을 디자인 시안과 대조한 내용이 있습니다. 문항 작성 기능과 PDF 보관 기능은 실제 서비스에서 아직 켜지지 않았기 때문에, 새 기능 전체가 서비스에 적용됐다고 말하지 않습니다. 실제 고객 자료, 파일 저장 공간, AI가 쓴 문장의 품질, 로그인 화면, 한글 프로그램에서의 확인은 남아 있습니다. 여기까지는 오전 9시 26분 기준입니다. 같은 날 오후에는 시연을 위해 문항 작성 기능을 실제 서비스에서 켜고, 시연용 가상 회사로 처음부터 끝까지 확인했습니다. 그 화면은 다음 장부터 이어집니다. 오른쪽은 이날 배포한 홈 화면입니다.
+
+근거 자료: b042135, 3b79d5b, 926777a, d7098d9, 0f8c434, 3d58a8c:docs/evidence/web-deployment-20261001.md">
+  <p class="eyebrow">서비스로 연결</p>
+  <h2 class="title">최근에는 신청서 문항 작성에 집중했습니다</h2>
+  <p class="lede">9월 30일–10월 1일, 신청서 작성 기능 개발과 일부 화면 배포</p>
+  <div class="main">
+    <div class="split-l">
+      <div class="items items-tight">
+        <div class="item"><h3 class="k4">회사 자료 다시 쓰기</h3><p class="d">회사 소개 글이나 PDF 자료를 이번 신청서의 사업 설명에 활용한다.</p></div>
+        <div class="item"><h3 class="k4">문항별 초안</h3><p class="d">초안마다 근거를 붙이고, 보관·복사·파일에 넣기를 따로 할 수 있다.</p></div>
+        <div class="item"><h3 class="k4">문서 깨짐 방지</h3><p class="d">표가 넘치지 않게 막고, 쪽 나누기와 되돌리기, 숫자 점검을 더했다.</p></div>
+      </div>
+      <figure class="fig"><div class="shot"><img src="uploads/landing-20261001.png" alt="회사 자료로 지원서를 씁니다라는 문구와 문항 초안 예시를 앞세운 창업노트 홈 화면" width="1440" height="1000"></div><figcaption class="cap">10월 1일 배포한 홈 화면</figcaption></figure>
+    </div>
+  </div>
+  <div class="foot"><span>기능 개발과 내부 확인, 일부 화면 배포까지 마쳤습니다. 실제 사용자 검증은 아직입니다.</span><span class="pn">11 / 28</span></div>
+</section>
+
+<section class="slide" data-label="시연 개요" data-screen-label="12 시연 개요" data-speaker-notes="10월 1일 오후에 실제 서비스에서 진행한 시연입니다. 대상 공고는 '싱가포르 현지 진출 지원 국내 블록체인 기업 모집 재공고'이고, 회사는 시연을 위해 만든 가상의 회사입니다(경기 소재 소프트웨어 법인, 직원 5명이라는 설정). 공고 조건 7개 확인, 회사 정보 17칸 자동 입력, 기업 소개(343자)와 사업계획(962자) 두 문항 작성, 저장한 8쪽 양식 다시 열기까지 확인했습니다. 양식 전체를 채우거나 실제로 제출한 것은 아닙니다. 이 화면들은 회고 숫자의 기준 시각(오전 9시 26분)보다 뒤의 기록이므로, 앞의 숫자와는 따로 봐 주세요. AI 사용 비용은 승인한 20달러 한도 안에서 관리했습니다. 확인된 사용액은 약 0.8달러이고, 아직 청구서로 확인하지 못한 예약분까지 합치면 약 10.8달러입니다.
+
+근거 자료: docs/demos/2026-10-01-afternoon-demo/index.html, docs/demos/2026-10-01-afternoon-demo/source/scenario.md, docs/demos/2026-10-01-afternoon-demo/evidence/preparation-receipt.json, docs/demos/2026-10-01-afternoon-demo/evidence/final-budget-status.json">
+  <p class="eyebrow">직접 보기</p>
+  <h2 class="title">실제 서비스로 공고 하나를 끝까지 해 봤습니다</h2>
+  <p class="lede">10월 1일 오후, 시연용으로 만든 가상의 회사로 처음부터 끝까지 이어서 확인했습니다.</p>
+  <div class="main">
+    <div class="thumbs">
+      <div class="thumb"><div class="shot"><img src="uploads/demo-01-conditions.png" alt="공고 조건 확인 화면" width="1280" height="577"></div><div class="thumb-row"><span class="num">01</span><span class="thumb-k">조건 확인</span></div></div>
+      <div class="thumb"><div class="shot"><img src="uploads/demo-03-autofill.png" alt="신청서 양식에 회사 정보를 채운 화면" width="1280" height="577"></div><div class="thumb-row"><span class="num">02</span><span class="thumb-k">양식에 회사 정보 채우기</span></div></div>
+      <div class="thumb"><div class="shot"><img src="uploads/demo-04-ai-chat.png" alt="공고에 대해 AI에게 묻는 화면" width="1280" height="577"></div><div class="thumb-row"><span class="num">03</span><span class="thumb-k">AI에게 공고 묻기</span></div></div>
+      <div class="thumb"><div class="shot"><img src="uploads/demo-05-draft-review.png" alt="문항 초안을 검토하는 화면" width="1280" height="577"></div><div class="thumb-row"><span class="num">04</span><span class="thumb-k">초안 검토</span></div></div>
+      <div class="thumb"><div class="shot"><img src="uploads/demo-07-final-reopened.png" alt="저장 후 다시 연 신청서 화면" width="1280" height="577"></div><div class="thumb-row"><span class="num">05</span><span class="thumb-k">저장하고 다시 열기</span></div></div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:16px">
+      <p class="label">이날 확인한 것</p>
+      <div class="chips"><span class="chip">공고 조건 7개 확인</span><span class="chip">회사 정보 17칸 입력</span><span class="chip">소개·사업계획 2개 문항 작성</span><span class="chip">8쪽 양식 저장 후 다시 열기</span></div>
+    </div>
+  </div>
+  <div class="foot"><span>시연용 가상 회사이며, 양식 전체를 채우거나 실제로 제출한 것은 아닙니다.</span><span class="pn">12 / 28</span></div>
+</section>
+
+<section class="slide grey" data-label="시연 1 조건 확인" data-screen-label="13 시연 1 조건 확인" data-speaker-notes="로그인한 뒤 시연 회사를 골라 공고를 엽니다. 회사 정보, 직접 답한 내용, 공고 원문을 함께 놓고 대조해 조건 7개가 모두 확인됐습니다. 지원 금액은 확인하지 못해 '금액 미확인'으로 그대로 표시했습니다. 조건 확인이 선정이나 출장 요건, 공식 자격을 보장하지는 않는다는 점을 함께 말씀해 주세요.
+
+근거 자료: docs/demos/2026-10-01-afternoon-demo/assets/matching-seven-confirmed.png, docs/demos/2026-10-01-afternoon-demo/source/scenario.md">
+  <p class="eyebrow">직접 보기 · 1 / 5</p>
+  <h2 class="title">회사 정보로 공고 조건부터 확인합니다</h2>
+  <div class="main">
+    <div class="shot-row">
+      <figure class="shot"><img src="uploads/demo-01-conditions.png" alt="싱가포르 공고에서 확인된 조건 7/7, 남은 쟁점 0을 보여 주는 공고 조건 확인 화면" width="1280" height="577"></figure>
+      <div class="side">
+        <h3 class="k4">확인된 조건 7 / 7</h3>
+        <p class="d">회사 정보와 공고 원문의 조건을 하나씩 맞춰 보고, 확인된 것과 남은 쟁점을 나눠 보여 줍니다.</p>
+        <p class="cap">조건을 확인했다고 선정이나 자격이 보장되지는 않습니다.</p>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>10월 1일 실제 서비스 화면 · 시연용 가상 회사</span><span class="pn">13 / 28</span></div>
+</section>
+
+<section class="slide grey" data-label="시연 2 양식과 회사 정보" data-screen-label="14 시연 2 양식과 회사 정보" data-speaker-notes="원본 신청서는 7쪽짜리 한글(HWPX) 파일입니다. 화면 왼쪽은 실제 양식, 오른쪽은 작성 도우미입니다. '등록정보로 일괄 채우기'로 주소·성명·이메일·전화번호 17칸을 채웠고, 회사명 1칸은 미리 넣어 두었습니다. 홈페이지, 영문 회사명, 법인등록번호처럼 근거가 없는 칸은 건드리지 않았습니다. 분석이 제안한 입력 위치 가운데 원문에서 위치를 확정하지 못한 14칸도 자동 입력에서 뺐습니다. 화면 오른쪽 위의 '62/66 위치 확인'은 수정 전 숫자입니다. 이후 숫자 몇 개가 다른 줄에 들어가는 문제를 찾아 고쳤고, 지금은 52칸만 자동 입력 대상으로 남겼습니다.
+
+근거 자료: docs/demos/2026-10-01-afternoon-demo/assets/autofill-seventeen.png, docs/demos/2026-10-01-afternoon-demo/source/scenario.md">
+  <p class="eyebrow">직접 보기 · 2 / 5</p>
+  <h2 class="title">실제 신청서 양식을 열고 회사 정보를 채웁니다</h2>
+  <div class="main">
+    <div class="shot-row">
+      <figure class="shot"><img src="uploads/demo-03-autofill.png" alt="한글 신청서 양식을 연 화면에서 기업명 칸이 채워지고 오른쪽에 등록정보 일괄 채우기 도우미가 보이는 화면" width="1280" height="577"></figure>
+      <div class="side">
+        <h3 class="k4">회사 정보 17칸을 한 번에</h3>
+        <p class="d">기관이 배포한 한글 신청서를 화면에서 그대로 열고, 주소·성명·연락처 같은 회사 정보를 한 번에 채웠습니다.</p>
+        <p class="cap">위치를 확신할 수 없는 칸은 자동으로 채우지 않고 비워 둡니다.</p>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>10월 1일 실제 서비스 화면 · 시연용 가상 회사</span><span class="pn">14 / 28</span></div>
+</section>
+
+<section class="slide grey" data-label="시연 3 AI에게 묻기" data-screen-label="15 시연 3 AI에게 묻기" data-speaker-notes="작성 화면에서 'AI 상담'을 열면 이 공고에 대해 물어볼 수 있습니다. 시연에서는 시장 검증 계획, 예산, 공고 요구 사항을 두 번에 걸쳐 물었습니다. 체재비는 약 250만 원 이내에서 바뀔 수 있는 지원이라 확정 수입으로 계산하면 안 되는데, 첫 답의 표현을 다시 물어 바로잡았습니다. 대화 기록은 서버에 남고, 새 질문을 보낼 때마다 실제 AI 사용 비용이 듭니다.
+
+근거 자료: 3d58a8c:docs/evidence/demo-live-20261001/ai-consultation.png, docs/demos/2026-10-01-afternoon-demo/source/scenario.md">
+  <p class="eyebrow">직접 보기 · 3 / 5</p>
+  <h2 class="title">헷갈리는 공고 내용은 AI에게 묻습니다</h2>
+  <div class="main">
+    <div class="shot-row">
+      <figure class="shot"><img src="uploads/demo-04-ai-chat.png" alt="공고에 대해 물어보기 창에서 체재비 지원 한도에 대한 답과 공고 원문 인용이 보이는 화면" width="1280" height="577"></figure>
+      <div class="side">
+        <h3 class="k4">원문 구절과 함께 답합니다</h3>
+        <p class="d">체재비 지원 한도처럼 헷갈리기 쉬운 내용을 물으면, 공고 원문의 근거 구절을 함께 보여 줍니다.</p>
+        <p class="cap">첫 답의 지원액 표현이 정확하지 않아, 다시 물어 바로잡았습니다.</p>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>10월 1일 실제 서비스 화면 · 시연용 가상 회사</span><span class="pn">15 / 28</span></div>
+</section>
+
+<section class="slide grey" data-label="시연 4 초안 검토" data-screen-label="16 시연 4 초안 검토" data-speaker-notes="기업 소개와 사업계획 두 문항을 이렇게 만들었습니다. 시연 준비 중 초안 요청은 여러 번 막혔습니다. 인용한 문장을 원문에서 찾지 못하거나, 숫자가 원문과 다르거나, 시간이 초과된 경우였습니다. 그럴 때는 잘못된 문장을 내놓는 대신 멈췄고, 원인을 고쳐 같은 날 여러 번 다시 배포했습니다. 마지막 초안도 그대로 쓰지 않고, 가상의 회사라는 점과 아직 실적이 없다는 점이 드러나도록 사람이 다듬어 소개 343자, 사업계획 962자로 저장했습니다.
+
+근거 자료: 3d58a8c:PROGRESS-demo-account-20261001.md, 3d58a8c:docs/evidence/demo-live-20261001/section-citation-failure.png, docs/demos/2026-10-01-afternoon-demo/source/scenario.md">
+  <p class="eyebrow">직접 보기 · 4 / 5</p>
+  <h2 class="title">AI가 쓴 초안은 사람이 검토한 뒤에 저장합니다</h2>
+  <div class="main">
+    <div class="shot-row">
+      <figure class="shot"><img src="uploads/demo-05-draft-review.png" alt="사업계획서 양식 옆 문항 작성 패널에 기업 개요 소개 초안이 검토용으로 떠 있는 화면" width="1280" height="577"></figure>
+      <div class="side">
+        <h3 class="k4">근거를 확인한 문장만</h3>
+        <p class="d">회사 자료와 사업 설명으로 문항별 초안을 만들고, 사람이 읽고 고쳐서 저장합니다.</p>
+        <div class="crop"><img src="uploads/demo-06-citation-warning.png" alt="초안의 인용문을 원문에서 확인하지 못했어요라는 검토용 초안 경고" width="1280" height="577"></div>
+        <p class="cap">근거를 원문에서 찾지 못하면 초안을 내지 않고 이렇게 알립니다.</p>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>10월 1일 실제 서비스 화면 · 시연용 가상 회사</span><span class="pn">16 / 28</span></div>
+</section>
+
+<section class="slide grey" data-label="시연 5 저장과 다시 열기" data-screen-label="17 시연 5 저장과 다시 열기" data-speaker-notes="문안을 저장하는 것과 원본 양식 파일에 반영하는 것은 별개입니다. 소개와 사업계획을 각각 해당 칸에만 넣었고, 나머지 칸과 표 구조는 그대로 두었습니다. 저장한 파일을 내려받아 다시 읽어 보고, 신청 관리의 '문서 열기'로 같은 작업본에 돌아와 8쪽과 문안이 그대로인지 확인했습니다. 제출은 사용자가 기관 사이트에서 직접 합니다.
+
+근거 자료: docs/demos/2026-10-01-afternoon-demo/assets/final-reopened-plan.png, docs/demos/2026-10-01-afternoon-demo/evidence/final-reopened-readback.json, docs/demos/2026-10-01-afternoon-demo/evidence/final-native-readonly-proof.json">
+  <p class="eyebrow">직접 보기 · 5 / 5</p>
+  <h2 class="title">양식에 넣고 저장한 뒤, 다시 열어 확인합니다</h2>
+  <div class="main">
+    <div class="shot-row">
+      <figure class="shot"><img src="uploads/demo-07-final-reopened.png" alt="8쪽으로 늘어난 사업계획서 양식에 시연용 사업계획 문안이 들어가 있고 마지막 서버 저장 16시 56분이 표시된 화면" width="1280" height="577"></figure>
+      <div class="side">
+        <h3 class="k4">7쪽 양식이 8쪽으로</h3>
+        <p class="d">검토한 문안을 양식의 해당 칸에 넣고 저장했습니다. 신청 관리에서 다시 열어도 내용이 그대로였습니다.</p>
+        <p class="cap">이미 내용이 있는 칸은 확인 표시를 해야만 바꿉니다.</p>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>10월 1일 실제 서비스 화면 · 시연용 가상 회사</span><span class="pn">17 / 28</span></div>
+</section>
+
+<section class="slide grey" data-label="지금까지 만든 것" data-screen-label="18 지금까지 만든 것" data-speaker-notes="여기서 '만든 것'은 코드와 문서에 기록된 검증 단위입니다. 사업 성과, 전체 정확도, 반복 사용을 이뤘다는 뜻은 아닙니다.
+
+근거 자료: source/editorial.json, docs/STATUS.md, ce67775:PROGRESS-authoring-first.md">
+  <p class="eyebrow">만든 것과 남은 것</p>
+  <h2 class="title">지금까지 만든 것</h2>
+  <p class="lede">코드와 검증 기록으로 확인할 수 있는 것들</p>
+  <div class="main">
+    <div class="g2">
+      <div class="card cw tight"><h3 class="k">공고 판단</h3><p class="d">공고를 모으고 조건을 정리해, 근거와 검토를 거쳐 서비스에 반영하는 흐름</p></div>
+      <div class="card cw tight"><h3 class="k">사용자 확인</h3><p class="d">회사 정보·질문·답변을 저장하고, 권한·충돌·답변 취소까지 처리</p></div>
+      <div class="card cw tight"><h3 class="k">신청서 작성</h3><p class="d">원본 양식 편집, 문장 제안, 사용자 확인 후 반영, 저장과 재사용</p></div>
+      <div class="card cw tight"><h3 class="k">대량 분석 운영</h3><p class="d">정해진 범위만 돌리고, 과정을 기록하고, 문제 생긴 건만 다시 처리</p></div>
+    </div>
+  </div>
+  <div class="foot"><span>창업노트 6개월 회고 · 2026년 10월 1일 기준</span><span class="pn">18 / 28</span></div>
+</section>
+
+<section class="slide" data-label="이루지 못한 목표" data-screen-label="19 이루지 못한 목표" data-speaker-notes="'아직 근거가 없는 것'과 '틀린 것으로 드러난 가정'을 구분합니다. 사업자번호만으로 모든 자격을 판정한다는 목표는 이제 출발점으로 다시 정의했습니다. 시간 절약과 수요는 실제 사용으로 확인해야 합니다. 자동 제출은 처음부터 사용자가 하는 일로 정했기 때문에 실패한 목표에 넣지 않았습니다.
+
+근거 자료: docs/STATUS.md, docs/research/2026-09-28-공고검토-워크벤치-제품정의-제안.md, ce67775:PROGRESS-authoring-first.md">
+  <p class="eyebrow">만든 것과 남은 것</p>
+  <h2 class="title">아직 이루지 못했거나 확인하지 못한 목표</h2>
+  <p class="lede">서비스가 약속하는 것과 실제로 확인한 것 사이의 간격을 좁혀야 합니다.</p>
+  <div class="main">
+    <div class="rows">
+      <div class="row row-wide"><span class="dot dot-grey">01</span><h3 class="k4">사업자번호만으로 자격 판정</h3><p class="d">공공 데이터의 빈틈과 공고별 조건 충돌이 남았다.</p></div>
+      <div class="row row-wide"><span class="dot dot-grey">02</span><h3 class="k4">모든 공고 분석과 양식 자동 작성</h3><p class="d">파일 변환, 검토, 서술형 문항, 표 배치가 걸림돌이었다.</p></div>
+      <div class="row row-wide"><span class="dot dot-grey">03</span><h3 class="k4">고객의 시간 절약과 재사용</h3><p class="d">실제 사용자가 끝까지 써 본 사례가 아직 부족하다.</p></div>
+      <div class="row row-wide"><span class="dot dot-grey">04</span><h3 class="k4">선정 성과와 장기 효과</h3><p class="d">신청 결과 데이터와 장기 사용 기록이 아직 부족하다.</p></div>
+    </div>
+  </div>
+  <div class="foot"><span>창업노트 6개월 회고 · 2026년 10월 1일 기준</span><span class="pn">19 / 28</span></div>
+</section>
+
+<section class="slide grey" data-label="앞으로의 방향" data-screen-label="20 앞으로의 방향" data-speaker-notes="회고하며 내놓는 제안입니다. 새 출시나 제품 전체에 대한 승인으로 받아들이면 안 됩니다. 신청서 작성 중심의 계획과 개발은 이미 진행 중이지만, 어디까지 할지는 실제 사용자 수요로 확인해야 합니다.
+
+근거 자료: ce67775:docs/STATUS.md, docs/plans/2026-09-30-authoring-first-implementation.md">
+  <p class="eyebrow">다음 방향</p>
+  <h2 class="title">앞으로의 방향</h2>
+  <p class="lede">지금 만들고 있는 신청서 작성 기능을 바탕으로 한 제안</p>
+  <div class="main" style="gap:48px">
+    <p class="statement">공고 하나를 정했다면,<br><span class="kb">검토할 수 있는 서류가 나올 때까지</span></p>
+    <div class="pair">
+      <div class="card cw"><h3 class="k">공고 찾기</h3><p class="d">맞는 공고를 추리고, 안 맞는 이유를 알려준다.</p></div>
+      <div class="arrow"><svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"></path><path d="M13 6l6 6-6 6"></path></svg></div>
+      <div class="card cw"><h3 class="k kb">근거 있는 작성</h3><p class="d">회사 자료를 활용하고, 확인된 문장만 서류에 넣는다.</p></div>
+    </div>
+  </div>
+  <div class="foot"><span>창업노트 6개월 회고 · 2026년 10월 1일 기준</span><span class="pn">20 / 28</span></div>
+</section>
+
+<section class="slide" data-label="작은 시범" data-screen-label="21 작은 시범" data-speaker-notes="사용자 5명, 양식 3종은 기존 검증 계획에 적힌 앞으로의 목표이고, 이미 달성한 숫자가 아닙니다. 첫 사례는 회사 자료 한 개와 핵심 문항 3개로 작게 시작합니다. 실제 파일 저장 공간, 로그인, 자료 이용 동의, AI 실행 환경이 갖춰진 상태에서 진행합니다.
+
+근거 자료: ce67775:docs/plans/2026-09-30-authoring-first-acceptance.md, ce67775:PROGRESS-authoring-first.md">
+  <p class="eyebrow">다음 방향</p>
+  <h2 class="title">처음부터 끝까지, 작게 시험해 봅니다</h2>
+  <p class="lede">지금 세워 둔 사용자 검증 계획을 작게 실행해 보자는 제안입니다.</p>
+  <div class="main">
+    <div class="g3">
+      <div class="card"><h3 class="k kb">사용자 5명</h3><p class="d">실제로 쓰는 데 걸린 시간과 고친 분량을 관찰</p></div>
+      <div class="card"><h3 class="k kb">기관 양식 3종</h3><p class="d">초안 쓰기부터 파일 반영, 저장, 이어 쓰기까지 확인</p></div>
+      <div class="card"><h3 class="k kb">제대로 열리는 파일</h3><p class="d">내려받은 파일을 한글 프로그램에서 열어 내용과 모양 확인</p></div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:16px">
+      <p class="label">살펴볼 것</p>
+      <div class="chips"><span class="chip chip-grey">완성까지 걸린 시간</span><span class="chip chip-grey">고친 분량</span><span class="chip chip-grey">근거 없는 내용</span><span class="chip chip-grey">저장 후 다시 열기</span><span class="chip chip-grey">우리 팀의 개입 횟수</span><span class="chip chip-grey">다음 신청에 재사용</span></div>
+    </div>
+  </div>
+  <div class="foot"><span>창업노트 6개월 회고 · 2026년 10월 1일 기준</span><span class="pn">21 / 28</span></div>
+</section>
+
+<section class="slide grey" data-label="함께 정할 것" data-screen-label="22 함께 정할 것" data-speaker-notes="회의에서 함께 논의할 안건입니다. 아직 시험해 보지 못한 시장·가격 문제에 미리 답을 정해 두지 않았습니다. 범위를 넓히기보다, 지금 만든 기능을 고객이 실제로 끝까지 쓰는지 먼저 확인하자는 제안입니다.
+
+근거 자료: ce67775:PROGRESS-authoring-first.md">
+  <p class="eyebrow">다음 방향</p>
+  <h2 class="title">함께 정해야 할 것</h2>
+  <p class="lede">다음에 무엇을 넓힐지는 고객이 실제로 끝낸 일을 보고 정하자는 제안입니다.</p>
+  <div class="main">
+    <div class="g3">
+      <div class="card cw"><span class="num">01</span><h3 class="k">어떤 고객부터</h3><p class="d">비슷한 신청서를 자주 쓰는 사업자부터 정한다.</p></div>
+      <div class="card cw"><span class="num">02</span><h3 class="k">무엇을 성공으로 볼까</h3><p class="d">첫 서류를 끝까지 썼는지, 다음 공고에서 다시 쓰는지 본다.</p></div>
+      <div class="card cw"><span class="num">03</span><h3 class="k">어디까지 넓힐까</h3><p class="d">오류와 고칠 부분이 실제로 줄어든 양식부터 넓힌다.</p></div>
+    </div>
+  </div>
+  <div class="foot"><span>창업노트 6개월 회고 · 2026년 10월 1일 기준</span><span class="pn">22 / 28</span></div>
+</section>
+
+<section class="slide grey" data-label="주간 돌아보기 1" data-screen-label="23 주간 돌아보기 1" data-speaker-notes="6월 22일 주
+고민: 사업자번호 하나로 시작하는 단순한 흐름 뒤에 어떤 데이터와 판단, 권한이 있어야 사용자에게 잘못된 확신을 주지 않을까.
+만든 것: 초기 설계와 시험 개발에서 시작해 소개 웹페이지와 추천 확인 화면, 사용자 행동 기록, 피드백과 정답 비교 평가, 로드맵, 계정·회사별 권한까지 빠르게 넓혔다. TDS 디자인 적용과 로그인·랜딩 시안도 이때 들어왔다.
+짧은 평: 첫 주의 강점은 '찾아준다'는 약속을 규칙과 출처, 그리고 '모르는 것은 모른다'는 처리로 뒷받침한 점이다. 다만 화면과 시스템을 한꺼번에 넓힌 만큼, 사용자 한 명이 끝까지 써 보는 확인은 숙제로 남았다.
+
+6월 29일 주
+고민: 좋은 공고를 찾아도 공고문 해석과 양식 작성에서 막히면 사용자의 일은 끝나지 않는다.
+만든 것: 지원사업 모음과 혜택 정보, 문서 변환, 입력할 칸 찾기, 미리보기와 위치 표시, 검토 흐름, 운영 지식 자료 모으기를 만들었다. 7월 2일 전체 설계에서 서비스 범위를 '공고 찾기'에서 '공공 지원사업 신청서 작성 안내'로 분명히 넓혔다.
+짧은 평: 검색 결과를 넘어 실제 서류 작업에 다가간 중요한 확장이다. 한글·PDF·웹 양식이 제각각이라 기능을 더하는 것보다 '어디까지 정확히 읽고 쓸 수 있나'가 핵심 과제가 되기 시작했다.
+
+7월 6일 주
+고민: 같은 내용을 반복해서 입력하지 않고, 화면에서 쓴 초안을 실제 기관 양식 파일까지 이어 갈 수 있을까.
+만든 것: 회사 정보와 작성의 연결, 한글 파일 채우기와 내려받기, 한글 파일 변환과 공고 자동 수집, 입력 도우미, 크레딧·결제·구독 기반, 회사 정보 수집과 추천 조건 확대를 함께 진행했다. 7월 8일에는 한글 파일 칸에 내용이 제대로 들어가는지 사용자가 확인한 기록이 있다.
+짧은 평: 가능성을 가장 넓게 펼친 주였다. 다만 기능과 과금 체계가 추천의 신뢰보다 앞서 나가면서, '기능이 많아도 정말 쓸 만한 공고가 나오나'라는 질문을 피할 수 없게 됐다.
+
+근거 자료: 9909c84, 925c772, 715aaf8, 6c65552, 9b015af, f07b709, c00c146, 692683e, 28de885, 3be928a, cf9328c, 2bf43ec, 6926b8b, 6561580, 463f973, 483a9ec, e9f2235">
+  <p class="eyebrow">부록 · 주간 돌아보기</p>
+  <h2 class="title">주간 돌아보기 1 / 5</h2>
+  <div class="main">
+    <div class="g3">
+      <div class="card cw tight"><span class="chip">6월 22일 주</span><h3 class="k4">아이디어를 동작하는 뼈대로</h3><p class="d">‘찾아준다’는 약속을 규칙과 출처로 뒷받침했다. 다만 빠르게 늘린 화면을 사용자 한 명이 끝까지 써 보는 확인은 숙제로 남았다.</p></div>
+      <div class="card cw tight"><span class="chip">6월 29일 주</span><h3 class="k4">공고 찾기에서 신청 준비로</h3><p class="d">검색 다음에 오는 서류 작업으로 다가갔다. 양식이 제각각이라 ‘얼마나 정확히 읽고 쓸 수 있나’가 핵심 과제가 됐다.</p></div>
+      <div class="card cw tight"><span class="chip">7월 6일 주</span><h3 class="k4">작성 기능과 유료 서비스 기반을 넓히다</h3><p class="d">기능을 크게 넓혔다. 그만큼 추천을 믿을 수 있는지, 실제로 쓸 만한 공고가 충분한지는 따로 확인해야 했다.</p></div>
+    </div>
+  </div>
+  <div class="foot"><span>날짜별 전체 기록은 함께 공유한 history.html에서 볼 수 있습니다.</span><span class="pn">23 / 28</span></div>
+</section>
+
+<section class="slide grey" data-label="주간 돌아보기 2" data-screen-label="24 주간 돌아보기 2" data-speaker-notes="7월 13일 주
+고민: 22가지 조건을 따지는 추천 장치와 많은 외부 데이터 연결이 있어도, 사용자가 받는 추천이 거의 없다면 어디에 힘을 써야 할까.
+만든 것: 추천 현황과 화면 복잡도 평가, 데이터 정합성과 조회 속도 개선, 공개 마감 캘린더, 공고 40건 분석 평가와 심층 분석 시험 환경을 더했다. 내부 상태를 화면에 다 늘어놓는 대신 '받을 수 있나 / 지금 뭘 하나 / 언제까지인가'로 정리하는 원칙이 이때 나왔다.
+짧은 평: 측정 결과가 범위 확장에 제동을 건 첫 큰 전환이다. 당시 추천 가능한 비율이 0.61%였다는 실제 측정 결과는 추천 장치가 있다는 것과 사용자에게 쓸모 있다는 것의 차이를 보여 줬고, 이후 첨부 원문 분석과 검토에 투자하는 근거가 됐다.
+
+7월 20일 주
+고민: AI가 공고를 읽었다는 사실을 어떻게 검증된 조건과 실제 추천으로 이어 갈까.
+만든 것: 5건 시범 검토, 골고루 뽑은 표본으로 AI 검토·재검토·집계, 실제 서비스에 미칠 영향 미리 보기, 확인 질문, 기본값이 '미리 보기만 하고 반영하지 않기'인 반영 절차, 서비스 운영 준비를 만들었다. 한글 양식을 화면에서 직접 고치고 수정본을 저장하는 방법도 함께 시험했다.
+짧은 평: AI 결과가 서비스 데이터가 되기까지 중간 책임을 설계한 주다. 적은 표본의 통과는 가능성을 보여 줬지만, 규모를 키웠을 때의 정확도나 모든 공고에 적용할 수 있다는 점을 증명하지는 않았고 검토 인력의 한계도 남았다.
+
+7월 27일 주
+고민: 신청 자격 조건과 선정 후 의무를 헷갈리지 않으면서, 오류를 고칠수록 분석 비용이 커지는 문제를 어떻게 다룰까.
+만든 것: 검토 범위를 22가지 자격 조건으로 좁히고, 추천에 쓸 수 있는 조건인지와 반영 준비가 됐는지를 나눠 봤다. 일부 조건만 확인된 결과를 실제 서비스에 반영한 기록, 가상 기업으로 측정한 추천·작성 기준선, 구독 요금제로 분석을 돌리는 방식과 비교 시험 결과를 남겼다.
+짧은 평: '전부 확실해야 서비스에 넣는다'에서 '확인한 조건만으로도 안전하게 쓸 수 있다'로 기준을 정교하게 다듬은 주다. 비용 부담은 줄일 길을 찾았지만, 원문을 정확히 읽는 문제와 재시도, 검토 자체의 어려움까지 풀린 것은 아니었다.
+
+근거 자료: 1e6306f, 4c15b49, 866b7ad, 255e996, 128bee2, 7b26092, 55a22cd, eb0b934, d073a54, 2e69725, 1ed0238, 6a4af32, 13708e8, 415480d, 5d4b837, 463a7ac, 29b830a">
+  <p class="eyebrow">부록 · 주간 돌아보기</p>
+  <h2 class="title">주간 돌아보기 2 / 5</h2>
+  <div class="main">
+    <div class="g3">
+      <div class="card cw tight"><span class="chip">7월 13일 주</span><h3 class="k4">추천을 믿을 수 있는지 다시 묻다</h3><p class="d">실제로 측정해 보니 받을 수 있는 추천이 거의 없어 기능 확장을 멈췄다. 그래서 공고 원문을 제대로 읽고 따로 검토하는 데 힘을 쏟기 시작했다.</p></div>
+      <div class="card cw tight"><span class="chip">7월 20일 주</span><h3 class="k4">공고 분석을 검토할 수 있는 형태로</h3><p class="d">AI가 읽은 결과가 서비스에 쓰이기까지 누가 무엇을 확인할지 정했다. 몇 건 통과했다고 전체가 괜찮다고 보지 않는 기준도 필요했다.</p></div>
+      <div class="card cw tight"><span class="chip">7월 27일 주</span><h3 class="k4">검토 범위를 좁히고 비용 구조를 바꾸다</h3><p class="d">확인된 조건만으로도 안전하게 쓰는 방향을 다듬었다. 비용을 줄일 길은 찾았지만, 정확하게 읽는 문제는 별개였다.</p></div>
+    </div>
+  </div>
+  <div class="foot"><span>날짜별 전체 기록은 함께 공유한 history.html에서 볼 수 있습니다.</span><span class="pn">24 / 28</span></div>
+</section>
+
+<section class="slide grey" data-label="주간 돌아보기 3" data-screen-label="25 주간 돌아보기 3" data-speaker-notes="8월 3일 주
+고민: 대량 분석을 구독 요금제로 반복하면서도 실제 서비스 쪽 작업과 겹치지 않게 할 수 있을까.
+만든 것: 검토·확인 작업을 구독 요금제로 묶고, 실제 서비스 쪽은 지켜보기만 하게 하고, 시험 작업은 한 번에 하나만 돌게 했다. 반영 조건을 그대로 지키고, 신청서 사전 분석, 서비스 반영 기록, 교정 반복, 준비 상태 점검 단계를 만들었다.
+짧은 평: 시험 비용과 서비스 안전을 떼어 놓은 것은 중요한 기반이다. 동시에 추천 조건과 신청서 양식 준비를 한 묶음으로 처리하면서, 뒤쪽 작성 단계가 실패하면 앞쪽 추천까지 막히는 부담이 커졌다.
+
+8월 10일 주
+고민: 빨리 돌려도 입력할 칸이 소리 없이 빠지거나 '확실하지 않음'을 '오류'로 처리한다면 무엇이 나아진 것일까.
+만든 것: 처리 시간과 병목을 측정하고, 분석 강도를 2단계로 나누고, 고칠 것과 보류할 것을 구분했다. 나중에 고칠 수 없는 실행 기록과 정확한 복구, 조건부 후보 판정, 비싼 종량제 요금이 의도치 않게 쓰이는 문제 차단, 구독 요금제 사용 확인을 더했다.
+짧은 평: 작은 시범에서는 고쳐야 할 결과가 5건 중 0건이었지만, 10건으로 늘리자 6건이 나왔다. 그때 성공을 일반화하지 않고 구조를 고친 점이 좋다. 가장 큰 교훈은 속도, 끝까지 도는지, 품질, 서비스 반영을 하나의 성공률로 말하면 안 된다는 것이다. 실행 기록의 표시만으로 구독 요금제로 돌았다고 단정하지도 않는다.
+
+8월 17일 주
+고민: 승인·검토한 결과를 실제 서비스에 넣고, 사용자가 양식에서 바로 작업하게 할 수 있을까.
+만든 것: 검토를 마친 9건을 그대로 서비스에 반영하고, 반영 목록 전체를 한 번에 승인·실행하며, 문제가 생긴 건은 따로 떼어 냈다. 한글 양식의 입력 칸에 AI가 내용을 넣고, 제안 적용·되돌리기와 작업 화면을 개선했다.
+짧은 평: 준비와 점검을 넘어 작은 규모의 실제 반영에 도달한 주다. '실제 서비스 반영을 한 적이 없다'는 서술은 8월 17일 반영 기록과 맞지 않으므로 버려야 한다. 다만 9건 반영과 자동 점검이 폭넓은 고객 검증이나 제출 성과를 뜻하지는 않는다.
+
+근거 자료: 4863d99, 5c571e5, c79e2c0, db78fb2, 099f966, 4124101, 9c80d18, af65bf2, daa7b51, 37b7afc, df81748, 199795f, 62176fd, ae24289, b9f97df, 0c8585b, 8fd90d1">
+  <p class="eyebrow">부록 · 주간 돌아보기</p>
+  <h2 class="title">주간 돌아보기 3 / 5</h2>
+  <div class="main">
+    <div class="g3">
+      <div class="card cw tight"><span class="chip">8월 3일 주</span><h3 class="k4">실험과 실제 서비스를 떼어 놓다</h3><p class="d">실험은 구독 요금제로 돌리고 실제 서비스와 섞이지 않게 했다. 추천과 신청서 분석을 한데 묶은 구조 때문에 공고가 서비스에 올라가지 못하는 문제도 드러났다.</p></div>
+      <div class="card cw tight"><span class="chip">8월 10일 주</span><h3 class="k4">속도보다 실패를 제대로 읽다</h3><p class="d">규모를 키운 실험이 실패하자 이를 인정하고 구조를 고쳤다. 속도, 끝까지 도는지, 품질, 서비스 반영은 하나의 성공률로 말할 수 없었다.</p></div>
+      <div class="card cw tight"><span class="chip">8월 17일 주</span><h3 class="k4">공고 9건 서비스 반영과 양식 직접 편집</h3><p class="d">검토한 공고 9건을 비공개 베타 서비스에 반영하고, 양식을 화면에서 바로 고칠 수 있게 했다. 다만 폭넓은 고객 검증이나 제출 성과를 뜻하지는 않는다.</p></div>
+    </div>
+  </div>
+  <div class="foot"><span>날짜별 전체 기록은 함께 공유한 history.html에서 볼 수 있습니다.</span><span class="pn">25 / 28</span></div>
+</section>
+
+<section class="slide grey" data-label="주간 돌아보기 4" data-screen-label="26 주간 돌아보기 4" data-speaker-notes="8월 24일 주
+고민: 신청서 사전 분석이 완벽하지 않다는 이유로 문서를 열거나 쓰는 일까지 막혀야 할까.
+만든 것: 일정표 자동 구성, 사전 분석 중심이던 작성 흐름을 한글 양식 직접 작성 안내로 전환, 기존 분석 재활용·원문 복구·실패한 건만 다시 돌리기, 별도 검토와 복합 조건 오류 차단을 더했다.
+짧은 평: 사전 분석이 끝나야 쓸 수 있다는 의존을 걷어 내고, 편집은 열어 두되 AI는 확실한 칸에만 입력하는 방향으로 나아갔다. 다만 검토에서 실패할 때마다 안전장치를 하나씩 더하는 패턴이 이어져, 서비스 반영까지 걸리는 시간이 줄었는지는 따로 물어야 했다.
+
+8월 31일 주
+고민: 분석을 30건, 50건, 100건으로 늘리는 것이 사용자에게 전달되는 가치와 같을까.
+만든 것: 분석 실행과 서비스 반영의 연결, 최신 검토 결과 반영, 시작하지 못한 작업 이어 하기와 중간에 자료가 바뀐 작업 분리, 종합 점검과 사업자 정보 중심의 제품 기준을 정리했다.
+짧은 평: 처리량을 늘리면서 기능, 검증, 실제 사용 사이의 간격을 드러낸 회고가 시작됐다. 9월 초 점검의 일부 과장된 진단은 나중에 바로잡아야 했지만, '분석 건수보다 사용자가 조건을 확인하고 서류를 얻는 흐름을 보자'는 방향은 지금도 유효하다.
+
+9월 7일 주
+고민: 필수·우대·제외 조건의 의미가 정리 과정에서 바뀌거나, 사용자가 답해도 조건이 풀리지 않는다면 정밀한 분석이 무슨 소용일까.
+만든 것: 조건 종류 유지, 확인 질문 수정·철회와 4가지 역할별 검증, 늦게 도착한 응답과 보기 전용 사용자의 수정 차단, 추천 준비와 작성 준비 분리, 중복 조회 제거, 원본 정보 정정과 서비스 반영 기록, 회사 정보 자동 입력과 되돌리기를 보완했다.
+짧은 평: AI 결과를 잘 만드는 일에서 사용자가 실제로 조건을 풀어 가는 길을 고치는 일로 초점이 옮겨 갔다. 9월 7일 당시 분석 대상 공고 1,434건 중 추천에 나오는 공고는 90건이었고, 100건 분석이 끝까지 돌았다는 것도 검토·반영 성공과는 달랐다. 반영 비율과 사용자 흐름을 함께 봐야 한다는 근거가 더 분명해졌다.
+
+근거 자료: 23b27be, 2811976, 1ec6e14, 49b0fdb, 12d0730, 0002fd6, 4787a6b, 5d24052, 59c1eda, 6430c25, 6dea17c, d935dcc, 6c69142, 0c5c2ad, 2f49a0f, 43a752a">
+  <p class="eyebrow">부록 · 주간 돌아보기</p>
+  <h2 class="title">주간 돌아보기 4 / 5</h2>
+  <div class="main">
+    <div class="g3">
+      <div class="card cw tight"><span class="chip">8월 24일 주</span><h3 class="k4">분석과 편집을 떼어 놓다</h3><p class="d">사전 분석이 덜 끝나도 편집은 할 수 있게 바꿨다. 다만 늘어난 안전장치가 서비스 반영을 더 빠르게 했는지는 따로 따져야 했다.</p></div>
+      <div class="card cw tight"><span class="chip">8월 31일 주</span><h3 class="k4">분석 건수보다 사용자의 흐름을 보다</h3><p class="d">분석 규모를 키우면서 사용자가 실제로 겪는 흐름을 돌아봤다. 공고 개수보다 조건 확인과 서류 결과가 더 중요한 기준이 됐다.</p></div>
+      <div class="card cw tight"><span class="chip">9월 7일 주</span><h3 class="k4">추천 조건과 사용자 답변을 잇다</h3><p class="d">답변 저장·권한·수정이 실제로 맞물려 돌게 했다. 다만 시험용 계정으로 확인한 것과 실제 사용자가 끝낸 것은 구분해야 했다.</p></div>
+    </div>
+  </div>
+  <div class="foot"><span>날짜별 전체 기록은 함께 공유한 history.html에서 볼 수 있습니다.</span><span class="pn">26 / 28</span></div>
+</section>
+
+<section class="slide grey" data-label="주간 돌아보기 5" data-screen-label="27 주간 돌아보기 5" data-speaker-notes="9월 14일 주
+고민: 양식 분석이나 검토 한 곳이 실패했다고 공고 찾기와 다른 성공한 결과까지 막아야 할까.
+만든 것: 원문 인용 오류와 기관 사이트 해석 개선, 성공한 결과는 지키고 일부만 다시 실행, 추천과 신청서 작업 분리, 전체 추천 일괄 실행, 아직 검증되지 않은 공고를 '원문 확인 필요' 후보로 보여 주기와 미리보기 환경에서의 확인 기록을 더했다.
+짧은 평: '모든 분석이 완벽해야 보여 준다'는 구조가 공고를 보여 주는 일 자체를 막는다는 사실을 제품 정책으로 다루기 시작했다. 후보 보여 주기와 자격 확정을 나눈 덕분에 더 많은 공고를 보여 줄 수 있게 됐지만, 남은 확인을 누가 어떻게 끝내는지는 여전히 핵심 과제였다.
+
+9월 21일 주
+고민: 검토한 조건을 잃지 않고 넘기고, 마지막 질문에 답했을 때 화면의 결론과 다음 행동이 함께 바뀌는가. 또 이런 흐름에 맞는 공고를 꾸준히 보여 줄 수 있는가.
+만든 것: 글로 된 조건을 빠짐없이 옮기기, 반영 버전 맞추기, 카드 안에서 바로 확인하기를 만들었다. 한 번 답한 회사 정보를 관련 공고에 다시 쓰기, 옮겨 온 질문의 검토와 공개, 공고를 서비스에 올리는 경로 통합과 점검, 유료 기업 정보(팝빌) 중복 조회 방지도 진행했다. 60건 추천 실행과 별도 검토 기록, 아스카웍스 507건 분류와 가상 답변 검증 기록도 따로 남아 있다.
+짧은 평: 처음 구상한 '질문 하나 → 다음 행동' 흐름이 화면과 공고 공개 양쪽에서 구체화된 주다. 한편 질문이 준비되지 않은 공고, 원문 누락, 검토 실패 때문에 공고가 서비스에 오르지 못하는 지점이 드러나, 추천 장치를 고치는 것만으로는 후보가 다 채워지지 않는다는 점도 확인했다. 일부 서비스 반영과 시험 데이터 확인을 전체 고객 흐름의 검증처럼 말하지 않는다.
+
+9월 28일 주
+고민: '사업자번호 하나면 지원 가능한 공고가 나온다'는 약속이 지나치게 높은 사전 분석 정확도를 요구한 것은 아닐까.
+만든 것: 파일 변환 대기, 긴 문서 처리, 같은 작업 중복 실행 방지, 5분마다 자동 정리를 개선했다. 신청서 작성 쪽에는 회사 공통 자료와 신청별 자료·요약, 문항별 초안 보관·복사·반영, 암호가 걸린 PDF 처리, 후보 조회와 복원, 표 넘침 방지·쪽 나누기와 되돌리기, 본문·표 숫자 점검을 만들었다. 2차 디자인 시안을 랜딩·기회 맵·신청 관리·조건 표시 화면에 반영하고 서비스에 배포했다.
+짧은 평: '공고 하나에서 실제 서류를 만든다'는 방향이 계획을 넘어 코드와 서비스 화면에 닿았다. 다만 디자인 반영의 첫 시도가 문구 수정에 그쳐 다시 작업한 일은, 화면 구조와 실제 데이터를 직접 대조해야 한다는 교훈이다. 문항 3개와 저장본 5개로 실제 파일이 오가는 것은 확인했지만, 로그인한 화면, 한글 프로그램, 실제 AI, 5명 시범까지 끝난 것은 아니다. (여기까지는 오전 9시 26분 기준. 같은 날 오후 시연에서 로그인한 화면과 실제 AI로 두 문항을 끝까지 확인했다. 한글 프로그램 확인과 5명 시범은 남아 있다. 12~17장 참고)
+
+근거 자료: fd6526f, 3809c8c, 236ca2e, f8ef4ca, 8668796, 6e4e95d, d134b49, 8a010e8, f143417, 200db14, db05ecf, 8a701b6, ab4e725, 5f2fbe1, b042135, 3b79d5b, 33b9dad, 926777a, d7098d9, 31943ed, 0f8c434">
+  <p class="eyebrow">부록 · 주간 돌아보기</p>
+  <h2 class="title">주간 돌아보기 5 / 5</h2>
+  <div class="main">
+    <div class="g3">
+      <div class="card cw tight"><span class="chip">9월 14일 주</span><h3 class="k4">분석이 다 끝나기 전에 후보부터 보여주다</h3><p class="d">‘추천 후보’와 ‘지원 가능 확정’을 나눴다. 남은 확인을 누가 어떻게 마무리하는지까지 서비스가 안내해야 했다.</p></div>
+      <div class="card cw tight"><span class="chip">9월 21일 주</span><h3 class="k4">질문 하나로 결과가 바뀌게</h3><p class="d">질문 하나에 답하면 결과가 바뀌고, 한 번 답한 회사 정보는 다른 공고에도 쓰이게 했다. 원문 누락과 검토 실패는 여전히 걸림돌이었다.</p></div>
+      <div class="card cw tight"><span class="chip">9월 28일 주</span><h3 class="k4">신청서 작성 기능을 실제로 만들다</h3><p class="d">신청서 작성 중심의 방향이 실제 코드와 화면 배포로 이어졌고, 같은 날 오후 시연에서 처음부터 끝까지 이어 봤다. 실제 고객 자료로 쓰는 검증은 남았다.</p></div>
+    </div>
+  </div>
+  <div class="foot"><span>날짜별 전체 기록은 함께 공유한 history.html에서 볼 수 있습니다.</span><span class="pn">27 / 28</span></div>
+</section>
+
+<section class="slide" data-label="읽는 법" data-screen-label="28 읽는 법" data-speaker-notes="개발 기록은 10월 1일 오전 9시 26분 시점으로 고정했습니다. 회고를 만드는 동안 이어진 작업은 이 자료의 숫자에 넣지 않았습니다. 12~17장과 5·9·11장의 화면은 같은 날 오후 실제 서비스에서 시연용 가상 회사로 캡처한 것으로, 개발 기록 숫자와는 따로 봐 주세요. 기준이 된 개발 기록 번호는 본 서비스 쪽 d7958c6, 신청서 작성 작업 쪽 ce67775입니다. git-history.json에는 원본 기록, editorial.json에는 직접 쓴 요약과 평가, document-evidence.json에는 근거 문서와 당시 기록 발췌가 들어 있습니다. 색과 글자 크기 체계는 TDS 공식 문서를 참고했습니다.
+
+근거 자료: source/git-history.json, source/editorial.json, source/document-evidence.json, docs/demos/2026-10-01-afternoon-demo/, https://tossmini-docs.toss.im/tds-mobile/foundation/colors/, https://tossmini-docs.toss.im/tds-mobile/foundation/typography/">
+  <p class="eyebrow">부록 · 읽는 법</p>
+  <h2 class="title">이 자료를 읽는 법</h2>
+  <p class="lede">확인된 사실과 회고하며 덧붙인 해석을 나눠 썼습니다.</p>
+  <div class="main">
+    <div class="g3">
+      <div class="card"><div class="mark-row"><span class="mark"></span><h3 class="k">확인된 사실</h3></div><p class="d">코드 저장 기록, 문서에 적힌 날짜, 당시의 검증·배포 기록과 시연 화면</p></div>
+      <div class="card"><div class="mark-row"><span class="mark mark-blue"></span><h3 class="k">해석과 제안</h3></div><p class="d">날짜별 의미, 주간 평가, 앞으로의 방향 제안</p></div>
+      <div class="card"><div class="mark-row"><span class="mark mark-grey"></span><h3 class="k">확인하지 못한 것</h3></div><p class="d">4월 1일–6월 18일의 활동, 지금 서비스 전체 상태, 고객 성과</p></div>
+    </div>
+  </div>
+  <div class="foot"><span>이 회고 자료를 만들면서 서비스에는 아무것도 바꾸지 않았습니다.</span><span class="pn">28 / 28</span></div>
+</section>
+
+</x-import>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

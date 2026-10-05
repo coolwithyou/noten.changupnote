@@ -1,0 +1,22 @@
+{
+  "checkedAt": "2026-10-02",
+  "scope": "Standalone documentation only; historical product evidence was preserved, not rerun.",
+  "htmlSha256": "3a068ae3556724eb9ee723bea2a6142312035d537ff78d337aed29ba65f91d43",
+  "checks": {
+    "localLinksAndAssets": 29,
+    "checkboxes": 10,
+    "imagesLoaded": 3,
+    "desktopViewport": 1440,
+    "mobileViewport": 390,
+    "horizontalOverflow": false,
+    "keyboardCheckCounter": "1 / 10",
+    "keyboardResetCounter": "0 / 10",
+    "rehearsalStateStored": false,
+    "browserErrors": [],
+    "printPages": 4,
+    "retrospectiveLinkedSlideCount": 22,
+    "readmeLinksResolved": true,
+    "evidenceJsonParsed": true,
+    "unrelatedDirtyFilesPreserved": 75
+  }
+}
