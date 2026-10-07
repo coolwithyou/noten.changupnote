@@ -1,3 +1,8 @@
+import { loadWritingGroundingInTransaction } from "./writingContext";
+import { writingContextBinding } from "./writingGroundingSources";
+import { assertTableLayoutDoesNotOverflow } from "@/lib/rhwp/tableLayoutGuard";
+import { studioFieldBindingTargetSchema } from "@/lib/rhwp/studioDocumentAgentProtocol";
+import { loadDocumentAgentCore } from "../rhwp/documentAgentCore";
 import { createHash, randomUUID } from "node:crypto";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { detectHwpFormat } from "@cunote/core/documents/hwpx-fill";
@@ -184,6 +189,19 @@ export async function saveStudioSnapshot(
       "문서 저장소가 준비되지 않아 서버에 저장하지 못했습니다.",
       503,
     );
+  }
+
+  if (agentPreauthorization?.kind === "field" && agentPreauthorization.operation === "apply") {
+    const target = studioFieldBindingTargetSchema.parse(agentPreauthorization.run.target);
+    if (target.kind === "table_cell_region" || target.kind === "table_cell_text") {
+      const before = await loadExactDraftRevisionFile({ draftId: input.draftId, access: input.access,
+        revisionId: agentPreauthorization.run.baseRevisionId }, { storage });
+      try {
+        assertTableLayoutDoesNotOverflow({ rhwp: await loadDocumentAgentCore(), before: before.body, after: input.body, target });
+      } catch (error) {
+        throw new DocumentRevisionError("field_layout_overflow", error instanceof Error ? error.message : "표 레이아웃을 확인하지 못해 자동 반영을 저장하지 않았습니다.", 409);
+      }
+    }
   }
 
   const revisionId = randomUUID();
@@ -1146,6 +1164,12 @@ async function authorizeFieldAgentSnapshotInTransaction(input: {
       ...joined,
     });
     return { kind: "field", ...joined, operation: input.input.agentOperation, commandId, existingRevision };
+  }
+  if (input.input.agentOperation === "apply" && joined.run.writingContextBindingSha256) {
+    const current = await loadWritingGroundingInTransaction(input.tx, { access: input.input.access, draftId: input.input.draftId });
+    if (writingContextBinding(current) !== joined.run.writingContextBindingSha256) {
+      throw new DocumentRevisionError("writing_context_changed", "자료나 사업 설명이 변경되어 이전 초안을 반영할 수 없습니다.", 409);
+    }
   }
   assertActiveFieldAgentSnapshotAuthorization({ request: input.input, currentHead: input.currentHead, ...joined });
   return { kind: "field", ...joined, operation: input.input.agentOperation, commandId, existingRevision: null };

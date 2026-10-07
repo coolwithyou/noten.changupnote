@@ -358,12 +358,14 @@ export interface FieldSuggestResult {
     basis: string;
     basisKind?: "announcement" | "profile" | "user";
     suggestionInput?: string;
+    evidence?: Record<string, unknown>[];
   }>;
   alternatives?: Record<string, Array<{
     value: string;
     basis: string;
     basisKind?: "announcement" | "profile" | "user";
     suggestionInput?: string;
+    evidence?: Record<string, unknown>[];
   }>>;
   readiness?: Record<string, FieldAssistReadiness & { missingInformation: string[] }>;
   modelVersion?: string;

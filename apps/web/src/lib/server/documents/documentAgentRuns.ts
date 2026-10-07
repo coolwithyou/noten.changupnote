@@ -134,7 +134,8 @@ export async function requestDocumentAgentSuggestions(input: {
   });
   const grounding = await buildDocumentAgentGrounding({
     grantId: draft.grantId,
-    companyId: input.access.companyId,
+    access: input.access,
+    draftId: input.draftId,
     revisionId: authority.revision.revisionId,
     candidate: authority.candidate,
   });
@@ -548,7 +549,8 @@ async function resolveCurrentGroundingBinding(input: {
   const candidate = decodeDocumentEditCandidate(row.run.candidate);
   const grounding = await buildDocumentAgentGrounding({
     grantId: input.grantId,
-    companyId: input.access.companyId,
+    access: input.access,
+    draftId: input.draftId,
     revisionId: row.run.baseRevisionId,
     candidate,
   });

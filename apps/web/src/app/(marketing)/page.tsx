@@ -14,12 +14,9 @@ export default async function LandingPage() {
   return (
     <BizLookupProvider>
       <main className="w-full overflow-x-hidden">
-        <LandingHero
-          openCount={landingData.stats.openCount}
-          comparisonCount={landingData.stats.activeCount}
-        />
-        <GrantMarquee banners={landingData.banners} />
+        <LandingHero />
         <HowItWorks />
+        <GrantMarquee banners={landingData.banners} />
         <FinalCta />
         <Faq />
         <LandingFooter />

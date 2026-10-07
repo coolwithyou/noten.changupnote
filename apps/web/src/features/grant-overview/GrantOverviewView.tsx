@@ -1,11 +1,15 @@
-import type { ApplySheet } from "@cunote/contracts";
+import type { ApplySheet, MatchingProfileView } from "@cunote/contracts";
 import Link from "next/link";
+import { CompanyMatchingContext } from "@/features/match-results/CompanyMatchingContext";
+import { withCompanyContext } from "@/lib/navigation/companyContext";
 import { VerdictBadge } from "@/components/app/verdict-badge";
 import { Accordion } from "@/components/ui/accordion";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import type { GrantPreviewAvailability } from "@/lib/server/documents/documentPreview";
+import type { DraftResumeSummary } from "@/lib/documents/draftResume";
 import type { GrantLessonGuideDto } from "@/lib/server/knowledge/lessonContext";
 import { ConversionPollTrigger } from "@/features/apply-sheet/ConversionPollTrigger";
 import { EligibilityMatchAccordion } from "./EligibilityMatchAccordion";
@@ -13,6 +17,9 @@ import { GrantWorkspaceLink } from "./GrantWorkspaceLink";
 import { RequiredDocumentsAccordion } from "./RequiredDocumentsAccordion";
 import { LessonGuideAccordion } from "./LessonGuideAccordion";
 import {
+  countHardConditions,
+  describeFailedCondition,
+  failedHardConditions,
   formatDday,
   formatEligibilitySummary,
   formatSupportAmount,
@@ -39,10 +46,15 @@ export function GrantOverviewView({
   adminPreview = false,
   handoffKey = null,
   companyId = null,
+  companyName = null,
+  profileView = null,
+  draftResume = null,
 }: {
   sheet: ApplySheet;
   lessonGuide?: GrantLessonGuideDto | null;
   previewAvailability?: GrantPreviewAvailability | null;
+  /** 회사·공고별 서버 저장본 요약. 있으면 작성 시작 대신 "문서 열기"로 같은 workspace 에 돌아간다. */
+  draftResume?: DraftResumeSummary | null;
   /** 남은 도우미 횟수(서버 환산). null 이면 과금 칩 비노출. */
   remainingUses?: number | null;
   /** 가상 기업 상세와 비영속 workspace 미리보기를 구분해 안내한다. */
@@ -54,6 +66,8 @@ export function GrantOverviewView({
   /** 이 상세 렌더가 만든 ApplySheet를 workspace에서 재사용하기 위한 비민감 일회성 키. */
   handoffKey?: string | null;
   companyId?: string | null;
+  companyName?: string | null;
+  profileView?: MatchingProfileView | null;
 }) {
   const grantId = sheet.grant.id;
   const workspaceQuery = [
@@ -64,17 +78,19 @@ export function GrantOverviewView({
   ].filter((value): value is string => value !== null).join("&");
   const workspaceHref = `/grants/${encodeURIComponent(grantId)}/workspace${workspaceQuery ? `?${workspaceQuery}` : ""}`;
   const verdict = grantOverviewVerdict(sheet);
-  const cta = grantOverviewCta(sheet, previewAvailability);
+  const cta = grantOverviewCta(sheet, previewAvailability, draftResume);
   const discovery = sheet.matchingEvidence?.level === "discovery";
-  const showConversionPoll = (previewAvailability?.pendingSurfaceCount ?? 0) > 0;
-  const hardConditions = [...sheet.satisfied, ...sheet.needsCheck]
-    .filter((trace) => trace.kind === "required" || trace.kind === "exclusion");
-  const satisfiedConditionCount = hardConditions.filter((trace) => trace.result === "pass").length;
-  const failedConditionCount = hardConditions.filter((trace) => trace.result === "fail").length;
-  const unknownConditionCount = hardConditions.length - satisfiedConditionCount - failedConditionCount;
-  // 과금 접점 ①: 도우미 사용(초안 생성)이 시작되는 모드에서만 시작 고지 칩을 노출한다.
+  const sourceOnly = discovery && cta.mode === "unknown";
+  // 디자인 03 장면 F: 저장본으로 돌아가는 화면에서는 준비 요청을 내리지 않는다(workspace 가 같은 트리거를 제공).
+  const showConversionPoll = !adminPreview && !virtualCompanyBizNo && !virtualCompanyName
+    && cta.mode !== "resume"
+    && (previewAvailability?.pendingSurfaceCount ?? 0) > 0;
+  const conditionCounts = countHardConditions(sheet);
+  const failedConditions = failedHardConditions(sheet);
+  // 과금 접점 ①: 도우미 사용(초안 생성)이 시작되거나 이어지는 모드에서만 시작 고지 칩을 노출한다.
   const usageChipRemaining =
-    typeof remainingUses === "number" && (cta.mode === "template_fill" || cta.mode === "ai_draft")
+    typeof remainingUses === "number"
+      && (cta.mode === "manual_form" || cta.mode === "ai_draft" || cta.mode === "resume")
       ? remainingUses
       : null;
 
@@ -90,6 +106,8 @@ export function GrantOverviewView({
           {sheet.grant.agency ?? "운영기관 확인 필요"}
         </p>
       </header>
+
+      {profileView ? <CompanyMatchingContext compact profileView={profileView} companyName={companyName} profileHref={companyId ? withCompanyContext("/settings?section=company", companyId) : "/settings?section=company"} /> : null}
 
       {adminPreview ? (
         <div className="mt-5 rounded-2xl border border-brand/25 bg-surface-brand px-4 py-3.5 text-sm leading-6 text-text-nav">
@@ -112,8 +130,25 @@ export function GrantOverviewView({
       {discovery ? (
         <div className="mt-5 rounded-2xl border border-border-subtle bg-surface-soft px-4 py-3.5 text-sm leading-6 text-text-secondary">
           <strong className="block text-ink">지원 조건 확인이 필요한 공고예요</strong>
-          <span>현재는 제목·기관·일정 같은 기본 정보만 안내합니다. 자격과 제출 조건은 공고 원문에서 확인해 주세요.</span>
+          <span>자격과 제출 조건은 공고 원문에서 확인해 주세요. 작성 가능한 양식이 있으면 조건 확인과 별개로 문서를 준비할 수 있어요.</span>
         </div>
+      ) : null}
+
+      {/* 디자인 03 장면 C: 명백한 불일치가 있어도 작성 CTA 는 그대로 두고 쟁점만 알린다. */}
+      {failedConditions.length > 0 ? (
+        <Alert variant="destructive" className="mt-5 rounded-2xl px-4 py-3.5 leading-6">
+          <AlertTitle className="font-extrabold">
+            중요 자격 쟁점 {failedConditions.length.toLocaleString("ko-KR")}건
+          </AlertTitle>
+          <AlertDescription className="text-sm leading-6">
+            <span>
+              {failedConditions.map((trace) => describeFailedCondition(trace)).join(" ")}
+              {" "}
+              작성은 계속할 수 있고 기존 작성본은 잠기거나 삭제되지 않아요. 회사 정보가 다르면{" "}
+              <Link href={companyId ? withCompanyContext("/settings?section=company", companyId) : "/settings?section=company"}>회사 프로필에서 정정</Link>하세요.
+            </span>
+          </AlertDescription>
+        </Alert>
       ) : null}
 
       {/* ② 핵심 3지표 */}
@@ -126,9 +161,9 @@ export function GrantOverviewView({
           <GrantMetric
             label="지원 대상"
             value={formatEligibilitySummary(
-              satisfiedConditionCount,
-              unknownConditionCount,
-              failedConditionCount,
+              conditionCounts.passed,
+              conditionCounts.unknown,
+              conditionCounts.failed,
             )}
           />
         </dl>
@@ -136,7 +171,7 @@ export function GrantOverviewView({
 
       {/* ③ 작성 지원 모드별 주 CTA 1개 */}
       <section className="mt-6">
-        {discovery ? (
+        {sourceOnly ? (
           sheet.deepLink ? (
             <a
               href={sheet.deepLink}
@@ -172,7 +207,7 @@ export function GrantOverviewView({
         )}
         <div className="mt-2.5 flex flex-wrap items-center justify-center gap-x-2.5 gap-y-1.5">
           <p className="text-center text-[13px] leading-5 text-text-tertiary">
-            {discovery ? cta.caption : adminPreview
+            {adminPreview
               ? "모든 공고를 읽기 전용으로 열어 빠른 작성 연결 상태를 확인해요"
               : virtualCompanyName ? "실제 회사나 초안에 저장하지 않고 작성 화면을 확인해요" : cta.caption}
           </p>
@@ -184,7 +219,7 @@ export function GrantOverviewView({
                   : "rounded-full bg-brand-tint text-brand-hover tabular-nums"
               }
             >
-              도우미 1회 사용 · 남은 {usageChipRemaining.toLocaleString("ko-KR")}회
+              AI 도우미 남은 {usageChipRemaining.toLocaleString("ko-KR")}회
             </Badge>
           ) : null}
         </div>
@@ -193,7 +228,7 @@ export function GrantOverviewView({
 
       {/* ④ 접힌 아코디언 3개(기본 닫힘) */}
       <section className="mt-9 border-t border-border-subtle">
-        <Accordion multiple>
+        <Accordion multiple defaultValue={["eligibility"]}>
           <EligibilityMatchAccordion
             grantId={grantId}
             companyId={companyId}
@@ -201,6 +236,7 @@ export function GrantOverviewView({
             satisfied={sheet.satisfied}
             needsCheck={sheet.needsCheck}
             sourceUrl={sheet.deepLink}
+            evidenceLevel={sheet.matchingEvidence?.level ?? null}
           />
           <RequiredDocumentsAccordion documents={sheet.documents} sourceAttachments={sheet.sourceAttachments} />
           <LessonGuideAccordion guide={lessonGuide} />

@@ -18,6 +18,7 @@ const EXACT_LABELS: Record<string, string> = {
   "/credits": "크레딧",
   "/credits/complete": "결제 완료",
   "/settings": "설정",
+  "/settings/writing-sources": "회사 자료",
   "/account": "내 계정",
   "/account/usage": "사용량",
   "/onboarding": "온보딩",

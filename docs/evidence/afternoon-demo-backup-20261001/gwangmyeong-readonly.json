@@ -1,0 +1,372 @@
+{
+  "schema": "afternoon-demo-readonly-backup-candidate-v1",
+  "observedAt": "2026-10-01T04:36:51.666Z",
+  "readOnly": true,
+  "modelCalls": 0,
+  "serviceWrites": 0,
+  "standardManifestCreated": false,
+  "liveExecutionAuthorizedByThisEvidence": false,
+  "population": {
+    "eligible": 466,
+    "allHistoryExcluded": 1009,
+    "unseen": 132
+  },
+  "input": {
+    "id": "9c257682-6b48-4e5f-9c11-f6ac0529eb80",
+    "title": "[경기] 광명시 2026년 사회연대경제기업 맞춤형 온라인 마케팅 지원사업 참여기업 모집 공고(사회연대경제 유통 및 판로사업)",
+    "files": [
+      {
+        "id": "9c257682-6b48-4e5f-9c11-f6ac0529eb80",
+        "title": "[경기] 광명시 2026년 사회연대경제기업 맞춤형 온라인 마케팅 지원사업 참여기업 모집 공고(사회연대경제 유통 및 판로사업)",
+        "source": "bizinfo",
+        "sourceId": "PBLN_000000000126770",
+        "deadline": "2026-10-08T00:00:00.000Z",
+        "filename": "[서식1]참여기업신청서.hwpx",
+        "key": "grant-archive/bizinfo/PBLN_000000000126770/attachments/164eb2aeb5821971-[서식1]참여기업신청서.hwpx",
+        "sha": "164eb2aeb5821971f4ca0340feac193ddeef99c7acc502e4f6de6f6bf75c5719",
+        "bytes": 44194,
+        "markdownBytes": 2086,
+        "status": "converted",
+        "shaVerified": true
+      },
+      {
+        "id": "9c257682-6b48-4e5f-9c11-f6ac0529eb80",
+        "title": "[경기] 광명시 2026년 사회연대경제기업 맞춤형 온라인 마케팅 지원사업 참여기업 모집 공고(사회연대경제 유통 및 판로사업)",
+        "source": "bizinfo",
+        "sourceId": "PBLN_000000000126770",
+        "deadline": "2026-10-08T00:00:00.000Z",
+        "filename": "공고문_맞춤형 온라인 마케팅.hwpx",
+        "key": "grant-archive/bizinfo/PBLN_000000000126770/attachments/e4ec60c910c1fbea-공고문_맞춤형_온라인_마케팅.hwpx",
+        "sha": "e4ec60c910c1fbea40ef94b68537a64349a31a74882fd45dc2e328ff9c393db1",
+        "bytes": 80231,
+        "markdownBytes": 8513,
+        "status": "converted",
+        "shaVerified": true
+      },
+      {
+        "id": "9c257682-6b48-4e5f-9c11-f6ac0529eb80",
+        "title": "[경기] 광명시 2026년 사회연대경제기업 맞춤형 온라인 마케팅 지원사업 참여기업 모집 공고(사회연대경제 유통 및 판로사업)",
+        "source": "bizinfo",
+        "sourceId": "PBLN_000000000126770",
+        "deadline": "2026-10-08T00:00:00.000Z",
+        "filename": "【서식2】개인정보수집동의서.hwpx",
+        "key": "grant-archive/bizinfo/PBLN_000000000126770/attachments/3852d17cfb30b5bb-_서식2_개인정보수집동의서.hwpx",
+        "sha": "3852d17cfb30b5bb62d9b80bf4cb1752df4f104a811fa88391e984c33115f444",
+        "bytes": 64629,
+        "markdownBytes": 3302,
+        "status": "converted",
+        "shaVerified": true
+      }
+    ],
+    "inputSha256": "91a55bea220ba09d49ca911dfa24590216fe54755d3bbc040cfba25732818f8d",
+    "attachmentManifestSha256": "a5191ad7291b93f8230a61909c957fa20037d0cbe9bd13aa6b2648f49fe906ce",
+    "totalChars": 12173,
+    "attachmentReport": [
+      {
+        "filename": "[서식1]참여기업신청서.hwpx",
+        "documentRole": "application_form",
+        "roleBasis": "explicit_filename_hint",
+        "conversionStatus": "converted",
+        "inputOutcome": "loaded",
+        "missingReason": null,
+        "relatedDimensions": [],
+        "recovery": {
+          "possible": false,
+          "mode": "none",
+          "requiresSourceWrite": false,
+          "reason": "검증된 markdown이 현재 입력에 포함됨"
+        }
+      },
+      {
+        "filename": "【서식2】개인정보수집동의서.hwpx",
+        "documentRole": "application_form",
+        "roleBasis": "explicit_filename_hint",
+        "conversionStatus": "converted",
+        "inputOutcome": "loaded",
+        "missingReason": null,
+        "relatedDimensions": [],
+        "recovery": {
+          "possible": false,
+          "mode": "none",
+          "requiresSourceWrite": false,
+          "reason": "검증된 markdown이 현재 입력에 포함됨"
+        }
+      },
+      {
+        "filename": "공고문_맞춤형 온라인 마케팅.hwpx",
+        "documentRole": "announcement",
+        "roleBasis": "explicit_filename_hint",
+        "conversionStatus": "converted",
+        "inputOutcome": "loaded",
+        "missingReason": null,
+        "relatedDimensions": [],
+        "recovery": {
+          "possible": false,
+          "mode": "none",
+          "requiresSourceWrite": false,
+          "reason": "검증된 markdown이 현재 입력에 포함됨"
+        }
+      },
+      {
+        "filename": "공고문_맞춤형 온라인 마케팅.pdf",
+        "documentRole": "announcement",
+        "roleBasis": "explicit_filename_hint",
+        "conversionStatus": "converted",
+        "inputOutcome": "loaded",
+        "missingReason": null,
+        "relatedDimensions": [],
+        "recovery": {
+          "possible": false,
+          "mode": "none",
+          "requiresSourceWrite": false,
+          "reason": "검증된 markdown이 현재 입력에 포함됨"
+        }
+      }
+    ]
+  },
+  "offlineProbe": {
+    "id": "9c257682-6b48-4e5f-9c11-f6ac0529eb80",
+    "title": "[경기] 광명시 2026년 사회연대경제기업 맞춤형 온라인 마케팅 지원사업 참여기업 모집 공고(사회연대경제 유통 및 판로사업)",
+    "docs": [
+      {
+        "filename": "[서식1]참여기업신청서.hwpx",
+        "role": "application_form",
+        "roleConfidence": 0.98,
+        "fields": 24,
+        "llmCandidates": 2,
+        "fieldCoverage": {
+          "status": "partial",
+          "rawEmptyCandidateCount": 11,
+          "acceptedInputCount": 15,
+          "unresolvedCandidateCount": 1,
+          "structuralWarningCount": 0,
+          "unresolvedCandidates": [
+            {
+              "fieldInstanceId": "50561b99d10edefe4f0beae5",
+              "label": "주요사업",
+              "reason": "빈 양식 셀을 입력 대상 또는 비입력 영역으로 확정하지 못함",
+              "location": {
+                "blockIndex": 0,
+                "row": 9,
+                "col": 0,
+                "occurrence": 0,
+                "pageNumber": 1
+              }
+            }
+          ],
+          "structuralWarnings": [],
+          "structuralInputLabelCount": 1,
+          "anchorReadyInputCount": 15,
+          "anchorUnreadyInputCount": 0
+        },
+        "fieldPlanning": {
+          "status": "heuristic_fallback",
+          "model": null,
+          "durationMs": 0,
+          "candidateCount": 24,
+          "acceptedCount": 15,
+          "rejectedCount": 9,
+          "warning": "ANTHROPIC_API_KEY가 없어 결정적 후보 규칙만 적용했습니다.",
+          "transport": "api",
+          "requestedModel": "claude-sonnet-5",
+          "timeoutMs": 180000,
+          "candidateLimit": 180,
+          "candidateBatchSize": 20,
+          "candidateConcurrency": 9,
+          "parentLabRunId": null,
+          "effort": null,
+          "failureCode": "api_key_missing",
+          "llmCandidateCount": 24,
+          "deterministicDecisionCount": 0,
+          "requestCount": 0,
+          "inputTokens": 0,
+          "outputTokens": 0,
+          "cacheReadTokens": 0,
+          "costUsd": null
+        },
+        "warnings": [
+          "FIELD_PLAN: ANTHROPIC_API_KEY가 없어 결정적 후보 규칙만 적용했습니다.",
+          "FIELD_COVERAGE_REVIEW: 주요사업 — 빈 양식 셀을 입력 대상 또는 비입력 영역으로 확정하지 못함"
+        ]
+      },
+      {
+        "filename": "공고문_맞춤형 온라인 마케팅.hwpx",
+        "role": "announcement",
+        "roleConfidence": 0.725,
+        "fields": 37,
+        "llmCandidates": 23,
+        "fieldCoverage": {
+          "status": "partial",
+          "rawEmptyCandidateCount": 12,
+          "acceptedInputCount": 4,
+          "unresolvedCandidateCount": 5,
+          "structuralWarningCount": 2,
+          "unresolvedCandidates": [
+            {
+              "fieldInstanceId": "a2c7abeda0c48f51e1e8d1f5",
+              "label": "광명시사회연대경제센터",
+              "reason": "빈 양식 셀을 입력 대상 또는 비입력 영역으로 확정하지 못함",
+              "location": {
+                "blockIndex": 54,
+                "row": 3,
+                "col": 2,
+                "occurrence": 0,
+                "pageNumber": 1
+              }
+            },
+            {
+              "fieldInstanceId": "3096660b30fa79ee98cc0210",
+              "label": "참여기업",
+              "reason": "빈 양식 셀을 입력 대상 또는 비입력 영역으로 확정하지 못함",
+              "location": {
+                "blockIndex": 55,
+                "row": 1,
+                "col": 0,
+                "occurrence": 0,
+                "pageNumber": 1
+              }
+            },
+            {
+              "fieldInstanceId": "a752ec1bd79bf75d26d2912d",
+              "label": "전문가 컨설팅",
+              "reason": "빈 양식 셀을 입력 대상 또는 비입력 영역으로 확정하지 못함",
+              "location": {
+                "blockIndex": 55,
+                "row": 3,
+                "col": 0,
+                "occurrence": 0,
+                "pageNumber": 1
+              }
+            },
+            {
+              "fieldInstanceId": "17616bd9e948700c8318409b",
+              "label": "위탁기업",
+              "reason": "빈 양식 셀을 입력 대상 또는 비입력 영역으로 확정하지 못함",
+              "location": {
+                "blockIndex": 55,
+                "row": 3,
+                "col": 2,
+                "occurrence": 0,
+                "pageNumber": 1
+              }
+            },
+            {
+              "fieldInstanceId": "3ecec6a97747fedff00854e1",
+              "label": "위탁기업",
+              "reason": "빈 양식 셀을 입력 대상 또는 비입력 영역으로 확정하지 못함",
+              "location": {
+                "blockIndex": 55,
+                "row": 3,
+                "col": 4,
+                "occurrence": 1,
+                "pageNumber": 1
+              }
+            }
+          ],
+          "structuralWarnings": [
+            {
+              "fieldInstanceId": "1dd56dc88997ee9c909daf02",
+              "label": "기업별 온라인\n마케팅 사업 추진",
+              "reason": "다른 입력과 같은 쓰기 영향 범위여서 빠른 작성에서 함께 제외됨",
+              "location": {
+                "blockIndex": 55,
+                "row": 1,
+                "col": 2,
+                "occurrence": 0,
+                "pageNumber": 1
+              }
+            },
+            {
+              "fieldInstanceId": "b32ba27bb2ee364cbd300fd6",
+              "label": "기업별 마케팅\n성과공유",
+              "reason": "다른 입력과 같은 쓰기 영향 범위여서 빠른 작성에서 함께 제외됨",
+              "location": {
+                "blockIndex": 55,
+                "row": 1,
+                "col": 4,
+                "occurrence": 0,
+                "pageNumber": 1
+              }
+            }
+          ],
+          "structuralInputLabelCount": 6,
+          "anchorReadyInputCount": 4,
+          "anchorUnreadyInputCount": 0
+        },
+        "fieldPlanning": {
+          "status": "skipped",
+          "model": null,
+          "durationMs": 0,
+          "candidateCount": 37,
+          "acceptedCount": 4,
+          "rejectedCount": 33,
+          "requestCount": 0,
+          "inputTokens": 0,
+          "outputTokens": 0,
+          "cacheReadTokens": 0,
+          "costUsd": 0,
+          "warning": null,
+          "transport": "api",
+          "requestedModel": "claude-sonnet-5",
+          "timeoutMs": 180000,
+          "candidateLimit": 180,
+          "candidateConcurrency": 9,
+          "parentLabRunId": null,
+          "failureCode": null
+        },
+        "warnings": [
+          "FIELD_NATIVE_BINDING_SKIPPED: - 기업이 자체 제작할 수 있도록 기업별 AI프롬프트와 활용 가이드 지: 위치 또는 단일서식 불일치",
+          "FIELD_COVERAGE_REVIEW: 광명시사회연대경제센터 — 빈 양식 셀을 입력 대상 또는 비입력 영역으로 확정하지 못함",
+          "FIELD_COVERAGE_REVIEW: 참여기업 — 빈 양식 셀을 입력 대상 또는 비입력 영역으로 확정하지 못함",
+          "FIELD_COVERAGE_REVIEW: 전문가 컨설팅 — 빈 양식 셀을 입력 대상 또는 비입력 영역으로 확정하지 못함",
+          "FIELD_COVERAGE_REVIEW: 위탁기업 — 빈 양식 셀을 입력 대상 또는 비입력 영역으로 확정하지 못함",
+          "FIELD_COVERAGE_REVIEW: 위탁기업 — 빈 양식 셀을 입력 대상 또는 비입력 영역으로 확정하지 못함",
+          "FIELD_COVERAGE_PARTIAL: 기업별 온라인\n마케팅 사업 추진 — 다른 입력과 같은 쓰기 영향 범위여서 빠른 작성에서 함께 제외됨",
+          "FIELD_COVERAGE_PARTIAL: 기업별 마케팅\n성과공유 — 다른 입력과 같은 쓰기 영향 범위여서 빠른 작성에서 함께 제외됨"
+        ]
+      },
+      {
+        "filename": "【서식2】개인정보수집동의서.hwpx",
+        "role": "evidence",
+        "roleConfidence": 0.98,
+        "fields": 5,
+        "llmCandidates": 1,
+        "fieldCoverage": {
+          "status": "complete",
+          "rawEmptyCandidateCount": 2,
+          "acceptedInputCount": 4,
+          "unresolvedCandidateCount": 0,
+          "structuralWarningCount": 0,
+          "unresolvedCandidates": [],
+          "structuralWarnings": [],
+          "structuralInputLabelCount": 0,
+          "anchorReadyInputCount": 4,
+          "anchorUnreadyInputCount": 0
+        },
+        "fieldPlanning": {
+          "status": "skipped",
+          "model": null,
+          "durationMs": 0,
+          "candidateCount": 5,
+          "acceptedCount": 4,
+          "rejectedCount": 1,
+          "requestCount": 0,
+          "inputTokens": 0,
+          "outputTokens": 0,
+          "cacheReadTokens": 0,
+          "costUsd": 0,
+          "warning": null,
+          "transport": "api",
+          "requestedModel": "claude-sonnet-5",
+          "timeoutMs": 180000,
+          "candidateLimit": 180,
+          "candidateConcurrency": 9,
+          "parentLabRunId": null,
+          "failureCode": null
+        },
+        "warnings": []
+      }
+    ]
+  },
+  "boundary": "apiKey null / transport api / fetchImpl throws, so remaining LLM candidates are not adjudicated and this is not v22 application acceptance"
+}

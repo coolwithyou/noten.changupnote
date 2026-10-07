@@ -1,6 +1,6 @@
 // 제품과 실험실이 공유하는 문서 분석 구현. 실행 승인·로컬 artifact 저장은 호출자가 소유한다.
 import { createHash } from "node:crypto";
-import type { IRBlock } from "kordoc";
+import type { IRBlock, IRTable } from "kordoc";
 import type {
   RoundtripChoiceGroup,
   RoundtripDocumentRole,
@@ -295,6 +295,7 @@ export function detectUnsupportedNativeInputGaps(input: {
   const warnings: RoundtripFieldCoverageIssue[] = [];
   input.blocks.forEach((block, blockIndex) => {
     if (block.type !== "table" || !block.table) return;
+    const nativeCells = nativeTableCellOrigins(block.table);
     block.table.cells.forEach((row, rowIndex) => {
       row.forEach((cell, colIndex) => {
         const text = cell.text.normalize("NFKC");
@@ -342,7 +343,10 @@ export function detectUnsupportedNativeInputGaps(input: {
           .slice(valueStart)
           .filter(({ cell, col }) => (
             cell.text.trim() === ""
+            // logical grid의 병합 covered dummy는 독립 입력 셀이 아니다.
+            && (!nativeCells || nativeCells.has(`${rowIndex}:${col}`))
             && !hasExactCellTarget(input.fields, blockIndex, rowIndex, col)
+            && !(nativeCells && hasLocatedRightValueTarget(input.fields, input.blocks, nativeCells, blockIndex, rowIndex, col))
           ))
           .map(({ col }) => col);
         const firstUncoveredCol = uncoveredValueCols[0];
@@ -501,6 +505,80 @@ function suppressCollapsedContextualFields(
     warnings.push(issue(field, reason));
   }
   return warnings;
+}
+
+/** 병합 원점과 빈 covered dummy가 유효한 logical grid인 경우만 native 셀을 열거한다. */
+function nativeTableCellOrigins(table: IRTable): Set<string> | null {
+  const origins = new Set<string>();
+  const covered = new Set<string>();
+  for (let row = 0; row < table.cells.length; row += 1) {
+    for (let col = 0; col < table.cells[row]!.length; col += 1) {
+      const cell = table.cells[row]![col]!;
+      const key = `${row}:${col}`;
+      if (covered.has(key)) {
+        if (cell.text.trim() !== "" || cell.rowSpan !== 1 || cell.colSpan !== 1) return null;
+        continue;
+      }
+      if (!Number.isSafeInteger(cell.rowSpan) || cell.rowSpan < 1
+        || !Number.isSafeInteger(cell.colSpan) || cell.colSpan < 1) return null;
+      for (let r = row; r < row + cell.rowSpan; r += 1) {
+        for (let c = col; c < col + cell.colSpan; c += 1) {
+          if (!table.cells[r]?.[c]) return null;
+          if (r === row && c === col) continue;
+          const slot = `${r}:${c}`;
+          if (covered.has(slot)) return null;
+          covered.add(slot);
+        }
+      }
+      origins.add(key);
+    }
+  }
+  return origins;
+}
+
+/**
+ * 기존 RHWP label→오른쪽 native 값 셀 계약도 coverage로 인정한다. 새로운 후보·쓰기
+ * 위치를 만들지 않으며, source 위치/동명 occurrence/빈 값/span을 모두 검증한다.
+ */
+function hasLocatedRightValueTarget(
+  fields: readonly RoundtripFieldCandidate[],
+  blocks: readonly IRBlock[],
+  nativeCells: ReadonlySet<string>,
+  blockIndex: number,
+  row: number,
+  col: number,
+): boolean {
+  const cells = blocks[blockIndex]?.table?.cells[row];
+  return fields.some((field) => {
+    if (!field.recommendedInput || !field.empty || field.location.target !== undefined
+      || field.location.blockIndex !== blockIndex || field.location.row !== row
+      || !((field.source === "kordoc-form" && field.writeOperation === "kordoc_field")
+        || (field.source === "rhwp-structural" && field.writeOperation === "rhwp_field"))
+      || !hasRhwpAnchorContract(field, blocks)) return false;
+    const labelCol = field.location.col;
+    const label = cells?.[labelCol];
+    if (!label || !nativeCells.has(`${row}:${labelCol}`)
+      || labelCol + label.colSpan !== col || field.originalValue.trim() !== "") return false;
+    const exactLabel = (text: string) => text.normalize("NFKC").replace(/\s+/gu, "");
+    if (exactLabel(label.text) !== exactLabel(field.label)
+      || normalizeRoundtripLabel(label.text) !== field.normalizedLabel) return false;
+    let occurrence = 0;
+    for (let b = 0; b <= blockIndex; b += 1) {
+      const table = blocks[b]?.table;
+      if (!table) continue;
+      for (let r = 0; r < table.cells.length; r += 1) {
+        for (let c = 0; c < table.cells[r]!.length; c += 1) {
+          const text = table.cells[r]![c]!.text;
+          if (normalizeRoundtripLabel(text) !== field.normalizedLabel) continue;
+          // 느슨한 라벨 정규화 충돌을 exact native 동명 순번으로 간주하지 않는다.
+          if (exactLabel(text) !== exactLabel(field.label)) return false;
+          if (b === blockIndex && r === row && c === labelCol) return occurrence === field.location.occurrence;
+          occurrence += 1;
+        }
+      }
+    }
+    return false;
+  });
 }
 
 function hasExactCellTarget(

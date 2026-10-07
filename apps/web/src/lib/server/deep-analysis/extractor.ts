@@ -1037,6 +1037,8 @@ export const DEEP_ANALYSIS_STRUCTURED_FILTER_METADATA_RULE =
   "K-Startup의 rawPayload.biz_enyy와 biz_trgt_age처럼 포털 검색용 범주를 넓게 열거한 필드는 그 자체를 신청자격 상·하한으로 만들지 마라. 지원 가능한 모든 업력 또는 연령 범주를 사실상 전부 나열하면 비제한 검색 메타데이터이므로 criterion이나 ambiguous 근거가 아니다. rawPayload.aply_trgt(입력의 source_field: aply_trgt)는 포털 신청대상 요약 분류이므로 target_type으로 보존할 때는 list_semantics=open으로 두고, 목록 밖 유형을 자동 탈락시키지 마라. 상세 신청대상·첨부의 명시적 유한 자격 목록만 closed 근거로 사용한다. rawPayload.supt_regin(입력의 source_field: supt_regin)은 사업·운영기관의 서비스 권역 또는 포털 분류일 수 있으므로 그 값만으로 신청기업 소재지 region criterion을 만들지 마라. 신청대상·신청자격 본문에 신청자 주소지·본사·사업장 소재지가 명시된 경우에만 region 자격으로 만들고, 양쪽이 모두 실제 자격 문장인데 충돌할 때만 ambiguous로 남겨라.";
 export const DEEP_ANALYSIS_ALTERNATIVE_PATH_SCOPE_RULE =
   "신청자격이 A 또는 B, 쉼표 열거, 트랙별 경로처럼 대안(OR)으로 열려 있으면 한 경로의 속성을 모든 신청자에게 적용되는 독립 required criterion으로 승격하지 마라. 서로 다른 22축이 섞인 대안은 현재 criterion 계약으로 논리식을 무손실 표현할 수 없으므로 dimension=other, operator=text_only 한 건에 전체 OR 경로와 적용 범위를 보존한다. 예: '입주기업, 졸업기업 및 기타 예비·초기 창업기업'에서 입주 여부와 예비·초기 업력을 별도 전역 필수조건으로 만들면 안 되고, '콘텐츠 제작 사업자 또는 제주 거주 개인 창작자'에서 콘텐츠 업종을 개인 창작자에게까지 적용하면 안 된다.";
+export const DEEP_ANALYSIS_QUALIFIED_PREDICATE_LOSSLESS_RULE =
+  "대안 경로 뒤 괄호의 업력·규모 한정이 어느 경로에 적용되는지 명시되지 않으면 모든 경로에 공통이라고 추정하지 마라. '중소기업 또는 스타트업 (업력 N년 이내)'처럼 규모와 창업 경로가 섞이면 전체 OR와 괄호를 other/text_only 및 covered_dimensions에 보존하고 적용 범위가 불명확함을 note에 남긴다. 포털의 '지원대상: 중소기업' 요약만으로 본문의 스타트업 대안을 제거하거나 전역 size/in과 biz_age/lte를 추가하지 마라. 별도 원문이 모든 경로의 공통 요건을 명시한 경우에만 그 요건을 구조화한다. 특정 기술·제품의 보유·개발 역량은 업종명과 다른 사실이다. 기술 보유 기업을 industry/in tags로 바꾸지 말고 industry/text_only에 보유 요건 전체를 남긴다. 회생절차의 개시 신청과 절차 진행은 다른 단계이며 개인회생과 기업회생도 구분해야 한다. 이 단계·유형·정상 변제 예외를 현재 credit_status flags가 모두 표현하지 못하면 credit_status/text_only로 보존한다. 직전년도·특정 회계연도 결산 기준의 자본잠식·재무 임계는 현재 재무 상태와 같다고 추정하지 마라. 기준연도를 value가 보존하지 못하면 financial_health/text_only로 조건과 시점을 함께 남긴다. note에만 한정을 적고 글로벌 구조화 비교값을 발행하는 것은 무손실 보존이 아니다.";
 export const DEEP_ANALYSIS_CROSS_AXIS_TEXT_ONLY_RULE =
   "서로 다른 22축의 OR 조건을 other/text_only로 보존하면 value.covered_dimensions에 그 한 criterion이 실제로 검토·보존한 축 이름만 넣는다. 예: 창업 7년 이내 또는 벤처기업이면 covered_dimensions=[\"biz_age\",\"certification\"]이다. 적용 축이 하나도 없으면 빈 배열을 만들지 말고 covered_dimensions 키 자체를 생략한다. 공통 필수조건이나 원문에 없는 축을 넣지 말고, listed 축의 axis_assessments는 condition_found로 둔다. 이 결속은 축별 독립 required criterion을 새로 만들라는 뜻이 아니다.";
 export const DEEP_ANALYSIS_PROGRAM_THEME_BOUNDARY_RULE =
@@ -1107,6 +1109,7 @@ export const DEEP_ANALYSIS_REVIEW_ALIGNMENT_RULES = Object.freeze([
   DEEP_ANALYSIS_STRUCTURED_TARGET_RULE,
   DEEP_ANALYSIS_STRUCTURED_FILTER_METADATA_RULE,
   DEEP_ANALYSIS_ALTERNATIVE_PATH_SCOPE_RULE,
+  DEEP_ANALYSIS_QUALIFIED_PREDICATE_LOSSLESS_RULE,
   DEEP_ANALYSIS_CROSS_AXIS_TEXT_ONLY_RULE,
   DEEP_ANALYSIS_PROGRAM_THEME_BOUNDARY_RULE,
   DEEP_ANALYSIS_PROCEDURAL_EVIDENCE_CHECK_RULE,
@@ -1171,6 +1174,7 @@ export const DEEP_ANALYSIS_SYSTEM_PROMPT = [
   DEEP_ANALYSIS_STRUCTURED_TARGET_RULE,
   DEEP_ANALYSIS_STRUCTURED_FILTER_METADATA_RULE,
   DEEP_ANALYSIS_ALTERNATIVE_PATH_SCOPE_RULE,
+  DEEP_ANALYSIS_QUALIFIED_PREDICATE_LOSSLESS_RULE,
   DEEP_ANALYSIS_CROSS_AXIS_TEXT_ONLY_RULE,
   DEEP_ANALYSIS_PROGRAM_THEME_BOUNDARY_RULE,
   DEEP_ANALYSIS_PROCEDURAL_EVIDENCE_CHECK_RULE,

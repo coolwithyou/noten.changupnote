@@ -214,6 +214,30 @@ test("현행 완료 계약은 읽되 live normalizer의 역사 계약 거부는 
   }
 });
 
+test("v29/v23/v22 완료 parent는 exact offline ancestry로 읽고 미확인 조합은 거부한다", async () => {
+  const root = await mkdtemp(join(tmpdir(), "cunote-completed-v29-"));
+  try {
+    const old = await fixture(root, {
+      promptVersion: "lab-deep-v29", validatorVersion: "deep-analysis-validator-v23",
+      applicationFieldAnalysisVersion: "kordoc-application-roundtrip-v22",
+    });
+    const loaded = await readCompletedAnalysisLaunchArtifacts({
+      launchReceiptSha256: old.receipt.sha256, repositoryRoot: root,
+    });
+    assert.equal(loaded.manifest.execution.promptVersion, "lab-deep-v29");
+    assert.equal(loaded.manifest.execution.validatorVersion, "deep-analysis-validator-v23");
+    for (const patch of [
+      { promptVersion: "lab-deep-v31" },
+      { validatorVersion: "deep-analysis-validator-v24" },
+      { applicationFieldAnalysisVersion: "unrecognized-field-version" },
+    ]) {
+      assert.throws(() => normalizeCompletedAnalysisLaunchManifestForOfflineConsumption({
+        ...old.manifest, execution: { ...old.manifest.execution, ...patch },
+      }));
+    }
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
 test("unknown tuple, modified SHA, unfinished receipt와 target drift를 fail-closed한다", async () => {
   const root = await mkdtemp(join(tmpdir(), "cunote-completed-launch-reader-reject-"));
   try {

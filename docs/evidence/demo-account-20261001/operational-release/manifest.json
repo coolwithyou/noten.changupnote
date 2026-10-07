@@ -1,0 +1,1535 @@
+{
+  "releaseId": "deep-afternoon-demo-20261001-r1-20261001T055109Z-d745bfcd",
+  "revision": 1,
+  "createdAt": "2026-10-01T05:51:09.389Z",
+  "gitCommit": "d745bfcde9483185147e54b505dba64487288dd5",
+  "buildDigest": "c26d875bf20832c108283c5ad53fe90daa9c6052",
+  "cohortLabel": "afternoon-demo-20261001",
+  "canaryGrantIds": [
+    "9837fd9b-0b15-4e70-b1b5-0fe3765e980c"
+  ],
+  "sourceArtifacts": [
+    {
+      "grantId": "9837fd9b-0b15-4e70-b1b5-0fe3765e980c",
+      "runId": "run-2026-10-01T053459.988Z-10abcc",
+      "runSha256": "b44cb39b3f7f431e8b2522bb73e5e50efea8288e57e87a3ec16f40b168adc712",
+      "overlaySha256": null,
+      "confirmationsSha256": null,
+      "manualConfirmationEvaluationsSha256": null,
+      "sourceRevisionSha256": "af06d57888cd094f3fcbd8bd74cab312ddd8fb03cac92cef40fc5c85a4b3173d",
+      "localLabEvidence": {
+        "schema": "verified-local-lab-source-v1",
+        "transport": "claude-cli",
+        "model": "claude-opus-5",
+        "promptVersion": "lab-deep-v30",
+        "inputSha256": "a4a70dbdaae820a9a179819fee58dec0711f5c265a11e664455d578c80aa2cb4",
+        "reviewMethod": "analysis_launch_independent_review",
+        "analysisLaunch": {
+          "schema": "verified-analysis-launch-source-v1",
+          "launchReceiptSha256": "888a8cf54460911a8fe9eca6ef1384dfe67260d9ce727e36959161a8010974f7",
+          "launchManifestSha256": "fa72ee62e6bbf59d4cd95fd6e863646e3d99eb58002334e8b0fa8a508f34d79e",
+          "launchGrantSha256": "5565cdc7655959b94215b944133bf2a5074e03eeec442692c2dbc479dbaaf490",
+          "launchSequence": 0,
+          "independentReviewManifestSha256": "ab8ef433c1013bc3ecac190bedd34ee6a1f455d1f42a3551d9e9693e5e1af972",
+          "independentReviewAggregateSha256": "e82b4fbdd05fbc231929ff99af36bc2070df7099bc57b4a3f5eace7f7232bcb1",
+          "attachmentManifestSha256": "8a0656b462de03e9c55a1352affb877a04b8a13653edececa97ccc37db8dd663",
+          "sourceRevisionSha256": "af06d57888cd094f3fcbd8bd74cab312ddd8fb03cac92cef40fc5c85a4b3173d",
+          "executionGitSha": "ec0e3ef2e7fb398b429b834553769d9ba7694008",
+          "packageRuntimeSha256": "b6f4c9e81394dcfc8606f2d7949954b63a84c9c73e8caec12d35166a89519c93",
+          "validatorVersion": "deep-analysis-validator-v24",
+          "applicationFieldAnalysisVersion": "kordoc-application-roundtrip-v22",
+          "primaryMatchingProjectionSnapshotSha256": "7971f9808e65c6432869a15b9f27ba6f1476d03b361333344b88c73a359ccca1",
+          "primaryMatchingProjectionContractVersion": "analysis-lab-shadow-conversion-v3"
+        }
+      },
+      "applicationPrecompute": {
+        "schema": "promotion-application-precompute-v3",
+        "releaseId": "deep-afternoon-demo-20261001-r1-20261001T055109Z-d745bfcd",
+        "grantId": "9837fd9b-0b15-4e70-b1b5-0fe3765e980c",
+        "parentLabRunId": "run-2026-10-01T053459.988Z-10abcc",
+        "roundtripRunId": "roundtrip-2026-10-01T053501.142Z-9a3915",
+        "status": "ready",
+        "transport": "claude-cli",
+        "model": "claude-opus-5",
+        "analysisSha256": "d90252ed3694b55f32e9d4af54fe98d5025e2152010917cbb28ff2a6fb666a7d",
+        "manifestSha256": "06ed656ad07c935628d33856d9d23783362ae629059fda6cfee19588d124b8be",
+        "sourceCount": 2,
+        "documentCount": 2,
+        "materializableDocumentCount": 1,
+        "reviewRequiredDocumentCount": 0,
+        "launchAdmission": {
+          "launchReceiptSha256": "888a8cf54460911a8fe9eca6ef1384dfe67260d9ce727e36959161a8010974f7",
+          "launchManifestSha256": "fa72ee62e6bbf59d4cd95fd6e863646e3d99eb58002334e8b0fa8a508f34d79e",
+          "launchGrantSha256": "5565cdc7655959b94215b944133bf2a5074e03eeec442692c2dbc479dbaaf490",
+          "launchSequence": 0,
+          "independentReviewManifestSha256": "ab8ef433c1013bc3ecac190bedd34ee6a1f455d1f42a3551d9e9693e5e1af972",
+          "independentReviewAggregateSha256": "e82b4fbdd05fbc231929ff99af36bc2070df7099bc57b4a3f5eace7f7232bcb1",
+          "runArtifactSha256": "b44cb39b3f7f431e8b2522bb73e5e50efea8288e57e87a3ec16f40b168adc712",
+          "applicationFieldAnalysisVersion": "kordoc-application-roundtrip-v22"
+        }
+      }
+    }
+  ],
+  "plans": [
+    {
+      "grantId": "9837fd9b-0b15-4e70-b1b5-0fe3765e980c",
+      "planSha256": "5963afe3cd5ef507f746c6b38ebbe20ccfa51f7c2cc10994cf46559c93711c6a",
+      "promotionPlan": {
+        "grantId": "9837fd9b-0b15-4e70-b1b5-0fe3765e980c",
+        "runId": "run-2026-10-01T053459.988Z-10abcc",
+        "title": "싱가포르 현지 진출 지원 국내 블록체인 기업 모집 공고",
+        "origin": "analysis_launch",
+        "auditState": "analysis_launch_independent_review",
+        "criteria": [
+          {
+            "id": "lab-shadow:PBLN_000000000126841:llm-1",
+            "grant_id": "PBLN_000000000126841",
+            "dimension": "other",
+            "operator": "text_only",
+            "kind": "required",
+            "value": {
+              "note": "신청자격은 '블록체인 기술 보유 및 해외 진출 역량이 있는 블록체인 중소기업 또는 스타트업 (업력 10년 이내)'로, 중소기업과 스타트업이 OR로 열려 있고 괄호의 업력 10년 이내가 두 경로 모두에 공통 적용되는지 원문에 명시되지 않았다. 따라서 size/biz_age/industry를 전역 구조화 비교값으로 분리하지 않고 OR 전체를 보존한다. 업력 산정은 '업력은 창업일 기준이며 사업자등록증상 개업연월일, 법인등기부등본상 회사성립연월일'을 뜻한다. 포털 구조화 필드의 지원대상은 '중소기업'만 명시한다."
+            },
+            "confidence": 0.93,
+            "needs_review": false,
+            "parser_version": "analysis-lab-shadow-v4",
+            "source_span": "(신청자격) 블록체인 기술 보유 및 해외 진출 역량이 있는 블록체인 중소기업 또는 스타트업 (업력 10년 이내)",
+            "raw_text": "(신청자격) 블록체인 기술 보유 및 해외 진출 역량이 있는 블록체인 중소기업 또는 스타트업 (업력 10년 이내)",
+            "source_field": "analysis_lab_deep"
+          },
+          {
+            "id": "lab-shadow:PBLN_000000000126841:llm-2",
+            "grant_id": "PBLN_000000000126841",
+            "dimension": "industry",
+            "operator": "text_only",
+            "kind": "required",
+            "value": {
+              "note": "지원요건(기업)으로 블록체인 기반 기술을 보유한 기업이어야 한다. 업종코드·업태가 아니라 기술 보유 사실이므로 업종 태그로 치환하지 않는다."
+            },
+            "confidence": 0.9,
+            "needs_review": false,
+            "parser_version": "analysis-lab-shadow-v4",
+            "source_span": "• 블록체인 기반 기술 보유 기업",
+            "raw_text": "• 블록체인 기반 기술 보유 기업",
+            "source_field": "analysis_lab_deep"
+          },
+          {
+            "id": "lab-shadow:PBLN_000000000126841:llm-3",
+            "grant_id": "PBLN_000000000126841",
+            "dimension": "other",
+            "operator": "text_only",
+            "kind": "required",
+            "value": {
+              "note": "지원요건(기업)으로 해외진출 의향이 있는 기업이어야 한다. 수출실적이 아닌 진출 의향 요건이다."
+            },
+            "confidence": 0.85,
+            "needs_review": false,
+            "parser_version": "analysis-lab-shadow-v4",
+            "source_span": "• 해외진출 의향 이 있는 기업",
+            "raw_text": "• 해외진출 의향 이 있는 기업",
+            "source_field": "analysis_lab_deep"
+          },
+          {
+            "id": "lab-shadow:PBLN_000000000126841:llm-4",
+            "grant_id": "PBLN_000000000126841",
+            "dimension": "other",
+            "operator": "text_only",
+            "kind": "required",
+            "value": {
+              "note": "현지 파견 출장자(역할)에 적용되는 요건: C-LEVEL 이상 의사결정 가능자, 영어 피칭 및 의사소통 가능자, 해외 출장 결격사유 없는 자. 신청기업 대표자 속성 조건이 아니며 출장자 역할에 한정된다."
+            },
+            "confidence": 0.88,
+            "needs_review": false,
+            "parser_version": "analysis-lab-shadow-v4",
+            "source_span": "[지원요건 : 출장자] • C-LEVEL 이상으로 의사결정이 가능한 자 • 영어 피칭 및 의사소통 등이 가능한 자 • 해외 출장의 결격사유가 없는 자",
+            "raw_text": "[지원요건 : 출장자] • C-LEVEL 이상으로 의사결정이 가능한 자 • 영어 피칭 및 의사소통 등이 가능한 자 • 해외 출장의 결격사유가 없는 자",
+            "source_field": "analysis_lab_deep"
+          },
+          {
+            "id": "lab-shadow:PBLN_000000000126841:llm-5",
+            "grant_id": "PBLN_000000000126841",
+            "dimension": "credit_status",
+            "operator": "in",
+            "kind": "exclusion",
+            "value": {
+              "flags": [
+                "loan_default"
+              ]
+            },
+            "confidence": 0.9,
+            "needs_review": false,
+            "parser_version": "analysis-lab-shadow-v4",
+            "source_span": "• 금융기관 등으로부터 채무불이행으로 규제 중인 자 (기업)",
+            "raw_text": "• 금융기관 등으로부터 채무불이행으로 규제 중인 자 (기업)",
+            "source_field": "analysis_lab_deep"
+          },
+          {
+            "id": "lab-shadow:PBLN_000000000126841:llm-6",
+            "grant_id": "PBLN_000000000126841",
+            "dimension": "tax_compliance",
+            "operator": "in",
+            "kind": "exclusion",
+            "value": {
+              "flags": [
+                "national_tax_delinquent",
+                "local_tax_delinquent"
+              ]
+            },
+            "confidence": 0.93,
+            "needs_review": false,
+            "parser_version": "analysis-lab-shadow-v4",
+            "source_span": "• 국세 또는 지방세 체납 중인 자 (기업)",
+            "raw_text": "• 국세 또는 지방세 체납 중인 자 (기업)",
+            "source_field": "analysis_lab_deep"
+          },
+          {
+            "id": "lab-shadow:PBLN_000000000126841:llm-7",
+            "grant_id": "PBLN_000000000126841",
+            "dimension": "industry",
+            "operator": "text_only",
+            "kind": "exclusion",
+            "value": {
+              "note": "중소기업창업지원법 시행령 제4조(창업에서 제외되는 업종)의 업종을 영위하는 기업은 신청 제외대상이다. 공고문에 구체 업종명이 열거되지 않은 법령 참조 조항이므로 업종 태그로 분해하지 않는다."
+            },
+            "confidence": 0.9,
+            "needs_review": false,
+            "parser_version": "analysis-lab-shadow-v4",
+            "source_span": "• 중소기업창업지원법 시행령 제4조(창업에서 제외되는 업종)의 업종을 영위하고 있는 자 (기업)",
+            "raw_text": "• 중소기업창업지원법 시행령 제4조(창업에서 제외되는 업종)의 업종을 영위하고 있는 자 (기업)",
+            "source_field": "analysis_lab_deep"
+          },
+          {
+            "id": "lab-shadow:PBLN_000000000126841:llm-8",
+            "grant_id": "PBLN_000000000126841",
+            "dimension": "business_status",
+            "operator": "in",
+            "kind": "exclusion",
+            "value": {
+              "statuses": [
+                "suspended",
+                "closed"
+              ],
+              "labels": [
+                "휴폐업"
+              ]
+            },
+            "confidence": 0.93,
+            "needs_review": false,
+            "parser_version": "analysis-lab-shadow-v4",
+            "source_span": "• 신청일 기준 동 사업에 신청하는 사업자가 휴‧폐업 중인 자 (기업)",
+            "raw_text": "• 신청일 기준 동 사업에 신청하는 사업자가 휴‧폐업 중인 자 (기업)",
+            "source_field": "analysis_lab_deep"
+          },
+          {
+            "id": "lab-shadow:PBLN_000000000126841:llm-9",
+            "grant_id": "PBLN_000000000126841",
+            "dimension": "sanction",
+            "operator": "in",
+            "kind": "exclusion",
+            "value": {
+              "flags": [
+                "wage_arrears_listed"
+              ]
+            },
+            "confidence": 0.92,
+            "needs_review": false,
+            "parser_version": "analysis-lab-shadow-v4",
+            "source_span": "• 「 근로기준법 」 에 따라 고용노동부가 공개하는 체불 사업주 명단에 포함된 자 (기업)",
+            "raw_text": "• 「 근로기준법 」 에 따라 고용노동부가 공개하는 체불 사업주 명단에 포함된 자 (기업)",
+            "source_field": "analysis_lab_deep"
+          },
+          {
+            "id": "lab-shadow:PBLN_000000000126841:llm-10",
+            "grant_id": "PBLN_000000000126841",
+            "dimension": "sanction",
+            "operator": "in",
+            "kind": "exclusion",
+            "value": {
+              "flags": [
+                "participation_restricted"
+              ]
+            },
+            "confidence": 0.92,
+            "needs_review": false,
+            "parser_version": "analysis-lab-shadow-v4",
+            "source_span": "• 기타 정부 또는 공공기관으로부터 사업 참여 제한 중인 기업",
+            "raw_text": "• 기타 정부 또는 공공기관으로부터 사업 참여 제한 중인 기업",
+            "source_field": "analysis_lab_deep"
+          },
+          {
+            "id": "lab-shadow:PBLN_000000000126841:llm-11",
+            "grant_id": "PBLN_000000000126841",
+            "dimension": "financial_health",
+            "operator": "text_only",
+            "kind": "exclusion",
+            "value": {
+              "note": "외부감사 기업에 한해 최근 년도 결산 감사 의견이 '의견거절' 또는 '부적정'인 경우 신청 제외대상이다. 외부감사 대상 여부라는 전제와 감사의견 종류가 결합되어 재무비율 임계값으로 표현할 수 없다."
+            },
+            "confidence": 0.9,
+            "needs_review": false,
+            "parser_version": "analysis-lab-shadow-v4",
+            "source_span": "• 외부감사 기업의 경우 최근 년도 결산 감사 의견이 ‘의견거절’ 또는 ‘부적정’ 기업",
+            "raw_text": "• 외부감사 기업의 경우 최근 년도 결산 감사 의견이 ‘의견거절’ 또는 ‘부적정’ 기업",
+            "source_field": "analysis_lab_deep"
+          },
+          {
+            "id": "lab-shadow:PBLN_000000000126841:llm-12",
+            "grant_id": "PBLN_000000000126841",
+            "dimension": "prior_award",
+            "operator": "in",
+            "kind": "exclusion",
+            "value": {
+              "scope": "program",
+              "programs": [
+                "타 정부부처 및 기관, 민간 기업 등에서 지원하는 싱가포르 핀테크 페스티벌 2026 관련 사업"
+              ],
+              "states": [
+                "participating"
+              ]
+            },
+            "confidence": 0.87,
+            "needs_review": false,
+            "parser_version": "analysis-lab-shadow-v4",
+            "source_span": "타 정부부처 및 기관, 민간 기업 등에서 지원하는 싱가포르 핀테크 페스티벌 2026 관련 사업에 참여하는 경우 중복신청이 불가하며",
+            "raw_text": "타 정부부처 및 기관, 민간 기업 등에서 지원하는 싱가포르 핀테크 페스티벌 2026 관련 사업에 참여하는 경우 중복신청이 불가하며",
+            "source_field": "analysis_lab_deep"
+          },
+          {
+            "id": "lab-shadow:PBLN_000000000126841:llm-13",
+            "grant_id": "PBLN_000000000126841",
+            "dimension": "credit_status",
+            "operator": "in",
+            "kind": "exclusion",
+            "value": {
+              "flags": [
+                "bond_default"
+              ]
+            },
+            "confidence": 0.9,
+            "needs_review": false,
+            "parser_version": "analysis-lab-shadow-v4",
+            "source_span": "• 기업의 경우 부도 상태인가?",
+            "raw_text": "• 기업의 경우 부도 상태인가?",
+            "source_field": "analysis_lab_deep"
+          },
+          {
+            "id": "lab-shadow:PBLN_000000000126841:llm-14",
+            "grant_id": "PBLN_000000000126841",
+            "dimension": "tax_compliance",
+            "operator": "text_only",
+            "kind": "exclusion",
+            "value": {
+              "note": "세무 당국에 의해 국세·지방세 등의 체납처분을 받은 경우 결격. 단 회생인가 받은 기업, 중소기업진흥공단 등으로부터 재창업 자금을 지원받은 기업, 중소기업 건강관리시스템 기업구조 개선 진단을 통한 정상화 의결 기업은 예외이며 이에 해당할 경우 증빙서류 제출이 필수다. 예외 3종과 증빙 전제를 canonical 플래그·예외로 모두 표현할 수 없어 원문을 보존한다."
+            },
+            "confidence": 0.9,
+            "needs_review": false,
+            "parser_version": "analysis-lab-shadow-v4",
+            "source_span": "• 세무 당국에 의하여 국세, 지방세 등의 체납처분을 받았는가? ( 단, 회생인가 받은 기업, 중소기업진흥공단 등으로부터 재창업 자금을 지원받은 기업과 중소기업 건강 관리시스템 기업구조 개선 진단을 통한 정상화 의결 기업은 예외이나, 이에 해당 할 시 증빙서류 제출 필수)",
+            "raw_text": "• 세무 당국에 의하여 국세, 지방세 등의 체납처분을 받았는가? ( 단, 회생인가 받은 기업, 중소기업진흥공단 등으로부터 재창업 자금을 지원받은 기업과 중소기업 건강 관리시스템 기업구조 개선 진단을 통한 정상화 의결 기업은 예외이나, 이에 해당 할 시 증빙서류 제출 필수)",
+            "source_field": "analysis_lab_deep"
+          },
+          {
+            "id": "lab-shadow:PBLN_000000000126841:llm-15",
+            "grant_id": "PBLN_000000000126841",
+            "dimension": "credit_status",
+            "operator": "text_only",
+            "kind": "exclusion",
+            "value": {
+              "note": "민사집행법에 기한 채무불이행자명부 등재 또는 은행연합회 등 신용정보 집중기관의 채무불이행자 등록 중 어느 하나에 해당하면 결격. 명부 등재와 집중기관 등록은 서로 다른 상태이므로 일반 채무불이행 플래그 하나로 동일하게 판정하지 않고 원문 전체를 보존한다."
+            },
+            "confidence": 0.9,
+            "needs_review": false,
+            "parser_version": "analysis-lab-shadow-v4",
+            "source_span": "• 민사집행법에 기하여 채무불이행자명부에 등재되거나, 은행연합회 등 신용정보 집중기관에 채무 불이행자로 등록되었는가?",
+            "raw_text": "• 민사집행법에 기하여 채무불이행자명부에 등재되거나, 은행연합회 등 신용정보 집중기관에 채무 불이행자로 등록되었는가?",
+            "source_field": "analysis_lab_deep"
+          },
+          {
+            "id": "lab-shadow:PBLN_000000000126841:llm-16",
+            "grant_id": "PBLN_000000000126841",
+            "dimension": "credit_status",
+            "operator": "text_only",
+            "kind": "exclusion",
+            "value": {
+              "note": "파산, 회생절차, 개인회생절차의 '개시 신청'이 이루어진 경우 결격. 단 법원의 인가를 받은 회생계획 또는 변제계획에 따른 채무변제를 정상적으로 이행하고 있는 경우는 예외다. 개시 신청 단계, 기업회생과 개인회생의 구분, 정상 변제 예외를 현재 플래그로 모두 표현할 수 없어 원문을 보존한다."
+            },
+            "confidence": 0.9,
+            "needs_review": false,
+            "parser_version": "analysis-lab-shadow-v4",
+            "source_span": "• 파산, 회생절차, 개인회생절차의 개시 신청이 이루어졌는가? (단, 법원의 인가를 받은 회생 계획 또는 변제계획에 따른 채무변제를 정상적으로 이행하고 있는 경우는 예외로 함)",
+            "raw_text": "• 파산, 회생절차, 개인회생절차의 개시 신청이 이루어졌는가? (단, 법원의 인가를 받은 회생 계획 또는 변제계획에 따른 채무변제를 정상적으로 이행하고 있는 경우는 예외로 함)",
+            "source_field": "analysis_lab_deep"
+          },
+          {
+            "id": "lab-shadow:PBLN_000000000126841:llm-17",
+            "grant_id": "PBLN_000000000126841",
+            "dimension": "financial_health",
+            "operator": "text_only",
+            "kind": "exclusion",
+            "value": {
+              "note": "직전년도 결산 기준 자본전액 잠식 상태인 기업은 결격. 현재 재무상태가 아니라 직전년도 결산이라는 기준시점이 명시되어 있어 임계값 구조화 대신 기준연도와 함께 보존한다."
+            },
+            "confidence": 0.9,
+            "needs_review": false,
+            "parser_version": "analysis-lab-shadow-v4",
+            "source_span": "• 기업의 경우 직전년도 결산 기준 자본전액 잠식 상태인가?",
+            "raw_text": "• 기업의 경우 직전년도 결산 기준 자본전액 잠식 상태인가?",
+            "source_field": "analysis_lab_deep"
+          },
+          {
+            "id": "lab-shadow:PBLN_000000000126841:llm-18",
+            "grant_id": "PBLN_000000000126841",
+            "dimension": "other",
+            "operator": "text_only",
+            "kind": "preferred",
+            "value": {
+              "note": "평가지표 중 배점이 가장 큰 항목(30점)으로 현지 보유 네트워크·인프라, 현지 시장 분석, 현지 진출 파트너십 구축, 현지 진출 경험 및 시장이해도, 진출 전략의 구체성·실현 가능성을 평가한다. 동점 시 1순위 비교 항목이기도 하다.",
+              "downgrade_reason": "reserved_dimension",
+              "original_dimension": "export_performance",
+              "original_operator": "text_only",
+              "original_value": {
+                "note": "평가지표 중 배점이 가장 큰 항목(30점)으로 현지 보유 네트워크·인프라, 현지 시장 분석, 현지 진출 파트너십 구축, 현지 진출 경험 및 시장이해도, 진출 전략의 구체성·실현 가능성을 평가한다. 동점 시 1순위 비교 항목이기도 하다."
+              }
+            },
+            "confidence": 0.88,
+            "needs_review": true,
+            "parser_version": "analysis-lab-shadow-v4",
+            "source_span": "현지 시장 진출 역량 • 현지 보유 네트워크 및 인프라 - 현지 시장에 대한 분석이 이루어져 있는가? - 현지 진출 파트너십 및 네트워크가 구축되어 있는가? • 현지 진출 이해도 및 경험 - 현지 진출 경험 및 시장이해도가 충분한가? - 현지 시장 진출을 위한 전략 및 계획이 구체적이고 실현 가능한가? 30",
+            "raw_text": "현지 시장 진출 역량 • 현지 보유 네트워크 및 인프라 - 현지 시장에 대한 분석이 이루어져 있는가? - 현지 진출 파트너십 및 네트워크가 구축되어 있는가? • 현지 진출 이해도 및 경험 - 현지 진출 경험 및 시장이해도가 충분한가? - 현지 시장 진출을 위한 전략 및 계획이 구체적이고 실현 가능한가? 30",
+            "source_field": "analysis_lab_deep"
+          },
+          {
+            "id": "lab-shadow:PBLN_000000000126841:llm-19",
+            "grant_id": "PBLN_000000000126841",
+            "dimension": "other",
+            "operator": "text_only",
+            "kind": "preferred",
+            "value": {
+              "note": "평가지표 '사업 경쟁력 및 매력도'(30점): 경쟁사 대비 차별화 핵심 요소, 사업 지속 전략, 기대수익률·투자 시점 등 투자 매력도의 객관적 데이터 뒷받침, 투자자 관점 매력 요소를 평가한다. 동점 시 2순위 비교 항목이다."
+            },
+            "confidence": 0.88,
+            "needs_review": false,
+            "parser_version": "analysis-lab-shadow-v4",
+            "source_span": "사업 경쟁력 및 매력도 • 사업의 경쟁력 - 경쟁사와 차별화되는 핵심 요소가 명확하게 정의되어 있는가? - 사업을 지속해서 유지할 수 있는 전략이 구체적으로 제시되었는가? • 기대수익률, 투자 시점 등 투자 매력도 - 사업의 기대수익률과 투자 매력도가 객관적인 데이터를 통해 뒷받침되는가? - 투자자에게 충분히 매력적인 요소가 제공되는가? 30",
+            "raw_text": "사업 경쟁력 및 매력도 • 사업의 경쟁력 - 경쟁사와 차별화되는 핵심 요소가 명확하게 정의되어 있는가? - 사업을 지속해서 유지할 수 있는 전략이 구체적으로 제시되었는가? • 기대수익률, 투자 시점 등 투자 매력도 - 사업의 기대수익률과 투자 매력도가 객관적인 데이터를 통해 뒷받침되는가? - 투자자에게 충분히 매력적인 요소가 제공되는가? 30",
+            "source_field": "analysis_lab_deep"
+          },
+          {
+            "id": "lab-shadow:PBLN_000000000126841:llm-20",
+            "grant_id": "PBLN_000000000126841",
+            "dimension": "other",
+            "operator": "text_only",
+            "kind": "preferred",
+            "value": {
+              "note": "평가지표 '사업기획력 및 실행력'(15점): 진입 예정 시장 상황·투자 현황에 따른 사업 추진 타당성, 현지 시장 진출 경험과 이해도, 해외 진출전략의 현실성과 계획 명확성, 인력·자금 확보, 리스크 대응 전략을 평가한다."
+            },
+            "confidence": 0.86,
+            "needs_review": false,
+            "parser_version": "analysis-lab-shadow-v4",
+            "source_span": "사업기획력 및 실행력 • 시장 환경에 따른 사업 추진의 타당성 - 진입 예정인 시장 상황(또는 투자 현황)에 따른 사업 추진이 적절한가? - 현지 시장 진출에 대한 경험과 해당 시장에 대한 이해도가 충분한가? • 해외 시장 진출전략의 현실성, 계획의 명확성 - 사 업 추진 일정과 현지 진출/투자유치에 대한 실행 계획이 구체적이고 실현 가능한가? - 사업 실행을 위한 인력, 자금 등이 적절히 확보되었는가? - 현지 시장 진출에 따른 주요 리스크와 해결할 전략이 구체적으로 마련 되었는가? 15",
+            "raw_text": "사업기획력 및 실행력 • 시장 환경에 따른 사업 추진의 타당성 - 진입 예정인 시장 상황(또는 투자 현황)에 따른 사업 추진이 적절한가? - 현지 시장 진출에 대한 경험과 해당 시장에 대한 이해도가 충분한가? • 해외 시장 진출전략의 현실성, 계획의 명확성 - 사 업 추진 일정과 현지 진출/투자유치에 대한 실행 계획이 구체적이고 실현 가능한가? - 사업 실행을 위한 인력, 자금 등이 적절히 확보되었는가? - 현지 시장 진출에 따른 주요 리스크와 해결할 전략이 구체적으로 마련 되었는가? 15",
+            "source_field": "analysis_lab_deep"
+          },
+          {
+            "id": "lab-shadow:PBLN_000000000126841:llm-21",
+            "grant_id": "PBLN_000000000126841",
+            "dimension": "other",
+            "operator": "text_only",
+            "kind": "preferred",
+            "value": {
+              "note": "평가지표 '사업모델의 견고성'(15점): 블록체인 기술 적용·활용의 타당성과 구체성, 목표시장 필요성, 수요·공급 분석 반영, 지속가능한 성장 구조, 시장 변화 적응 구조를 평가한다."
+            },
+            "confidence": 0.86,
+            "needs_review": false,
+            "parser_version": "analysis-lab-shadow-v4",
+            "source_span": "사업모델의 견고성 • 기술/서비스에 대한 사업 인프라 - 블록체인 기술 적용 및 활용이 타당하고 구체적인가? - 사업모델이 제공하는 기술/서비스가 목표시장에서 필요한 것인가? - 수요와 공급 관계를 분석하여 모델에 반영하였는가? - 사업모델이 지속가능한 성장을 가능하게 하는 구조인가? - 사 업모델이 시장 변화에 유연하게 적응할 수 있는 구조로 설계되었는가? 15",
+            "raw_text": "사업모델의 견고성 • 기술/서비스에 대한 사업 인프라 - 블록체인 기술 적용 및 활용이 타당하고 구체적인가? - 사업모델이 제공하는 기술/서비스가 목표시장에서 필요한 것인가? - 수요와 공급 관계를 분석하여 모델에 반영하였는가? - 사업모델이 지속가능한 성장을 가능하게 하는 구조인가? - 사 업모델이 시장 변화에 유연하게 적응할 수 있는 구조로 설계되었는가? 15",
+            "source_field": "analysis_lab_deep"
+          },
+          {
+            "id": "lab-shadow:PBLN_000000000126841:llm-22",
+            "grant_id": "PBLN_000000000126841",
+            "dimension": "employees",
+            "operator": "text_only",
+            "kind": "preferred",
+            "value": {
+              "note": "평가지표 '참여 인력의 적정성'(10점): 현지 시장 진출 전문 인력 확보 수준, 인력 전문성의 사업목표 기여도, 본 사업 참여 인력의 배치·업무 분담 최적화를 평가한다. 상시근로자 수 하한 요건은 아니다."
+            },
+            "confidence": 0.83,
+            "needs_review": false,
+            "parser_version": "analysis-lab-shadow-v4",
+            "source_span": "참여 인력의 적정성 • 현지 시장 진출 인력의 전문성 - 현지 시장 진출을 위한 전문 인력이 충분히 확보되어 있는가? - 인력의 전문성이 사업 목표 달성에 실질적으로 기여할 수 있는가? • 본 사업 참여 인력의 적절성 - 인력 배치와 업무 분담이 사업 진행을 효율적으로 지원하는 방식으로 최적화되어 있는가? 10",
+            "raw_text": "참여 인력의 적정성 • 현지 시장 진출 인력의 전문성 - 현지 시장 진출을 위한 전문 인력이 충분히 확보되어 있는가? - 인력의 전문성이 사업 목표 달성에 실질적으로 기여할 수 있는가? • 본 사업 참여 인력의 적절성 - 인력 배치와 업무 분담이 사업 진행을 효율적으로 지원하는 방식으로 최적화되어 있는가? 10",
+            "source_field": "analysis_lab_deep"
+          }
+        ],
+        "criterionIndexByPosition": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19,
+          20,
+          21
+        ],
+        "criterionStableKeys": [
+          "92c3b495dd6b2e644505932352955dabeb65d631df5eaa8a01c02eff1b1bd2a8",
+          "c622ab7ebe0c5e01ac27241860ad5c5ab409a21bb8bdcd8b85d3007a87c9141e",
+          "40490bd65622030c0490f99c695050198662cd562c855a2b47c87393944023fe",
+          "63b53b711cbce07b6f4782e403bcf716ffd4196cb822ef9d2389be30e97c62c8",
+          "af63176e8fd9f2e399850a6076648cb0134bce9f1f53ad481086cca11688766b",
+          "75f04de42798645508f1531c06e5b64c322128abeea1ba0c0042d4c60ad9a0a6",
+          "ca87cec352a98167d08dc3413ea2c98012b9c9ab67adbff29b4f460c30ffa8f6",
+          "009f314677b8619eacf37b2f3eaa7e208919f0f4fcae2c3514267aa59406faef",
+          "6f55785cf44461399e82b057253d7c8efa4cf3a0fcaaf753486c6d035ccd6547",
+          "bd48947a9c39332f43c787198f21a9d9790709e4410de709ebeed03996675ae4",
+          "6929191801a059bb5e565b043a81465ae7845bb8a516907939af3bff6f8ed8da",
+          "b4ceec1e5e64e05447f4e850275b14e39ae7035fd8df56c376d2a29f66dd1056",
+          "822c8246a674ad78903059abf1ead1b5d48600f58910ad38bb6c278376843933",
+          "fc60e7e2b5a43ea3bcac51c0e32aecc12d492151f9d63f4b19283b26e63f9355",
+          "ef02df1d6372674b387a962376ddb8e7908d9effa88c6a1df116b99ca0b5b546",
+          "fb321af66a914460a7a42ee1e88c458e093463e44cb927856c497f893b883a79",
+          "1cacfd7c2637f1932dfd437b175649412715c7fa32944467d021d8c727f71685",
+          "7099c020a8efceb98b7e0bfa759a541586ff8f59a8ba2b532959a0d15de9fb76",
+          "6e58b29a2f355cff9338da4a3faed3313e46e46b71f9728b84d03efd0fe06e33",
+          "a2c4c5e5420b25c195805173814df9dbc4424d0710f5eb31f61b4207c3b730f8",
+          "91286fb35b005ddc4a61bd9ccbfc52d3c57ba4bc545af162c54d51685c566b60",
+          "3d1f74dcae8caabfa32251052bd857e547e4a48385938aec36f5a39b8bddb68a"
+        ],
+        "resolutions": [
+          {
+            "criterionIndex": 0,
+            "state": "analysis_launch_reviewed",
+            "decidedBy": "888a8cf54460911a8fe9eca6ef1384dfe67260d9ce727e36959161a8010974f7",
+            "note": null
+          },
+          {
+            "criterionIndex": 1,
+            "state": "analysis_launch_reviewed",
+            "decidedBy": "888a8cf54460911a8fe9eca6ef1384dfe67260d9ce727e36959161a8010974f7",
+            "note": null
+          },
+          {
+            "criterionIndex": 2,
+            "state": "analysis_launch_reviewed",
+            "decidedBy": "888a8cf54460911a8fe9eca6ef1384dfe67260d9ce727e36959161a8010974f7",
+            "note": null
+          },
+          {
+            "criterionIndex": 3,
+            "state": "analysis_launch_reviewed",
+            "decidedBy": "888a8cf54460911a8fe9eca6ef1384dfe67260d9ce727e36959161a8010974f7",
+            "note": null
+          },
+          {
+            "criterionIndex": 4,
+            "state": "analysis_launch_reviewed",
+            "decidedBy": "888a8cf54460911a8fe9eca6ef1384dfe67260d9ce727e36959161a8010974f7",
+            "note": null
+          },
+          {
+            "criterionIndex": 5,
+            "state": "analysis_launch_reviewed",
+            "decidedBy": "888a8cf54460911a8fe9eca6ef1384dfe67260d9ce727e36959161a8010974f7",
+            "note": null
+          },
+          {
+            "criterionIndex": 6,
+            "state": "analysis_launch_reviewed",
+            "decidedBy": "888a8cf54460911a8fe9eca6ef1384dfe67260d9ce727e36959161a8010974f7",
+            "note": null
+          },
+          {
+            "criterionIndex": 7,
+            "state": "analysis_launch_reviewed",
+            "decidedBy": "888a8cf54460911a8fe9eca6ef1384dfe67260d9ce727e36959161a8010974f7",
+            "note": null
+          },
+          {
+            "criterionIndex": 8,
+            "state": "analysis_launch_reviewed",
+            "decidedBy": "888a8cf54460911a8fe9eca6ef1384dfe67260d9ce727e36959161a8010974f7",
+            "note": null
+          },
+          {
+            "criterionIndex": 9,
+            "state": "analysis_launch_reviewed",
+            "decidedBy": "888a8cf54460911a8fe9eca6ef1384dfe67260d9ce727e36959161a8010974f7",
+            "note": null
+          },
+          {
+            "criterionIndex": 10,
+            "state": "analysis_launch_reviewed",
+            "decidedBy": "888a8cf54460911a8fe9eca6ef1384dfe67260d9ce727e36959161a8010974f7",
+            "note": null
+          },
+          {
+            "criterionIndex": 11,
+            "state": "analysis_launch_reviewed",
+            "decidedBy": "888a8cf54460911a8fe9eca6ef1384dfe67260d9ce727e36959161a8010974f7",
+            "note": null
+          },
+          {
+            "criterionIndex": 12,
+            "state": "analysis_launch_reviewed",
+            "decidedBy": "888a8cf54460911a8fe9eca6ef1384dfe67260d9ce727e36959161a8010974f7",
+            "note": null
+          },
+          {
+            "criterionIndex": 13,
+            "state": "analysis_launch_reviewed",
+            "decidedBy": "888a8cf54460911a8fe9eca6ef1384dfe67260d9ce727e36959161a8010974f7",
+            "note": null
+          },
+          {
+            "criterionIndex": 14,
+            "state": "analysis_launch_reviewed",
+            "decidedBy": "888a8cf54460911a8fe9eca6ef1384dfe67260d9ce727e36959161a8010974f7",
+            "note": null
+          },
+          {
+            "criterionIndex": 15,
+            "state": "analysis_launch_reviewed",
+            "decidedBy": "888a8cf54460911a8fe9eca6ef1384dfe67260d9ce727e36959161a8010974f7",
+            "note": null
+          },
+          {
+            "criterionIndex": 16,
+            "state": "analysis_launch_reviewed",
+            "decidedBy": "888a8cf54460911a8fe9eca6ef1384dfe67260d9ce727e36959161a8010974f7",
+            "note": null
+          },
+          {
+            "criterionIndex": 17,
+            "state": "analysis_launch_reviewed",
+            "decidedBy": "888a8cf54460911a8fe9eca6ef1384dfe67260d9ce727e36959161a8010974f7",
+            "note": null
+          },
+          {
+            "criterionIndex": 18,
+            "state": "analysis_launch_reviewed",
+            "decidedBy": "888a8cf54460911a8fe9eca6ef1384dfe67260d9ce727e36959161a8010974f7",
+            "note": null
+          },
+          {
+            "criterionIndex": 19,
+            "state": "analysis_launch_reviewed",
+            "decidedBy": "888a8cf54460911a8fe9eca6ef1384dfe67260d9ce727e36959161a8010974f7",
+            "note": null
+          },
+          {
+            "criterionIndex": 20,
+            "state": "analysis_launch_reviewed",
+            "decidedBy": "888a8cf54460911a8fe9eca6ef1384dfe67260d9ce727e36959161a8010974f7",
+            "note": null
+          },
+          {
+            "criterionIndex": 21,
+            "state": "analysis_launch_reviewed",
+            "decidedBy": "888a8cf54460911a8fe9eca6ef1384dfe67260d9ce727e36959161a8010974f7",
+            "note": null
+          }
+        ],
+        "conversion": {
+          "contractVersion": "analysis-lab-shadow-conversion-v3",
+          "grantId": "9837fd9b-0b15-4e70-b1b5-0fe3765e980c",
+          "runId": "run-2026-10-01T053459.988Z-10abcc",
+          "verdicts": {
+            "correct": 0,
+            "needs_edit": 0,
+            "wrong": 0,
+            "unsure": 0
+          },
+          "missedConditions": 0,
+          "inputRows": 22,
+          "converted": 22,
+          "downgraded": 1,
+          "dropped": 0,
+          "error": null,
+          "items": [
+            {
+              "selectionPosition": 0,
+              "criterionIndex": 0,
+              "needsReview": false,
+              "status": "converted",
+              "reason": null,
+              "scopeReason": null,
+              "outputPosition": 0,
+              "outputCriterionId": "lab-shadow:PBLN_000000000126841:llm-1",
+              "relatedCriterionIndexes": [],
+              "source": {
+                "dimension": "other",
+                "kind": "required",
+                "operator": "text_only"
+              },
+              "projected": {
+                "dimension": "other",
+                "kind": "required",
+                "operator": "text_only"
+              }
+            },
+            {
+              "selectionPosition": 1,
+              "criterionIndex": 1,
+              "needsReview": false,
+              "status": "converted",
+              "reason": null,
+              "scopeReason": null,
+              "outputPosition": 1,
+              "outputCriterionId": "lab-shadow:PBLN_000000000126841:llm-2",
+              "relatedCriterionIndexes": [],
+              "source": {
+                "dimension": "industry",
+                "kind": "required",
+                "operator": "text_only"
+              },
+              "projected": {
+                "dimension": "industry",
+                "kind": "required",
+                "operator": "text_only"
+              }
+            },
+            {
+              "selectionPosition": 2,
+              "criterionIndex": 2,
+              "needsReview": false,
+              "status": "converted",
+              "reason": null,
+              "scopeReason": null,
+              "outputPosition": 2,
+              "outputCriterionId": "lab-shadow:PBLN_000000000126841:llm-3",
+              "relatedCriterionIndexes": [],
+              "source": {
+                "dimension": "other",
+                "kind": "required",
+                "operator": "text_only"
+              },
+              "projected": {
+                "dimension": "other",
+                "kind": "required",
+                "operator": "text_only"
+              }
+            },
+            {
+              "selectionPosition": 3,
+              "criterionIndex": 3,
+              "needsReview": false,
+              "status": "converted",
+              "reason": null,
+              "scopeReason": null,
+              "outputPosition": 3,
+              "outputCriterionId": "lab-shadow:PBLN_000000000126841:llm-4",
+              "relatedCriterionIndexes": [],
+              "source": {
+                "dimension": "other",
+                "kind": "required",
+                "operator": "text_only"
+              },
+              "projected": {
+                "dimension": "other",
+                "kind": "required",
+                "operator": "text_only"
+              }
+            },
+            {
+              "selectionPosition": 4,
+              "criterionIndex": 4,
+              "needsReview": false,
+              "status": "converted",
+              "reason": null,
+              "scopeReason": null,
+              "outputPosition": 4,
+              "outputCriterionId": "lab-shadow:PBLN_000000000126841:llm-5",
+              "relatedCriterionIndexes": [],
+              "source": {
+                "dimension": "credit_status",
+                "kind": "exclusion",
+                "operator": "in"
+              },
+              "projected": {
+                "dimension": "credit_status",
+                "kind": "exclusion",
+                "operator": "in"
+              }
+            },
+            {
+              "selectionPosition": 5,
+              "criterionIndex": 5,
+              "needsReview": false,
+              "status": "converted",
+              "reason": null,
+              "scopeReason": null,
+              "outputPosition": 5,
+              "outputCriterionId": "lab-shadow:PBLN_000000000126841:llm-6",
+              "relatedCriterionIndexes": [],
+              "source": {
+                "dimension": "tax_compliance",
+                "kind": "exclusion",
+                "operator": "in"
+              },
+              "projected": {
+                "dimension": "tax_compliance",
+                "kind": "exclusion",
+                "operator": "in"
+              }
+            },
+            {
+              "selectionPosition": 6,
+              "criterionIndex": 6,
+              "needsReview": false,
+              "status": "converted",
+              "reason": null,
+              "scopeReason": null,
+              "outputPosition": 6,
+              "outputCriterionId": "lab-shadow:PBLN_000000000126841:llm-7",
+              "relatedCriterionIndexes": [],
+              "source": {
+                "dimension": "industry",
+                "kind": "exclusion",
+                "operator": "text_only"
+              },
+              "projected": {
+                "dimension": "industry",
+                "kind": "exclusion",
+                "operator": "text_only"
+              }
+            },
+            {
+              "selectionPosition": 7,
+              "criterionIndex": 7,
+              "needsReview": false,
+              "status": "converted",
+              "reason": null,
+              "scopeReason": null,
+              "outputPosition": 7,
+              "outputCriterionId": "lab-shadow:PBLN_000000000126841:llm-8",
+              "relatedCriterionIndexes": [],
+              "source": {
+                "dimension": "business_status",
+                "kind": "exclusion",
+                "operator": "not_in"
+              },
+              "projected": {
+                "dimension": "business_status",
+                "kind": "exclusion",
+                "operator": "in"
+              }
+            },
+            {
+              "selectionPosition": 8,
+              "criterionIndex": 8,
+              "needsReview": false,
+              "status": "converted",
+              "reason": null,
+              "scopeReason": null,
+              "outputPosition": 8,
+              "outputCriterionId": "lab-shadow:PBLN_000000000126841:llm-9",
+              "relatedCriterionIndexes": [],
+              "source": {
+                "dimension": "sanction",
+                "kind": "exclusion",
+                "operator": "in"
+              },
+              "projected": {
+                "dimension": "sanction",
+                "kind": "exclusion",
+                "operator": "in"
+              }
+            },
+            {
+              "selectionPosition": 9,
+              "criterionIndex": 9,
+              "needsReview": false,
+              "status": "converted",
+              "reason": null,
+              "scopeReason": null,
+              "outputPosition": 9,
+              "outputCriterionId": "lab-shadow:PBLN_000000000126841:llm-10",
+              "relatedCriterionIndexes": [],
+              "source": {
+                "dimension": "sanction",
+                "kind": "exclusion",
+                "operator": "in"
+              },
+              "projected": {
+                "dimension": "sanction",
+                "kind": "exclusion",
+                "operator": "in"
+              }
+            },
+            {
+              "selectionPosition": 10,
+              "criterionIndex": 10,
+              "needsReview": false,
+              "status": "converted",
+              "reason": null,
+              "scopeReason": null,
+              "outputPosition": 10,
+              "outputCriterionId": "lab-shadow:PBLN_000000000126841:llm-11",
+              "relatedCriterionIndexes": [],
+              "source": {
+                "dimension": "financial_health",
+                "kind": "exclusion",
+                "operator": "text_only"
+              },
+              "projected": {
+                "dimension": "financial_health",
+                "kind": "exclusion",
+                "operator": "text_only"
+              }
+            },
+            {
+              "selectionPosition": 11,
+              "criterionIndex": 11,
+              "needsReview": false,
+              "status": "converted",
+              "reason": null,
+              "scopeReason": null,
+              "outputPosition": 11,
+              "outputCriterionId": "lab-shadow:PBLN_000000000126841:llm-12",
+              "relatedCriterionIndexes": [],
+              "source": {
+                "dimension": "prior_award",
+                "kind": "exclusion",
+                "operator": "in"
+              },
+              "projected": {
+                "dimension": "prior_award",
+                "kind": "exclusion",
+                "operator": "in"
+              }
+            },
+            {
+              "selectionPosition": 12,
+              "criterionIndex": 12,
+              "needsReview": false,
+              "status": "converted",
+              "reason": null,
+              "scopeReason": null,
+              "outputPosition": 12,
+              "outputCriterionId": "lab-shadow:PBLN_000000000126841:llm-13",
+              "relatedCriterionIndexes": [],
+              "source": {
+                "dimension": "credit_status",
+                "kind": "exclusion",
+                "operator": "in"
+              },
+              "projected": {
+                "dimension": "credit_status",
+                "kind": "exclusion",
+                "operator": "in"
+              }
+            },
+            {
+              "selectionPosition": 13,
+              "criterionIndex": 13,
+              "needsReview": false,
+              "status": "converted",
+              "reason": null,
+              "scopeReason": null,
+              "outputPosition": 13,
+              "outputCriterionId": "lab-shadow:PBLN_000000000126841:llm-14",
+              "relatedCriterionIndexes": [],
+              "source": {
+                "dimension": "tax_compliance",
+                "kind": "exclusion",
+                "operator": "text_only"
+              },
+              "projected": {
+                "dimension": "tax_compliance",
+                "kind": "exclusion",
+                "operator": "text_only"
+              }
+            },
+            {
+              "selectionPosition": 14,
+              "criterionIndex": 14,
+              "needsReview": false,
+              "status": "converted",
+              "reason": null,
+              "scopeReason": null,
+              "outputPosition": 14,
+              "outputCriterionId": "lab-shadow:PBLN_000000000126841:llm-15",
+              "relatedCriterionIndexes": [],
+              "source": {
+                "dimension": "credit_status",
+                "kind": "exclusion",
+                "operator": "text_only"
+              },
+              "projected": {
+                "dimension": "credit_status",
+                "kind": "exclusion",
+                "operator": "text_only"
+              }
+            },
+            {
+              "selectionPosition": 15,
+              "criterionIndex": 15,
+              "needsReview": false,
+              "status": "converted",
+              "reason": null,
+              "scopeReason": null,
+              "outputPosition": 15,
+              "outputCriterionId": "lab-shadow:PBLN_000000000126841:llm-16",
+              "relatedCriterionIndexes": [],
+              "source": {
+                "dimension": "credit_status",
+                "kind": "exclusion",
+                "operator": "text_only"
+              },
+              "projected": {
+                "dimension": "credit_status",
+                "kind": "exclusion",
+                "operator": "text_only"
+              }
+            },
+            {
+              "selectionPosition": 16,
+              "criterionIndex": 16,
+              "needsReview": false,
+              "status": "converted",
+              "reason": null,
+              "scopeReason": null,
+              "outputPosition": 16,
+              "outputCriterionId": "lab-shadow:PBLN_000000000126841:llm-17",
+              "relatedCriterionIndexes": [],
+              "source": {
+                "dimension": "financial_health",
+                "kind": "exclusion",
+                "operator": "text_only"
+              },
+              "projected": {
+                "dimension": "financial_health",
+                "kind": "exclusion",
+                "operator": "text_only"
+              }
+            },
+            {
+              "selectionPosition": 17,
+              "criterionIndex": 17,
+              "needsReview": false,
+              "status": "downgraded",
+              "reason": "reserved_dimension",
+              "scopeReason": null,
+              "outputPosition": 17,
+              "outputCriterionId": "lab-shadow:PBLN_000000000126841:llm-18",
+              "relatedCriterionIndexes": [],
+              "source": {
+                "dimension": "export_performance",
+                "kind": "preferred",
+                "operator": "text_only"
+              },
+              "projected": {
+                "dimension": "other",
+                "kind": "preferred",
+                "operator": "text_only"
+              }
+            },
+            {
+              "selectionPosition": 18,
+              "criterionIndex": 18,
+              "needsReview": false,
+              "status": "converted",
+              "reason": null,
+              "scopeReason": null,
+              "outputPosition": 18,
+              "outputCriterionId": "lab-shadow:PBLN_000000000126841:llm-19",
+              "relatedCriterionIndexes": [],
+              "source": {
+                "dimension": "other",
+                "kind": "preferred",
+                "operator": "text_only"
+              },
+              "projected": {
+                "dimension": "other",
+                "kind": "preferred",
+                "operator": "text_only"
+              }
+            },
+            {
+              "selectionPosition": 19,
+              "criterionIndex": 19,
+              "needsReview": false,
+              "status": "converted",
+              "reason": null,
+              "scopeReason": null,
+              "outputPosition": 19,
+              "outputCriterionId": "lab-shadow:PBLN_000000000126841:llm-20",
+              "relatedCriterionIndexes": [],
+              "source": {
+                "dimension": "other",
+                "kind": "preferred",
+                "operator": "text_only"
+              },
+              "projected": {
+                "dimension": "other",
+                "kind": "preferred",
+                "operator": "text_only"
+              }
+            },
+            {
+              "selectionPosition": 20,
+              "criterionIndex": 20,
+              "needsReview": false,
+              "status": "converted",
+              "reason": null,
+              "scopeReason": null,
+              "outputPosition": 20,
+              "outputCriterionId": "lab-shadow:PBLN_000000000126841:llm-21",
+              "relatedCriterionIndexes": [],
+              "source": {
+                "dimension": "other",
+                "kind": "preferred",
+                "operator": "text_only"
+              },
+              "projected": {
+                "dimension": "other",
+                "kind": "preferred",
+                "operator": "text_only"
+              }
+            },
+            {
+              "selectionPosition": 21,
+              "criterionIndex": 21,
+              "needsReview": false,
+              "status": "converted",
+              "reason": null,
+              "scopeReason": null,
+              "outputPosition": 21,
+              "outputCriterionId": "lab-shadow:PBLN_000000000126841:llm-22",
+              "relatedCriterionIndexes": [],
+              "source": {
+                "dimension": "employees",
+                "kind": "preferred",
+                "operator": "text_only"
+              },
+              "projected": {
+                "dimension": "employees",
+                "kind": "preferred",
+                "operator": "text_only"
+              }
+            }
+          ]
+        },
+        "scopeRejectedCriterionIndexes": [],
+        "questions": [
+          {
+            "criteriaPosition": 10,
+            "criterionIndex": 10,
+            "prompt": "외부감사 대상 기업으로서 최근 년도 결산 감사 의견이 ‘의견거절’ 또는 ‘부적정’을 받았나요?",
+            "options": [
+              {
+                "value": "disclaimer_or_adverse",
+                "label": "예, 의견거절 또는 부적정을 받았습니다",
+                "disqualifies": true
+              },
+              {
+                "value": "other_opinion",
+                "label": "아니요, 의견거절·부적정이 아닙니다",
+                "disqualifies": false
+              },
+              {
+                "value": "not_subject_to_audit",
+                "label": "외부감사 대상 기업이 아닙니다",
+                "disqualifies": false
+              }
+            ],
+            "answerType": "single",
+            "reusable": "company_fact",
+            "conditionKey": "audit_opinion_disclaimer_or_adverse",
+            "promptVer": "lab-deep-v30",
+            "inline": true,
+            "provenance": {
+              "runId": "run-2026-10-01T053459.988Z-10abcc",
+              "auditState": "analysis_launch_independent_review",
+              "criterionIndex": 10
+            },
+            "criterionRef": {
+              "dimension": "financial_health",
+              "kind": "exclusion",
+              "sourceSpanHash": "049b9ac83fcc4b8dd34c9989a78bdfe6641f3a5b76d825b51111b47e5df69c13"
+            },
+            "criterionStableKey": "6929191801a059bb5e565b043a81465ae7845bb8a516907939af3bff6f8ed8da",
+            "resolutionState": "analysis_launch_reviewed",
+            "definitionSha256": "2ce6650b1882362f0674c9b19c8e8e652705de03c98b45745e405b80524d7217"
+          },
+          {
+            "criteriaPosition": 11,
+            "criterionIndex": 11,
+            "prompt": "타 정부부처 및 기관, 민간 기업 등에서 지원하는 싱가포르 핀테크 페스티벌 2026 관련 사업에 참여하고 있나요?",
+            "options": [
+              {
+                "value": "participating",
+                "label": "예, 해당 사업에 참여하고 있습니다",
+                "disqualifies": true
+              },
+              {
+                "value": "not_participating",
+                "label": "아니요, 참여하고 있지 않습니다",
+                "disqualifies": false
+              }
+            ],
+            "answerType": "single",
+            "reusable": "company_fact",
+            "conditionKey": "participation_other_funded_singapore_fintech_festival_2026",
+            "promptVer": "lab-deep-v30",
+            "inline": true,
+            "provenance": {
+              "runId": "run-2026-10-01T053459.988Z-10abcc",
+              "auditState": "analysis_launch_independent_review",
+              "criterionIndex": 11
+            },
+            "criterionRef": {
+              "dimension": "prior_award",
+              "kind": "exclusion",
+              "sourceSpanHash": "2e5b1b69c951aaec65c5164c7ced3045f3bc9944ca74e05d80ddbc22a7504a17"
+            },
+            "criterionStableKey": "b4ceec1e5e64e05447f4e850275b14e39ae7035fd8df56c376d2a29f66dd1056",
+            "resolutionState": "analysis_launch_reviewed",
+            "definitionSha256": "6f4e898c62c33a05046b16929ed5b4eb77a273ceabad5f38d87812526afa2d09"
+          }
+        ],
+        "droppedQuestionCandidates": 0,
+        "authoringGuide": {
+          "schemaVersion": "grant-authoring-guide-v1",
+          "source": {
+            "runId": "run-2026-10-01T053459.988Z-10abcc",
+            "inputSha256": "a4a70dbdaae820a9a179819fee58dec0711f5c265a11e664455d578c80aa2cb4",
+            "sourceRevisionSha256": "af06d57888cd094f3fcbd8bd74cab312ddd8fb03cac92cef40fc5c85a4b3173d",
+            "attachmentManifestSha256": "8a0656b462de03e9c55a1352affb877a04b8a13653edececa97ccc37db8dd663"
+          },
+          "intent": {
+            "oneLiner": "블록체인 기반 기술을 보유한 국내 중소기업·스타트업 6개사 이내를 선발해 싱가포르 핀테크 페스티벌 2026 한국관 참가와 현지 IR·컨설팅을 지원하는 KISA 해외진출 지원 공고",
+            "targetProfile": "블록체인 기반 기술을 보유하고 해외진출 의향과 역량을 갖춘 업력 10년 이내의 국내 중소기업 또는 스타트업으로, C-LEVEL 이상 의사결정권자가 영어로 피칭·의사소통할 수 있고 현지 파트너십·진출 경험을 제시할 수 있는 기업",
+            "evaluationFocus": [
+              "현지 보유 네트워크·인프라와 현지 진출 경험·시장이해도(30점)",
+              "경쟁사 대비 차별화와 기대수익률·투자 매력도의 데이터 기반 입증(30점)",
+              "시장환경에 따른 사업 추진 타당성과 해외 진출전략의 현실성·인력·자금 확보(15점)",
+              "블록체인 기술 적용·활용의 타당성과 사업모델 지속가능성(15점)",
+              "현지 진출 전문 인력 확보와 참여 인력 배치의 적절성(10점)",
+              "최고·최저 제외 평균 70점 이상 고득점순 선정, 동점 시 현지 시장 진출역량 → 사업 경쟁력 및 매력도 순 우선"
+            ],
+            "benefitSummary": "블록체인 한국관 입주(기업당 약 7㎡), 기업진단·IR 컨설팅과 피칭 교육, 현지 투자동향·법률·규제 교육, 현지 IR 데모데이 및 투자자·바이어 네트워킹, 전시 부스 장소와 기본 세팅, 전시 임차비·체재비 일부(약 250만원 이내, 기업별 1인 숙박·항공료) 지원. 지원기간은 2026년 10월~12월이며 전시품 배송은 미지원.",
+            "cautionNotes": [
+              "접수는 2026. 10. 8.(목) 14:00까지 21jun@kisa.or.kr 이메일 제출이며, 필수 제출서류 미제출 시 신청 접수 대상에서 제외될 수 있다.",
+              "중복 접수 시 최종 제출 기준으로 인정되고 마감일 이후 제출자료 수정이 불가하다.",
+              "사업자등록증·4대보험 가입자 명부·법인등기부등본은 제출일로부터 3개월 이내, 국세·지방세 완납증명서는 1개월 이내 발급분만 인정된다.",
+              "접수 마감일 기준 신청 자격 적정성 확인서(서식 3) 항목에 하나라도 해당하면 평가·선정 대상에서 제외되며, 확약 내용이 사실이 아닐 경우 선정 취소·지원금 환수 대상이 된다.",
+              "신청서·계획서 허위 기재 또는 모방·표절·도용·누락 시 선정 취소, 블록체인 지원사업 참여 제한, 지원금 환수 조치가 가능하다.",
+              "타 정부부처·기관·민간 기업이 지원하는 싱가포르 핀테크 페스티벌 2026 관련 사업에 참여하면 중복신청이 불가하다.",
+              "과학기술정보통신부 장관 또는 한국인터넷진흥원장이 참여를 제한할 정당한 사유가 있다고 인정하면 제외될 수 있다.",
+              "평가항목 및 배점은 진흥원 내부사정에 따라 변경될 수 있고 평가결과는 비공개가 원칙이며, 적격기업이 없으면 선발하지 않거나 선정규모가 축소될 수 있다.",
+              "선정 후에는 자료 제출·점검·평가 성실 응답, 사업계획 이행, 사업 종료 연도 다음 해부터 3년간 성과관리 요청 협조 의무가 있다.",
+              "전시 참여 행사와 지원내용은 내부사정 및 대외환경에 따라 변경될 수 있고 체재비 지원 금액도 현지 상황에 따라 변동될 수 있다."
+            ]
+          },
+          "evidenceChecklist": [
+            {
+              "dimension": "other",
+              "kind": "required",
+              "operator": "text_only",
+              "value": {
+                "note": "신청자격은 '블록체인 기술 보유 및 해외 진출 역량이 있는 블록체인 중소기업 또는 스타트업 (업력 10년 이내)'로, 중소기업과 스타트업이 OR로 열려 있고 괄호의 업력 10년 이내가 두 경로 모두에 공통 적용되는지 원문에 명시되지 않았다. 따라서 size/biz_age/industry를 전역 구조화 비교값으로 분리하지 않고 OR 전체를 보존한다. 업력 산정은 '업력은 창업일 기준이며 사업자등록증상 개업연월일, 법인등기부등본상 회사성립연월일'을 뜻한다. 포털 구조화 필드의 지원대상은 '중소기업'만 명시한다."
+              },
+              "sourceSpan": "(신청자격) 블록체인 기술 보유 및 해외 진출 역량이 있는 블록체인 중소기업 또는 스타트업 (업력 10년 이내)"
+            },
+            {
+              "dimension": "industry",
+              "kind": "required",
+              "operator": "text_only",
+              "value": {
+                "note": "지원요건(기업)으로 블록체인 기반 기술을 보유한 기업이어야 한다. 업종코드·업태가 아니라 기술 보유 사실이므로 업종 태그로 치환하지 않는다."
+              },
+              "sourceSpan": "• 블록체인 기반 기술 보유 기업"
+            },
+            {
+              "dimension": "other",
+              "kind": "required",
+              "operator": "text_only",
+              "value": {
+                "note": "지원요건(기업)으로 해외진출 의향이 있는 기업이어야 한다. 수출실적이 아닌 진출 의향 요건이다."
+              },
+              "sourceSpan": "• 해외진출 의향 이 있는 기업"
+            },
+            {
+              "dimension": "other",
+              "kind": "required",
+              "operator": "text_only",
+              "value": {
+                "note": "현지 파견 출장자(역할)에 적용되는 요건: C-LEVEL 이상 의사결정 가능자, 영어 피칭 및 의사소통 가능자, 해외 출장 결격사유 없는 자. 신청기업 대표자 속성 조건이 아니며 출장자 역할에 한정된다."
+              },
+              "sourceSpan": "[지원요건 : 출장자] • C-LEVEL 이상으로 의사결정이 가능한 자 • 영어 피칭 및 의사소통 등이 가능한 자 • 해외 출장의 결격사유가 없는 자"
+            },
+            {
+              "dimension": "credit_status",
+              "kind": "exclusion",
+              "operator": "in",
+              "value": {
+                "flags": [
+                  "loan_default"
+                ]
+              },
+              "sourceSpan": "• 금융기관 등으로부터 채무불이행으로 규제 중인 자 (기업)"
+            },
+            {
+              "dimension": "tax_compliance",
+              "kind": "exclusion",
+              "operator": "in",
+              "value": {
+                "flags": [
+                  "national_tax_delinquent",
+                  "local_tax_delinquent"
+                ]
+              },
+              "sourceSpan": "• 국세 또는 지방세 체납 중인 자 (기업)"
+            },
+            {
+              "dimension": "industry",
+              "kind": "exclusion",
+              "operator": "text_only",
+              "value": {
+                "note": "중소기업창업지원법 시행령 제4조(창업에서 제외되는 업종)의 업종을 영위하는 기업은 신청 제외대상이다. 공고문에 구체 업종명이 열거되지 않은 법령 참조 조항이므로 업종 태그로 분해하지 않는다."
+              },
+              "sourceSpan": "• 중소기업창업지원법 시행령 제4조(창업에서 제외되는 업종)의 업종을 영위하고 있는 자 (기업)"
+            },
+            {
+              "dimension": "business_status",
+              "kind": "exclusion",
+              "operator": "in",
+              "value": {
+                "statuses": [
+                  "suspended",
+                  "closed"
+                ],
+                "labels": [
+                  "휴폐업"
+                ]
+              },
+              "sourceSpan": "• 신청일 기준 동 사업에 신청하는 사업자가 휴‧폐업 중인 자 (기업)"
+            },
+            {
+              "dimension": "sanction",
+              "kind": "exclusion",
+              "operator": "in",
+              "value": {
+                "flags": [
+                  "wage_arrears_listed"
+                ]
+              },
+              "sourceSpan": "• 「 근로기준법 」 에 따라 고용노동부가 공개하는 체불 사업주 명단에 포함된 자 (기업)"
+            },
+            {
+              "dimension": "sanction",
+              "kind": "exclusion",
+              "operator": "in",
+              "value": {
+                "flags": [
+                  "participation_restricted"
+                ]
+              },
+              "sourceSpan": "• 기타 정부 또는 공공기관으로부터 사업 참여 제한 중인 기업"
+            },
+            {
+              "dimension": "financial_health",
+              "kind": "exclusion",
+              "operator": "text_only",
+              "value": {
+                "note": "외부감사 기업에 한해 최근 년도 결산 감사 의견이 '의견거절' 또는 '부적정'인 경우 신청 제외대상이다. 외부감사 대상 여부라는 전제와 감사의견 종류가 결합되어 재무비율 임계값으로 표현할 수 없다."
+              },
+              "sourceSpan": "• 외부감사 기업의 경우 최근 년도 결산 감사 의견이 ‘의견거절’ 또는 ‘부적정’ 기업"
+            },
+            {
+              "dimension": "prior_award",
+              "kind": "exclusion",
+              "operator": "in",
+              "value": {
+                "scope": "program",
+                "programs": [
+                  "타 정부부처 및 기관, 민간 기업 등에서 지원하는 싱가포르 핀테크 페스티벌 2026 관련 사업"
+                ],
+                "states": [
+                  "participating"
+                ]
+              },
+              "sourceSpan": "타 정부부처 및 기관, 민간 기업 등에서 지원하는 싱가포르 핀테크 페스티벌 2026 관련 사업에 참여하는 경우 중복신청이 불가하며"
+            },
+            {
+              "dimension": "credit_status",
+              "kind": "exclusion",
+              "operator": "in",
+              "value": {
+                "flags": [
+                  "bond_default"
+                ]
+              },
+              "sourceSpan": "• 기업의 경우 부도 상태인가?"
+            },
+            {
+              "dimension": "tax_compliance",
+              "kind": "exclusion",
+              "operator": "text_only",
+              "value": {
+                "note": "세무 당국에 의해 국세·지방세 등의 체납처분을 받은 경우 결격. 단 회생인가 받은 기업, 중소기업진흥공단 등으로부터 재창업 자금을 지원받은 기업, 중소기업 건강관리시스템 기업구조 개선 진단을 통한 정상화 의결 기업은 예외이며 이에 해당할 경우 증빙서류 제출이 필수다. 예외 3종과 증빙 전제를 canonical 플래그·예외로 모두 표현할 수 없어 원문을 보존한다."
+              },
+              "sourceSpan": "• 세무 당국에 의하여 국세, 지방세 등의 체납처분을 받았는가? ( 단, 회생인가 받은 기업, 중소기업진흥공단 등으로부터 재창업 자금을 지원받은 기업과 중소기업 건강 관리시스템 기업구조 개선 진단을 통한 정상화 의결 기업은 예외이나, 이에 해당 할 시 증빙서류 제출 필수)"
+            },
+            {
+              "dimension": "credit_status",
+              "kind": "exclusion",
+              "operator": "text_only",
+              "value": {
+                "note": "민사집행법에 기한 채무불이행자명부 등재 또는 은행연합회 등 신용정보 집중기관의 채무불이행자 등록 중 어느 하나에 해당하면 결격. 명부 등재와 집중기관 등록은 서로 다른 상태이므로 일반 채무불이행 플래그 하나로 동일하게 판정하지 않고 원문 전체를 보존한다."
+              },
+              "sourceSpan": "• 민사집행법에 기하여 채무불이행자명부에 등재되거나, 은행연합회 등 신용정보 집중기관에 채무 불이행자로 등록되었는가?"
+            },
+            {
+              "dimension": "credit_status",
+              "kind": "exclusion",
+              "operator": "text_only",
+              "value": {
+                "note": "파산, 회생절차, 개인회생절차의 '개시 신청'이 이루어진 경우 결격. 단 법원의 인가를 받은 회생계획 또는 변제계획에 따른 채무변제를 정상적으로 이행하고 있는 경우는 예외다. 개시 신청 단계, 기업회생과 개인회생의 구분, 정상 변제 예외를 현재 플래그로 모두 표현할 수 없어 원문을 보존한다."
+              },
+              "sourceSpan": "• 파산, 회생절차, 개인회생절차의 개시 신청이 이루어졌는가? (단, 법원의 인가를 받은 회생 계획 또는 변제계획에 따른 채무변제를 정상적으로 이행하고 있는 경우는 예외로 함)"
+            },
+            {
+              "dimension": "financial_health",
+              "kind": "exclusion",
+              "operator": "text_only",
+              "value": {
+                "note": "직전년도 결산 기준 자본전액 잠식 상태인 기업은 결격. 현재 재무상태가 아니라 직전년도 결산이라는 기준시점이 명시되어 있어 임계값 구조화 대신 기준연도와 함께 보존한다."
+              },
+              "sourceSpan": "• 기업의 경우 직전년도 결산 기준 자본전액 잠식 상태인가?"
+            },
+            {
+              "dimension": "other",
+              "kind": "preferred",
+              "operator": "text_only",
+              "value": {
+                "note": "평가지표 중 배점이 가장 큰 항목(30점)으로 현지 보유 네트워크·인프라, 현지 시장 분석, 현지 진출 파트너십 구축, 현지 진출 경험 및 시장이해도, 진출 전략의 구체성·실현 가능성을 평가한다. 동점 시 1순위 비교 항목이기도 하다.",
+                "downgrade_reason": "reserved_dimension",
+                "original_dimension": "export_performance",
+                "original_operator": "text_only",
+                "original_value": {
+                  "note": "평가지표 중 배점이 가장 큰 항목(30점)으로 현지 보유 네트워크·인프라, 현지 시장 분석, 현지 진출 파트너십 구축, 현지 진출 경험 및 시장이해도, 진출 전략의 구체성·실현 가능성을 평가한다. 동점 시 1순위 비교 항목이기도 하다."
+                }
+              },
+              "sourceSpan": "현지 시장 진출 역량 • 현지 보유 네트워크 및 인프라 - 현지 시장에 대한 분석이 이루어져 있는가? - 현지 진출 파트너십 및 네트워크가 구축되어 있는가? • 현지 진출 이해도 및 경험 - 현지 진출 경험 및 시장이해도가 충분한가? - 현지 시장 진출을 위한 전략 및 계획이 구체적이고 실현 가능한가? 30"
+            },
+            {
+              "dimension": "other",
+              "kind": "preferred",
+              "operator": "text_only",
+              "value": {
+                "note": "평가지표 '사업 경쟁력 및 매력도'(30점): 경쟁사 대비 차별화 핵심 요소, 사업 지속 전략, 기대수익률·투자 시점 등 투자 매력도의 객관적 데이터 뒷받침, 투자자 관점 매력 요소를 평가한다. 동점 시 2순위 비교 항목이다."
+              },
+              "sourceSpan": "사업 경쟁력 및 매력도 • 사업의 경쟁력 - 경쟁사와 차별화되는 핵심 요소가 명확하게 정의되어 있는가? - 사업을 지속해서 유지할 수 있는 전략이 구체적으로 제시되었는가? • 기대수익률, 투자 시점 등 투자 매력도 - 사업의 기대수익률과 투자 매력도가 객관적인 데이터를 통해 뒷받침되는가? - 투자자에게 충분히 매력적인 요소가 제공되는가? 30"
+            },
+            {
+              "dimension": "other",
+              "kind": "preferred",
+              "operator": "text_only",
+              "value": {
+                "note": "평가지표 '사업기획력 및 실행력'(15점): 진입 예정 시장 상황·투자 현황에 따른 사업 추진 타당성, 현지 시장 진출 경험과 이해도, 해외 진출전략의 현실성과 계획 명확성, 인력·자금 확보, 리스크 대응 전략을 평가한다."
+              },
+              "sourceSpan": "사업기획력 및 실행력 • 시장 환경에 따른 사업 추진의 타당성 - 진입 예정인 시장 상황(또는 투자 현황)에 따른 사업 추진이 적절한가? - 현지 시장 진출에 대한 경험과 해당 시장에 대한 이해도가 충분한가? • 해외 시장 진출전략의 현실성, 계획의 명확성 - 사 업 추진 일정과 현지 진출/투자유치에 대한 실행 계획이 구체적이고 실현 가능한가? - 사업 실행을 위한 인력, 자금 등이 적절히 확보되었는가? - 현지 시장 진출에 따른 주요 리스크와 해결할 전략이 구체적으로 마련 되었는가? 15"
+            },
+            {
+              "dimension": "other",
+              "kind": "preferred",
+              "operator": "text_only",
+              "value": {
+                "note": "평가지표 '사업모델의 견고성'(15점): 블록체인 기술 적용·활용의 타당성과 구체성, 목표시장 필요성, 수요·공급 분석 반영, 지속가능한 성장 구조, 시장 변화 적응 구조를 평가한다."
+              },
+              "sourceSpan": "사업모델의 견고성 • 기술/서비스에 대한 사업 인프라 - 블록체인 기술 적용 및 활용이 타당하고 구체적인가? - 사업모델이 제공하는 기술/서비스가 목표시장에서 필요한 것인가? - 수요와 공급 관계를 분석하여 모델에 반영하였는가? - 사업모델이 지속가능한 성장을 가능하게 하는 구조인가? - 사 업모델이 시장 변화에 유연하게 적응할 수 있는 구조로 설계되었는가? 15"
+            },
+            {
+              "dimension": "employees",
+              "kind": "preferred",
+              "operator": "text_only",
+              "value": {
+                "note": "평가지표 '참여 인력의 적정성'(10점): 현지 시장 진출 전문 인력 확보 수준, 인력 전문성의 사업목표 기여도, 본 사업 참여 인력의 배치·업무 분담 최적화를 평가한다. 상시근로자 수 하한 요건은 아니다."
+              },
+              "sourceSpan": "참여 인력의 적정성 • 현지 시장 진출 인력의 전문성 - 현지 시장 진출을 위한 전문 인력이 충분히 확보되어 있는가? - 인력의 전문성이 사업 목표 달성에 실질적으로 기여할 수 있는가? • 본 사업 참여 인력의 적절성 - 인력 배치와 업무 분담이 사업 진행을 효율적으로 지원하는 방식으로 최적화되어 있는가? 10"
+            }
+          ]
+        },
+        "reviewRisk": {
+          "schema": "promotion-review-risk-v1",
+          "disposition": "verified",
+          "blockers": [],
+          "deferrals": [],
+          "suppressedCriterionIndexes": [],
+          "suppressedVerdicts": {
+            "needsEdit": 0,
+            "wrong": 0,
+            "unsure": 0
+          },
+          "deferredMissedConditions": 0
+        }
+      },
+      "beforeCriteriaSha256": "0cb56854275e737d8bae484437811e166acfe2f1364e58c8eb237737a3ea5458",
+      "beforeQuestionsSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "dedupComponentSha256": "8f49772643a8dd1ddd5853db2b7b67028da9c88c903277b938ff19165371cad1",
+      "criteriaCountBefore": 1,
+      "criteriaCountAfter": 22,
+      "questionCountAfter": 2,
+      "pendingCount": 0,
+      "downgradedCount": 1,
+      "analysisLaunchReadiness": {
+        "schema": "analysis-launch-promotion-readiness-v1",
+        "disposition": "conditional",
+        "reasons": [],
+        "unresolvedAxes": [],
+        "sourceRevisionSha256": "af06d57888cd094f3fcbd8bd74cab312ddd8fb03cac92cef40fc5c85a4b3173d",
+        "inputSha256": "a4a70dbdaae820a9a179819fee58dec0711f5c265a11e664455d578c80aa2cb4",
+        "attachmentManifestSha256": "8a0656b462de03e9c55a1352affb877a04b8a13653edececa97ccc37db8dd663",
+        "launchReceiptSha256": "888a8cf54460911a8fe9eca6ef1384dfe67260d9ce727e36959161a8010974f7",
+        "independentReviewAggregateSha256": "e82b4fbdd05fbc231929ff99af36bc2070df7099bc57b4a3f5eace7f7232bcb1",
+        "applicationRoundtripStatus": "complete",
+        "applicationRoundtripRunId": "roundtrip-2026-10-01T053501.142Z-9a3915",
+        "applicationDocumentCount": 1,
+        "fieldReadyDocumentCount": 1,
+        "recognizedFieldCount": 66,
+        "runFeatureReadiness": {
+          "schema": "analysis-feature-readiness-v1",
+          "matching": {
+            "status": "ready",
+            "sourceDisposition": "conditional",
+            "reasons": []
+          },
+          "authoring": {
+            "status": "ready",
+            "sourceDisposition": "ready",
+            "reasons": []
+          }
+        },
+        "runFeatureReadinessVerification": "verified",
+        "authoringEvidenceStatus": "verified",
+        "authoringEvidenceReasons": [],
+        "primaryMatchingProjectionStatus": "verified",
+        "primaryMatchingProjectionSnapshotSha256": "7971f9808e65c6432869a15b9f27ba6f1476d03b361333344b88c73a359ccca1"
+      },
+      "transport": "claude-cli",
+      "costUsd": 0.8292495
+    }
+  ],
+  "schema": "analysis-lab-promotion-release-v1",
+  "servingProvenance": "verified_local_lab",
+  "releasePlanSha256": "e1c13f3fe4f7c11d00eaaac0037cbc16a793521f53286551a7082f3059ef329f",
+  "manifestSha256": "f2b25ec31e434f8b53b9945114d380907a98bc83c776434878c98f8586e93fff"
+}

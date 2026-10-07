@@ -2,18 +2,11 @@
 
 import { useMemo, useState } from "react";
 import {
-  Archive,
-  BellRing,
   CalendarDays,
   CheckCircle2,
   CircleAlert,
-  Download,
-  FileText,
   Loader2,
-  Mail,
-  MoreHorizontal,
   Save,
-  Send,
   UserRound,
   XCircle,
 } from "lucide-react";
@@ -23,10 +16,8 @@ import type {
   ApplicationPipelineResult,
   ApplicationStage,
 } from "@/lib/server/applications/pipeline";
-import { URGENT_MAX_DDAY } from "@/components/app/notice-card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button, buttonVariants } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
@@ -36,14 +27,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLinkItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import {
   Empty,
   EmptyContent,
   EmptyDescription,
@@ -52,34 +35,28 @@ import {
 } from "@/components/ui/empty";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
+import {
+  ApplicationDocumentCard,
+  DOCUMENT_CARD_COLUMNS,
+  type EditorMode,
+} from "./ApplicationDocumentCard";
 
-type ApplicationGroup = "active" | "waiting" | "closed";
-type EditorMode = "management" | "result";
-
-const GROUPS: Array<{
-  id: ApplicationGroup;
-  title: string;
-  stages: ReadonlySet<ApplicationStage>;
-}> = [
-  {
-    id: "active",
-    title: "진행 중",
-    stages: new Set(["preparing", "saved", "recommended"]),
-  },
-  {
-    id: "waiting",
-    title: "결과 대기",
-    stages: new Set(["submitted"]),
-  },
-  {
-    id: "closed",
-    title: "종료",
-    stages: new Set(["selected", "rejected", "blocked", "dismissed"]),
-  },
-];
+/**
+ * 디자인 02는 그룹 헤더 없이 문서 카드를 한 줄로 쌓는다. 순서는 예전 그룹 순서(진행 중 → 결과 대기 → 종료)를
+ * 그대로 이어 붙인 것이며, 같은 그룹 안에서는 서버 정렬(단계 → D-day)을 유지한다.
+ */
+const STAGE_GROUP_RANK: Record<ApplicationStage, number> = {
+  preparing: 0,
+  saved: 0,
+  recommended: 0,
+  submitted: 1,
+  selected: 2,
+  rejected: 2,
+  blocked: 2,
+  dismissed: 2,
+};
 
 export function ApplicationPipelineView({
   pipeline,
@@ -94,7 +71,7 @@ export function ApplicationPipelineView({
   const [editor, setEditor] = useState<{ grantId: string; mode: EditorMode } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const groupedItems = useMemo(() => groupPipelineItems(items), [items]);
+  const orderedItems = useMemo(() => orderPipelineItems(items), [items]);
   const editorItem = editor ? items.find((item) => item.grantId === editor.grantId) ?? null : null;
 
   async function moveItem(item: ApplicationPipelineItem, kind: FeedbackKind, stage: ApplicationStage) {
@@ -176,12 +153,20 @@ export function ApplicationPipelineView({
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-[760px] flex-col gap-8 px-5 py-9 sm:px-6 sm:py-13">
-      <header className="flex items-center justify-between gap-4">
-        <h1 className="text-[26px] leading-tight font-extrabold tracking-[-0.02em] text-foreground">
-          내 신청 현황
-        </h1>
-        <a className={buttonVariants({ variant: "outline", size: "sm" })} href="/applications/calendar">
+    <div className="mx-auto flex w-full max-w-[1120px] flex-col gap-5 px-4 py-6 sm:px-8 sm:py-7">
+      <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between sm:gap-4">
+        <div className="flex min-w-0 flex-col gap-1">
+          <h1 className="text-2xl leading-[1.3] font-extrabold tracking-[-0.5px] text-ink-strong">
+            신청 관리
+          </h1>
+          <p className="text-[13px] leading-5 break-keep text-text-secondary">
+            작성 중인 문서로 돌아가는 곳이에요 · 후보 순위가 바뀌어도 여기 목록은 유지돼요
+          </p>
+        </div>
+        <a
+          className={cn(buttonVariants({ variant: "outline", size: "sm" }), "shrink-0 self-start sm:self-end")}
+          href="/applications/calendar"
+        >
           <CalendarDays data-icon="inline-start" />
           캘린더로 보기
         </a>
@@ -201,56 +186,52 @@ export function ApplicationPipelineView({
         </Alert>
       ) : null}
 
-      <div className="flex flex-col gap-8" aria-label="신청 관리" data-application-board>
-        {GROUPS.map((group) => {
-          const groupItems = groupedItems[group.id];
-          return (
-            <section className="flex flex-col gap-2" key={group.id} aria-labelledby={`application-group-${group.id}`}>
-              <h2
-                className="px-1 text-[13px] font-extrabold text-muted-foreground"
-                id={`application-group-${group.id}`}
-              >
-                {group.title} ({groupItems.length.toLocaleString("ko-KR")})
-              </h2>
-              <Card className={cn("gap-0 py-0", group.id === "closed" && "opacity-70")}>
-                {groupItems.length > 0 ? (
-                  <CardContent className="px-0">
-                    {groupItems.map((item, index) => (
-                      <div key={item.grantId}>
-                        {index > 0 ? <Separator /> : null}
-                        <ApplicationRow
-                          item={item}
-                          pending={pendingGrantId === item.grantId}
-                          onEdit={(mode) => setEditor({ grantId: item.grantId, mode })}
-                          onMove={moveItem}
-                        />
-                      </div>
-                    ))}
-                  </CardContent>
-                ) : (
-                  <CardContent>
-                    <Empty className="min-h-36">
-                      <EmptyHeader>
-                        <EmptyTitle>{group.title}인 신청이 없습니다.</EmptyTitle>
-                        <EmptyDescription>{emptyGroupCopy(group.id)}</EmptyDescription>
-                      </EmptyHeader>
-                      {group.id === "active" ? (
-                        <EmptyContent>
-                          <a className={buttonVariants({ variant: "outline", size: "sm" })} href="/dashboard">
-                            새 기회 보기
-                          </a>
-                        </EmptyContent>
-                      ) : null}
-                    </Empty>
-                  </CardContent>
-                )}
-              </Card>
-            </section>
-          );
-        })}
-      </div>
+      {items.length === 0 ? (
+        <Empty className="rounded-2xl border border-dashed border-border-muted px-6 py-16">
+          <EmptyHeader>
+            <EmptyTitle className="text-[17px] font-extrabold text-ink-strong">아직 작성 중인 문서가 없어요</EmptyTitle>
+            <EmptyDescription className="text-[13px] text-text-secondary">
+              기회 맵에서 공고를 고르거나 공고 링크로 시작하세요
+            </EmptyDescription>
+          </EmptyHeader>
+          <EmptyContent>
+            <a className={buttonVariants({ size: "sm" })} href="/dashboard">
+              기회 맵으로
+            </a>
+          </EmptyContent>
+        </Empty>
+      ) : (
+        <>
+          <div
+            className="flex flex-col gap-3"
+            aria-label="작성 중인 문서"
+            data-application-board
+            style={DOCUMENT_CARD_COLUMNS}
+          >
+            {orderedItems.map((item) => (
+              <ApplicationDocumentCard
+                key={item.grantId}
+                item={item}
+                now={pipeline.generatedAt}
+                pending={pendingGrantId === item.grantId}
+                onEdit={(mode) => setEditor({ grantId: item.grantId, mode })}
+                onMove={moveItem}
+              />
+            ))}
+          </div>
 
-      <div className="flex justify-center gap-4 text-[13px] font-semibold text-muted-foreground">
+          <div className="flex flex-col gap-1.5 text-[13.5px] leading-5">
+            <p className="text-[13px] break-keep text-text-secondary">
+              문항 완전성이 확인되지 않은 문서에는 완료율을 표시하지 않아요. 다운로드는 제출 완료가 아닙니다.
+            </p>
+            <a className="w-fit font-semibold text-brand-hover hover:underline" href="/dashboard">
+              기회 맵에서 공고 더 보기 →
+            </a>
+          </div>
+        </>
+      )}
+
+      <div className="flex justify-center gap-4 text-[13px] font-semibold text-text-secondary">
         <a className="hover:text-foreground" href="/api/web/applications/report">리포트 내려받기</a>
         <a className="hover:text-foreground" href="/api/web/applications/calendar">전체 일정 .ics</a>
         <a className="hover:text-foreground" href="/api/web/applications/calendar-subscription">캘린더 구독 링크</a>
@@ -278,133 +259,12 @@ export function ApplicationPipelineView({
   );
 }
 
-function ApplicationRow({
-  item,
-  pending,
-  onEdit,
-  onMove,
-}: {
-  item: ApplicationPipelineItem;
-  pending: boolean;
-  onEdit: (mode: EditorMode) => void;
-  onMove: (item: ApplicationPipelineItem, kind: FeedbackKind, stage: ApplicationStage) => Promise<boolean>;
-}) {
-  const primary = primaryAction(item);
-  const deadlineLabel = showsDeadline(item.stage) ? formatDday(item.dDay) : null;
-  return (
-    <article
-      className="flex flex-col gap-4 px-5 py-5 sm:flex-row sm:items-center sm:gap-4 sm:px-[22px]"
-      data-package-href={`/api/web/grants/${encodeURIComponent(item.grantId)}/package`}
-    >
-      <div className="min-w-0 flex-1">
-        <h3 className="truncate text-base font-bold text-foreground">{item.title}</h3>
-        <p className={cn(
-          "mt-1 line-clamp-1 text-[13.5px] leading-5 text-muted-foreground",
-          item.stage === "selected" && "font-bold text-brand-mint-ink",
-          (item.stage === "rejected" || item.stage === "blocked") && "font-semibold text-destructive"
-        )}>
-          {applicationStatusLine(item)}
-          {deadlineLabel ? (
-            <>
-              {" · "}
-              <span
-                className={cn(
-                  "font-bold",
-                  isUrgentDday(item.dDay) ? "text-destructive" : "text-muted-foreground",
-                )}
-              >
-                {deadlineLabel}
-              </span>
-            </>
-          ) : null}
-        </p>
-      </div>
-
-      <div className="flex shrink-0 items-center justify-end gap-2">
-        {primary.kind === "link" ? (
-          <a className={buttonVariants({ variant: primary.variant, size: "sm" })} href={primary.href}>
-            {primary.label}
-          </a>
-        ) : (
-          <Button size="sm" variant={primary.variant} disabled={pending} onClick={() => onEdit("result")}>
-            {pending ? <Loader2 className="animate-spin" data-icon="inline-start" /> : null}
-            {primary.label}
-          </Button>
-        )}
-
-        <DropdownMenu>
-          <DropdownMenuTrigger
-            render={
-              <Button
-                aria-label={`${item.title} 추가 작업`}
-                disabled={pending}
-                size="icon-sm"
-                variant="ghost"
-              />
-            }
-          >
-            {pending ? <Loader2 className="animate-spin" /> : <MoreHorizontal />}
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="min-w-44">
-            <DropdownMenuLinkItem href={item.detailHref}>
-              <FileText />
-              공고 보기
-            </DropdownMenuLinkItem>
-            <DropdownMenuItem onClick={() => onEdit("management")}>
-              <BellRing />
-              메모·리마인더
-            </DropdownMenuItem>
-            {item.applyEnd || item.reminderAt ? (
-              <DropdownMenuLinkItem href={`/api/web/applications/${encodeURIComponent(item.grantId)}/calendar`}>
-                <CalendarDays />
-                일정 .ics 내려받기
-              </DropdownMenuLinkItem>
-            ) : null}
-            <DropdownMenuLinkItem href={`/api/web/grants/${encodeURIComponent(item.grantId)}/package`}>
-              <Download />
-              서류 패키지
-            </DropdownMenuLinkItem>
-            {item.stage !== "dismissed" ? (
-              <DropdownMenuLinkItem href={`/api/web/applications/${encodeURIComponent(item.grantId)}/reminder-email`}>
-                <Mail />
-                리마인더 메일
-              </DropdownMenuLinkItem>
-            ) : null}
-            <DropdownMenuSeparator />
-            {item.stage === "submitted" ? (
-              <DropdownMenuItem onClick={() => onEdit("result")}>
-                <CheckCircle2 />
-                결과 입력
-              </DropdownMenuItem>
-            ) : null}
-            {canMarkSubmitted(item.stage) ? (
-              <DropdownMenuItem onClick={() => void onMove(item, "applied", "submitted")}>
-                <Send />
-                제출 완료로 이동
-              </DropdownMenuItem>
-            ) : null}
-            {item.stage === "recommended" ? (
-              <DropdownMenuItem onClick={() => void onMove(item, "saved", "saved")}>
-                <Save />
-                저장
-              </DropdownMenuItem>
-            ) : null}
-            {item.stage === "dismissed" ? (
-              <DropdownMenuItem onClick={() => void onMove(item, "saved", "saved")}>
-                <Save />
-                진행 중으로 되돌리기
-              </DropdownMenuItem>
-            ) : item.stage !== "selected" && item.stage !== "rejected" && item.stage !== "blocked" ? (
-              <DropdownMenuItem onClick={() => void onMove(item, "dismissed", "dismissed")}>
-                <Archive />
-                보류로 이동
-              </DropdownMenuItem>
-            ) : null}
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </div>
-    </article>
-  );
+/** 그룹 순서(진행 중 → 결과 대기 → 종료)로 안정 정렬한다. 단계 이동 뒤에도 카드가 제자리를 찾도록 클라이언트에서 다시 계산한다. */
+export function orderPipelineItems(items: ApplicationPipelineItem[]): ApplicationPipelineItem[] {
+  return items
+    .map((item, index) => ({ item, index }))
+    .sort((a, b) => STAGE_GROUP_RANK[a.item.stage] - STAGE_GROUP_RANK[b.item.stage] || a.index - b.index)
+    .map(({ item }) => item);
 }
 
 function ApplicationManagementDialog({
@@ -540,78 +400,6 @@ function ApplicationManagementDialog({
   );
 }
 
-function groupPipelineItems(items: ApplicationPipelineItem[]): Record<ApplicationGroup, ApplicationPipelineItem[]> {
-  const grouped: Record<ApplicationGroup, ApplicationPipelineItem[]> = {
-    active: [],
-    waiting: [],
-    closed: [],
-  };
-  for (const item of items) {
-    const group = GROUPS.find((candidate) => candidate.stages.has(item.stage))?.id ?? "closed";
-    grouped[group].push(item);
-  }
-  return grouped;
-}
-
-function primaryAction(item: ApplicationPipelineItem):
-  | { kind: "link"; href: string; label: string; variant: "default" | "outline" }
-  | { kind: "dialog"; label: string; variant: "outline" } {
-  if (item.stage === "preparing") {
-    return {
-      kind: "link",
-      href: `/grants/${encodeURIComponent(item.grantId)}/workspace`,
-      label: item.draftCount > 0 ? "이어서 작성" : "작성 시작",
-      variant: "default",
-    };
-  }
-  if (item.stage === "saved" || item.stage === "recommended") {
-    return {
-      kind: "link",
-      href: `/grants/${encodeURIComponent(item.grantId)}/workspace`,
-      label: "작성 시작",
-      variant: "default",
-    };
-  }
-  if (item.stage === "submitted") {
-    return { kind: "dialog", label: "결과 입력", variant: "outline" };
-  }
-  return { kind: "link", href: item.detailHref, label: "상세 보기", variant: "outline" };
-}
-
-function applicationStatusLine(item: ApplicationPipelineItem): string {
-  if (item.stage === "selected") return item.outcomeNote ? `선정 · ${item.outcomeNote}` : "선정";
-  if (item.stage === "rejected") return item.outcomeNote ? `탈락 · ${item.outcomeNote}` : "탈락";
-  if (item.stage === "blocked") return item.outcomeNote ? `신청 막힘 · ${item.outcomeNote}` : "신청 막힘";
-  if (item.stage === "dismissed") return item.outcomeNote ? `보류 · ${item.outcomeNote}` : "보류";
-  if (item.stage === "submitted") {
-    return item.lastActionAt ? `결과 대기 · 최근 확인 ${formatCalendarDate(item.lastActionAt)}` : "제출 완료 · 결과 대기";
-  }
-
-  const parts: string[] = [];
-  if (item.stage === "preparing") {
-    parts.push(item.draftCount > 0
-      ? `서류 ${item.reviewedDraftCount}/${item.draftCount} 확인`
-      : "서류 확인 전");
-  } else {
-    parts.push(item.stage === "saved" ? "저장됨" : "추천됨");
-  }
-  return parts.join(" · ");
-}
-
-function showsDeadline(stage: ApplicationStage): boolean {
-  return stage === "preparing" || stage === "saved" || stage === "recommended";
-}
-
-function emptyGroupCopy(group: ApplicationGroup): string {
-  if (group === "active") return "매칭 결과에서 준비할 공고를 선택해 보세요.";
-  if (group === "waiting") return "제출을 완료하면 여기에서 결과를 관리할 수 있어요.";
-  return "선정, 탈락, 막힘, 보류한 신청이 여기에 모입니다.";
-}
-
-function canMarkSubmitted(stage: ApplicationStage): boolean {
-  return stage === "recommended" || stage === "saved" || stage === "preparing";
-}
-
 function feedbackKindForStage(stage: ApplicationStage): FeedbackKind {
   if (stage === "selected") return "selected";
   if (stage === "rejected") return "rejected";
@@ -631,25 +419,6 @@ function stageLabel(stage: ApplicationStage): string {
   if (stage === "rejected") return "탈락";
   if (stage === "blocked") return "막힘";
   return "보류";
-}
-
-function formatDday(value: number | null): string | null {
-  if (value === null) return null;
-  if (value < 0) return "마감";
-  if (value === 0) return "D-Day";
-  return `D-${value}`;
-}
-
-function isUrgentDday(value: number | null): boolean {
-  return value !== null && value >= 0 && value <= URGENT_MAX_DDAY;
-}
-
-function formatCalendarDate(value: string): string {
-  return new Intl.DateTimeFormat("ko-KR", {
-    month: "long",
-    day: "numeric",
-    timeZone: "Asia/Seoul",
-  }).format(new Date(value));
 }
 
 interface ManagementDraft {

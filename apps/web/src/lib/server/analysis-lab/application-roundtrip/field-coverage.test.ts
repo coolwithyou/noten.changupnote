@@ -794,6 +794,61 @@ assert.deepEqual(remainingGaps.map((gap) => [gap.location.row, gap.location.col]
   );
 }
 
+{
+  // 병합 분류 → 병합 하위 라벨 → 병합 값의 일반 logical-grid 구조.
+  // covered dummy 세 칸 중 둘을 새 입력으로 세거나 이미 있는 하위 필드를 누락하지 않는다.
+  const cell = (text: string, colSpan = 1, rowSpan = 1) => ({ text, colSpan, rowSpan });
+  const blocks: IRBlock[] = [{ type: "table", table: {
+    rows: 3, cols: 6, hasHeader: true,
+    cells: [
+      [cell("구분", 2), cell(""), cell("세부항목", 2), cell(""), cell("작성값", 2), cell("")],
+      [cell("대상\n고객", 2, 2), cell(""), cell("고객군", 2), cell(""), cell("", 2), cell("")],
+      [cell(""), cell(""), cell("사유", 2), cell(""), cell("※ 설정 사유 기재", 2), cell("")],
+    ],
+  } }];
+  const extracted = extractLocatedRoundtripFields(blocks, "b".repeat(64)).fields;
+  const group = extracted.find(candidate => candidate.label === "대상\n고객")!;
+  const customer = extracted.find(candidate => candidate.label === "고객군")!;
+  assert.ok(group && customer);
+  assert.equal(group.recommendedInput, false, "분류 라벨은 계속 안전 제외한다");
+  customer.recommendedInput = true;
+  customer.analysisSource = "llm";
+  customer.llmDecision = "input";
+  customer.llmConfidence = 0.83;
+  const fields = [group, customer];
+  const gaps = (candidates = fields, sourceBlocks = blocks) => detectUnsupportedNativeInputGaps({
+    blocks: sourceBlocks, fields: candidates, role: "application_form",
+  });
+  assert.deepEqual(gaps(), [], "colSpan 뒤의 유일한 값 셀은 기존 RHWP 라벨 계약으로 결속된다");
+  const coverage = finalizeRoundtripFieldCoverage(structuredClone(fields), gaps(), blocks);
+  assert.equal(coverage.status, "complete");
+  assert.equal(coverage.acceptedInputCount, 1, "새 후보 없이 이미 인정된 하위 필드만 유지한다");
+  assert.equal(coverage.anchorReadyInputCount, 1);
+
+  const rejected = structuredClone(fields);
+  rejected[1]!.recommendedInput = false;
+  assert.equal(gaps(rejected).length, 1, "인정되지 않은 하위 라벨로 coverage를 닫지 않는다");
+  assert.equal(gaps(rejected)[0]!.location.col, 4, "covered dummy가 아닌 실제 값 원점을 가리킨다");
+  assert.match(gaps(rejected)[0]!.reason, /다열 빈 값 1개/);
+
+  for (const mismatch of ["occurrence", "label", "value", "coordinate"] as const) {
+    const invalid = structuredClone(fields);
+    if (mismatch === "occurrence") invalid[1]!.location.occurrence = 1;
+    if (mismatch === "label") invalid[1]!.label = "다른 고객군";
+    if (mismatch === "value") invalid[1]!.originalValue = "기존 작성값";
+    if (mismatch === "coordinate") invalid[1]!.location.col = 3;
+    assert.equal(gaps(invalid).length, 1, `${mismatch} 불일치는 기존 결속으로 인정하지 않는다`);
+  }
+  const malformed = structuredClone(blocks);
+  malformed[0]!.table!.cells[1]![3]!.text = "covered 영역의 실제 텍스트";
+  assert.equal(gaps(fields, malformed).length, 1, "covered 영역이 불완전하면 병합 구조를 추정하지 않는다");
+
+  const extraValue = structuredClone(blocks);
+  extraValue[0]!.table!.cells[1]![4]!.colSpan = 1;
+  assert.equal(gaps(fields, extraValue)[0]!.location.col, 5);
+  assert.match(gaps(fields, extraValue)[0]!.reason, /다열 빈 값 1개/, "진짜 추가 빈 native 셀은 계속 경고한다");
+}
+
 console.log("application-roundtrip field coverage tests: ok");
 
 function field(input: {

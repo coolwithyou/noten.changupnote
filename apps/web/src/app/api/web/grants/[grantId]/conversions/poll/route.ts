@@ -1,4 +1,4 @@
-// on-demand 변환 폴링 (계획 2026-07-08 슬라이스 A3). 공고 상세 진입 시 클라이언트가 백그라운드로
+// on-demand 변환 폴링. 사용자의 준비 요청 뒤 클라이언트가
 // 호출해 해당 공고의 pending surface 만 즉석 변환한다 — 사용자가 보는 공고가 먼저 살아나는 경로.
 //
 // 가드:
@@ -22,7 +22,7 @@ interface RouteContext {
 
 export async function POST(_request: Request, context: RouteContext) {
   try {
-    await requireCompanyAccess();
+    await requireCompanyAccess({ permission: "write" });
   } catch (error) {
     if (error instanceof AuthRequiredError) {
       return NextResponse.json({ ok: false, error: { code: "unauthorized" } }, { status: 401 });

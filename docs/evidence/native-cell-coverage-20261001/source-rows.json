@@ -1,0 +1,74 @@
+{
+  "sourceSha256": "ceb2c53a1a4ff825e3661deecd5a7533d23a4d55f2e82126a240b6de3f06e150",
+  "analysisSha256": "b2971cd397065570c440260f51a2eccabfa48eb079d403619e000feaba324732",
+  "comparedTableCount": 8,
+  "comparedLogicalCellCount": 514,
+  "blockIndex": 3,
+  "startRow": 15,
+  "rows": [
+    [
+      {
+        "text": "목표\n고객",
+        "colSpan": 2,
+        "rowSpan": 2
+      },
+      {
+        "text": "",
+        "colSpan": 1,
+        "rowSpan": 1
+      },
+      {
+        "text": "고객군",
+        "colSpan": 2,
+        "rowSpan": 1
+      },
+      {
+        "text": "",
+        "colSpan": 1,
+        "rowSpan": 1
+      },
+      {
+        "text": "",
+        "colSpan": 2,
+        "rowSpan": 1
+      },
+      {
+        "text": "",
+        "colSpan": 1,
+        "rowSpan": 1
+      }
+    ],
+    [
+      {
+        "text": "",
+        "colSpan": 1,
+        "rowSpan": 1
+      },
+      {
+        "text": "",
+        "colSpan": 1,
+        "rowSpan": 1
+      },
+      {
+        "text": "사유",
+        "colSpan": 2,
+        "rowSpan": 1
+      },
+      {
+        "text": "",
+        "colSpan": 1,
+        "rowSpan": 1
+      },
+      {
+        "text": "※ 제품 및 진출 시장의 특성에 따른 목표 고객 설정 사유 기재",
+        "colSpan": 2,
+        "rowSpan": 1
+      },
+      {
+        "text": "",
+        "colSpan": 1,
+        "rowSpan": 1
+      }
+    ]
+  ]
+}

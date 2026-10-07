@@ -1,0 +1,23 @@
+{
+  "url": "https://changupnote.com/grants/9837fd9b-0b15-4e70-b1b5-0fe3765e980c/workspace?companyId=a0132dd3-9cb7-87a1-95ef-6cfc171a795f",
+  "selectedField": "사업계획▼",
+  "applyDisabled": true,
+  "applicationListNormalLinkUsed": true,
+  "draftId": "efc28b23-5fe5-46ab-9a59-51c485ed318f",
+  "savedPlanTextMatches": true,
+  "savedPlanCharacters": 962,
+  "reopenedDownloadBytes": 101211,
+  "reopenedDownloadSha256": "a0cd52ea335711614ba0074d9aeae5fa1c567481571965fa906a4dfe098ab17e",
+  "matchesOriginalDownloadedBytes": true,
+  "rhwpReopenedPages": 8,
+  "currentPlanShownInComparison": true,
+  "confirmation": {
+    "checkboxTag": "INPUT",
+    "checkboxChecked": false,
+    "checkboxAria": null,
+    "applyDisabled": true
+  },
+  "nativePlanInComparisonMatchesSavedText": true,
+  "nativePlanInComparisonCharacters": 962,
+  "nativePlanInComparisonSha256": "9f568f5bc14aebe0a28075f45aa2a044b0c34f17a3c1a7501c93b296dd311e4c"
+}

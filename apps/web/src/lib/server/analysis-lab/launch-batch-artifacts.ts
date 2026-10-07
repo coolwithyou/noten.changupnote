@@ -957,6 +957,9 @@ function normalizeAnalysisLaunchManifestForPurpose(
 }
 
 const COMPLETED_RECEIPT_OFFLINE_HISTORICAL_CONTRACTS = new Set([
+  // v30/v24 의미 보존 강화 전의 v29/v23 full launch는 완료 ancestry 소비만 허용한다.
+  "current_inventory|skip_existing|lab-deep-v29|deep-analysis-validator-v23|kordoc-application-roundtrip-v22",
+  "current_inventory|rerun_exact_targets|lab-deep-v29|deep-analysis-validator-v23|kordoc-application-roundtrip-v22",
   // v22 전환 직전 v21 종료 계약. live v22 권한으로 승계하지 않고 오프라인 소비만 허용한다.
   "current_inventory|skip_existing|lab-deep-v28|deep-analysis-validator-v23|kordoc-application-roundtrip-v21",
   "current_inventory|rerun_exact_targets|lab-deep-v28|deep-analysis-validator-v23|kordoc-application-roundtrip-v21",
@@ -1023,11 +1026,30 @@ function isSupportedCompletedReceiptOfflineContract(input: {
     input.transport !== "claude-cli"
     || input.model !== APPLICATION_ROUNDTRIP_ADOPTED_MODEL
   ) return false;
+  // fd6526fb4c1bd5c0345007ab5f8a05066e13df7a produced this primary-only
+  // current-inventory contract. Consume completed receipts without restoring live admission.
+  if (
+    input.rawSourceKind === "current_inventory"
+    && input.sourceKind === "current_inventory"
+    && input.rawExistingRunPolicy === "skip_existing"
+    && input.existingRunPolicy === "skip_existing"
+    && input.rawAdoptionManifestSha256 === null
+    && input.adoptionManifestSha256 === null
+    && input.completedLaunch === undefined
+    && input.terminalRepair === undefined
+    && input.planSha256 === input.planArtifactSha256
+    && !input.withApplicationRoundtrip
+    && input.roundtripModel === null
+    && input.rawApplicationFieldAnalysisVersion === null
+    && (input.promptVersion === "lab-deep-v28" || input.promptVersion === "lab-deep-v29")
+    && input.validatorVersion === "deep-analysis-validator-v23"
+  ) return true;
   if (
     input.completedLaunch !== undefined
     && (
       (input.rawApplicationFieldAnalysisVersion !== "kordoc-application-roundtrip-v20"
-        && input.rawApplicationFieldAnalysisVersion !== "kordoc-application-roundtrip-v21")
+        && input.rawApplicationFieldAnalysisVersion !== "kordoc-application-roundtrip-v21"
+        && input.rawApplicationFieldAnalysisVersion !== "kordoc-application-roundtrip-v22")
       || input.sourceKind !== "current_inventory"
       || input.existingRunPolicy !== "rerun_exact_targets"
       || input.completedLaunch.inventorySha256 !== input.planArtifactSha256

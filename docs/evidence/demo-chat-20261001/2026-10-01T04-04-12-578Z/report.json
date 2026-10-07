@@ -1,0 +1,32 @@
+{
+  "sourceSha": "04c40f809bff8cfd59f34d7f9b9d1625ae6fb57d",
+  "sourceDiffSha256": "960e3ce7922eb0deaaf683c4df6bfdbe5da64aa5e304da8e31aae71f9cb26743",
+  "fixture": true,
+  "externalWrites": 0,
+  "actualSourceComponents": true,
+  "checks": [
+    "ordinary persistent RHWP ladder b without field bindings offers AI chat",
+    "actual ChatPanel submits grant-only context without field binding and renders synthetic SSE answer",
+    "close/reopen retains messages and unsent input"
+  ],
+  "screenshots": [
+    "ladder-b-1440.png",
+    "general-chat-1440.png"
+  ],
+  "mobileLayout": {
+    "body": 390,
+    "dialog": {
+      "bottom": 878.8984375,
+      "height": 913.796875,
+      "left": -179.53125,
+      "right": 569.53125,
+      "top": -34.8984375,
+      "width": 749.0625,
+      "x": -179.53125,
+      "y": -34.8984375
+    },
+    "width": 390
+  },
+  "ok": false,
+  "error": "Error: Mobile dialog horizontal overflow {\"body\":390,\"dialog\":{\"bottom\":878.8984375,\"height\":913.796875,\"left\":-179.53125,\"right\":569.53125,\"top\":-34.8984375,\"width\":749.0625,\"x\":-179.53125,\"y\":-34.8984375},\"width\":390}"
+}

@@ -21,6 +21,9 @@ export interface StudioProfileAutofillEntry {
   sourceSpan: string | null;
   target: StudioFieldTargetV1;
   value: string;
+  /** Narrative comparison CAS. Generic/automatic profile autofill does not set these. */
+  expectedBeforeText?: string;
+  reviewedNarrativeBeforeText?: string;
 }
 
 export interface AppliedStudioProfileAutofillEntry {
@@ -89,7 +92,17 @@ export function createStudioProfileAutofillTransaction(input: {
           const evidence = await collectStudioFieldEvidence(input.rhwp, bytes, entry.target);
           const entryBeforeSemanticSha256 = await semanticDocumentSha256(input.rhwp, bytes);
           const before = evidence.text.trim();
-          if (before && !isReplaceableRhwpGuide(before, entry.sourceSpan, null)) {
+          if (entry.expectedBeforeText !== undefined && evidence.text !== entry.expectedBeforeText) {
+            failureMessage = `'${entry.label}'의 현재 내용이 비교 이후 바뀌었습니다. 다시 비교해 주세요.`;
+            throw new Error(failureMessage);
+          }
+          const reviewed = entry.reviewedNarrativeBeforeText !== undefined;
+          if (reviewed && (entry.reviewedNarrativeBeforeText !== evidence.text || entry.expectedBeforeText !== evidence.text
+            || !["table_cell_text", "table_cell_region"].includes(entry.target.kind) || !entry.value.trim() || entry.value.length > 4_000)) {
+            failureMessage = `'${entry.label}'의 검토한 내용과 입력 위치를 다시 확인해 주세요.`;
+            throw new Error(failureMessage);
+          }
+          if (before && !isReplaceableRhwpGuide(before, entry.sourceSpan, null) && !reviewed) {
             failureMessage = `'${entry.label}' 입력 칸에 현재 값이 있어 일괄 입력을 중단했습니다.`;
             throw new Error(failureMessage);
           }
