@@ -8,7 +8,7 @@ import { readTerminalRepairSource, selectTerminalRepairTargets } from "./termina
 import { parseTerminalRepairLaunchArgs } from "./terminal-repair-launch-cli";
 import { buildCurrentInventoryLaunchManifest, storeCurrentLaunchInventory, verifyCurrentInventoryLaunchBinding,
   TERMINAL_REPAIR_POLICY, type CurrentLaunchInventory } from "./current-inventory-launch";
-import { createAnalysisLaunchGrant, encodeCanonical, normalizeAnalysisLaunchManifest, normalizeCompletedAnalysisLaunchManifestForOfflineConsumption, writeAnalysisLaunchArtifact,
+import { createAnalysisLaunchGrant, encodeCanonical, normalizeAnalysisLaunchManifest, writeAnalysisLaunchArtifact,
   type AnalysisLaunchReceipt, type AnalysisLaunchReceiptTarget,
   type AnalysisLaunchTerminalRepairBinding } from "./launch-batch-artifacts";
 import { DEEP_ANALYSIS_VALIDATOR_VERSION } from "../deep-analysis/validator";
@@ -254,18 +254,6 @@ test("matching20 terminal repair는 성공·skipped를 보존하고 모델 미�
     && target.target.runArtifactPath === null
     && target.target.runArtifactSha256 === null
   )));
-  assert.equal(source.manifest.execution.promptVersion, "lab-deep-v28");
-  for (const executionPatch of [
-    { promptVersion: "unknown-prompt" },
-    { validatorVersion: "unknown-validator" },
-    { existingRunPolicy: "rerun_exact_targets" },
-    { transport: "api" },
-    { model: "unknown-model" },
-  ]) {
-    assert.throws(() => normalizeCompletedAnalysisLaunchManifestForOfflineConsumption({
-      ...source.manifest, execution: { ...source.manifest.execution, ...executionPatch },
-    }));
-  }
 });
 
 test("repair-of-repair는 full ancestry를 검증하고 현재 부모의 실패·보류만 봉인한다", async () => {

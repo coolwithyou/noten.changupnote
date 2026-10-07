@@ -5,18 +5,10 @@ import { normalizeManualProfile } from "@/lib/server/teaser/resolveTeaserCompany
 import {
   buildProfileAnswer,
   buildProfilePatch,
-  CONDITION_TALLY_PENDING_LABEL,
   criterionEvidencePresentation,
   criterionSubjectLabel,
   confirmationResumePath,
-  DISCOVERY_REASON_LABEL,
-  matchHeaderCaption,
-  discoveryReasonLabel,
-  formatConditionTally,
-  formatMonthDay,
   groupMatchesForDisplay,
-  matchDiscoveryCaption,
-  matchConditionStatus,
   matchCardNextActions,
   matchConfirmationCtaState,
   matchCriterionPresentation,
@@ -257,7 +249,7 @@ assert.equal(
   "one_answer",
   "우대정보 미확인은 필수 자격 질문 수에 포함하면 안 됨",
 );
-assert.equal(matchVerdictStatus(multiAnswerMatch), "check_source");
+assert.equal(matchVerdictStatus(multiAnswerMatch), "closed");
 assert.equal(matchVerdictStatus(reviewMatch), "check_source");
 assert.equal(matchVerdictStatus(unknownStatusMatch), "check_source");
 assert.equal(
@@ -278,8 +270,8 @@ assert.equal(
 assert.equal(matchVerdictStatus(mixedHardAdminMultiProfileMatch), "check_source");
 assert.equal(
   matchVerdictStatus(hiddenScoreHardFailMatch),
-  "check_source",
-  "현재 원문과 검수 근거가 없는 legacy fail은 점수와 관계없이 검토 후보로 유지한다",
+  "closed",
+  "확정 미해당 공고를 점수 숨김만으로 원문 확인 필요로 표시하면 안 됨",
 );
 const mixedActions = matchCardNextActions({
   ...answerMatch,
@@ -359,88 +351,6 @@ assert.deepEqual(matchConfirmationCtaState({
   showReconfirm: true,
   hasAdminSourceReview: false,
 });
-// 카드 집계 문구 — 디자인 01 어휘 "확인된 조건 N/M · 남은 쟁점 K(· 불일치 J)", 백분율·점수 없음
-assert.equal(formatConditionTally({ passed: 4, failed: 0, unknown: 3 }), "확인된 조건 4/7 · 남은 쟁점 3");
-assert.equal(formatConditionTally({ passed: 1, failed: 1, unknown: 2 }), "확인된 조건 1/4 · 남은 쟁점 2 · 불일치 1");
-assert.equal(formatConditionTally({ passed: 5, failed: 0, unknown: 0 }), "확인된 조건 5/5 · 남은 쟁점 0");
-assert.equal(formatConditionTally({ passed: 0, failed: 0, unknown: 0 }), CONDITION_TALLY_PENDING_LABEL);
-assert.equal(CONDITION_TALLY_PENDING_LABEL, "매칭 확인 중");
-assert.doesNotMatch(formatConditionTally({ passed: 3, failed: 1, unknown: 1 }), /%|점수|충족 확인|미충족|미확인/);
-
-// 카드 자격 상태 줄 — 필수·제외 조건만 세고(우대 제외), 원문 미확인·조건 미정리는 분수 없이 상태만 낸다
-const hardTrace = (result: "pass" | "fail" | "unknown", kind: "required" | "exclusion" | "preferred" = "required") => ({
-  criterionId: `c-${kind}-${result}-${Math.random().toString(36).slice(2, 6)}`,
-  dimension: "other",
-  kind,
-  result,
-  label: "조건",
-  sourceSpan: "원문 조건",
-  checklistSection: "needs_check",
-  ...(result === "unknown" ? { unresolvedReason: "company_profile_missing", confirmationNextAction: "company_profile" } : {}),
-});
-const conditionStatusBase = { ...openMatch, matchingEvidence: { level: "verified", sourceRevisionSha256: "a".repeat(64) } };
-assert.deepEqual(
-  matchConditionStatus({ ...conditionStatusBase, ruleTrace: [hardTrace("pass"), hardTrace("pass"), hardTrace("pass", "preferred")] } as unknown as MatchCard),
-  { kind: "done", label: "필수 조건 확인 완료", frac: "확인된 조건 2/2" },
-  "우대 조건은 분모에 넣지 않는다",
-);
-assert.deepEqual(
-  matchConditionStatus({ ...conditionStatusBase, eligibility: "conditional", recommendationTier: "needs_profile_input", ruleTrace: [hardTrace("pass"), hardTrace("unknown"), hardTrace("unknown"), hardTrace("pass", "exclusion")] } as unknown as MatchCard),
-  { kind: "left", label: "남은 쟁점 2", frac: "확인된 조건 2/4" },
-);
-assert.deepEqual(
-  matchConditionStatus({ ...conditionStatusBase, eligibility: "conditional", ruleTrace: [hardTrace("pass"), hardTrace("fail"), hardTrace("unknown")] } as unknown as MatchCard),
-  { kind: "left", label: "남은 쟁점 1", frac: "확인된 조건 1/3 · 불일치 1" },
-  "남은 쟁점이 있으면 상태는 left, 불일치는 분수 줄에 덧붙인다",
-);
-assert.deepEqual(
-  matchConditionStatus({ ...conditionStatusBase, eligibility: "conditional", ruleTrace: [hardTrace("pass"), hardTrace("fail")] } as unknown as MatchCard),
-  { kind: "mismatch", label: "불일치 1", frac: "확인된 조건 1/2 · 불일치 1" },
-);
-assert.deepEqual(
-  matchConditionStatus({ ...reviewMatch, matchingEvidence: { level: "verified", sourceRevisionSha256: "b".repeat(64) } } as unknown as MatchCard),
-  { kind: "wait", label: "검토 준비 중", frac: null },
-  "비교한 필수·제외 조건이 없으면 검토 준비 중",
-);
-assert.deepEqual(
-  matchConditionStatus({ ...openMatch, matchingEvidence: { level: "discovery", sourceRevisionSha256: null, reason: "unreviewed" }, ruleTrace: [hardTrace("pass")] } as unknown as MatchCard),
-  { kind: "source", label: "원문 확인 필요", frac: null },
-  "원문 미확인 카드는 trace가 있어도 분수를 만들지 않는다",
-);
-for (const status of [
-  matchConditionStatus({ ...conditionStatusBase, ruleTrace: [hardTrace("pass"), hardTrace("fail"), hardTrace("unknown")] } as unknown as MatchCard),
-  matchConditionStatus({ ...conditionStatusBase, ruleTrace: [] } as unknown as MatchCard),
-]) {
-  assert.doesNotMatch(`${status.label} ${status.frac ?? ""}`, /%|점수|매칭률|지원 가능/);
-}
-
-// 탐색 사유 라벨 — 단일 매핑 객체, 접수 예정은 시작일을 알 때만 날짜를 붙인다
-assert.equal(discoveryReasonLabel({ state: "review", reason: "period_unconfirmed" }), "접수 여부 확인 필요");
-assert.equal(discoveryReasonLabel({ state: "upcoming", reason: "not_started" }), "모집 예정");
-assert.equal(discoveryReasonLabel({ state: "upcoming", reason: "not_started" }, { applyStart: "2026-10-21" }), "모집 예정 · 10/21 접수 시작");
-assert.equal(discoveryReasonLabel({ state: "upcoming", reason: "not_started" }, { applyStart: "not-a-date" }), "모집 예정");
-assert.equal(discoveryReasonLabel({ state: "upcoming", reason: "source_unconfirmed" }), "모집 예정", "접수 예정 버킷은 원문 미확인이어도 모집 예정으로 안내한다");
-assert.equal(discoveryReasonLabel({ state: "excluded", reason: "confirmed_mismatch" }), "확인한 필수조건과 회사 정보가 맞지 않습니다.");
-assert.equal(discoveryReasonLabel({ state: "candidate", reason: "related_candidate" }), "확인된 필수조건 불일치 없음");
-assert.equal(discoveryReasonLabel({ state: "review", reason: "source_unconfirmed" }), "원문 확인 필요");
-assert.equal(discoveryReasonLabel({ state: "review", reason: "conditions_unconfirmed" }), "현재 조건과 원문을 다시 확인해 주세요.");
-assert.equal(discoveryReasonLabel({ state: "excluded", reason: "closed" }), "마감한 공고는 검토 목록에 포함하지 않습니다.");
-assert.deepEqual(
-  Object.keys(DISCOVERY_REASON_LABEL).sort(),
-  ["closed", "conditions_unconfirmed", "confirmed_mismatch", "not_started", "period_unconfirmed", "related_candidate", "source_unconfirmed"],
-  "core DiscoveryDecision.reason 전부에 라벨이 있어야 한다",
-);
-for (const label of Object.values(DISCOVERY_REASON_LABEL)) assert.doesNotMatch(label, /지원 가능|매칭률|%/);
-assert.equal(matchDiscoveryCaption(unknownStatusMatch), "접수 여부 확인 필요");
-assert.equal(matchDiscoveryCaption({ ...openMatch, status: "upcoming" } as MatchCard), "모집 예정");
-assert.equal(matchDiscoveryCaption(openMatch), null, "판정 뱃지·집계가 설명하는 카드에는 사유를 중복 표기하지 않는다");
-assert.equal(formatMonthDay("2026-10-05"), "10/5");
-assert.equal(formatMonthDay("2026-10-21T00:30:00+09:00"), "10/21");
-assert.equal(formatMonthDay("2026-10-20T15:30:00Z"), "10/21", "UTC 시각은 KST 날짜로 환산한다");
-assert.equal(formatMonthDay("2026-13-45"), null);
-assert.equal(formatMonthDay("nonsense"), null);
-assert.equal(formatMonthDay(null), null);
-
 const grouped = groupMatchesForDisplay([
   openMatch,
   answerMatch,
@@ -454,8 +364,8 @@ const grouped = groupMatchesForDisplay([
 ]);
 assert.equal(grouped.oneAnswer.length, 2);
 assert.equal(grouped.preparable.length, 2);
-assert.equal(grouped.checkSource.length, 4);
-assert.equal(grouped.closed.length, 0, "미확인 trace를 가진 legacy ineligible만으로 후보를 제외하지 않는다");
+assert.equal(grouped.checkSource.length, 3);
+assert.equal(grouped.closed.length, 1, "hard fail은 legacy preparable bucket이어도 준비 목록에서 제외");
 
 const exactQuestionTemplate = {
   ...answerMatch,
@@ -771,29 +681,3 @@ assert.ok(
 );
 
 console.log("match-results/logic: ok");
-
-/* ───────── matchHeaderCaption(디자인 01 헤더 캡션) ───────── */
-{
-  const base = { matches: [], counts: { eligible: 0, conditional: 0, ineligible: 0 } } as unknown as ProductTeaserResult;
-  const withContext = {
-    ...base,
-    searchContext: { asOf: "2026-10-01T00:00:00+09:00", evaluatedGrantCount: 1424 },
-  } as unknown as ProductTeaserResult;
-  assert.equal(
-    matchHeaderCaption({ teaser: withContext, companyName: "바다상회", saved: true }),
-    "바다상회의 저장된 정보 기준 · 10월 1일 모집 중 1,424건 중 관련 후보를 골랐어요",
-  );
-  assert.equal(
-    matchHeaderCaption({ teaser: withContext }),
-    "입력한 회사 정보 기준 · 10월 1일 모집 중 1,424건 중 관련 후보를 골랐어요",
-  );
-  assert.equal(
-    matchHeaderCaption({ teaser: withContext, companyName: "바다상회" }),
-    "바다상회의 입력 정보 기준 · 10월 1일 모집 중 1,424건 중 관련 후보를 골랐어요",
-  );
-  assert.equal(
-    matchHeaderCaption({ teaser: base, saved: true }),
-    "이름 미등록 회사의 저장된 정보 기준 · 관련 후보를 골랐어요",
-    "판정 공고 수와 날짜를 모르면 구를 뺀다",
-  );
-}

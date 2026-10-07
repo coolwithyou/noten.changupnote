@@ -99,7 +99,6 @@ export * from "./matching/question-planner.js";
 export * from "./matching/priority.js";
 export * from "./matching/ranking.js";
 export * from "./matching/relevance.js";
-export * from "./matching/discovery-policy.js";
 export * from "./questions/definitions.js";
 export * from "./msit/fetch.js";
 export * from "./msit/coverage.js";

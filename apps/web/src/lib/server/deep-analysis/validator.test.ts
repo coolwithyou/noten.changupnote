@@ -10,7 +10,6 @@ import {
   decideDeepAnalysisValidationRoute,
   validateDeepAnalysisResult,
 } from "./validator";
-import { DEEP_ANALYSIS_SYSTEM_PROMPT, DEEP_ANALYSIS_REVIEW_ALIGNMENT_RULES, DEEP_ANALYSIS_QUALIFIED_PREDICATE_LOSSLESS_RULE } from "./extractor";
 
 const sourceSpan = "본 사업은 서울 소재 중소기업만 신청할 수 있다.";
 const seal = sealDeepAnalysisInput({
@@ -2249,7 +2248,7 @@ assert.equal(
   true,
 );
 
-const creditSourceSpan = "파산 또는 회생절차 진행 중인 기업은 제외한다.";
+const creditSourceSpan = "파산 또는 회생절차 개시 신청 기업은 제외한다.";
 const creditSeal = sealDeepAnalysisInput({
   grantId: "grant-credit-order",
   sourceRevisionSha256: "d".repeat(64),
@@ -2759,60 +2758,4 @@ assert.equal(
   );
 }
 
-// These grounded cases test representability, rather than resolving the source's ambiguity.
-const qualifiedPredicates: DeepAnalysisCriterion[] = [
-  criterion({ dimension: "biz_age", operator: "lte", value: { max_months: 72 },
-    sourceSpan: "디지털 중소기업 또는 스타트업 (업력 6년 이내)" }),
-  criterion({ dimension: "size", operator: "in", value: { sizes: ["중소기업"] },
-    sourceSpan: "디지털 중소기업 또는 스타트업 (업력 6년 이내)" }),
-  criterion({ dimension: "biz_age", operator: "lte", value: { max_months: 72 },
-    sourceSpan: "스타트업 또는 중소기업 (업력 6년 이내)" }),
-  criterion({ dimension: "size", operator: "in", value: { sizes: ["중소기업"] },
-    sourceSpan: "중소기업 또는 스타트업을 지원하며 두 경로 모두 업력 6년 이내여야 한다." }),
-  criterion({ dimension: "industry", operator: "in", value: { tags: ["인공지능"] },
-    sourceSpan: "인공지능 기반 기술 보유 기업" }),
-  criterion({ dimension: "credit_status", kind: "exclusion", operator: "in",
-    value: { flags: ["rehabilitation_in_progress"], exceptions: ["repayment_plan_in_good_standing"] },
-    sourceSpan: "회생절차, 개인회생절차의 개시 신청이 이루어진 기업은 제외한다. 다만 인가된 변제계획에 따라 정상 변제 중이면 예외다." }),
-  criterion({ dimension: "credit_status", kind: "exclusion", operator: "in",
-    value: { flags: ["rehabilitation_in_progress"] }, sourceSpan: "개인회생 진행 중인 기업은 제외한다." }),
-  criterion({ dimension: "financial_health", kind: "exclusion", operator: "exists",
-    value: { impairment_excluded: ["full"] }, sourceSpan: "직전년도 결산 기준 자본전액 잠식 기업은 제외한다." }),
-];
-for (const lossy of qualifiedPredicates) {
-  const evidence = sealDeepAnalysisInput({ grantId: "qualified-predicate", sourceRevisionSha256: "e".repeat(64),
-    structuredText: lossy.sourceSpan!, attachments: [] });
-  const invalid = validateDeepAnalysisResult({ seal: evidence, result: result([lossy], axes([lossy.dimension])) });
-  assert.equal(invalid.valid, false, `${lossy.dimension}: matching note cannot restore a lost predicate`);
-  assert.ok(invalid.issues.some(issue => issue.code === "canonical_contract_invalid" && issue.path === "$.criteria[0].operator"));
-  assert.equal(decideDeepAnalysisValidationRoute({ result: result([lossy], axes([lossy.dimension])), validation: invalid }).route, "repair");
-  const isAlternative = lossy.dimension === "biz_age" || lossy.dimension === "size";
-  const repaired = criterion({ ...lossy, dimension: isAlternative ? "other" : lossy.dimension,
-    operator: "text_only", value: { note: lossy.sourceSpan,
-      ...(isAlternative ? { covered_dimensions: ["size", "biz_age"] } : {}) } });
-  const preserved = validateDeepAnalysisResult({ seal: evidence,
-    result: result([repaired], axes(isAlternative ? ["other", "size", "biz_age"] : [lossy.dimension])) });
-  assert.equal(preserved.valid, true, JSON.stringify(preserved.issues));
-  assert.equal(preserved.criteria[0]!.criterion.sourceSpan, lossy.sourceSpan);
-}
-// Explicit common facts and plain canonical states continue to be structured.
-for (const supported of [
-  criterion({ dimension: "biz_age", operator: "lte", value: { max_months: 72 },
-    sourceSpan: "중소기업 또는 스타트업을 지원하며 두 경로 모두 업력 6년 이내여야 한다." }),
-  criterion({ dimension: "size", operator: "in", value: { sizes: ["중소기업"] }, sourceSpan: "중소기업만 신청할 수 있다." }),
-  criterion({ dimension: "industry", operator: "in", value: { tags: ["ICT"] }, sourceSpan: "ICT 업종을 영위하는 기업만 신청할 수 있다." }),
-  criterion({ dimension: "credit_status", kind: "exclusion", operator: "in", value: { flags: ["rehabilitation_in_progress"] },
-    sourceSpan: "회생절차 진행 중인 기업은 제외한다." }),
-  criterion({ dimension: "credit_status", kind: "exclusion", operator: "in", value: { flags: ["rehabilitation_in_progress"] },
-    sourceSpan: "회생 또는 개인회생 진행 중인 기업은 제외한다." }),
-  criterion({ dimension: "financial_health", kind: "exclusion", operator: "exists", value: { impairment_excluded: ["full"] },
-    sourceSpan: "현재 자본전액 잠식 기업은 제외한다." }),
-]) {
-  const evidence = sealDeepAnalysisInput({ grantId: "common-predicate", sourceRevisionSha256: "f".repeat(64),
-    structuredText: supported.sourceSpan!, attachments: [] });
-  const valid = validateDeepAnalysisResult({ seal: evidence, result: result([supported], axes([supported.dimension])) });
-  assert.equal(valid.valid, true, JSON.stringify(valid.issues));
-}
-assert.ok(DEEP_ANALYSIS_SYSTEM_PROMPT.includes(DEEP_ANALYSIS_QUALIFIED_PREDICATE_LOSSLESS_RULE));
-assert.ok(DEEP_ANALYSIS_REVIEW_ALIGNMENT_RULES.includes(DEEP_ANALYSIS_QUALIFIED_PREDICATE_LOSSLESS_RULE));
 console.log("deep-analysis validator tests passed");

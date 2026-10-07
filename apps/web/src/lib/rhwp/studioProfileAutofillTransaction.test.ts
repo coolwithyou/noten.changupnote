@@ -371,21 +371,4 @@ async function receipt(
   };
 }
 
-const reviewOriginal = encode(["회사 소개", "기존 회사 내용", "대표자명", "이미 입력됨"], [7, 7, 7, 7]);
-current = reviewOriginal; changeSeq = 0;
-const reviewEntry = { fieldId: "intro", label: "소개", sourceSpan: null, target: firstTarget, value: "검토한 새 회사 문안" };
-for (const options of [
-  {}, // Ordinary profile/autofill cannot overwrite narrative content.
-  { expectedBeforeText: "기존 회사 내용" }, // Comparison without user review is insufficient.
-  { expectedBeforeText: "과거 내용", reviewedNarrativeBeforeText: "과거 내용" },
-  { reviewedNarrativeBeforeText: "기존 회사 내용" }, // Reviewed preimage must also be CAS-bound.
-]) {
-  await assert.rejects(transaction.apply({ bytes: reviewOriginal, format: "hwp", entries: [{ ...reviewEntry, ...options }] }),
-    (error: unknown) => error instanceof StudioProfileAutofillTransactionError && !error.mutationUncertain && error.partial?.applied.length === 0);
-  assert.deepEqual(current, reviewOriginal);
-}
-const reviewedBatch = await transaction.apply({ bytes: reviewOriginal, format: "hwp", entries: [{ ...reviewEntry,
-  expectedBeforeText: "기존 회사 내용", reviewedNarrativeBeforeText: "기존 회사 내용" }] });
-assert.deepEqual(decode(reviewedBatch.bytes).cells, ["회사 소개", "검토한 새 회사 문안", "대표자명", "이미 입력됨"]);
-assert.deepEqual(semanticFixture(decode(await transaction.revert(reviewedBatch))), semanticFixture(decode(reviewOriginal)));
 console.log("studio profile autofill transaction tests passed");

@@ -258,11 +258,6 @@ export function SettingsPageView({
             내 정보 열기
             <ChevronRight className="text-text-quaternary" aria-hidden />
           </a>
-          <RowSeparator />
-          <a href="/settings/writing-sources" className="flex items-center justify-between gap-3 py-[15px] text-left">
-            <RowLead title="회사 공통 자료" description="다른 공고에서도 재사용하는 회사 자료를 관리해요" />
-            <ChevronRight className="text-text-quaternary" aria-hidden />
-          </a>
           {verified ? null : (
             <>
               <RowSeparator />

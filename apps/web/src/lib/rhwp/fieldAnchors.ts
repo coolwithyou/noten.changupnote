@@ -538,32 +538,24 @@ function enumerateFieldCandidates(
   const anchorLabel = field.anchorLabel?.trim() || field.label;
   const shortLabel = normalizedText(anchorLabel).length === 1;
   const shortOccurrence = shortLabel ? exactStructuralOccurrence(field) : null;
-  // 보호된 장문 영역은 라벨 뒤에 기존 원고가 있어 whole-cell 순번 대신 아래의
-  // target 좌표 + 첫 문단 prefix 계약으로 검증한다.
-  const sourceOccurrence = field.position?.targetKind === "table_cell_region"
-    ? null : exactStructuralOccurrence(field);
   if (shortLabel && (shortOccurrence === null || field.position?.targetKind !== undefined
     || ![field.position?.blockIndex, field.position?.row, field.position?.col]
       .every((value) => Number.isSafeInteger(value) && (value as number) >= 0))) return [];
-  // occurrence는 입력 대상이 있는 후보의 순번이 아니라 원문 라벨 셀의 순번이다.
-  // 마지막 열/안전하지 않은 값 셀을 먼저 제외하면 뒤의 연도·행으로 결속이 밀린다.
-  const sourceHits = sourceOccurrence === null ? null : normalizedLayoutHits(
-    document, anchorLabel, null, context.cellRunCache, shortLabel,
-  );
-  const orderedSourceHits = sourceHits === null ? null : [...new Map(sourceHits.map((hit) => [
-    `${hit.sec}:${hit.cellContext!.parentPara}:${hit.cellContext!.ctrlIdx}:${hit.cellContext!.cellIdx}`, hit,
-  ])).values()].sort((a, b) => a.sec - b.sec
-    || a.cellContext!.parentPara - b.cellContext!.parentPara
-    || a.cellContext!.ctrlIdx - b.cellContext!.ctrlIdx
-    || a.cellContext!.cellIdx - b.cellContext!.cellIdx);
-  const sourceHit = sourceOccurrence === null ? null : orderedSourceHits?.[sourceOccurrence];
-  if (sourceOccurrence !== null && !sourceHit) return [];
-  // 단위만 들어 있는 숫자 값 셀에는 오른쪽/아래 셀 추정을 적용하지 않는다.
-  // 해당 셀을 쓸 권한은 별도의 명시된 same-cell 계약으로만 증명한다.
-  if (field.fieldType === "number" && /^(?:달러|백만원|천원|만원|원|명|개|건|퍼센트|%)$/u.test(anchorLabel.trim())
-    && field.position?.targetKind !== "table_cell_text") return [];
-  for (const [variantIndex, variant] of (sourceOccurrence !== null ? [anchorLabel] : labelVariants(anchorLabel)).entries()) {
-    const hits = sourceOccurrence !== null ? [sourceHit!] : [
+  for (const [variantIndex, variant] of (shortLabel ? [anchorLabel] : labelVariants(anchorLabel)).entries()) {
+    // 한 글자는 부분 문자열 검색을 사용하지 않는다. 모든 페이지의 whole-cell hit를
+    // 구조 순으로 정렬해 source-bound occurrence를 먼저 선택한 뒤 행/열을 대조한다.
+    const shortHits = shortLabel
+      ? normalizedLayoutHits(document, variant, null, context.cellRunCache, true)
+      : [];
+    const uniqueShortHits = [...new Map(shortHits.map((hit) => [
+      `${hit.sec}:${hit.cellContext!.parentPara}:${hit.cellContext!.ctrlIdx}:${hit.cellContext!.cellIdx}`,
+      hit,
+    ])).values()].sort((a, b) => a.sec - b.sec
+      || a.cellContext!.parentPara - b.cellContext!.parentPara
+      || a.cellContext!.ctrlIdx - b.cellContext!.ctrlIdx
+      || a.cellContext!.cellIdx - b.cellContext!.cellIdx);
+    const selectedShortHit = shortOccurrence === null ? undefined : uniqueShortHits[shortOccurrence];
+    const hits = shortLabel ? (selectedShortHit ? [selectedShortHit] : []) : [
       ...parseArray<SearchHit>(document.searchAllText(variant, false, true)),
       ...normalizedLayoutHits(document, variant, hintPage, context.cellRunCache),
     ];
@@ -583,10 +575,6 @@ function enumerateFieldCandidates(
       const cells = context.tableCache.get(tableKey) ?? [];
       const labelCell = cells.find((cell) => cell.cellIdx === cellContext.cellIdx);
       if (!labelCell) continue;
-      if (sourceOccurrence !== null && (
-        (field.position?.row !== undefined && field.position.row !== labelCell.row)
-        || (field.position?.col !== undefined && field.position.col !== labelCell.col)
-      )) continue;
       if (shortLabel && (field.position?.row !== labelCell.row || field.position?.col !== labelCell.col
         || (labelCell.rowSpan ?? 1) !== 1 || (labelCell.colSpan ?? 1) !== 1)) continue;
       const exactSameCellTextRequested = field.position?.targetKind === "table_cell_text";
@@ -754,6 +742,27 @@ export function resolveRhwpFieldAnchorsExact(
       if (!structural.has(key)) structural.set(key, candidate.anchor);
     }
     if (structural.size === 0) return { fieldId: field.fieldId, status: "missing", candidateCount: 0 };
+    const occurrence = exactStructuralOccurrence(field);
+    if (structural.size > 1 && occurrence !== null) {
+      const ordered = [...structural.values()].sort((left, right) => {
+        const a = left.target;
+        const b = right.target;
+        return a.section - b.section
+          || a.parentPara - b.parentPara
+          || a.controlIndex - b.controlIndex
+          || (a.labelCellIndex ?? -1) - (b.labelCellIndex ?? -1)
+          || a.cellIndex - b.cellIndex;
+      });
+      const anchor = ordered[occurrence];
+      if (anchor) {
+        return {
+          fieldId: field.fieldId,
+          status: "unique",
+          anchor: { ...anchor, appearance: cellAppearance(document, field, anchor.target) },
+          candidateCount: 1,
+        };
+      }
+    }
     if (structural.size > 1) {
       return { fieldId: field.fieldId, status: "ambiguous", candidateCount: structural.size };
     }

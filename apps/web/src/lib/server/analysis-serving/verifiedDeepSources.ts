@@ -28,9 +28,6 @@ export type DocumentAgentEvidenceKind =
   | "current_document"
   | "announcement"
   | "company_profile"
-  | "company_material"
-  | "application_plan"
-  | "writing_guide"
   | "verified_deep";
 
 export interface DocumentAgentGroundingSource {

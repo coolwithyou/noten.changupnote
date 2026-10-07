@@ -15,7 +15,6 @@ import { sha256Hex } from "@/lib/rhwp/documentAgentContract";
 import { extractDocumentEditCandidates } from "@/lib/rhwp/documentAgentCandidates";
 import { applyDocumentAgentEdit, undoDocumentAgentEdit } from "@/lib/rhwp/documentAgentTransaction";
 import { exportVerifiedRhwpDocument, type RhwpDocumentFormat } from "@/lib/rhwp/client";
-import { verifyWritingFormPostgres, verifyWritingLayoutSafetyPostgres } from "./writingFormPostgres.integration";
 
 const INSTITUTION_FORM_FIXTURES = [
   {
@@ -168,15 +167,6 @@ export async function verifyDocumentJourneyPostgres(input: { admin: postgres.Sql
       await verifyInstitutionFormJourneyPostgres({ admin: input.admin, access: input.access, storage, objects, rhwp });
     } else {
       console.log("SKIP: institution HWP/HWPX source fixtures (set CUNOTE_REQUIRE_INSTITUTION_FORM_FIXTURES=1 for the strict local gate)");
-    }
-    if (process.env.CUNOTE_REQUIRE_WRITING_FORM_FIXTURES === "1") {
-      await verifyWritingFormPostgres({ admin: input.admin, access: input.access, storage, rhwp });
-    }
-    if (process.env.CUNOTE_REQUIRE_WRITING_FLOW_FIXTURES === "1") {
-      await verifyWritingFormPostgres({ admin: input.admin, access: input.access, storage, rhwp, allowTablePagination: true });
-    }
-    if (process.env.CUNOTE_REQUIRE_WRITING_LAYOUT_SAFETY === "1") {
-      await verifyWritingLayoutSafetyPostgres({ admin: input.admin, access: input.access, storage, rhwp });
     }
   } finally {
     await closeCunoteDb();

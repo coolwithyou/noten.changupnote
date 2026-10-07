@@ -4,7 +4,7 @@ import postgres from "postgres";
 import * as schema from "./schema";
 
 export type CunoteDb = PostgresJsDatabase<typeof schema>;
-export type CunoteDbSession = Pick<CunoteDb, "delete" | "execute" | "insert" | "select" | "selectDistinctOn" | "update">;
+export type CunoteDbSession = Pick<CunoteDb, "delete" | "execute" | "insert" | "select" | "update">;
 
 let cachedDb: CunoteDb | null = null;
 let cachedSql: postgres.Sql | null = null;

@@ -253,11 +253,9 @@ async function verifyApplicationOnlyPrimaryReuse(
       || run.grantId !== target.grantId
       || run.inputSha256 !== target.inputSha256
       || run.attachmentManifestSha256 !== target.attachmentManifestSha256
-      // Reused primary bytes belong to the completed source, while the new manifest
-      // seals the current application-analysis contract.
-      || run.model !== completed.sourceManifest.execution.model
-      || run.transport !== completed.sourceManifest.execution.transport
-      || run.promptVersion !== completed.sourceManifest.execution.promptVersion
+      || run.model !== manifest.execution.model
+      || run.transport !== manifest.execution.transport
+      || run.promptVersion !== manifest.execution.promptVersion
       || classifyLabRunOutcome(run) !== "publishable"
       || (run.matchingReadiness !== "ready" && run.matchingReadiness !== "conditional")
       || !run.primaryRepairProvenance

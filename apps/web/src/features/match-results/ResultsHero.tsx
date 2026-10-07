@@ -2,12 +2,8 @@
 
 import type { ProductTeaserResult } from "@cunote/contracts";
 import { Button } from "@/components/ui/button";
-import { matchHeaderCaption } from "./logic";
+import { isOneQuestionAwayMatch, teaserComparisonLabel } from "./logic";
 
-/**
- * 기회 맵 헤더(디자인 01) — h1 "기회 맵" + 기준 캡션, 우측에 저장·대시보드 이동 버튼.
- * 후보가 하나도 없으면 제목만 바꾸고, `empty`면 아래 NoMatchingGrantsState가 대신 그린다.
- */
 export function ResultsHero({
   teaser,
   onSave,
@@ -21,34 +17,66 @@ export function ResultsHero({
   saving: boolean;
   coverageDelta?: number;
   empty?: boolean;
-  /** 물어볼 질문이 소진된 상태(teaser.nextQuestion === null). 호출 계약 유지용. */
+  /** 물어볼 질문이 소진된 상태(teaser.nextQuestion === null) — 게이지 캡션을 분기한다. */
   questionsExhausted?: boolean;
-  /** 서버가 같은 질문을 다시 계획했지만 현재 결과 세션에서 이미 답한 상태. 호출 계약 유지용. */
+  /** 서버가 같은 질문을 다시 계획했지만 현재 결과 세션에서 이미 답한 상태. */
   answeredCurrentQuestion?: boolean;
   savedCompany?: boolean;
   companyName?: string | null;
 }) {
-  if (empty) return null;
+  const comparisonLabel = teaserComparisonLabel(teaser);
   const hasCandidates = teaser.matches.length > 0;
-  const caption = matchHeaderCaption({ teaser, companyName, saved: savedCompany });
+  const hasVerifiedCandidates = teaser.matches.some(
+    (match) => match.matchingEvidence?.level !== "discovery",
+  );
+  const hasExplicitRelevance = teaser.matches.some(
+    (match) => match.matchingEvidence?.level !== "discovery"
+      && typeof match.ranking?.relevanceScore === "number"
+      && match.ranking.relevanceScore > 0,
+  );
+  const oneQuestionAwayCount = teaser.counts.oneQuestionAway
+    ?? teaser.matches.filter(isOneQuestionAwayMatch).length;
 
   return (
-    <header className="flex flex-col items-start gap-3 sm:flex-row sm:items-end sm:justify-between sm:gap-4">
-      <div className="flex flex-col gap-1">
-        <h1 className="text-2xl leading-[1.3] font-extrabold tracking-[-0.5px] text-ink-strong">
-          {hasCandidates ? "기회 맵" : "조건에 맞는 공고를 찾지 못했어요"}
-        </h1>
-        <p className="text-[13px] leading-[1.55] text-text-secondary">{caption}</p>
-      </div>
-      <Button
-        type="button"
-        variant="outline"
-        onClick={onSave}
-        disabled={saving}
-        className="hidden w-fit shrink-0 border-surface-muted-hover bg-card text-text-nav sm:inline-flex"
-      >
-        {saving ? "처리 중…" : savedCompany ? "내 대시보드로 이동" : "결과 저장하기"}
-      </Button>
-    </header>
+    <section>
+      {savedCompany ? (
+        <p className="mb-3 text-sm text-text-secondary">
+          {companyName || "이름 미등록 회사"}의 저장된 정보 기준 · 회사 변경은 설정에서 할 수 있어요
+        </p>
+      ) : null}
+      {empty ? null : (
+        <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h1 className="max-w-[720px] text-[32px] leading-[1.28] font-extrabold tracking-[-0.9px] text-ink-strong sm:text-[38px] sm:tracking-[-1px]">
+              {hasExplicitRelevance
+                ? "우리 회사와 관련된 공고를 확인해 보세요"
+                : hasVerifiedCandidates
+                  ? "살펴볼 공고를 찾았어요"
+                  : hasCandidates
+                  ? "모집 중인 공고를 살펴보세요"
+                  : "조건에 맞는 공고를 찾지 못했어요"}
+            </h1>
+            {hasCandidates ? (
+              <p className="mt-2.5 text-sm leading-6 text-text-secondary">
+                {oneQuestionAwayCount > 0
+                  ? `질문 하나로 지원 여부를 확인할 공고 ${oneQuestionAwayCount}건이 있어요.`
+                  : "각 공고에서 확인된 조건과 아직 확인할 내용을 함께 안내해요."}
+              </p>
+            ) : null}
+            {comparisonLabel ? <p className="mt-2.5 text-sm text-text-tertiary">{comparisonLabel}</p> : null}
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={onSave}
+            disabled={saving}
+            className="mt-1.5 hidden w-fit shrink-0 border-surface-muted-hover bg-card text-text-nav sm:inline-flex"
+          >
+            {saving ? "처리 중…" : savedCompany ? "내 대시보드로 이동" : "결과 저장하기"}
+          </Button>
+        </div>
+      )}
+
+    </section>
   );
 }

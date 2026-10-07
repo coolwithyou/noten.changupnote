@@ -47,47 +47,6 @@ assert.equal(
 );
 assert.equal(resolveApplicationProfileKey(field({ fieldKey: "resident", label: "주민등록번호" })), null);
 
-// 실제 원문의 broad alias가 저장된 주소·국문 상호·사업자번호의 의미를 바꾸지 못한다.
-const unsupportedAliases = [
-  field({ fieldId: "website", fieldKey: "address", label: "홈페이지 주소", mappedCompanyField: "region" }),
-  field({ fieldId: "web-url", fieldKey: "company_address", label: "회사 웹사이트 URL", mappedCompanyField: "name" }),
-  field({ fieldId: "web-en", fieldKey: "address", label: "Website address", mappedCompanyField: "region" }),
-  field({ fieldId: "english-company", fieldKey: "company_name", label: "기업명(영문)", mappedCompanyField: "name" }),
-  field({ fieldId: "english-placeholder", fieldKey: "company_name-2", label: "(영문)", mappedCompanyField: "name" }),
-  field({ fieldId: "english-company-en", fieldKey: "company_name", label: "Company name (English)", mappedCompanyField: "name" }),
-  field({ fieldId: "corporate-number", fieldKey: "biz_reg_no", label: "법인등록번호", mappedCompanyField: "biz_no" }),
-  field({ fieldId: "mixed-number", fieldKey: "biz_reg_no", label: "법인등록번호\n(사업자등록번호)", mappedCompanyField: "biz_no" }),
-];
-const supportedIdentities = [
-  field({ fieldId: "korean-company", fieldKey: "company_name", label: "기업명(국문)", mappedCompanyField: "name" }),
-  field({ fieldId: "postal-address", fieldKey: "address", label: "사업장 주소", mappedCompanyField: "region" }),
-  field({ fieldId: "business-number", fieldKey: "biz_reg_no", label: "사업자등록번호", mappedCompanyField: "biz_no" }),
-];
-for (const candidate of unsupportedAliases) {
-  assert.equal(resolveApplicationProfileKey(candidate), null, `${candidate.label}: mapped/canonical alias보다 의미 보호를 먼저 적용`);
-}
-assert.deepEqual(supportedIdentities.map(resolveApplicationProfileKey), ["company_name", "company_address", "company_business_number"]);
-const aliasFields = [...unsupportedAliases, ...supportedIdentities];
-const aliasBindings = aliasFields.map(candidate => ({ fieldId: candidate.fieldId, status: "unique" as const,
-  targetKind: "table_cell_text" as const, beforeText: "" }));
-const aliasPlan = buildApplicationProfileAutofillPlan({ fields: aliasFields, profile, bindings: aliasBindings });
-assert.deepEqual(aliasPlan.ready.map(item => item.fieldId), supportedIdentities.map(candidate => candidate.fieldId));
-assert.equal(aliasPlan.ready.find(item => item.fieldId === "postal-address")?.value, profile.company.addressLine1);
-assert.equal(aliasPlan.ready.find(item => item.fieldId === "business-number")?.value, "123-45-67891");
-for (const candidate of unsupportedAliases) {
-  assert.equal(aliasPlan.items.find(item => item.fieldId === candidate.fieldId)?.state, "blocked");
-}
-const aliasAnswers = Object.fromEntries(aliasFields.map(candidate => [candidate.label, {
-  fieldId: candidate.fieldId, value: "이미 저장된 broad profile seed", status: "suggested" as const, source: "profile" as const, updatedAt: "seeded",
-}]));
-assert.deepEqual(buildAutomaticProfileAutofillEntries({ fields: aliasFields, answers: aliasAnswers, bindings: aliasBindings })
-  .map(entry => entry.fieldId), supportedIdentities.map(candidate => candidate.fieldId), "기존 broad seed도 진입 자동입력 보호를 우회하지 못한다");
-const employee = field({ fieldId: "employees", fieldKey: "employee_count", label: "고용 인원", mappedCompanyField: "employees" });
-assert.equal(buildAutomaticProfileAutofillEntries({ fields: [employee], answers: {
-  [employee.label]: { fieldId: employee.fieldId, value: "5명", status: "suggested", source: "profile", updatedAt: "seeded" },
-}, bindings: [{ fieldId: employee.fieldId, status: "unique", targetKind: "table_cell_text", beforeText: "" }] }).length, 1,
-"identity profile key 밖의 기존 일반 회사속성 seed를 함께 차단하지 않는다");
-
 assert.equal(applicationProfileValue(profile, "company_business_number"), "123-45-67891");
 assert.equal(applicationProfileValue(profile, "applicant_address"), "서울특별시 강남구 테헤란로 1 101호");
 

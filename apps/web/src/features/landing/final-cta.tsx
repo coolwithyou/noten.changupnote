@@ -11,7 +11,7 @@ export function FinalCta() {
           사업자번호 하나로 지금 바로 시작하세요
         </h2>
         <div className="mt-[30px]">
-          <BizLookupForm inputId="cta-biz" className="max-w-[560px]" variant="compact" ctaLabel="내 회사로 시작" />
+          <BizLookupForm inputId="cta-biz" className="max-w-[560px]" variant="compact" />
         </div>
       </div>
     </section>

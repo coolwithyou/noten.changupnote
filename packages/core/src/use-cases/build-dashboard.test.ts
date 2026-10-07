@@ -9,8 +9,6 @@ import { evaluateProfileUpdateImpact } from "./evaluate-profile-update-impact.js
 const grantId = "00000000-0000-4000-8000-000000000099";
 const criterionId = "00000000-0000-4000-8000-000000000100";
 const company: CompanyProfile = {};
-// 질문 노출 검증은 고정 공고의 접수 기간 안에서 수행한다.
-const asOf = new Date("2026-07-15T00:00:00Z");
 const grants: Array<NormalizedGrant<Record<string, never>>> = [{
   grant: {
     id: grantId,
@@ -108,7 +106,7 @@ assert.equal(ownedTeaser.matches[0]?.eligibility, "eligible");
 assert.equal(ownedTeaser.matches[0]?.userConfirmedCount, 1);
 assert.equal(ownedTeaser.counts.openNow, 1);
 assert.equal(ownedTeaser.nextQuestion, null);
-assert.equal(buildTeaser({ asOf, company, grants }).counts.conditional, 1, "익명 티저에 소유 회사 확인 답변을 흘리지 않는다");
+assert.equal(buildTeaser({ company, grants }).counts.conditional, 1, "익명 티저에 소유 회사 확인 답변을 흘리지 않는다");
 assert.equal(buildInitialCompanyMatch(confirmedContext).matches[0]?.eligibility, "eligible",
   "다른 프로필 답변 뒤에도 공고별 기존 확인 답변을 유지한다");
 assert.equal(planMatchStateRefresh(confirmedContext).states[0]?.eligibility, "eligible");
@@ -218,13 +216,12 @@ reviewedQuestionGrant.extraction_manifest = {
   readiness: "partial",
 };
 assert.equal(
-  buildTeaser({ asOf, company, grants: [reviewedQuestionGrant] }).matches.length,
+  buildTeaser({ company, grants: [reviewedQuestionGrant] }).matches.length,
   1,
   "질문 결속 없는 required text_only도 원문 확인 필요 후보로 노출한다",
 );
-assert.equal(buildTeaser({ asOf, company, grants: [reviewedQuestionGrant] }).counts.needsCoreReview, 1);
+assert.equal(buildTeaser({ company, grants: [reviewedQuestionGrant] }).counts.needsCoreReview, 1);
 const reviewedQuestionTeaser = buildTeaser({
-  asOf,
   company,
   grants: [reviewedQuestionGrant],
   confirmationQuestionBindingsByGrantId: new Map([[
@@ -251,7 +248,6 @@ discoveryGrant.matching_evidence = {
   reason: "unreviewed",
 };
 const discoveryTeaser = buildTeaser({
-  asOf,
   company: { prior_award_history: { records: [], known_programs: [], known_program_types: [] } },
   grants: [discoveryGrant],
 });

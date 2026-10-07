@@ -235,53 +235,6 @@ const [repeatedResolution] = resolveRhwpFieldAnchorsExact(repeatedLabelDocument,
 assert.equal(repeatedResolution?.status, "unique");
 assert.equal(repeatedResolution?.status === "unique" ? repeatedResolution.anchor.target.cellIndex : null, 13);
 
-// 입력 대상이 없는 첫 라벨도 원문 occurrence에서 빠지면 안 된다.
-// source 0을 뒤의 유효 값 셀에 연결하거나 source 1을 missing 처리하던 회귀를 막는다.
-const skippedTargetDocument: RhwpAnchorDocument = {
-  ...repeatedLabelDocument,
-  getTableCellBboxes: () => JSON.stringify([
-    { cellIdx: 10, row: 0, col: 3, pageIndex: 0, x: 100, y: 100, w: 150, h: 40 },
-    { cellIdx: 12, row: 2, col: 0, pageIndex: 0, x: 100, y: 240, w: 150, h: 40 },
-    { cellIdx: 13, row: 2, col: 1, pageIndex: 0, x: 250, y: 240, w: 250, h: 40 },
-  ]),
-};
-const repeatedField = {
-  fieldId: "source-phone", label: "연락처", fieldType: "text",
-  position: { occurrence: 0, normalizedLabel: "연락처", row: 0, col: 3 },
-};
-assert.equal(resolveRhwpFieldAnchorsExact(skippedTargetDocument, [repeatedField])[0]?.status, "missing");
-const secondSource = { ...repeatedField, position: { ...repeatedField.position, occurrence: 1, row: 2, col: 0 } };
-const secondSourceResult = resolveRhwpFieldAnchorsExact(skippedTargetDocument, [secondSource])[0];
-assert.equal(secondSourceResult?.status === "unique" ? secondSourceResult.anchor.target.cellIndex : null, 13);
-for (const position of [
-  { ...secondSource.position, row: 0 },
-  { ...secondSource.position, col: 3 },
-  { ...secondSource.position, occurrence: 2 },
-]) assert.equal(resolveRhwpFieldAnchorsExact(skippedTargetDocument, [{ ...secondSource, position }])[0]?.status, "missing");
-
-// 연도별 실적표의 단위 셀 자체를 쓸 때는 명시된 same-cell 계약이 필요하다.
-// 그 계약이 없으면 다음 연도의 셀로 자동 이동하지 않는다.
-const unitDocument: RhwpAnchorDocument = {
-  ...repeatedLabelDocument,
-  getPageTextLayout: () => JSON.stringify({ runs: [
-    { text: "달러", secIdx: 0, parentParaIdx: 3, controlIdx: 0, cellIdx: 10, cellParaIdx: 0, charStart: 0 },
-    { text: "달러", secIdx: 0, parentParaIdx: 3, controlIdx: 0, cellIdx: 12, cellParaIdx: 0, charStart: 0 },
-  ] }),
-};
-const unitField = {
-  fieldId: "export-year-two", label: "수출액 2025년", anchorLabel: "달러", fieldType: "number",
-  position: { occurrence: 1, normalizedLabel: "달러", row: 2, col: 0 },
-};
-assert.equal(resolveRhwpFieldAnchorsExact(unitDocument, [unitField])[0]?.status, "missing");
-const sameCellUnitField = { ...unitField, position: {
-  ...unitField.position, targetKind: "table_cell_text", targetRow: 2, targetCol: 0,
-} };
-const sameCellUnitResult = resolveRhwpFieldAnchorsExact(unitDocument, [sameCellUnitField])[0];
-assert.equal(sameCellUnitResult?.status === "unique" ? sameCellUnitResult.anchor.target.cellIndex : null, 12);
-assert.equal(resolveRhwpFieldAnchorsExact(unitDocument, [{ ...sameCellUnitField, position: {
-  ...sameCellUnitField.position, targetCol: 1,
-} }])[0]?.status, "missing");
-
 // 단일 글자는 전체 셀의 exact 순번과 row/col이 함께 맞아야만 오른쪽 값을 연다.
 const shortLabelDocument: RhwpAnchorDocument = {
   ...repeatedLabelDocument,

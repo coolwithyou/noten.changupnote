@@ -1,9 +1,0 @@
-{
-  "mode": "offline original private diagnostic verification; no model/API/DB/browser mutations",
-  "diagnosticSha256": "294e26ac19328da8fafc35f15f171f21a8cc7260b47545a8e65a116bf441f3e9",
-  "compositionSha256": "ee9cb8667a2093a16acb64a63ae1ebc895e3ceddc32a867320c91db60dadec15",
-  "sourcesSha256": "f371806516203923f1795f91a978b8dda83d7f4d3303fcceba5ed582f0d4da81",
-  "originalCompositionAndSourcesUnchanged": true,
-  "fullVerifierPassed": true,
-  "errorCode": null
-}

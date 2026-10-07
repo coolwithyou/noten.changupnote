@@ -11,7 +11,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Input } from "@/components/ui/input";
-import { writingParagraphKindLabels } from "@/lib/documents/writingComposition";
 import type { ConnectedDocumentField } from "@/lib/server/documents/documentFieldLink";
 import type { FieldAgentRunDto, FieldAgentSuggestionDto } from "@/lib/server/documents/fieldAgentRuns";
 import type { FieldAwareDocumentSessionView, FieldAwareSessionItem } from "./fieldAwareDocumentSession";
@@ -72,9 +71,9 @@ export function FieldAgentRail({
   const suggestions = run?.suggestions
     .filter((suggestion) => suggestion.status !== "dismissed" && suggestion.status !== "stale")
     .slice(0, 2) ?? [];
-  const missingInformation = run?.composition?.questions ?? (run?.readiness && !run.readiness.canApply
-    ? run.readiness.missingInformation.map((question) => question.trim()).filter(Boolean).slice(0, 3)
-    : []);
+  const missingInformation = run?.readiness && !run.readiness.canApply
+    ? run.readiness.missingInformation.map((question) => question.trim()).filter(Boolean).slice(0, 2)
+    : [];
   const visibleFields = useMemo(() => {
     const query = fieldQuery.trim().toLocaleLowerCase("ko-KR");
     return session.fields.filter((field) => {
@@ -251,16 +250,6 @@ export function FieldAgentRail({
                     </div>
                     <p className="mt-2 whitespace-pre-wrap text-sm font-medium leading-6">{suggestion.value}</p>
                     <p className="mt-2 text-xs leading-5 text-muted-foreground">근거: {suggestion.rationale}</p>
-                    {run?.composition ? <details className="mt-2">
-                      <summary className="cursor-pointer text-sm">문단별 출처와 계획 구분</summary>
-                      <div className="mt-2 flex flex-col gap-3">
-                        {run.composition.paragraphs.map((paragraph, paragraphIndex) => <div key={paragraphIndex} className="flex flex-col gap-1">
-                          <Badge variant="outline">{paragraphIndex + 1}. {writingParagraphKindLabels[paragraph.kind]}</Badge>
-                          {paragraph.evidence.map((ref, index) => <p key={index} className="text-xs leading-5 text-muted-foreground">근거 인용: {ref.quote}</p>)}
-                          {paragraph.kind === "proposal" ? <p className="text-xs text-muted-foreground">아직 확정하지 않은 아이디어입니다. 실행 가능성을 검토해 주세요.</p> : null}
-                        </div>)}
-                      </div>
-                    </details> : null}
                     {suggestion.operationState === "idle" && suggestion.status === "pending" ? (
                       <div className="mt-3 flex flex-wrap gap-2">
                         <Button type="button" size="sm" onClick={() => onApplySuggestion(run!, suggestion)}>

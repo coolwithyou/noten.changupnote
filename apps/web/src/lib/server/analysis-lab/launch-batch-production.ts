@@ -268,9 +268,6 @@ async function buildCompletedLaunchPrimaryReuseBindings(input: {
       run.grantId !== target.grantId
       || run.inputSha256 !== target.inputSha256
       || run.attachmentManifestSha256 !== target.attachmentManifestSha256
-      || run.model !== input.completed.sourceManifest.execution.model
-      || run.transport !== input.completed.sourceManifest.execution.transport
-      || run.promptVersion !== input.completed.sourceManifest.execution.promptVersion
       || classifyLabRunOutcome(run) !== "publishable"
       || (run.matchingReadiness !== "ready" && run.matchingReadiness !== "conditional")
       || run.primaryMatchingProjection?.verification !== "verified"

@@ -22,7 +22,6 @@ import {
   isPreparableMatchCard,
 } from "./select-match-cards.js";
 import { projectMatchConfirmationReadiness } from "./match-explanation.js";
-import { projectDiscoveryCard } from "../matching/discovery-policy.js";
 
 export interface BuildTeaserOptions<TPayload = unknown> {
   company: CompanyProfile;
@@ -228,8 +227,6 @@ function balanceReviewNeededCards(cards: MatchCard[]): MatchCard[] {
       && !isOneAnswerCard(card)
     ),
     cards.filter((card) => recommendationTierForCard(card) === "needs_core_review"),
-    cards.filter((card) => !["needs_profile_input", "needs_core_review"].includes(recommendationTierForCard(card))
-      && !isOneQuestionAwayCard(card)),
   ];
   // A card with one exact current-source v2 question is the shortest path to a
   // definitive answer. Keep every such card ahead of generic review buckets so
@@ -268,17 +265,16 @@ function nonNegativeInteger(value: number): number {
 }
 
 function isRecommendableCard(card: MatchCard): boolean {
-  const state = projectDiscoveryCard(card).state;
-  return recommendationTierForCard(card) === "recommendable" && (state === "candidate" || state === "upcoming");
+  return recommendationTierForCard(card) === "recommendable";
 }
 
 function isReviewNeededCard(card: MatchCard): boolean {
-  const state = projectDiscoveryCard(card).state;
-  return state === "review" || (state === "upcoming" && !isRecommendableCard(card));
+  const tier = recommendationTierForCard(card);
+  return tier === "needs_profile_input" || tier === "needs_core_review";
 }
 
 function isNotRecommendedCard(card: MatchCard): boolean {
-  return projectDiscoveryCard(card).state === "excluded";
+  return recommendationTierForCard(card) === "not_recommended";
 }
 
 function isOneAnswerCard(card: MatchCard): boolean {

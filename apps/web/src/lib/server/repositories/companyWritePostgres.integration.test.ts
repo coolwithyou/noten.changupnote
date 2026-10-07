@@ -5,8 +5,6 @@ import { drizzle } from "drizzle-orm/postgres-js";
 import * as schema from "../db/schema";
 import { createDrizzleRepositories } from "./drizzle";
 import { companyCreationIdentity } from "../productProfile/companyCreationIdentity";
-import { verifyWritingContextPostgres } from "../documents/writingContextPostgres.integration";
-import { verifyDiscoverySelectionsPostgres } from "../matches/discoverySelectionsPostgres.integration";
 import { verifyDocumentJourneyPostgres } from "../documents/documentJourneyPostgres.integration";
 import { loadProductExposureSummary, recordProductExposure, signExposureBinding } from "../productReadiness/exposure";
 import { verifySourceCorrectionsPostgres } from "../productProfile/sourceCorrectionsPostgres.integration";
@@ -79,8 +77,6 @@ try {
   await assert.rejects(() => repo.saveCompanyProfile({ companyId: creationId, userId: otherId, profile: { employees_count: 999 } }));
   assert.equal((await repo.resolveCompanyProfile({ companyId: creationId, userId }))!.employees_count, reopened.employees_count);
   await verifyDocumentJourneyPostgres({ admin, socket, access: { companyId: creationId, userId, role: "owner", mode: "session" } });
-  await verifyWritingContextPostgres({ admin, client, socket, access: { companyId: creationId, userId, role: "owner", mode: "session" } });
-  await verifyDiscoverySelectionsPostgres({ admin, client, socket, access: { companyId: creationId, userId, role: "owner", mode: "session" } });
   const [grant] = await admin`select id from grants limit 1`;
   // 신규 계측도 기존 match_events RLS와 같은 회사 결속을 사용한다.
   const matchRepo = createDrizzleRepositories({ dialect: "drizzle", client: drizzle(client, { schema }) }).matches;

@@ -20,7 +20,6 @@ import {
   hasUnanswerableHardUnknown,
   isPreparableMatchCard,
   explainMatch,
-  projectDiscoveryCard,
 } from "@cunote/core";
 import { URGENT_MAX_DDAY } from "@/components/app/notice-card";
 import type { VerdictStatus } from "@/components/app/verdict-badge";
@@ -708,15 +707,14 @@ export function isOneQuestionAwayMatch(match: MatchCard): boolean {
 
 /** 서버 판정·추천 tier를 화면의 고정 4상태 어휘로만 투영한다. */
 export function matchVerdictStatus(match: MatchCard): VerdictStatus {
-  const discovery = projectDiscoveryCard(match);
-  if (discovery.state === "excluded") return "closed";
   if (match.status === "unknown") return "check_source";
-  if (match.matchingEvidence?.level === "discovery") return "check_source";
+  if (match.status === "closed") return "closed";
   const tier = recommendationTierForMatch(match);
   if (match.status === "open" && match.eligibility === "eligible" && tier === "recommendable") return "open";
   if (isOneAnswerMatch(match)) return "one_answer";
-  // flat 조건의 일부 fail만으로 OR/예외 분기까지 탈락했다고 가정하지 않는다.
-  if (tier === "not_recommended" || match.eligibility === "ineligible") return "check_source";
+  // 하드 조건에서 이미 미해당으로 확정된 카드는 점수를 숨겨도 원문 검수 대상이 아니다.
+  // 전체 결과에서는 "이번엔 어려움"으로 정직하게 설명한다.
+  if (tier === "not_recommended" || match.eligibility === "ineligible") return "closed";
   if (
     tier === "needs_core_review" ||
     match.criteriaExtracted === false ||
@@ -726,7 +724,7 @@ export function matchVerdictStatus(match: MatchCard): VerdictStatus {
   ) {
     return "check_source";
   }
-  return "check_source";
+  return "closed";
 }
 
 /** 접수 예정·준비 필요는 판정 어휘를 늘리지 않고 별도 목록 문맥으로만 분리한다. */
@@ -742,10 +740,6 @@ export function groupMatchesForDisplay(matches: readonly MatchCard[]): MatchDisp
   };
 
   for (const match of matches) {
-    if (projectDiscoveryCard(match).state === "excluded") {
-      groups.closed.push(match);
-      continue;
-    }
     if (match.status === "upcoming") {
       groups.upcoming.push(match);
       continue;
@@ -948,6 +942,24 @@ export function summarizeAnswerImpact(
   };
 }
 
+export function teaserComparisonLabel(teaser: TeaserResult): string | null {
+  const context = teaser.searchContext;
+  if (!context) return null;
+  const asOf = new Date(context.asOf);
+  const dateLabel = Number.isNaN(asOf.getTime())
+    ? null
+    : new Intl.DateTimeFormat("ko-KR", {
+        month: "long",
+        day: "numeric",
+        timeZone: KOREA_TIME_ZONE,
+      }).format(asOf);
+  const count = Math.max(0, context.evaluatedGrantCount);
+  if (!dateLabel) return count > 0 ? `공고 ${count.toLocaleString("ko-KR")}건과 대조했어요` : null;
+  return count > 0
+    ? `${dateLabel} 기준, 공고 ${count.toLocaleString("ko-KR")}건과 대조했어요`
+    : `${dateLabel} 기준 결과예요`;
+}
+
 function recommendationTierForMatch(match: MatchCard): NonNullable<MatchCard["recommendationTier"]> {
   return (
     match.recommendationTier ??
@@ -1020,120 +1032,6 @@ export function formatDday(value: number | null): string {
 
 export function isUrgentDday(value: number | null): boolean {
   return value !== null && value >= 0 && value <= URGENT_MAX_DDAY;
-}
-
-/* ───────────────────────── condition tally / discovery reason labels ───────────────────────── */
-
-export interface ConditionTallyInput {
-  passed: number;
-  failed: number;
-  unknown: number;
-}
-
-/** 비교한 필수·제외 조건이 하나도 없을 때의 집계 자리 문구(grant-overview와 같은 어휘). */
-export const CONDITION_TALLY_PENDING_LABEL = "매칭 확인 중";
-
-/**
- * 카드 집계 문구 — "확인된 조건 N/M · 남은 쟁점 K(· 불일치 J)".
- * N=충족, M=충족+불일치+미확인, K=미확인, J=불일치. 백분율·점수는 만들지 않는다.
- */
-export function formatConditionTally(input: ConditionTallyInput): string {
-  const total = input.passed + input.failed + input.unknown;
-  if (total === 0) return CONDITION_TALLY_PENDING_LABEL;
-  const parts = [`확인된 조건 ${input.passed}/${total}`, `남은 쟁점 ${input.unknown}`];
-  if (input.failed > 0) parts.push(`불일치 ${input.failed}`);
-  return parts.join(" · ");
-}
-
-export type MatchConditionStatusKind = "done" | "left" | "mismatch" | "wait" | "source";
-
-/**
- * 카드 하단 자격 상태 줄(디자인 01 `.cs`/`.st-src`). 라벨은 헌법 8조 판정 뱃지가 아니라
- * 집계 어휘("필수 조건 확인 완료 / 남은 쟁점 K / 불일치 J / 검토 준비 중 / 원문 확인 필요")다.
- */
-export interface MatchConditionStatus {
-  kind: MatchConditionStatusKind;
-  label: string;
-  /** "확인된 조건 N/M(· 불일치 J)". 비교한 필수·제외 조건이 없으면 null. */
-  frac: string | null;
-}
-
-/**
- * 필수·제외 조건(explainMatch의 passed/failed/unknown)만 세어 상태를 정한다. 우대는 분모에 넣지 않는다.
- * - discovery(원문 미확인) → source "원문 확인 필요"
- * - M=0 → wait "검토 준비 중"
- * - unknown>0 → left "남은 쟁점 K"
- * - unknown=0·failed>0 → mismatch "불일치 J"(부분 불일치 후보; 전부 불일치는 목록에서 이미 제외)
- * - unknown=0·failed=0 → done "필수 조건 확인 완료"
- */
-export function matchConditionStatus(match: MatchCard): MatchConditionStatus {
-  const explanation = explainMatch(match);
-  if (explanation.discovery) return { kind: "source", label: DISCOVERY_REASON_LABEL.source_unconfirmed, frac: null };
-  const total = explanation.passed + explanation.failed + explanation.unknown;
-  if (total === 0) return { kind: "wait", label: "검토 준비 중", frac: null };
-  const frac = explanation.failed > 0
-    ? `확인된 조건 ${explanation.passed}/${total} · 불일치 ${explanation.failed}`
-    : `확인된 조건 ${explanation.passed}/${total}`;
-  if (explanation.unknown > 0) return { kind: "left", label: `남은 쟁점 ${explanation.unknown}`, frac };
-  if (explanation.failed > 0) return { kind: "mismatch", label: `불일치 ${explanation.failed}`, frac };
-  return { kind: "done", label: "필수 조건 확인 완료", frac };
-}
-
-type DiscoveryDecision = ReturnType<typeof projectDiscoveryCard>;
-
-/** 탐색 사유별 표시 라벨의 단일 원천 — 디자인 01(기회 맵) 어휘. */
-export const DISCOVERY_REASON_LABEL: Record<DiscoveryDecision["reason"], string> = {
-  related_candidate: "확인된 필수조건 불일치 없음",
-  conditions_unconfirmed: "현재 조건과 원문을 다시 확인해 주세요.",
-  source_unconfirmed: "원문 확인 필요",
-  period_unconfirmed: "접수 여부 확인 필요",
-  not_started: "모집 예정",
-  closed: "마감한 공고는 검토 목록에 포함하지 않습니다.",
-  confirmed_mismatch: "확인한 필수조건과 회사 정보가 맞지 않습니다.",
-};
-
-/**
- * 탐색 사유 라벨. 접수 예정(state upcoming)은 접수 시작일을 알 때만 "모집 예정 · M/D 접수 시작"으로 붙인다.
- * MatchCard에는 applyStart가 없으므로 호출부가 알고 있을 때만 options로 넘긴다.
- */
-export function discoveryReasonLabel(
-  decision: Pick<DiscoveryDecision, "state" | "reason">,
-  options: { applyStart?: string | null } = {},
-): string {
-  if (decision.state === "upcoming" || decision.reason === "not_started") {
-    const start = formatMonthDay(options.applyStart ?? null);
-    return start ? `${DISCOVERY_REASON_LABEL.not_started} · ${start} 접수 시작` : DISCOVERY_REASON_LABEL.not_started;
-  }
-  return DISCOVERY_REASON_LABEL[decision.reason];
-}
-
-/**
- * 카드에 탐색 사유를 덧붙일 때만 반환한다(접수 예정·접수 여부 미확인).
- * 나머지 사유는 판정 뱃지와 집계 문구가 이미 설명하므로 중복 표기하지 않는다.
- */
-export function matchDiscoveryCaption(match: MatchCard): string | null {
-  const decision = projectDiscoveryCard(match);
-  if (decision.state === "upcoming" || decision.reason === "period_unconfirmed") return discoveryReasonLabel(decision);
-  return null;
-}
-
-/** "YYYY-MM-DD" 또는 ISO 시각을 KST 기준 "M/D"로. 해석할 수 없으면 null. */
-export function formatMonthDay(value: string | null | undefined): string | null {
-  if (!value) return null;
-  const trimmed = value.trim();
-  const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(trimmed);
-  if (dateOnly) {
-    const calendar = new Date(`${trimmed}T00:00:00.000Z`);
-    if (Number.isNaN(calendar.getTime()) || calendar.toISOString().slice(0, 10) !== trimmed) return null;
-    return `${Number(dateOnly[2])}/${Number(dateOnly[3])}`;
-  }
-  const date = new Date(trimmed);
-  if (Number.isNaN(date.getTime())) return null;
-  const parts = new Intl.DateTimeFormat("en-US", { month: "numeric", day: "numeric", timeZone: KOREA_TIME_ZONE })
-    .formatToParts(date);
-  const month = parts.find((part) => part.type === "month")?.value;
-  const day = parts.find((part) => part.type === "day")?.value;
-  return month && day ? `${Number(month)}/${Number(day)}` : null;
 }
 
 export function clampPct(value: number): number {
@@ -1209,35 +1107,4 @@ function formatKoreanDateTime(value: string | null | undefined): string | null {
   const hour = hourRaw === 24 ? 0 : hourRaw;
   const minuteLabel = minute > 0 ? ` ${minute}분` : "";
   return `${month}월 ${day}일 ${hour}시${minuteLabel}`;
-}
-
-/**
- * 기회 맵 헤더 캡션(디자인 01) — "{회사명}의 저장된 정보 기준 · M월 D일 모집 중 N건 중 관련 후보를 골랐어요".
- * 익명 결과는 "입력한 회사 정보 기준", 판정 공고 수를 모르면 "모집 중 N건 중" 구를 뺀다.
- */
-export function matchHeaderCaption({
-  teaser,
-  companyName = null,
-  saved = false,
-}: {
-  teaser: TeaserResult;
-  companyName?: string | null;
-  saved?: boolean;
-}): string {
-  const name = companyName?.trim();
-  const subject = saved
-    ? `${name || "이름 미등록 회사"}의 저장된 정보 기준`
-    : name
-      ? `${name}의 입력 정보 기준`
-      : "입력한 회사 정보 기준";
-  const context = teaser.searchContext;
-  const asOf = context ? new Date(context.asOf) : null;
-  const dateLabel = asOf && !Number.isNaN(asOf.getTime())
-    ? new Intl.DateTimeFormat("ko-KR", { month: "long", day: "numeric", timeZone: KOREA_TIME_ZONE }).format(asOf)
-    : null;
-  const count = context ? Math.max(0, context.evaluatedGrantCount) : 0;
-  const scope = count > 0 ? `모집 중 ${count.toLocaleString("ko-KR")}건 중 ` : "";
-  return dateLabel
-    ? `${subject} · ${dateLabel} ${scope}관련 후보를 골랐어요`
-    : `${subject} · ${scope}관련 후보를 골랐어요`;
 }

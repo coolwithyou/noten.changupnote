@@ -19,11 +19,6 @@ import {
 import { rebuildFieldAgentAuthority } from "./fieldAgentAuthority";
 import { fieldSuggestModel, generateFieldSuggestions } from "./fieldSuggest";
 
-import type { WritingComposition } from "@/lib/documents/writingComposition";
-import { writingContextBinding } from "./writingGroundingSources";
-import { assertWritingDraftAccessInTransaction, loadWritingGrounding, loadWritingGroundingInTransaction } from "./writingContext";
-import { generateSectionSuggestions, SECTION_COMPOSER_VERSION, type SectionComposerResult } from "./sectionComposer";
-
 const PROMPT_VERSION = "field-agent-v3";
 
 export class FieldAgentRunError extends Error {
@@ -71,7 +66,6 @@ export interface FieldAgentRunDto {
   modelVersion: string;
   promptVersion: string;
   failureCode: string | null;
-  composition?: WritingComposition | null;
   readiness?: FieldAssistReadiness & { missingInformation: string[] };
   suggestions: FieldAgentSuggestionDto[];
 }
@@ -104,14 +98,9 @@ export async function requestFieldAgentSuggestions(input: {
     requestedTarget: input.target,
     access: input.access,
   });
-  const isSection = authority.field.fieldType === "long_text";
-  const writing = isSection ? await loadWritingGrounding({ access: input.access, draftId: input.draftId }) : null;
-  const writingBinding = writing ? writingContextBinding(writing) : null;
-  const promptVersion = isSection ? SECTION_COMPOSER_VERSION : PROMPT_VERSION;
   const modelVersion = fieldSuggestModel();
   const requestBindingSha256 = sha256(stableJson({
-    schemaVersion: promptVersion,
-    writingContextBindingSha256: writingBinding,
+    schemaVersion: PROMPT_VERSION,
     draftId: input.draftId,
     fieldId: input.fieldId,
     createdBy: input.access.userId,
@@ -119,7 +108,7 @@ export async function requestFieldAgentSuggestions(input: {
     documentSha256: authority.revision.sha256,
     fieldBindingSha256: authority.fieldBindingSha256,
     modelVersion,
-    promptVersion,
+    promptVersion: PROMPT_VERSION,
     sourceText: input.sourceText?.trim() || null,
     userEvidenceText: input.userEvidenceText?.trim() || null,
   }));
@@ -158,9 +147,8 @@ export async function requestFieldAgentSuggestions(input: {
       adjacentContextSha256: authority.evidence.adjacentContextSha256,
       beforeAnswer: authority.beforeAnswer,
       modelVersion,
-      promptVersion,
+      promptVersion: PROMPT_VERSION,
       groundingBindingSha256: requestBindingSha256,
-      writingContextBindingSha256: writingBinding,
     }).returning();
     if (!created) throw new FieldAgentRunError("field_agent_run_create_failed", "필드 제안 실행을 만들지 못했습니다.", 500);
     await tx.insert(schema.grantDocumentDraftEvents).values({
@@ -175,11 +163,7 @@ export async function requestFieldAgentSuggestions(input: {
 
   let generatedReadiness: FieldAgentRunDto["readiness"];
   try {
-    const generated = writing ? await generateSectionSuggestions({
-      draftId: input.draftId, grantId: authority.draft.grantId, access: input.access, fieldLabel: authority.field.label,
-      guidance: authority.field.guidance ?? null, sourceSpan: authority.field.sourceSpan, writing, requestId: run.id,
-      ...(input.sourceText?.trim() ? { sourceText: input.sourceText.trim() } : {}),
-    }) : await generateFieldSuggestions({
+    const generated = await generateFieldSuggestions({
       draftId: input.draftId,
       access: input.access,
       labels: [authority.field.label],
@@ -223,7 +207,7 @@ export async function requestFieldAgentSuggestions(input: {
             ordinal,
             value: alternative.value,
             rationale: alternative.basis,
-            evidence: alternative.evidence ?? [{ kind: alternative.basisKind ?? "unknown", basis: alternative.basis }],
+            evidence: [{ kind: alternative.basisKind ?? "unknown", basis: alternative.basis }],
           })),
         );
         // 복수 대안은 아직 사용자가 값을 선택하지 않은 상태다. 단일 fieldAnswers 슬롯을
@@ -262,7 +246,6 @@ export async function requestFieldAgentSuggestions(input: {
         status,
         statusVersion: 1,
         groundingBindingSha256: generated.groundingBindingSha256 ?? requestBindingSha256,
-        composition: writing ? (generated as SectionComposerResult).composition : null,
         completedAt: now,
       }).where(and(
         eq(schema.grantDocumentFieldAgentRuns.id, run.id),
@@ -308,7 +291,6 @@ export async function transitionFieldAgentSuggestion(input: {
   const db = getCunoteDb();
   return db.transaction(async (tx) => {
     await tx.execute(sql`select set_config('app.current_user_id', ${input.access.userId}, true)`);
-    await assertWritingDraftAccessInTransaction(tx, input.access, input.draftId, true);
     await tx.execute(sql`SELECT id FROM grant_document_field_agent_suggestions
       WHERE id = ${input.suggestionId} AND draft_id = ${input.draftId} AND created_by = ${input.access.userId}
       FOR UPDATE`);
@@ -336,9 +318,6 @@ export async function transitionFieldAgentSuggestion(input: {
     let values: Partial<typeof schema.grantDocumentFieldAgentSuggestions.$inferInsert>;
     switch (input.action) {
       case "start_apply":
-        if (run.writingContextBindingSha256 && run.writingContextBindingSha256 !== writingContextBinding(await loadWritingGroundingInTransaction(tx, input))) {
-          throw new FieldAgentRunError("writing_context_changed", "자료나 사업 설명이 변경되었습니다. 현재 입력은 유지한 채 문항 초안을 다시 받아 주세요.", 409);
-        }
         assertState(suggestion.status === "pending" && suggestion.operationState === "idle", "field_apply_not_allowed");
         assertHead(head, run.baseRevisionId);
         values = startOperation(suggestion, "apply_saving", requiredClientId(input.operationClientId), now);
@@ -438,9 +417,8 @@ export async function loadRecentFieldAgentRuns(input: {
   access: CompanyAccess;
 }): Promise<FieldAgentRunDto[]> {
   const db = getCunoteDb();
-  const runs = await withCunoteDbUser(db, input.access.userId, async (tx) => {
-    await assertWritingDraftAccessInTransaction(tx, input.access, input.draftId, false);
-    return tx.execute<{ id: string }>(sql`
+  return withCunoteDbUser(db, input.access.userId, async (tx) => {
+    const runs = await tx.execute<{ id: string }>(sql`
       SELECT recent.id
       FROM (
         SELECT DISTINCT ON (field_id) id, created_at
@@ -451,9 +429,8 @@ export async function loadRecentFieldAgentRuns(input: {
       ) recent
       ORDER BY recent.created_at DESC
     `);
+    return Promise.all(runs.map((run) => loadFieldAgentRunDto(run.id, input.access)));
   });
-  // 읽기 잠금을 가진 transaction 안에서 별도 connection의 잠금을 기다리지 않는다.
-  return Promise.all(runs.map((run) => loadFieldAgentRunDto(run.id, input.access)));
 }
 
 async function loadFieldAgentRunDto(runId: string, access: CompanyAccess): Promise<FieldAgentRunDto> {
@@ -464,7 +441,6 @@ async function loadFieldAgentRunDto(runId: string, access: CompanyAccess): Promi
       eq(schema.grantDocumentFieldAgentRuns.createdBy, access.userId),
     )).limit(1);
     if (!run) throw new FieldAgentRunError("field_run_not_found", "필드 제안 실행을 찾지 못했습니다.", 404);
-    await assertWritingDraftAccessInTransaction(tx, access, run.draftId, false);
     const suggestions = await tx.select().from(schema.grantDocumentFieldAgentSuggestions).where(and(
       eq(schema.grantDocumentFieldAgentSuggestions.runId, run.id),
       eq(schema.grantDocumentFieldAgentSuggestions.createdBy, access.userId),
@@ -489,8 +465,6 @@ async function loadFieldAgentRunDto(runId: string, access: CompanyAccess): Promi
       modelVersion: run.modelVersion,
       promptVersion: run.promptVersion,
       failureCode: run.failureCode,
-      composition: run.composition,
-      ...(run.composition ? { readiness: { score: suggestions.length ? 85 : 0, threshold: 85, canApply: suggestions.length > 0, missingInformation: run.composition.questions } } : {}),
       suggestions: suggestions.sort((a, b) => a.ordinal - b.ordinal).map(toSuggestionDto),
     };
   });

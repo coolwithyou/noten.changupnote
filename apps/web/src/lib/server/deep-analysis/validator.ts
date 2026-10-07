@@ -31,7 +31,7 @@ import {
 import { resolveExclusiveBizAgeUpperBound } from "./biz-age-boundary";
 import { resolveTargetTypeListSemantics } from "./target-type-list-semantics";
 
-export const DEEP_ANALYSIS_VALIDATOR_VERSION = "deep-analysis-validator-v24" as const;
+export const DEEP_ANALYSIS_VALIDATOR_VERSION = "deep-analysis-validator-v23" as const;
 
 export type DeepAnalysisValidationIssueCode =
   | "raw_contract_invalid"
@@ -1671,6 +1671,7 @@ function validateMatcherSemanticCompleteness(
 ): void {
   if (criterion.operator === "text_only") return;
   const span = (criterion.sourceSpan ?? "").normalize("NFKC").replace(/\s+/g, " ").trim();
+  const value = isRecord(criterion.value) ? criterion.value : {};
   const reject = (message: string, path = "") => {
     issues.push({
       code: "canonical_contract_invalid",
@@ -1678,28 +1679,6 @@ function validateMatcherSemanticCompleteness(
       message,
     });
   };
-  if (
-    criterion.kind === "required"
-    && (criterion.dimension === "biz_age" || criterion.dimension === "size")
-    && /(?:(?:중소기업|중견기업|소상공인).{0,30}(?:또는|혹은|or).{0,30}(?:스타트업|창업기업|예비창업)|(?:스타트업|창업기업|예비창업).{0,30}(?:또는|혹은|or).{0,30}(?:중소기업|중견기업|소상공인))/iu.test(span)
-    && !(criterion.dimension === "biz_age"
-      && /(?:두|양|각)\s*(?:경로|유형|대상).{0,12}(?:모두|공통).{0,12}(?:업력|설립|창업\s*후)/u.test(span))
-  ) {
-    reject("A size-or-startup alternative does not prove a global size or age requirement, including an ambiguously scoped trailing parenthesis. Preserve the full alternative and qualifier as other/text_only without choosing its scope.", ".operator");
-  }
-  if (criterion.dimension === "industry" && /(?:기술|제품).{0,20}(?:보유|개발\s*역량)/u.test(span)) {
-    reject("Technology or product possession/capability is not an industry membership tag. Preserve the full possession requirement as industry/text_only.", ".operator");
-  }
-  if (criterion.dimension === "credit_status"
-    && (/(?:회생\s*절차|회생절차).{0,30}(?:개시\s*)?신청/u.test(span)
-      || (/개인\s*회생/u.test(span) && !/회생/u.test(span.replace(/개인\s*회생/gu, ""))))) {
-    reject("Rehabilitation filing stages or a personal-only rehabilitation predicate cannot be replaced by the combined in-progress rehabilitation flag. Preserve all stages, types and repayment exceptions as credit_status/text_only.", ".operator");
-  }
-  if (criterion.dimension === "financial_health"
-    && /(?:(?:직전|전|최근)\s*(?:년(?:도)?|회계\s*연도)|\d{4}\s*(?:년(?:도)?|회계\s*연도)).{0,24}(?:결산|재무\s*제표|기준)/u.test(span)) {
-    reject("A fiscal-year-qualified financial condition cannot be compared to an undated current financial value. Preserve the fiscal year, accounting basis and full predicate as financial_health/text_only.", ".operator");
-  }
-  const value = isRecord(criterion.value) ? criterion.value : {};
 
   if (
     criterion.dimension === "investment"

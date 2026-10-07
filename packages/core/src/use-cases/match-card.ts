@@ -17,7 +17,6 @@ import type {
   WriteSupportLevel,
 } from "@cunote/contracts";
 import { isDraftableDocument } from "../documents/preparation.js";
-import { deadlineHasPassed } from "../matching/discovery-policy.js";
 
 export interface MatchedGrant<TPayload = unknown> {
   item: NormalizedGrant<TPayload>;
@@ -49,7 +48,7 @@ export function toMatchCard<TPayload>(
       ? { matchingEvidence: entry.item.matching_evidence }
       : {}),
     agency: grant.agency_operator ?? grant.agency_jurisdiction ?? null,
-    status: deadlineHasPassed(grant.apply_end ?? null, options.asOf) ? "closed" : grant.status,
+    status: grant.status,
     eligibility: entry.match.eligibility,
     bucket: bucketForMatch(entry.match),
     fitScore: entry.match.fit_score,
