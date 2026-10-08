@@ -64,3 +64,37 @@ assert.equal(projectedMatch.rule_trace.find(t => t.dimension === "size")?.result
 assert.equal(projectedMatch.eligibility, "conditional");
 
 console.log("industry/semantic-category.test.ts: all assertions passed");
+
+// Cross-industry regression: legal hierarchy is directional and shares the same
+// matcher interface as ICT policy membership. Codes here are synthetic fixtures.
+for (const [required, actual] of [
+  ["제조업", "식료품 제조업"], ["제조업", "의류제조"],
+  ["제조업", "가구제조업"], ["도소매업", "소매업"],
+  ["운수 및 창고업", "창고업"],
+  ["전문, 과학 및 기술 서비스업", "연구개발업"],
+  ["정보통신업", "응용 소프트웨어 개발 및 공급업"],
+  ["정보통신업", "영상·오디오 기록물 제작 및 배급업"],
+] as const) {
+  const criterion = { ...industry, value: { tags: [required] } };
+  assert.equal(matchGrantCriteria([criterion], { industries: [actual] }).rule_trace[0]?.result, "pass", `${actual} -> ${required}`);
+  assert.equal(compareIndustryCategories([actual], [required]).match, null, `No reverse membership ${required} -> ${actual}`);
+}
+assert.deepEqual(compareIndustryCategories(["정보통신업"], ["컴퓨터 프로그래밍 서비스업"]).match?.path,
+  ["컴퓨터 프로그래밍", "소프트웨어", "정보통신업"], "explanations must be an actual path, not flattened siblings");
+assert.equal(compareIndustryCategories(["ICT"], ["영상·오디오 기록물 제작 및 배급업"]).match, null,
+  "statistical information/communications is not identical to the ICT policy category");
+for (const [required, actual] of [["AI", "소프트웨어"], ["바이오", "의료용 물질 및 의약품 제조업"],
+  ["제조업", "식품 도소매업"], ["연구개발업", "연구개발 서비스를 이용하는 기업"]] as const) {
+  assert.equal(compareIndustryCategories([required], [actual]).match, null, "no inferred technology, activity or supplier role");
+}
+assert.equal(matchGrantCriteria([{ ...industry, value: { tags: ["제조업"] } }],
+  { industry_codes: ["10799"] }).rule_trace[0]?.result, "pass");
+for (const code of ["154103", "J10", "107990", "bad-code"])
+  assert.equal(compareIndustryCategories(["제조업"], [], [code]).match, null, "invalid, tax, or contradictory code must not prove membership");
+assert.equal(compareIndustryCategories(["식료품 제조업"], [], ["C"]).match, null, "broad codes cannot prove narrow industries");
+assert.equal(matchGrantCriteria([{ ...industry, kind: "exclusion", operator: "not_in", value: { tags: ["제조업"] } }],
+  { industries: ["식료품 제조업"] }).rule_trace[0]?.result, "fail");
+console.log("industry cross-sector membership assertions passed");
+
+assert.equal(compareIndustryCategories(["창고업"], [], ["52"]).match, null, "transport-support division does not prove warehousing");
+assert.equal(compareIndustryCategories(["의류 제조업"], [], ["14"]).match, null, "broader division including accessories does not prove clothing manufacture");

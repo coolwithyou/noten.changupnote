@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import {
   buildPdfPageOcrMarkdown,
   normalizePdfTextLayout,
+  needsPdfVisualOcr,
 } from "./pdfTextOcrRecovery";
 import { parseTesseractTsv } from "@/lib/server/ingestion/tesseractImageOcr";
 
@@ -55,3 +56,8 @@ assert.equal(tesseract.lineCount, 2);
 assert(Math.abs(tesseract.confidence - 0.8) < Number.EPSILON);
 
 console.log("deep-analysis PDF text/OCR recovery tests passed");
+
+assert.equal(needsPdfVisualOcr("x".repeat(300), []), false);
+assert.equal(needsPdfVisualOcr("x".repeat(300), [1]), true, "native text must not hide image captions");
+assert.equal(needsPdfVisualOcr("x".repeat(300), null), true, "unknown visual coverage stays conservative");
+assert.equal(needsPdfVisualOcr("short", []), true);

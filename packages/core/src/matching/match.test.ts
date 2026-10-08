@@ -28,7 +28,7 @@ const company: CompanyProfile = {
 };
 
 check("premises-v1 readiness 변경은 ruleset v14로 귀속된다", () => {
-  assert.equal(RULESET_VERSION, "ruleset-kstartup-spine-v15");
+  assert.equal(RULESET_VERSION, "ruleset-kstartup-spine-v16");
 });
 
 check("조건 0건이면 conditional로 강등되고 조건 확인도는 0이다", () => {

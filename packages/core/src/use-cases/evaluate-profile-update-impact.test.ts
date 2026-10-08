@@ -127,8 +127,24 @@ const completeIndustry = evaluateProfileUpdateImpact({
   },
   dimension: "industry",
 });
-assert.equal(completeIndustry.dimensionResolvedGrantCount, 1);
-assert.equal(completeIndustry.conditionalToIneligibleCount, 1, "소진적 목록에서만 비일치를 확정한다");
+assert.equal(completeIndustry.dimensionResolvedGrantCount, 0);
+assert.equal(completeIndustry.conditionalToIneligibleCount, 0, "바이오라는 정책 명칭만으로 소프트웨어 사업 부재를 증명하지 않는다");
+
+const completeIndustryCodes = evaluateProfileUpdateImpact({
+  grants: [grant("industry-explicit-code", [{
+    dimension: "industry", kind: "required", operator: "in",
+    value: { codes: ["62"] }, confidence: 1,
+    source_field: "target", source_span: "한국표준산업분류 62 업종",
+  }])],
+  beforeProfile: { id: "industry-before" },
+  afterProfile: {
+    id: "industry-before", industry_codes: ["10"],
+    confidence: { industry: 1 }, list_completeness: { industry: "complete" },
+  },
+  dimension: "industry",
+});
+assert.equal(completeIndustryCodes.dimensionResolvedGrantCount, 1);
+assert.equal(completeIndustryCodes.conditionalToIneligibleCount, 1, "소진적 KSIC 목록에서 명시한 코드 요건의 비일치는 확정한다");
 
 const sharedPremisesGrants = [
   "siheung-a",

@@ -1,3 +1,4 @@
+import { verifyLegacySourceChange } from "./legacy-material-history";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { createHash } from "node:crypto";
 import { getCunoteDb } from "../db/client";
@@ -62,6 +63,7 @@ export async function prepareMatchingCampaignLaunch(input: {
       || !/^[a-f0-9]{64}$/u.test(entry.current.attachmentManifestSha256)) {
       throw new Error(`matching campaign classification이 current 준비를 허용하지 않습니다: ${grantId}`);
     }
+    await verifyLegacySourceChange(findMonorepoRoot(), entry);
   }
   return prepareExactInventory({
     grantIds: input.grantIds,

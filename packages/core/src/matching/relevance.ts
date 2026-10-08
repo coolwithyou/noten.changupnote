@@ -47,7 +47,7 @@ export function calculateRelevance(
   );
   const codeOverlap = intersect(companyCodes, grantCodes);
   const semanticIndustry = grantCodes.length === 0
-    ? compareIndustryCategories(grantIndustryValues, companyIndustries).match : null;
+    ? compareIndustryCategories(grantIndustryValues, companyIndustries, company.industry_codes ?? []).match : null;
   const keywordOverlap = intersect(companyTokens, grantTokens);
   const goals = readProfileGoals(company);
   const matchedGoals = goals.filter((goal) => goalPattern(goal).test(goalText));

@@ -42,7 +42,7 @@ import {
 import { activeNumericQuestionRange, type NumericQuestionRange } from "../company/question-answer-state.js";
 import { evaluatePremisesCriterion } from "../premises/contract.js";
 
-export const RULESET_VERSION = "ruleset-kstartup-spine-v15";
+export const RULESET_VERSION = "ruleset-kstartup-spine-v16";
 export const SCORING_VERSION = "scoring-verification-v3";
 
 const CORE_GATE_DIMENSIONS = new Set<CriterionDimension>([
@@ -729,7 +729,7 @@ function evaluateIndustry(criterion: GrantCriterion, company: CompanyProfile): R
   }
 
   const codeHit = critCodes.length > 0 && industryCodeMatches(critCodes, companyCodes);
-  const semantic = compareIndustryCategories(critLabels, companyLabels);
+  const semantic = compareIndustryCategories(critLabels, companyLabels, companyCodes);
   const labelHit = critLabels.length > 0 && critLabels.some((entry) =>
     companyLabels.some((companyLabel) => (critCodes.length > 0 || !involvesIndustryCategory(entry, companyLabel)) && industryLabelsOverlap(entry, companyLabel)));
   // An explicit code requirement keeps its existing code boundary. Policy-category

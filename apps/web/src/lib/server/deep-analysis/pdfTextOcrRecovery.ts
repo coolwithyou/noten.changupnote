@@ -62,7 +62,7 @@ export interface PdfTextOcrRecoveryResult {
   failures: Array<{ opaqueCommitmentSha256: string; error: string }>;
   results: Array<{
     opaqueCommitmentSha256: string;
-    mode: "pdftotext_layout" | "page_image_ocr" | "local_render_ocr";
+    mode: "pdftotext_layout" | "pdftotext_layout_with_page_ocr" | "page_image_ocr" | "local_render_ocr";
     pageCount: number;
     textChars: number;
     averageConfidence: number | null;
@@ -110,6 +110,17 @@ export async function listPdfTextOcrRecoveryCandidates(input: {
     asc(schema.documentArtifacts.page),
   );
 
+  // Original archives are sufficient for recovery; users need not open a preview
+  // first to manufacture a pdf artifact/page-count row.
+  const archives = await input.db.select({
+    source: schema.grantAttachmentArchives.source,
+    sourceId: schema.grantAttachmentArchives.sourceId,
+    storageKey: schema.grantAttachmentArchives.storageKey,
+    sha256: schema.grantAttachmentArchives.sha256,
+  }).from(schema.grantAttachmentArchives).where(inArray(
+    schema.grantAttachmentArchives.sourceId, input.targets.map(t => t.sourceId),
+  ));
+
   return surfaces.flatMap((surface): PdfTextOcrRecoveryCandidate[] => {
     const target = targetByGrantId.get(surface.grantId);
     const surfaceArtifacts = artifacts.filter(
@@ -125,11 +136,12 @@ export async function listPdfTextOcrRecoveryCandidates(input: {
     const pdfArtifacts = surfaceArtifacts.filter(
       (artifact) => artifact.kind === "pdf",
     );
-    if (pdfArtifacts.length !== 1 || !pdfArtifacts[0]?.sha256) return [];
-    const pageCount = finitePositiveInteger(
-      pdfArtifacts[0].metadata?.pageCount,
-    );
-    if (pageCount === null) return [];
+    if (pdfArtifacts.length > 1) return [];
+    const originals = archives.filter(a => a.source === target.source && a.sourceId === target.sourceId
+      && a.storageKey === surface.sourceAttachment && a.sha256);
+    const original = pdfArtifacts[0] ?? (originals.length === 1 ? originals[0] : undefined);
+    if (!original?.storageKey || !original.sha256) return [];
+    const pageCount = finitePositiveInteger(pdfArtifacts[0]?.metadata?.pageCount) ?? 0;
     const pageImages = surfaceArtifacts
       .filter((artifact) => (
         artifact.kind === "page_image"
@@ -149,8 +161,8 @@ export async function listPdfTextOcrRecoveryCandidates(input: {
       title: surface.title,
       sourceUrl: surface.sourceUrl,
       sourceAttachment: surface.sourceAttachment,
-      pdfStorageKey: pdfArtifacts[0].storageKey,
-      pdfSha256: pdfArtifacts[0].sha256,
+      pdfStorageKey: original.storageKey,
+      pdfSha256: original.sha256,
       pageCount,
       pageImages,
     }];
@@ -212,59 +224,66 @@ async function recoverOneCandidate(input: {
   if (sha256Hex(pdf.body) !== input.candidate.pdfSha256) {
     throw new Error("PDF artifact SHA-256 mismatch");
   }
+  const candidate = { ...input.candidate, pageCount: await readPdfPageCount(pdf.body) };
   const extracted = await extractPdfTextLayout(pdf.body);
+  const imagePages = await readPdfImagePages(pdf.body);
+  const needsVisual = needsPdfVisualOcr(extracted, imagePages);
   let mode: PdfTextOcrRecoveryResult["results"][number]["mode"];
   let markdown: string;
   let averageConfidence: number | null = null;
   let converter = "quality-pdftotext-layout-v1";
-  if (extracted.length >= MIN_EXTRACTED_TEXT_CHARS) {
+  if (!needsVisual) {
     mode = "pdftotext_layout";
     markdown = extracted;
   } else {
-    if (input.candidate.pageCount > MAX_IMAGE_OCR_PAGES) {
+    if (candidate.pageCount > MAX_IMAGE_OCR_PAGES) {
       throw new Error(
-        `PDF has ${input.candidate.pageCount} image pages; OCR cap is `
+        `PDF has ${candidate.pageCount} image pages; OCR cap is `
         + `${MAX_IMAGE_OCR_PAGES} and this notice requires human split review`,
       );
     }
-    const images = input.candidate.pageImages.length > 0
+    const images = candidate.pageImages.length > 0
       ? await loadVerifiedPageImages({
         storage: input.storage,
-        pageCount: input.candidate.pageCount,
-        pageImages: input.candidate.pageImages,
+        pageCount: candidate.pageCount,
+        pageImages: candidate.pageImages,
       })
       : await renderLocalPdfPages({
         pdf: pdf.body,
-        pageCount: input.candidate.pageCount,
+        pageCount: candidate.pageCount,
       });
-    mode = input.candidate.pageImages.length > 0
+    mode = candidate.pageImages.length > 0
       ? "page_image_ocr"
       : "local_render_ocr";
     const ocr = await buildPdfPageOcrMarkdown({
-      title: input.candidate.title,
-      images,
+      title: candidate.title,
+      images: extracted.length >= MIN_EXTRACTED_TEXT_CHARS && imagePages !== null
+        ? images.filter(image => imagePages.includes(image.page)) : images,
       imageOcr: input.imageOcr ?? tesseractGrantImageOcr,
     });
-    markdown = ocr.markdown;
+    markdown = extracted.length >= MIN_EXTRACTED_TEXT_CHARS
+      ? `# PDF native text\n\n${extracted}\n\n# Visual page OCR (may repeat native text)\n\n${ocr.markdown}`
+      : ocr.markdown;
+    if (extracted.length >= MIN_EXTRACTED_TEXT_CHARS) mode = "pdftotext_layout_with_page_ocr";
     averageConfidence = ocr.averageConfidence;
     converter = ocr.converter;
   }
 
-  const archiveUrl = input.candidate.sourceUrl
-    ?? input.storage.publicUrl(input.candidate.sourceAttachment);
+  const archiveUrl = candidate.sourceUrl
+    ?? input.storage.publicUrl(candidate.sourceAttachment);
   const markdownBody = renderArchivedMarkdown({
-    source: input.candidate.target.source,
-    sourceId: input.candidate.target.sourceId,
-    filename: input.candidate.title,
+    source: candidate.target.source,
+    sourceId: candidate.target.sourceId,
+    filename: candidate.title,
     originalUrl: archiveUrl,
     archiveUrl,
     markdown,
   });
   const markdownSha256 = sha256Hex(markdownBody);
   const markdownKey = objectKey({
-    source: input.candidate.target.source,
-    sourceId: input.candidate.target.sourceId,
-    filename: `${input.candidate.title.replace(/\.pdf$/i, "")}.md`,
+    source: candidate.target.source,
+    sourceId: candidate.target.sourceId,
+    filename: `${candidate.title.replace(/\.pdf$/i, "")}.md`,
     sha256: markdownSha256,
     kind: "markdown",
   });
@@ -276,7 +295,7 @@ async function recoverOneCandidate(input: {
   if (sha256Hex(await input.storage.getObjectText(uploaded.key)) !== markdownSha256) {
     throw new Error("Uploaded PDF recovery markdown failed SHA-256 readback");
   }
-  await upsertDocumentArtifacts(input.db, input.candidate.surfaceId, [{
+  await upsertDocumentArtifacts(input.db, candidate.surfaceId, [{
     kind: "markdown",
     storageKey: uploaded.key,
     url: uploaded.url,
@@ -285,17 +304,17 @@ async function recoverOneCandidate(input: {
     metadata: {
       converter,
       recoveryMode: mode,
-      sourcePdfSha256: input.candidate.pdfSha256,
-      pageCount: input.candidate.pageCount,
+      sourcePdfSha256: candidate.pdfSha256,
+      pageCount: candidate.pageCount,
       charCount: markdown.length,
       ...(averageConfidence === null ? {} : { averageConfidence }),
     },
   }]);
   return {
     opaqueCommitmentSha256:
-      input.candidate.target.opaqueCommitmentSha256,
+      candidate.target.opaqueCommitmentSha256,
     mode,
-    pageCount: input.candidate.pageCount,
+    pageCount: candidate.pageCount,
     textChars: markdown.length,
     averageConfidence,
     markdownSha256,
@@ -352,6 +371,44 @@ export async function buildPdfPageOcrMarkdown(input: {
     averageConfidence: confidenceTotal / input.images.length,
     converter: [...converters].sort().join("+"),
   };
+}
+
+/** Native text volume does not establish coverage of image-only conditions. */
+export function needsPdfVisualOcr(text: string, imagePages: readonly number[] | null): boolean {
+  return text.length < MIN_EXTRACTED_TEXT_CHARS || imagePages === null || imagePages.length > 0;
+}
+
+async function readPdfPageCount(pdf: Buffer): Promise<number> {
+  const directory = await mkdtemp(join(tmpdir(), "cunote-pdf-info-"));
+  try {
+    const path = join(directory, "input.pdf");
+    await writeFile(path, pdf, { flag: "wx" });
+    const { stdout } = await execFileAsync("pdfinfo", [path], {
+      encoding: "utf8", timeout: 120_000, maxBuffer: 4 * 1024 * 1024,
+    });
+    const pageCount = Number(/^Pages:\s+(\d+)$/mu.exec(stdout)?.[1]);
+    if (!Number.isSafeInteger(pageCount) || pageCount < 1) throw new Error("PDF page count unavailable");
+    return pageCount;
+  } finally { await rm(directory, { recursive: true, force: true }); }
+}
+
+async function readPdfImagePages(pdf: Buffer): Promise<number[] | null> {
+  const directory = await mkdtemp(join(tmpdir(), "cunote-pdf-images-"));
+  try {
+    const path = join(directory, "input.pdf");
+    await writeFile(path, pdf, { flag: "wx" });
+    const { stdout } = await execFileAsync("pdfimages", ["-list", path], {
+      encoding: "utf8", timeout: 120_000, maxBuffer: 4 * 1024 * 1024,
+    });
+    if (!/page\s+num\s+type/u.test(stdout)) return null;
+    return [...new Set(stdout.split("\n").flatMap(line => {
+      const match = /^\s*(\d+)\s+\d+\s+(?:image|mask|smask)\s/u.exec(line);
+      return match ? [Number(match[1])] : [];
+    }))].sort((a, b) => a - b);
+  } catch {
+    // An unavailable visual inventory is not evidence that the PDF has no images.
+    return null;
+  } finally { await rm(directory, { recursive: true, force: true }); }
 }
 
 async function extractPdfTextLayout(pdf: Buffer): Promise<string> {

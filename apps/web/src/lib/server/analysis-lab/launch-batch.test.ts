@@ -210,6 +210,37 @@ test("matching-only manifest는 신청서 계약 없이 primary material만 봉�
   });
 });
 
+test("완료된 matching-only Opus 4.8 current inventory receipt만 오프라인에서 읽는다", () => {
+  const currentMatching = {
+    ...manifest,
+    source: {
+      ...manifest.source,
+      kind: "current_inventory" as const,
+      planArtifactSha256: manifest.source.planSha256,
+    },
+    execution: {
+      ...manifest.execution,
+      model: "claude-opus-4-8",
+      analysisMode: "matching_only" as const,
+      withApplicationRoundtrip: false,
+      roundtripModel: null,
+      applicationFieldAnalysisVersion: null,
+    },
+  };
+  assert.equal(
+    normalizeCompletedAnalysisLaunchManifestForOfflineConsumption(currentMatching).execution.model,
+    "claude-opus-4-8",
+  );
+  assert.throws(() => normalizeCompletedAnalysisLaunchManifestForOfflineConsumption({
+    ...currentMatching,
+    execution: { ...currentMatching.execution, model: "claude-opus-4-7" },
+  }), /source\/existing run 정책/);
+  assert.throws(() => normalizeCompletedAnalysisLaunchManifestForOfflineConsumption({
+    ...currentMatching,
+    execution: { ...currentMatching.execution, validatorVersion: "deep-analysis-validator-v22" },
+  }), /source\/existing run 정책/);
+});
+
 test("v21 current-inventory 종료 계약은 offline에서만 combined/application-only ancestry를 보존한다", () => {
   const v21 = {
     ...manifest,

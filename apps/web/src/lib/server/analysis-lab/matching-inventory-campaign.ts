@@ -48,6 +48,13 @@ export type MatchingInventoryHistory =
   | { readonly kind: "none" }
   | { readonly kind: "legacy"; readonly evidence: "deep_repair_history" }
   | (MatchingInventoryMaterialBinding & {
+      readonly kind: "legacy_material";
+      readonly source: string;
+      readonly sourceId: string;
+      readonly runId: string;
+      readonly sourceRunArtifactSha256: string;
+    })
+  | (MatchingInventoryMaterialBinding & {
       readonly kind: "prepared";
       readonly manifestSha256: string;
       readonly ownership: "unowned" | "active_elsewhere";
@@ -125,6 +132,7 @@ export interface MatchingInventoryClassificationEntry {
     readonly inputSha256: string | null;
     readonly attachmentManifestSha256: string | null;
     readonly contractCompatible: boolean | null;
+    readonly legacyRun?: { source: string; sourceId: string; runId: string; sha256: string };
   };
 }
 
@@ -270,12 +278,16 @@ function classifyTarget(target: MatchingInventorySnapshotTarget): MatchingInvent
     const changed: string[] = [];
     if (target.history.inputSha256 !== target.inputSha256) changed.push("input");
     if (target.history.attachmentManifestSha256 !== target.attachmentManifestSha256) changed.push("attachment");
-    if (!target.history.contractCompatible) changed.push("contract");
+    // An old standalone run is material evidence, never a reviewed publication.
+    // Prompt changes alone must not turn all historical notices into new calls.
+    if (!target.history.contractCompatible && target.history.kind !== "legacy_material") changed.push("contract");
     if (changed.length > 0) {
       return entry(target, "source_changed", true, `changed:${changed.join("+")}`, "prepare_changed_source");
     }
   }
   switch (target.history.kind) {
+    case "legacy_material":
+      return entry(target, "quality_held", false, "unchanged_legacy_material_requires_review", "review_existing_analysis");
     case "none":
       return entry(target, "new", true, "no_execution_history", "prepare_matching_only");
     case "prepared":
@@ -332,6 +344,10 @@ function entry(
       inputSha256: target.history.inputSha256,
       attachmentManifestSha256: target.history.attachmentManifestSha256,
       contractCompatible: target.history.contractCompatible,
+      ...(target.history.kind === "legacy_material" ? { legacyRun: {
+        source: target.history.source, sourceId: target.history.sourceId,
+        runId: target.history.runId, sha256: target.history.sourceRunArtifactSha256,
+      } } : {}),
     }),
   });
 }
@@ -342,6 +358,10 @@ function validateHistory(history: MatchingInventoryHistory): void {
   exactSha(history.attachmentManifestSha256, "history.attachmentManifestSha256");
   if (history.kind === "prepared") exactSha(history.manifestSha256, "history.manifestSha256");
   if (history.kind === "primary") exactSha(history.sourceRunArtifactSha256, "history.sourceRunArtifactSha256");
+  if (history.kind === "legacy_material") {
+    exactSha(history.sourceRunArtifactSha256, "history.sourceRunArtifactSha256");
+    if (!history.source || !history.sourceId || !/^run-[A-Za-z0-9_.-]+$/u.test(history.runId)) throw new Error("legacy run binding invalid");
+  }
   if (history.kind === "terminal") {
     exactSha(history.sourceManifestSha256, "history.sourceManifestSha256");
     exactSha(history.sourceReceiptSha256, "history.sourceReceiptSha256");
